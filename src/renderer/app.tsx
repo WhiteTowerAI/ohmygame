@@ -3,6 +3,7 @@ import { Community } from "./community.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
 import { parseAppRoute, projectHash } from "./routes.js";
+import { Tools } from "./tools.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
@@ -19,9 +20,10 @@ export function App() {
   }, []);
 
   if (route.page === "home") {
-    return <Home onCommunity={openCommunity} onCreate={openCreatedProject} onOpen={openProject} />;
+    return <Home onCommunity={openCommunity} onCreate={openCreatedProject} onOpen={openProject} onTools={openTools} />;
   }
   if (route.page === "community") return <Community onHome={goHome} />;
+  if (route.page === "tools") return <Tools onCommunity={openCommunity} onHome={goHome} />;
   return (
     <ProjectShell
       key={route.projectId}
@@ -59,5 +61,10 @@ export function App() {
   function openCommunity(): void {
     window.history.pushState(null, "", "#/community");
     setRoute({ page: "community" });
+  }
+
+  function openTools(): void {
+    window.history.pushState(null, "", "#/tools");
+    setRoute({ page: "tools" });
   }
 }

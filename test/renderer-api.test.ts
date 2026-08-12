@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getProjectConversation, listProjects, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
+import { getProjectConversation, getToolRunFile, listProjects, listTools, runTool, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -103,6 +103,43 @@ describe("renderer project API", () => {
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json" },
     }));
+  });
+});
+
+describe("renderer tools API", () => {
+  it("lists and runs tools", async () => {
+    installWindow();
+    const tool = { id: "generate-image", name: "Image Generator" };
+    const run = { id: "run-1", toolId: tool.id, files: [] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json([tool]))
+      .mockResolvedValueOnce(Response.json(run, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listTools()).resolves.toEqual([tool]);
+    await expect(runTool("generate-image", { prompt: "A forest", size: "1536x1024" })).resolves.toEqual(run);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tools/generate-image/runs", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ prompt: "A forest", size: "1536x1024" }),
+    }));
+  });
+
+  it("downloads tool output with desktop authorization", async () => {
+    vi.stubGlobal("window", {
+      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      setTimeout,
+      clearTimeout,
+    });
+    const blob = new Blob(["image"], { type: "image/webp" });
+    const fetchMock = vi.fn(async () => new Response(blob));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getToolRunFile("run-1", "output.webp")).resolves.toBeInstanceOf(Blob);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43210/tool-runs/run-1/files/output.webp",
+      { headers: { authorization: "Bearer secret" } },
+    );
   });
 });
 

@@ -1,15 +1,17 @@
-import { ArrowUp, FolderCode, Gamepad2, House, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowUp, FolderCode, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { createProject, listProjects, waitForRuntime } from "./api.js";
+import { AppSidebar } from "./app-sidebar.js";
 
 interface HomeProps {
   onCommunity: () => void;
   onCreate: (projectId: string, prompt: string) => void;
   onOpen: (projectId: string) => void;
+  onTools: () => void;
 }
 
-export function Home({ onCommunity, onCreate, onOpen }: HomeProps) {
+export function Home({ onCommunity, onCreate, onOpen, onTools }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
@@ -49,20 +51,7 @@ export function Home({ onCommunity, onCreate, onOpen }: HomeProps) {
 
   return (
     <main className="home-shell">
-      <aside className="home-sidebar">
-        <div className="home-sidebar-brand">OpenGame</div>
-        <nav aria-label="Main navigation">
-          <div className="home-nav-label">WORKSPACE</div>
-          <div className="home-nav-item home-nav-item-active" aria-current="page">
-            <House size={16} />
-            <span>Home</span>
-          </div>
-          <button className="home-nav-item" type="button" onClick={onCommunity}>
-            <Gamepad2 size={16} />
-            <span>Community</span>
-          </button>
-        </nav>
-      </aside>
+      <AppSidebar active="home" onCommunity={onCommunity} onTools={onTools} />
 
       <section className="home-content">
         <div className="home-start">

@@ -6,6 +6,9 @@ import {
   type ProjectState,
   type PublishResult,
   type RuntimeEvent,
+  type RunImageToolRequest,
+  type ToolDefinition,
+  type ToolRun,
 } from "../shared/contracts.js";
 
 const API_BASE = "/api";
@@ -33,6 +36,22 @@ export async function listProjects(): Promise<ProjectState[]> {
 
 export async function listCommunityGames(): Promise<CommunityGame[]> {
   return request("/community/games");
+}
+
+export async function listTools(): Promise<ToolDefinition[]> {
+  return request("/tools");
+}
+
+export async function runTool(toolId: ToolDefinition["id"], input: RunImageToolRequest): Promise<ToolRun> {
+  return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function getToolRunFile(runId: string, fileName: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/tool-runs/${runId}/files/${encodeURIComponent(fileName)}`), {
+    headers: runtimeHeaders(),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export async function publishProject(projectId: string): Promise<PublishResult> {
@@ -107,12 +126,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
-    throw new ApiError(body.error ?? body.message ?? `Request failed with ${response.status}`, response.status);
-  }
+  if (!response.ok) throw await responseError(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
+  return new ApiError(body.error ?? body.message ?? `Request failed with ${response.status}`, response.status);
 }
 
 async function streamProjectEvents(
