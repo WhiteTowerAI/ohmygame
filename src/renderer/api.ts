@@ -1,7 +1,9 @@
 import {
   RUNTIME_EVENT_TYPES,
   type CreateProjectRequest,
+  type CommunityGame,
   type ProjectState,
+  type PublishResult,
   type RuntimeEvent,
 } from "../shared/contracts.js";
 
@@ -26,6 +28,14 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
 
 export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
+}
+
+export async function listCommunityGames(): Promise<CommunityGame[]> {
+  return request("/community/games");
+}
+
+export async function publishProject(projectId: string): Promise<PublishResult> {
+  return request(`/projects/${projectId}/publish`, { method: "POST" });
 }
 
 export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {

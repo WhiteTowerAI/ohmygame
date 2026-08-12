@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
+  Share2,
   Square,
   Terminal,
   Wrench,
@@ -14,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { cancelPrompt, getProject, sendPrompt, startPreview, subscribeToProject, waitForRuntime } from "./api.js";
+import { cancelPrompt, getProject, publishProject, sendPrompt, startPreview, subscribeToProject, waitForRuntime } from "./api.js";
 import { initialRendererState, rendererReducer, type TimelineItem } from "./state.js";
 
 interface ProjectShellProps {
@@ -28,6 +29,7 @@ export function ProjectShell({ projectId, initialPrompt, onInitialPromptHandled,
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [prompt, setPrompt] = useState(initialPrompt ?? "");
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const initialPromptAttempted = useRef(false);
   const timelineEnd = useRef<HTMLDivElement>(null);
 
@@ -126,6 +128,19 @@ export function ProjectShell({ projectId, initialPrompt, onInitialPromptHandled,
     }
   }
 
+  async function publish() {
+    if (!project || publishing || agentBusy) return;
+    setPublishing(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      await publishProject(project.id);
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   return (
     <main className="workspace-shell">
       <section className="agent-pane" aria-label="Agent">
@@ -185,7 +200,7 @@ export function ProjectShell({ projectId, initialPrompt, onInitialPromptHandled,
         </div>
       </section>
 
-      <ViewerPane project={project} onRestart={restartPreview} />
+      <ViewerPane project={project} publishing={publishing} onPublish={publish} onRestart={restartPreview} />
     </main>
   );
 }
@@ -219,7 +234,17 @@ function PaneHeader({
   );
 }
 
-function ViewerPane({ project, onRestart }: { project?: import("../shared/contracts.js").ProjectState; onRestart: () => void }) {
+function ViewerPane({
+  project,
+  publishing,
+  onPublish,
+  onRestart,
+}: {
+  project?: import("../shared/contracts.js").ProjectState;
+  publishing: boolean;
+  onPublish: () => void;
+  onRestart: () => void;
+}) {
   const preview = project?.preview;
   return (
     <section className="viewer-pane" aria-label="Preview">
@@ -238,6 +263,15 @@ function ViewerPane({ project, onRestart }: { project?: import("../shared/contra
             aria-label="Restart preview"
           >
             <RefreshCw className={preview?.status === "starting" ? "spin" : undefined} size={15} />
+          </button>
+          <button
+            className="publish-button"
+            type="button"
+            onClick={onPublish}
+            disabled={!project || publishing || project.agent.status === "running" || project.agent.status === "cancelling"}
+          >
+            {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+            {publishing ? "Publishing" : project?.publication ? "Publish update" : "Publish"}
           </button>
         </div>
       </header>

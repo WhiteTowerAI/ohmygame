@@ -31,6 +31,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ELECTRON_RUN_AS_NODE: "1",
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
+      PLAY_HOST: "localhost",
+      PLAY_PORT: "0",
       OPEN_GAME_DATA_DIR: path.resolve(options.dataDirectory),
       OPEN_GAME_DAEMON_TOKEN: options.token,
       OPEN_GAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),

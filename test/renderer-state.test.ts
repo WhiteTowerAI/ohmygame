@@ -39,6 +39,30 @@ describe("rendererReducer", () => {
     expect(state.project?.agent).toEqual({ status: "error", error: "Authentication required" });
   });
 
+  it("updates the published game from a completed publish event", () => {
+    let state = rendererReducer(initialRendererState, { type: "initialized", project: project() });
+    state = rendererReducer(state, {
+      type: "runtime-event",
+      event: runtimeEvent(1, "publish.completed", {
+        game: {
+          id: "game-1",
+          projectId: "project-1",
+          title: "Game",
+          deploymentId: "deployment-1",
+          playUrl: "https://play.example/game",
+          publishedAt: new Date(0).toISOString(),
+        },
+      }),
+    });
+
+    expect(state.project?.publication).toEqual({
+      gameId: "game-1",
+      deploymentId: "deployment-1",
+      playUrl: "https://play.example/game",
+      publishedAt: new Date(0).toISOString(),
+    });
+  });
+
   it("shows retry progress and clears the active retry when output resumes", () => {
     let state = rendererReducer(initialRendererState, { type: "initialized", project: project() });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });

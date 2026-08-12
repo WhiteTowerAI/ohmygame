@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Community } from "./community.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
 import { parseAppRoute, projectHash } from "./routes.js";
@@ -18,8 +19,9 @@ export function App() {
   }, []);
 
   if (route.page === "home") {
-    return <Home onCreate={openCreatedProject} onOpen={openProject} />;
+    return <Home onCommunity={openCommunity} onCreate={openCreatedProject} onOpen={openProject} />;
   }
+  if (route.page === "community") return <Community onHome={goHome} />;
   return (
     <ProjectShell
       key={route.projectId}
@@ -52,5 +54,10 @@ export function App() {
   function goHome(): void {
     window.history.pushState(null, "", "#/");
     setRoute({ page: "home" });
+  }
+
+  function openCommunity(): void {
+    window.history.pushState(null, "", "#/community");
+    setRoute({ page: "community" });
   }
 }

@@ -1,7 +1,8 @@
 # OpenGame
 
-The current milestone is a minimal local project shell: a Pi coding session on
-the left and a live Vite preview of its isolated workspace on the right.
+The current milestone is a local-first creation and publishing loop: a Pi
+coding session on the left, a live preview on the right, and a self-hosted
+Community backed by immutable game deployments.
 
 ## Development
 
@@ -23,6 +24,20 @@ Projects, workspaces, and Pi sessions are stored under the daemon data
 directory. Restarting the daemon restores the same project and Pi context. The
 renderer timeline is intentionally kept in memory and starts empty after a
 daemon restart.
+
+## Publishing
+
+Project Shell exposes one Publish action. The daemon runs a project's existing
+`build` script when present, or publishes a root `index.html` workspace
+directly. Every successful publish creates a new immutable deployment, verifies
+its playable URL, and only then creates or updates the Community game.
+
+Development uses a separate local play server on port `43111`. Each deployment
+has its own `http://<deployment-id>.localhost:43111/` origin, so root-relative
+assets work and games do not share browser storage. This is a local,
+self-hostable reference backend, not an official public cloud. A public host can
+set `PLAY_ORIGIN` to a wildcard-routed play domain while keeping the same client
+contract.
 
 ## Desktop
 

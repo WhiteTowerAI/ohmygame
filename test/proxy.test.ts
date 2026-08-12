@@ -14,7 +14,7 @@ describe("proxyOptionsFromEnvironment", () => {
     })).toEqual({
       httpProxy: "http://127.0.0.1:7890",
       httpsProxy: "http://127.0.0.1:7890",
-      noProxy: "example.test,127.0.0.1,localhost",
+      noProxy: "example.test,127.0.0.1,localhost,.localhost",
     });
   });
 

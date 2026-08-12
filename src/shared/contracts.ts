@@ -1,12 +1,41 @@
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 
+export interface PublicationState {
+  gameId: string;
+  deploymentId: string;
+  playUrl: string;
+  publishedAt: string;
+}
+
 export interface ProjectState {
   id: string;
   name: string;
   workspacePath: string;
   preview: { status: PreviewStatus; url?: string; error?: string };
   agent: { status: AgentStatus; error?: string };
+  publication?: PublicationState;
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  playUrl: string;
+  createdAt: string;
+}
+
+export interface CommunityGame {
+  id: string;
+  projectId: string;
+  title: string;
+  deploymentId: string;
+  playUrl: string;
+  publishedAt: string;
+}
+
+export interface PublishResult {
+  deployment: Deployment;
+  game: CommunityGame;
 }
 
 export interface CreateProjectRequest { name?: string }
@@ -25,6 +54,9 @@ export interface RuntimeEventData {
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
+  "publish.started": Record<string, never>;
+  "publish.completed": { game: CommunityGame };
+  "publish.error": { error: string };
 }
 
 export type RuntimeEventType = keyof RuntimeEventData;
@@ -42,6 +74,9 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.completed",
   "agent.cancelled",
   "agent.error",
+  "publish.started",
+  "publish.completed",
+  "publish.error",
 ] as const satisfies readonly RuntimeEventType[];
 
 export type RuntimeEvent<T extends RuntimeEventType = RuntimeEventType> = T extends RuntimeEventType

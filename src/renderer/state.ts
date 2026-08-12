@@ -108,6 +108,23 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return finishAgent(next, "cancelled");
     case "agent.error":
       return finishAgent(next, "error", event.data.error);
+    case "publish.completed":
+      return project ? {
+        ...next,
+        project: {
+          ...project,
+          publication: {
+            gameId: event.data.game.id,
+            deploymentId: event.data.game.deploymentId,
+            playUrl: event.data.game.playUrl,
+            publishedAt: event.data.game.publishedAt,
+          },
+        },
+      } : next;
+    case "publish.error":
+      return { ...next, notice: event.data.error };
+    case "publish.started":
+      return next;
     default:
       return next;
   }

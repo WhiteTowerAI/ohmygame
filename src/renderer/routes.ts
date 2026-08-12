@@ -1,8 +1,10 @@
 export type AppRoute =
   | { page: "home" }
+  | { page: "community" }
   | { page: "project"; projectId: string };
 
 export function parseAppRoute(hash: string): AppRoute {
+  if (hash === "#/community") return { page: "community" };
   const match = /^#\/projects\/([^/]+)$/.exec(hash);
   if (!match?.[1]) return { page: "home" };
   try {

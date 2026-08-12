@@ -19,6 +19,7 @@ export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOption
   );
   exclusions.add("127.0.0.1");
   exclusions.add("localhost");
+  exclusions.add(".localhost");
 
   return { httpProxy, httpsProxy, noProxy: [...exclusions].join(",") };
 }

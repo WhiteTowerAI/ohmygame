@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ProjectState, PublicationState } from "../shared/contracts.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -57,6 +57,11 @@ export class ProjectManager {
   list(): ProjectState[] { return [...this.#projects.values()]; }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
+
+  setPublication(id: string, publication: PublicationState): void {
+    const project = this.#projects.get(id);
+    if (project) project.publication = publication;
+  }
 }
 
 function projectState(

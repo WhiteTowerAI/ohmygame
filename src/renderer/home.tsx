@@ -1,14 +1,15 @@
-import { ArrowUp, FolderCode, House, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowUp, FolderCode, Gamepad2, House, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { createProject, listProjects, waitForRuntime } from "./api.js";
 
 interface HomeProps {
+  onCommunity: () => void;
   onCreate: (projectId: string, prompt: string) => void;
   onOpen: (projectId: string) => void;
 }
 
-export function Home({ onCreate, onOpen }: HomeProps) {
+export function Home({ onCommunity, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
@@ -56,6 +57,10 @@ export function Home({ onCreate, onOpen }: HomeProps) {
             <House size={16} />
             <span>Home</span>
           </div>
+          <button className="home-nav-item" type="button" onClick={onCommunity}>
+            <Gamepad2 size={16} />
+            <span>Community</span>
+          </button>
         </nav>
       </aside>
 
