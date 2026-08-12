@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, loadConversation, type SessionFactory } from "./agent.js";
@@ -50,6 +50,18 @@ const toolRunSchema = {
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
       size: { type: "string", enum: [...IMAGE_SIZES] },
+    },
+  },
+} as const;
+
+const addToolResultSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["runId", "fileName"],
+    properties: {
+      runId: { type: "string", minLength: 1, maxLength: 100 },
+      fileName: { type: "string", minLength: 1, maxLength: 200 },
     },
   },
 } as const;
@@ -130,6 +142,21 @@ export function createApp(options: AppOptions = {}) {
       reply.header("x-content-type-options", "nosniff");
       reply.header("cache-control", "private, max-age=31536000, immutable");
       return reply.send(file.bytes);
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: AddToolResultRequest }>(
+    "/projects/:projectId/tool-results",
+    { schema: addToolResultSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const file = await tools.file(request.body.runId, request.body.fileName);
+      if (!file) return reply.code(404).send({ error: "Tool output not found" });
+      const fileName = `image-${request.body.runId}${path.extname(request.body.fileName).toLowerCase()}`;
+      return reply.code(201).send({
+        path: await projects.addGeneratedAsset(project.id, fileName, file.bytes),
+      });
     },
   );
 

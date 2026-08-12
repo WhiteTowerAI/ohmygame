@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getProjectConversation, getToolRunFile, listProjects, listTools, runTool, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
+import { addToolResultToProject, getProjectConversation, getToolRunFile, listProjects, listTools, runTool, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -140,6 +140,19 @@ describe("renderer tools API", () => {
       "http://127.0.0.1:43210/tool-runs/run-1/files/output.webp",
       { headers: { authorization: "Bearer secret" } },
     );
+  });
+
+  it("adds a tool result to a project", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ path: "assets/generated/image.webp" }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(addToolResultToProject("project-1", { runId: "run-1", fileName: "output.webp" }))
+      .resolves.toEqual({ path: "assets/generated/image.webp" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/tool-results", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ runId: "run-1", fileName: "output.webp" }),
+    }));
   });
 });
 

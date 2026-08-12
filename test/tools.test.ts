@@ -65,6 +65,36 @@ describe("tool runner", () => {
     });
   });
 
+  it("adds a generated result to a project workspace", async () => {
+    const dataDirectory = await temporaryData();
+    const app = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Game" } })).json();
+    const run = (await app.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "gem" },
+    })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/tool-results`,
+      payload: { runId: run.id, fileName: run.files[0].name },
+    });
+
+    const expectedPath = `assets/generated/image-${run.id}.webp`;
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({ path: expectedPath });
+    expect(await readFile(path.join(project.workspacePath, expectedPath), "utf8")).toBe("image");
+
+    const repeated = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/tool-results`,
+      payload: { runId: run.id, fileName: run.files[0].name },
+    });
+    expect(repeated.json()).toEqual({ path: expectedPath });
+  });
+
   it("validates requests and reports missing configuration", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), openAIApiKey: "" });
     apps.push(app);
@@ -85,6 +115,11 @@ describe("tool runner", () => {
     expect(unconfigured.statusCode).toBe(503);
     expect(unconfigured.json()).toEqual({ error: "Image generation is not configured" });
     expect((await app.inject({ method: "GET", url: "/tool-runs/not-a-run/files/output.webp" })).statusCode).toBe(404);
+    expect((await app.inject({
+      method: "POST",
+      url: "/projects/missing/tool-results",
+      payload: { runId: "missing", fileName: "output.webp" },
+    })).statusCode).toBe(404);
   });
 });
 

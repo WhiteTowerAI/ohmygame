@@ -80,6 +80,15 @@ export interface ToolRun {
   files: ToolRunFile[];
 }
 
+export interface AddToolResultRequest {
+  runId: string;
+  fileName: string;
+}
+
+export interface AddedProjectAsset {
+  path: string;
+}
+
 export interface RuntimeEventData {
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -38,6 +38,30 @@ describe("ProjectManager", () => {
     const project = await manager.create("Blank");
     expect(project.preview).toEqual({ status: "waiting" });
     expect(await readdir(project.workspacePath)).toEqual([]);
+  });
+
+  it("writes generated assets only under the project workspace", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Game");
+
+    await expect(manager.addGeneratedAsset(project.id, "image-run.webp", Buffer.from("image")))
+      .resolves.toBe("assets/generated/image-run.webp");
+    expect(await readFile(path.join(project.workspacePath, "assets", "generated", "image-run.webp"), "utf8")).toBe("image");
+    await expect(manager.addGeneratedAsset(project.id, "../outside.webp", Buffer.from("image"))).rejects.toThrow("Invalid asset name");
+  });
+
+  it("rejects generated asset directories that are symbolic links", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "open-game-outside-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Game");
+    await mkdir(path.join(project.workspacePath, "assets"));
+    await symlink(outside, path.join(project.workspacePath, "assets", "generated"));
+
+    await expect(manager.addGeneratedAsset(project.id, "image.webp", Buffer.from("image")))
+      .rejects.toThrow("Unsafe generated asset path");
+    expect(await readdir(outside)).toEqual([]);
   });
 
   it("lists its projects", async () => {

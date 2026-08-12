@@ -613,6 +613,58 @@ button.home-project:hover {
   object-fit: contain;
 }
 
+.tool-project-target {
+  margin-top: 16px;
+}
+
+.tool-project-target > label {
+  display: block;
+  margin-bottom: 8px;
+  color: #c9ccd2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-project-target > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-project-target select {
+  min-width: 0;
+  height: 34px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.tool-project-target select:focus {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.tool-project-state {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.tool-project-success {
+  margin: 9px 0 0;
+  color: var(--accent);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .tool-dialog-error {
   margin: 12px 0 0;
   font-size: 11px;
@@ -1342,6 +1394,11 @@ textarea:focus-visible {
 
   .tool-dialog-body {
     padding: 16px;
+  }
+
+  .tool-project-target > div {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .workspace-shell {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, PublicationState } from "../shared/contracts.js";
 
@@ -57,6 +57,28 @@ export class ProjectManager {
   list(): ProjectState[] { return [...this.#projects.values()]; }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
+
+  async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(fileName)) throw new Error(`Invalid asset name: ${fileName}`);
+    const assetsDirectory = path.join(project.workspacePath, "assets");
+    const generatedDirectory = path.join(assetsDirectory, "generated");
+    await ensureDirectory(project.workspacePath);
+    await ensureDirectory(assetsDirectory, true);
+    await ensureDirectory(generatedDirectory, true);
+
+    const relativePath = path.join("assets", "generated", fileName);
+    const destination = path.join(generatedDirectory, fileName);
+    const temporary = path.join(generatedDirectory, `.${fileName}.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, contents, { flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    return relativePath.split(path.sep).join("/");
+  }
 
   setPublication(id: string, publication: PublicationState): void {
     const project = this.#projects.get(id);
@@ -116,6 +138,18 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function ensureDirectory(target: string, create = false): Promise<void> {
+  if (create) {
+    try {
+      await mkdir(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  const stats = await lstat(target);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error(`Unsafe generated asset path: ${target}`);
 }
 
 function isProjectId(value: string): boolean {

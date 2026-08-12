@@ -1,7 +1,7 @@
-import { Download, Image, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
+import { Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { ImageSize, ToolDefinition, ToolRun } from "../shared/contracts.js";
-import { getToolRunFile, listTools, runTool, waitForRuntime } from "./api.js";
+import type { ImageSize, ProjectState, ToolDefinition, ToolRun } from "../shared/contracts.js";
+import { addToolResultToProject, getToolRunFile, listProjects, listTools, runTool, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 
 interface ToolsProps {
@@ -76,9 +76,16 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
   const [run, setRun] = useState<ToolRun>();
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [error, setError] = useState<string>();
+  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [projectsPhase, setProjectsPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string>();
+  const [addedPath, setAddedPath] = useState<string>();
   const dialogRef = useRef<HTMLElement>(null);
   const mountedRef = useRef(true);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const busy = generating || adding;
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -88,7 +95,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !generating) {
+      if (event.key === "Escape" && !busy) {
         onClose();
         return;
       }
@@ -114,7 +121,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [generating, onClose]);
+  }, [busy, onClose]);
 
   useEffect(() => () => { mountedRef.current = false; }, []);
 
@@ -122,12 +129,35 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
+  async function loadProjects() {
+    setProjectsPhase("loading");
+    setAddError(undefined);
+    try {
+      const loaded = await listProjects();
+      if (!mountedRef.current) return;
+      setProjects(loaded);
+      setSelectedProjectId(loaded[0]?.id ?? "");
+      setProjectsPhase("ready");
+    } catch (cause) {
+      if (!mountedRef.current) return;
+      setAddError(errorMessage(cause));
+      setProjectsPhase("error");
+    }
+  }
+
+  useEffect(() => {
+    if (!previewUrl) return;
+    void loadProjects();
+  }, [previewUrl]);
+
   async function generate(event?: FormEvent) {
     event?.preventDefault();
     const nextPrompt = prompt.trim();
-    if (!nextPrompt || generating) return;
+    if (!nextPrompt || busy) return;
     setGenerating(true);
     setError(undefined);
+    setAddError(undefined);
+    setAddedPath(undefined);
     try {
       const nextRun = await runTool(tool.id, { prompt: nextPrompt, size });
       if (!mountedRef.current) return;
@@ -144,9 +174,24 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
     }
   }
 
+  async function addToProject() {
+    const file = run?.files[0];
+    if (!run || !file || !selectedProjectId || busy) return;
+    setAdding(true);
+    setAddError(undefined);
+    try {
+      const asset = await addToolResultToProject(selectedProjectId, { runId: run.id, fileName: file.name });
+      if (mountedRef.current) setAddedPath(asset.path);
+    } catch (cause) {
+      if (mountedRef.current) setAddError(errorMessage(cause));
+    } finally {
+      if (mountedRef.current) setAdding(false);
+    }
+  }
+
   return (
     <div className="tool-dialog-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !generating) onClose();
+      if (event.target === event.currentTarget && !busy) onClose();
     }}>
       <section ref={dialogRef} className="tool-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-dialog-title" tabIndex={-1}>
         <header className="tool-dialog-header">
@@ -157,16 +202,45 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
               <p>{tool.description}</p>
             </div>
           </div>
-          <button className="icon-button quiet-button" type="button" onClick={onClose} disabled={generating} title="Close" aria-label="Close">
+          <button className="icon-button quiet-button" type="button" onClick={onClose} disabled={busy} title="Close" aria-label="Close">
             <X size={15} />
           </button>
         </header>
 
         <div className="tool-dialog-body">
           {previewUrl ? (
-            <div className="tool-result-preview">
-              <img src={previewUrl} alt={prompt} />
-            </div>
+            <>
+              <div className="tool-result-preview">
+                <img src={previewUrl} alt={prompt} />
+              </div>
+              <div className="tool-project-target">
+                <label htmlFor="tool-project">Project</label>
+                {projectsPhase === "loading" ? <span className="tool-project-state"><LoaderCircle className="spin" size={14} />Loading projects</span> : null}
+                {projectsPhase === "error" ? (
+                  <button className="tool-secondary-button" type="button" disabled={busy} onClick={() => void loadProjects()}>
+                    <RefreshCw size={14} /> Retry
+                  </button>
+                ) : null}
+                {projectsPhase === "ready" && projects.length === 0 ? <span className="tool-project-state">No projects available</span> : null}
+                {projectsPhase === "ready" && projects.length > 0 ? (
+                  <div>
+                    <select id="tool-project" value={selectedProjectId} disabled={busy} onChange={(event) => {
+                      setSelectedProjectId(event.target.value);
+                      setAddedPath(undefined);
+                      setAddError(undefined);
+                    }}>
+                      {projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
+                    </select>
+                    <button className="tool-secondary-button" type="button" disabled={!selectedProjectId || busy} onClick={() => void addToProject()}>
+                      {adding ? <LoaderCircle className="spin" size={15} /> : <FolderInput size={15} />}
+                      {adding ? "Adding..." : "Add to Project"}
+                    </button>
+                  </div>
+                ) : null}
+                {addedPath ? <p className="tool-project-success">Added to {addedPath}</p> : null}
+                {addError ? <p className="tool-dialog-error" role="alert">{addError}</p> : null}
+              </div>
+            </>
           ) : (
             <form id="tool-form" className="tool-form" onSubmit={generate}>
               <label htmlFor="tool-prompt">Prompt</label>
@@ -203,7 +277,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
         <footer className="tool-dialog-footer">
           {previewUrl && run ? (
             <>
-              <button className="tool-secondary-button" type="button" onClick={() => void generate()} disabled={generating}>
+              <button className="tool-secondary-button" type="button" onClick={() => void generate()} disabled={busy}>
                 {generating ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
                 Regenerate
               </button>
@@ -236,6 +310,6 @@ function errorMessage(error: unknown): string {
 function focusableElements(container: HTMLElement | null): HTMLElement[] {
   if (!container) return [];
   return Array.from(container.querySelectorAll<HTMLElement>(
-    "button:not(:disabled), textarea:not(:disabled), a[href]",
+    "button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]",
   ));
 }

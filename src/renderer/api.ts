@@ -1,5 +1,7 @@
 import {
   RUNTIME_EVENT_TYPES,
+  type AddedProjectAsset,
+  type AddToolResultRequest,
   type CreateProjectRequest,
   type CommunityGame,
   type ProjectConversation,
@@ -52,6 +54,13 @@ export async function getToolRunFile(runId: string, fileName: string): Promise<B
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export async function addToolResultToProject(
+  projectId: string,
+  input: AddToolResultRequest,
+): Promise<AddedProjectAsset> {
+  return request(`/projects/${projectId}/tool-results`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function publishProject(projectId: string): Promise<PublishResult> {
