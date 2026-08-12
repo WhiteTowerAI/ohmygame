@@ -1,3 +1,8 @@
 docs/PRD/
 docs/DesignSpec/
 docs/TechSpec/
+.data/
+node_modules/
+dist/
+coverage/
+*.log

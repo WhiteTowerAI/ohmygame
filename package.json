@@ -1,0 +1,44 @@
+{
+  "name": "open-game",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/desktop/bootstrap.cjs",
+  "scripts": {
+    "build": "npm run build:node && npm run build:renderer",
+    "build:node": "tsc -p tsconfig.build.json",
+    "build:daemon": "npm run build:node",
+    "build:renderer": "vite build",
+    "dev": "concurrently --kill-others --names daemon,renderer --prefix-colors cyan,green \"npm:dev:daemon\" \"npm:dev:renderer\"",
+    "dev:daemon": "tsx watch src/daemon/server.ts",
+    "dev:desktop": "npm run build:node && concurrently --kill-others --names renderer,desktop --prefix-colors green,cyan \"npm:dev:renderer\" \"electron .\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 43120",
+    "start": "node dist/daemon/server.js",
+    "start:desktop": "npm run build && electron . --built-renderer",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "0.73.1",
+    "fastify": "5.11.3",
+    "lucide-react": "1.31.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "undici": "7.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "5.2.0",
+    "concurrently": "10.0.4",
+    "electron": "43.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "7.3.6",
+    "vitest": "3.2.6"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
