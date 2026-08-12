@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listProjects, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
+import { getProjectConversation, listProjects, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -23,7 +23,7 @@ describe("renderer event stream", () => {
     const received: RuntimeEvent[] = [];
     let unsubscribe = () => {};
     await new Promise<void>((resolve) => {
-      unsubscribe = subscribeToProject("project", {
+      unsubscribe = subscribeToProject("project", 0, {
         onEvent: (event) => {
           received.push(event);
           if (event.id === 2) {
@@ -58,13 +58,14 @@ describe("renderer event stream", () => {
       return new Response(streamFrom(""), { status: 200 });
     }));
 
-    unsubscribe = subscribeToProject("project", {
+    unsubscribe = subscribeToProject("project", 5, {
       onEvent: () => {},
       onOpen: () => {},
       onError: () => {},
     });
     await reconnected;
 
+    expect(urls[0]).toContain("cursor=5");
     expect(urls[1]).toContain("cursor=7");
   });
 });
@@ -78,6 +79,16 @@ describe("renderer project API", () => {
 
     await expect(listProjects()).resolves.toEqual(projects);
     expect(fetchMock).toHaveBeenCalledWith("/api/projects", expect.objectContaining({ headers: {} }));
+  });
+
+  it("loads a project's persisted conversation", async () => {
+    installWindow();
+    const conversation = { items: [{ id: "one", kind: "user", text: "Hi" }], cursor: 4 };
+    const fetchMock = vi.fn(async () => Response.json(conversation));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProjectConversation("project-1")).resolves.toEqual(conversation);
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversation", expect.objectContaining({ headers: {} }));
   });
 
   it("sends a prompt to a project", async () => {

@@ -31,6 +31,8 @@ reload the project shell. A generated workspace still updates its own preview.
   returns `409` while the workspace has no `package.json` `scripts.dev`.
 - `POST /projects/:id/prompts` starts a Pi coding turn.
 - `POST /projects/:id/cancel` aborts the active turn.
+- `GET /projects/:id/conversation` returns the current Pi session branch as a
+  normalized UI timeline and the SSE cursor to continue from.
 - `POST /projects/:id/publish` creates an immutable deployment, verifies its
   play URL, and creates or updates its Community game.
 - `GET /community/games` lists published Community games.
@@ -46,9 +48,11 @@ event objects:
 - preview lifecycle events
 - `publish.started`, `publish.completed`, and `publish.error`
 
-The daemon keeps the most recent 1,000 events in memory. SSE reconnects can
-replay events still inside that window, but the renderer timeline intentionally
-starts empty after a daemon restart. Pi's own session remains persistent.
+The daemon keeps the most recent 1,000 events in memory. SSE reconnects replay
+events still inside that window. On Project Shell load, persisted user,
+assistant, and tool activity is restored from Pi's current session branch; the
+event stream then continues from the returned cursor without duplicating prior
+turns.
 Preview dependencies are installed the first time a runnable workspace starts; restarts
 reuse the existing installation.
 

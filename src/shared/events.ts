@@ -32,6 +32,10 @@ export class RuntimeEventBus {
     return this.#events.filter((event) => event.projectId === projectId && event.id > cursor);
   }
 
+  cursor(): number {
+    return this.#nextId - 1;
+  }
+
   subscribe(projectId: string, listener: (event: RuntimeEvent) => void): () => void {
     this.#emitter.on(projectId, listener);
     return () => this.#emitter.off(projectId, listener);

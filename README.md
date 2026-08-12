@@ -21,9 +21,8 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
 Projects, workspaces, and Pi sessions are stored under the daemon data
-directory. Restarting the daemon restores the same project and Pi context. The
-renderer timeline is intentionally kept in memory and starts empty after a
-daemon restart.
+directory. Restarting the daemon restores the same project, Pi context, and
+conversation shown in the Project Shell.
 
 ## Publishing
 

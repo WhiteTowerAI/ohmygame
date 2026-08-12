@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import type { CreateProjectRequest, PromptRequest, RuntimeEvent } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager } from "./agent.js";
+import { AgentManager, loadConversation, type SessionFactory } from "./agent.js";
 import { CommunityStore } from "./community.js";
 import { DeploymentManager, PublishError } from "./deployments.js";
 import { PreviewManager } from "./preview.js";
@@ -17,6 +17,7 @@ export interface AppOptions {
   allowedOrigins?: string[];
   playOrigin?: string;
   verifyPlayUrl?: (url: string) => Promise<void>;
+  createSession?: SessionFactory;
 }
 
 const createProjectSchema = {
@@ -45,7 +46,7 @@ export function createApp(options: AppOptions = {}) {
   const community = new CommunityStore(dataDirectory, playOrigin);
   const deployments = new DeploymentManager(dataDirectory, playOrigin);
   const previews = new PreviewManager(events);
-  const agents = new AgentManager(events);
+  const agents = new AgentManager(events, { createSession: options.createSession });
   const app = Fastify({
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
@@ -93,6 +94,18 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/conversation", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const currentRun = project.agent.status === "running" || project.agent.status === "cancelling"
+      ? events.since(project.id).findLast((event) => event.type === "agent.started")
+      : undefined;
+    if (currentRun?.type === "agent.started") {
+      return { items: loadConversation(project.workspacePath, currentRun.timestamp), cursor: currentRun.id - 1 };
+    }
+    return { items: loadConversation(project.workspacePath), cursor: events.cursor() };
   });
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {

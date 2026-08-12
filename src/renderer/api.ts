@@ -2,6 +2,7 @@ import {
   RUNTIME_EVENT_TYPES,
   type CreateProjectRequest,
   type CommunityGame,
+  type ProjectConversation,
   type ProjectState,
   type PublishResult,
   type RuntimeEvent,
@@ -55,6 +56,10 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
+export async function getProjectConversation(projectId: string): Promise<ProjectConversation> {
+  return request(`/projects/${projectId}/conversation`);
+}
+
 export async function startPreview(projectId: string): Promise<{ url: string }> {
   return request(`/projects/${projectId}/preview`, { method: "POST" });
 }
@@ -72,6 +77,7 @@ export async function cancelPrompt(projectId: string): Promise<void> {
 
 export function subscribeToProject(
   projectId: string,
+  cursor: number,
   handlers: {
     onEvent: (event: RuntimeEvent) => void;
     onOpen: () => void;
@@ -79,7 +85,7 @@ export function subscribeToProject(
   },
 ): () => void {
   const controller = new AbortController();
-  void streamProjectEvents(projectId, controller.signal, handlers);
+  void streamProjectEvents(projectId, cursor, controller.signal, handlers);
   return () => controller.abort();
 }
 
@@ -111,6 +117,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 async function streamProjectEvents(
   projectId: string,
+  initialCursor: number,
   signal: AbortSignal,
   handlers: {
     onEvent: (event: RuntimeEvent) => void;
@@ -118,7 +125,7 @@ async function streamProjectEvents(
     onError: () => void;
   },
 ): Promise<void> {
-  let cursor = 0;
+  let cursor = initialCursor;
   while (!signal.aborted) {
     try {
       const response = await fetch(apiUrl(`/projects/${projectId}/events?cursor=${cursor}`), {

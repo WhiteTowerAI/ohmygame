@@ -1,4 +1,4 @@
-import type { ProjectState, RuntimeEvent } from "../shared/contracts.js";
+import type { ConversationItem, ProjectState, RuntimeEvent } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -19,7 +19,7 @@ export interface RendererState {
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState }
+  | { type: "initialized"; project: ProjectState; items?: ConversationItem[] }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "connection"; status: ConnectionStatus }
   | { type: "notice"; message?: string }
@@ -34,7 +34,7 @@ export const initialRendererState: RendererState = {
 
 export function rendererReducer(state: RendererState, action: RendererAction): RendererState {
   if (action.type === "initialized") {
-    return { ...state, phase: "ready", project: action.project };
+    return { ...state, phase: "ready", project: action.project, items: action.items ?? state.items };
   }
   if (action.type === "connection") return { ...state, connection: action.status };
   if (action.type === "notice") return { ...state, notice: action.message };

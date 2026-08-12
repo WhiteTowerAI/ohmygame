@@ -4,9 +4,10 @@ import {
   getAgentDir,
   SessionManager,
   type AgentSessionEvent,
+  type SessionEntry,
 } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ConversationItem, ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 
 export interface CodingSession {
@@ -19,6 +20,61 @@ export interface CodingSession {
 
 export type SessionFactory = (workspacePath: string) => Promise<CodingSession>;
 export type AgentRunResult = "completed" | "cancelled";
+
+export function loadConversation(workspacePath: string, before?: string): ConversationItem[] {
+  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
+  const entries = SessionManager.continueRecent(workspacePath, sessionDirectory).getBranch();
+  return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries);
+}
+
+export function conversationItems(entries: readonly SessionEntry[]): ConversationItem[] {
+  const items: ConversationItem[] = [];
+  const tools = new Map<string, Extract<ConversationItem, { kind: "tool" }>>();
+  let assistant: Extract<ConversationItem, { kind: "assistant" }> | undefined;
+
+  for (const entry of entries) {
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (message.role === "user") {
+      assistant = undefined;
+      const text = textContent(message.content);
+      if (text) items.push({ id: entry.id, kind: "user", text });
+      continue;
+    }
+    if (message.role === "assistant") {
+      if (!assistant) {
+        assistant = { id: entry.id, kind: "assistant", text: "", status: "complete" };
+        items.push(assistant);
+      }
+      assistant.text += textContent(message.content);
+      if (message.stopReason === "error") {
+        assistant.status = "error";
+        assistant.error = message.errorMessage || "The model request failed";
+      } else if (message.stopReason === "aborted") {
+        assistant.status = "cancelled";
+      }
+      for (const content of message.content) {
+        if (content.type !== "toolCall") continue;
+        const tool: Extract<ConversationItem, { kind: "tool" }> = {
+          id: entry.id + ":" + content.id,
+          kind: "tool",
+          toolCallId: content.id,
+          toolName: content.name,
+          status: "error",
+        };
+        tools.set(content.id, tool);
+        items.push(tool);
+      }
+      continue;
+    }
+    if (message.role === "toolResult") {
+      const tool = tools.get(message.toolCallId);
+      if (tool) tool.status = message.isError ? "error" : "complete";
+    }
+  }
+
+  return items.filter((item) => item.kind !== "assistant" || item.text || item.status !== "complete");
+}
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
@@ -170,6 +226,19 @@ export class AgentManager {
 
 function isCancelling(project: ProjectState): boolean {
   return project.agent.status === "cancelling";
+}
+
+function textContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item): item is { type: "text"; text: string } => Boolean(
+      item && typeof item === "object" &&
+      (item as { type?: unknown }).type === "text" &&
+      typeof (item as { text?: unknown }).text === "string",
+    ))
+    .map((item) => item.text)
+    .join("");
 }
 
 async function createPiSession(workspacePath: string): Promise<CodingSession> {

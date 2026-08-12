@@ -38,6 +38,16 @@ export interface PublishResult {
   game: CommunityGame;
 }
 
+export type ConversationItem =
+  | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "assistant"; text: string; status: "complete" | "cancelled" | "error"; error?: string }
+  | { id: string; kind: "tool"; toolCallId: string; toolName: string; status: "complete" | "error" };
+
+export interface ProjectConversation {
+  items: ConversationItem[];
+  cursor: number;
+}
+
 export interface CreateProjectRequest { name?: string }
 export interface PromptRequest { prompt: string }
 

@@ -3,6 +3,17 @@ import type { ProjectState, RuntimeEvent, RuntimeEventData, RuntimeEventType } f
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("initializes with restored conversation history", () => {
+    const items = [
+      { id: "user", kind: "user" as const, text: "Hi" },
+      { id: "assistant", kind: "assistant" as const, text: "Hello", status: "complete" as const },
+    ];
+
+    const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), items });
+
+    expect(state.items).toEqual(items);
+  });
+
   it("builds a conversation from normalized runtime events", () => {
     let state = rendererReducer(initialRendererState, { type: "initialized", project: project() });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build a clock" }) });

@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { cancelPrompt, getProject, publishProject, sendPrompt, startPreview, subscribeToProject, waitForRuntime } from "./api.js";
+import { cancelPrompt, getProject, getProjectConversation, publishProject, sendPrompt, startPreview, subscribeToProject, waitForRuntime } from "./api.js";
 import { initialRendererState, rendererReducer, type TimelineItem } from "./state.js";
 
 interface ProjectShellProps {
@@ -40,10 +40,10 @@ export function ProjectShell({ projectId, initialPrompt, onInitialPromptHandled,
     async function bootstrap() {
       try {
         await waitForRuntime();
-        const project = await getProject(projectId);
+        const [project, conversation] = await Promise.all([getProject(projectId), getProjectConversation(projectId)]);
         if (disposed) return;
-        dispatch({ type: "initialized", project });
-        unsubscribe = subscribeToProject(project.id, {
+        dispatch({ type: "initialized", project, items: conversation.items });
+        unsubscribe = subscribeToProject(project.id, conversation.cursor, {
           onEvent: (event) => { if (!disposed) dispatch({ type: "runtime-event", event }); },
           onOpen: () => {
             if (disposed) return;

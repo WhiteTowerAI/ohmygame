@@ -1,6 +1,6 @@
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { AgentManager, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
+import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 
@@ -14,6 +14,51 @@ describe("lastAssistantError", () => {
 
   it("does not turn a successful assistant response into an error", () => {
     expect(lastAssistantError([{ role: "assistant", stopReason: "stop" }])).toBeUndefined();
+  });
+});
+
+describe("conversationItems", () => {
+  it("restores user, assistant, and tool activity without internal content", () => {
+    expect(conversationItems([
+      sessionMessage("user-1", { role: "user", content: [{ type: "text", text: "Build a game" }], timestamp: 1 }),
+      sessionMessage("assistant-1", {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will build it. " },
+          { type: "toolCall", id: "call-1", name: "write", arguments: { path: "secret" } },
+        ],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("tool-1", {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "write",
+        content: [{ type: "text", text: "large private output" }],
+        isError: false,
+        timestamp: 2,
+      }),
+      sessionMessage("assistant-2", {
+        role: "assistant",
+        content: [{ type: "text", text: "Done." }],
+        stopReason: "stop",
+      }),
+    ] as never)).toEqual([
+      { id: "user-1", kind: "user", text: "Build a game" },
+      { id: "assistant-1", kind: "assistant", text: "I will build it. Done.", status: "complete" },
+      { id: "assistant-1:call-1", kind: "tool", toolCallId: "call-1", toolName: "write", status: "complete" },
+    ]);
+  });
+
+  it("restores assistant errors and cancelled turns", () => {
+    expect(conversationItems([
+      sessionMessage("error", { role: "assistant", content: [], stopReason: "error", errorMessage: "No API key" }),
+      sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
+      sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
+    ] as never)).toEqual([
+      { id: "error", kind: "assistant", text: "", status: "error", error: "No API key" },
+      { id: "user", kind: "user", text: "Stop" },
+      { id: "cancelled", kind: "assistant", text: "", status: "cancelled" },
+    ]);
   });
 });
 
@@ -140,4 +185,8 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function sessionMessage(id: string, message: object): object {
+  return { type: "message", id, parentId: null, timestamp: new Date(0).toISOString(), message };
 }
