@@ -56,10 +56,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return project ? { ...next, project: { ...project, preview: { status: "error", error: event.data.error } } } : next;
     case "preview.stopped":
       return project ? { ...next, project: { ...project, preview: { status: "stopped" } } } : next;
-    case "workspace.snapshot.created":
-      return project ? { ...next, project: { ...project, canUndo: true } } : next;
-    case "workspace.restored":
-      return project ? { ...next, project: { ...project, canUndo: false, preview: { status: "stopped" } } } : next;
     case "agent.started": {
       const assistantId = `${event.id}:assistant`;
       return {

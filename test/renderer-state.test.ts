@@ -54,13 +54,6 @@ describe("rendererReducer", () => {
     expect(state.retry).toBeUndefined();
   });
 
-  it("tracks the one-level workspace undo state", () => {
-    let state = rendererReducer(initialRendererState, { type: "initialized", project: project() });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "workspace.snapshot.created", {}) });
-    expect(state.project?.canUndo).toBe(true);
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "workspace.restored", {}) });
-    expect(state.project).toMatchObject({ canUndo: false, preview: { status: "stopped" } });
-  });
 });
 
 function project(): ProjectState {
@@ -68,7 +61,6 @@ function project(): ProjectState {
     id: "project-1",
     name: "Untitled project",
     workspacePath: "/tmp/project-1",
-    canUndo: false,
     preview: { status: "stopped" },
     agent: { status: "idle" },
   };

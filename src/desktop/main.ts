@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, ipcMain, type BrowserWindow } from "electron";
+import { app, dialog, type BrowserWindow } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { createDesktopWindow, waitForRenderer } from "./window.js";
 
@@ -28,14 +28,6 @@ try {
     dataDirectory: process.env.OPEN_GAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
-  });
-
-  ipcMain.handle("desktop:select-directory", async (event) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame) {
-      throw new Error("Directory selection is only available to the main renderer");
-    }
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
   });
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);

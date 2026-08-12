@@ -67,7 +67,6 @@ function createProject(workspacePath: string): ProjectState {
     id: path.basename(workspacePath),
     name: "Preview",
     workspacePath,
-    canUndo: false,
     preview: { status: "stopped" },
     agent: { status: "idle" },
   };

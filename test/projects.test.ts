@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
-import { RuntimeEventBus } from "../src/shared/events.js";
 
 describe("ProjectManager", () => {
   it("migrates an existing workspace without metadata", async () => {
@@ -12,7 +11,7 @@ describe("ProjectManager", () => {
     const workspace = path.join(dataDirectory, "projects", id, "workspace");
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "keep.txt"), "user data");
-    const manager = new ProjectManager(dataDirectory, "/unused", new RuntimeEventBus());
+    const manager = new ProjectManager(dataDirectory, "/unused");
 
     await manager.load();
 
@@ -27,7 +26,7 @@ describe("ProjectManager", () => {
     const projectDirectory = path.join(dataDirectory, "projects", id);
     await mkdir(path.join(projectDirectory, "workspace"), { recursive: true });
     await writeFile(path.join(projectDirectory, "project.json"), "not json");
-    const manager = new ProjectManager(dataDirectory, "/unused", new RuntimeEventBus());
+    const manager = new ProjectManager(dataDirectory, "/unused");
 
     await expect(manager.load()).rejects.toThrow();
     expect(await readFile(path.join(projectDirectory, "project.json"), "utf8")).toBe("not json");

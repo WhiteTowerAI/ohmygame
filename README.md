@@ -19,9 +19,10 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
-Projects, Pi sessions, the renderer timeline, and one workspace undo snapshot
-are stored under the daemon data directory. Reloading the renderer or
-restarting the daemon restores the same project instead of creating a new one.
+Projects, workspaces, and Pi sessions are stored under the daemon data
+directory. Restarting the daemon restores the same project and Pi context. The
+renderer timeline is intentionally kept in memory and starts empty after a
+daemon restart.
 
 ## Desktop
 
@@ -35,8 +36,8 @@ stops the managed daemon and its preview process. `npm run start:desktop`
 builds all three parts and runs the built renderer.
 
 The desktop daemon uses a random process-scoped access token. The preload
-bridge exposes only its runtime connection and a native directory picker;
-Node.js APIs are not available to the renderer.
+bridge exposes only its runtime connection. Node.js APIs are not available to
+the renderer.
 
 The renderer defaults to `http://127.0.0.1:43120` and the daemon to
 `http://127.0.0.1:43110`. Pi uses the user's existing Pi credentials. See the

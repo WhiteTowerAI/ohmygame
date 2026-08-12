@@ -116,7 +116,6 @@ function createProject(): ProjectState {
     id: "project-1",
     name: "Project",
     workspacePath: "/tmp/project-1",
-    canUndo: false,
     preview: { status: "stopped" },
     agent: { status: "idle" },
   };

@@ -7,7 +7,6 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager } from "./agent.js";
 import { PreviewManager } from "./preview.js";
 import { ProjectManager } from "./projects.js";
-import { SnapshotManager } from "./snapshots.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -37,34 +36,19 @@ const promptSchema = {
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
-  const projectsDirectory = path.join(dataDirectory, "projects");
-  const events = new RuntimeEventBus(1_000, projectsDirectory);
+  const events = new RuntimeEventBus();
   const projects = new ProjectManager(
     dataDirectory,
     options.templateDirectory ?? path.join(repositoryRoot, "template", "starter"),
-    events,
   );
   const previews = new PreviewManager(events);
-  const snapshots = new SnapshotManager(events);
-  const agents = new AgentManager(events, { snapshots });
+  const agents = new AgentManager(events);
   const app = Fastify({
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
 
-  app.addHook("onReady", async () => {
-    await projects.load();
-    await events.load(projects.ids());
-    for (const projectId of projects.ids()) {
-      const project = projects.get(projectId)!;
-      await snapshots.recover(project);
-      const projectEvents = events.since(projectId);
-      const lastAgentEvent = projectEvents.findLast((event) => event.type.startsWith("agent."));
-      if (lastAgentEvent && !["agent.completed", "agent.cancelled", "agent.error"].includes(lastAgentEvent.type)) {
-        events.publish(projectId, "agent.cancelled", {});
-      }
-    }
-  });
+  app.addHook("onReady", () => projects.load());
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
   app.addHook("onRequest", async (request, reply) => {
@@ -118,18 +102,6 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(202).send({ accepted: true });
   });
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/undo", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.agent.status === "running" || project.agent.status === "cancelling") {
-      return reply.code(409).send({ error: "Cannot undo while the agent is running" });
-    }
-    if (!project.canUndo) return reply.code(409).send({ error: "No workspace snapshot is available" });
-    await previews.stop(project);
-    await snapshots.restore(project);
-    return { project };
-  });
-
   app.get<{ Params: { projectId: string }; Querystring: { cursor?: string } }>("/projects/:projectId/events", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -150,7 +122,6 @@ export function createApp(options: AppOptions = {}) {
   app.addHook("onClose", async () => {
     await agents.close();
     await previews.stopAll();
-    await events.flush();
   });
   return app;
 }

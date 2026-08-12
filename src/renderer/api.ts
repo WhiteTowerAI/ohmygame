@@ -16,7 +16,6 @@ declare global {
   interface Window {
     openGameDesktop?: {
       runtime: DesktopRuntime;
-      selectDirectory(): Promise<string | null>;
     };
   }
 }
@@ -55,11 +54,6 @@ export async function sendPrompt(projectId: string, prompt: string): Promise<voi
 
 export async function cancelPrompt(projectId: string): Promise<void> {
   await request(`/projects/${projectId}/cancel`, { method: "POST" });
-}
-
-export async function undoWorkspace(projectId: string): Promise<ProjectState> {
-  const response = await request<{ project: ProjectState }>(`/projects/${projectId}/undo`, { method: "POST" });
-  return response.project;
 }
 
 export function subscribeToProject(

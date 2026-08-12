@@ -34,13 +34,13 @@ event objects:
 - `agent.retrying`
 - `tool.started` and `tool.completed`
 - `agent.completed`, `agent.cancelled`, and `agent.error`
-- project and preview lifecycle events
+- preview lifecycle events
 
-The daemon keeps the most recent 1,000 events in memory and appends the full
-normalized stream to each project's `events.jsonl`. Reconnects inside the hot
-window use memory; older cursors replay from disk. Preview dependencies are
-installed the first time a workspace starts; restarts reuse the existing
-installation.
+The daemon keeps the most recent 1,000 events in memory. SSE reconnects can
+replay events still inside that window, but the renderer timeline intentionally
+starts empty after a daemon restart. Pi's own session remains persistent.
+Preview dependencies are installed the first time a workspace starts; restarts
+reuse the existing installation.
 
 This milestone runs Pi in trusted-local mode. The workspace is Pi's working
 directory, but `cwd` is not an operating-system security boundary.
@@ -53,10 +53,10 @@ the daemon address plus a random process-scoped token through the isolated
 preload bridge. The renderer connects directly with the token while the
 browser-only development mode continues to use Vite's `/api` proxy.
 
-Electron main owns only desktop lifecycle and native IPC. Pi sessions,
-projects, previews, and events remain in the daemon. Closing the last window
-quits the application and gives the daemon time to stop active Pi and preview
-processes before it exits.
+Electron main owns only desktop lifecycle. Pi sessions, projects, previews,
+and events remain in the daemon. Closing the last window quits the application
+and gives the daemon time to stop active Pi and preview processes before it
+exits.
 
 ## Persistence and recovery
 
@@ -65,25 +65,13 @@ Each project is self-contained under the daemon data directory:
 ```text
 projects/<project-id>/
 ├── project.json
-├── events.jsonl
 ├── workspace/
-├── session/
-└── snapshots/
-    ├── pending/
-    └── previous/
+└── session/
 ```
 
 `project.json` stores project identity, Pi owns the append-only files inside
-`session/`, and `events.jsonl` is the renderer's bounded normalized timeline. On
-startup the daemon scans these directories, migrates older workspace-only
-projects by writing missing metadata, and resets stale runtime state to idle or
-stopped. The renderer waits briefly for the daemon, reconnects with an event
-cursor, and then refreshes authoritative project state.
-
-Before each Pi turn, the daemon writes `snapshots/pending` without
-`node_modules`. When the turn ends, a content digest promotes it to
-`snapshots/previous` only if workspace files changed; a conversation-only turn
-therefore does not consume the existing undo. Undo restores that one snapshot,
-preserves installed dependencies, restarts the preview, and then consumes the
-snapshot. This is intentionally one-level workspace undo, not a version
-history system and not a rewind of Pi's conversation.
+`session/`. On startup the daemon scans these directories, migrates older
+workspace-only projects by writing missing metadata, and initializes runtime
+state as idle and stopped. The renderer waits briefly for the daemon,
+reconnects to the in-memory event stream, and refreshes authoritative project
+state.

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { access, cp, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
-import type { RuntimeEventBus } from "../shared/events.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -17,26 +16,25 @@ interface LoadedMetadata {
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
-  readonly projectsDirectory: string;
+  readonly #projectsDirectory: string;
 
   constructor(
     dataDirectory: string,
     private readonly templateDirectory: string,
-    private readonly events: RuntimeEventBus,
   ) {
-    this.projectsDirectory = path.join(dataDirectory, "projects");
+    this.#projectsDirectory = path.join(dataDirectory, "projects");
   }
 
   async load(): Promise<void> {
-    await mkdir(this.projectsDirectory, { recursive: true });
-    const entries = await readdir(this.projectsDirectory, { withFileTypes: true });
+    await mkdir(this.#projectsDirectory, { recursive: true });
+    const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() || !isProjectId(entry.name)) continue;
-      const projectDirectory = path.join(this.projectsDirectory, entry.name);
+      const projectDirectory = path.join(this.#projectsDirectory, entry.name);
       const workspacePath = path.join(projectDirectory, "workspace");
       if (!await exists(workspacePath)) continue;
       const { metadata, missing } = await readMetadata(projectDirectory, entry.name);
-      const project = await projectState(projectDirectory, workspacePath, metadata);
+      const project = projectState(workspacePath, metadata);
       this.#projects.set(project.id, project);
       if (missing) await writeMetadata(projectDirectory, metadata);
     }
@@ -44,7 +42,7 @@ export class ProjectManager {
 
   async create(name?: string): Promise<ProjectState> {
     const id = randomUUID();
-    const projectDirectory = path.join(this.projectsDirectory, id);
+    const projectDirectory = path.join(this.#projectsDirectory, id);
     const workspacePath = path.join(projectDirectory, "workspace");
     const metadata: ProjectMetadata = {
       version: 1,
@@ -54,27 +52,22 @@ export class ProjectManager {
     await mkdir(projectDirectory, { recursive: true });
     await cp(this.templateDirectory, workspacePath, { recursive: true });
     await writeMetadata(projectDirectory, metadata);
-    await this.events.prepareProject(id);
-    const project = await projectState(projectDirectory, workspacePath, metadata);
+    const project = projectState(workspacePath, metadata);
     this.#projects.set(id, project);
-    this.events.publish(id, "project.created", { name: project.name });
     return project;
   }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
-  ids(): string[] { return [...this.#projects.keys()]; }
 }
 
-async function projectState(
-  projectDirectory: string,
+function projectState(
   workspacePath: string,
   metadata: ProjectMetadata,
-): Promise<ProjectState> {
+): ProjectState {
   return {
     id: metadata.id,
     name: metadata.name,
     workspacePath,
-    canUndo: await exists(path.join(projectDirectory, "snapshots", "previous")),
     preview: { status: "stopped" },
     agent: { status: "idle" },
   };

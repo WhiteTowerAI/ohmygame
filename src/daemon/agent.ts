@@ -2,7 +2,6 @@ import { createAgentSession, SessionManager, type AgentSessionEvent } from "@mar
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
-import { SnapshotManager } from "./snapshots.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -16,7 +15,6 @@ export type SessionFactory = (workspacePath: string) => Promise<CodingSession>;
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
-  snapshots?: SnapshotManager;
 }
 
 interface ManagedSession {
@@ -55,40 +53,28 @@ export class AgentManager {
   }
 
   async #runPrompt(project: ProjectState, prompt: string): Promise<void> {
-    let captured = false;
     try {
-      await this.options.snapshots?.capture(project);
-      captured = true;
       const managed = await this.#getSession(project);
       if (isCancelling(project)) {
-        await this.options.snapshots?.finalize(project);
-        captured = false;
         this.#markCancelled(project);
         return;
       }
 
       await managed.session.prompt(prompt);
       if (isCancelling(project)) {
-        await this.options.snapshots?.finalize(project);
-        captured = false;
         this.#markCancelled(project);
         return;
       }
 
       const sessionError = lastAssistantError(managed.session.messages);
       if (sessionError) {
-        await this.options.snapshots?.finalize(project);
-        captured = false;
         this.#markError(project, sessionError);
         return;
       }
 
-      await this.options.snapshots?.finalize(project);
-      captured = false;
       project.agent = { status: "idle" };
       this.events.publish(project.id, "agent.completed", {});
     } catch (cause) {
-      if (captured) await this.options.snapshots?.finalize(project).catch(() => {});
       if (isCancelling(project)) {
         this.#markCancelled(project);
         return;

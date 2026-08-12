@@ -8,13 +8,12 @@ import {
   Search,
   Square,
   Terminal,
-  Undo2,
   Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ApiError, cancelPrompt, createProject, getProject, sendPrompt, startPreview, subscribeToProject, undoWorkspace, waitForRuntime } from "./api.js";
+import { ApiError, cancelPrompt, createProject, getProject, sendPrompt, startPreview, subscribeToProject, waitForRuntime } from "./api.js";
 import { initialRendererState, rendererReducer, type TimelineItem } from "./state.js";
 
 const PROJECT_STORAGE_KEY = "project-shell.current-project";
@@ -106,18 +105,6 @@ export function App() {
     }
   }
 
-  async function undoLastRun() {
-    if (!project || !project.canUndo || agentBusy) return;
-    dispatch({ type: "notice", message: undefined });
-    try {
-      const restored = await undoWorkspace(project.id);
-      dispatch({ type: "initialized", project: restored });
-      await startPreview(project.id);
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-    }
-  }
-
   return (
     <main className="workspace-shell">
       <section className="agent-pane" aria-label="Agent">
@@ -125,8 +112,6 @@ export function App() {
           title={project?.name ?? "Loading project"}
           status={agentStatusLabel(state.connection, project?.agent.status, state.retry)}
           busy={state.connection !== "open" || agentBusy}
-          canUndo={Boolean(project?.canUndo) && !agentBusy}
-          onUndo={undoLastRun}
         />
 
         <div className="agent-body">
@@ -187,29 +172,15 @@ function PaneHeader({
   title,
   status,
   busy,
-  canUndo,
-  onUndo,
 }: {
   title: string;
   status: string;
   busy: boolean;
-  canUndo: boolean;
-  onUndo: () => void;
 }) {
   return (
     <header className="pane-header">
       <span className="project-name" title={title}>{title}</span>
       <div className="header-actions">
-        <button
-          className="icon-button quiet-button"
-          type="button"
-          onClick={onUndo}
-          disabled={!canUndo}
-          title="Undo last agent change"
-          aria-label="Undo last agent change"
-        >
-          <Undo2 size={15} />
-        </button>
         <span className="runtime-status">
           {busy ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
           {status}

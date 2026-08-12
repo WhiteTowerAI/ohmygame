@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge } from "electron";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -13,6 +13,5 @@ if (process.isMainFrame) {
       daemonUrl: argument("open-game-daemon-url"),
       token: argument("open-game-daemon-token"),
     }),
-    selectDirectory: (): Promise<string | null> => ipcRenderer.invoke("desktop:select-directory"),
   }));
 }

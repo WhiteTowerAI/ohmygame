@@ -5,7 +5,6 @@ export interface ProjectState {
   id: string;
   name: string;
   workspacePath: string;
-  canUndo: boolean;
   preview: { status: PreviewStatus; url?: string; error?: string };
   agent: { status: AgentStatus; error?: string };
 }
@@ -14,9 +13,6 @@ export interface CreateProjectRequest { name?: string }
 export interface PromptRequest { prompt: string }
 
 export interface RuntimeEventData {
-  "project.created": { name: string };
-  "workspace.snapshot.created": Record<string, never>;
-  "workspace.restored": Record<string, never>;
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };
   "preview.error": { error: string };
@@ -34,9 +30,6 @@ export interface RuntimeEventData {
 export type RuntimeEventType = keyof RuntimeEventData;
 
 export const RUNTIME_EVENT_TYPES = [
-  "project.created",
-  "workspace.snapshot.created",
-  "workspace.restored",
   "preview.starting",
   "preview.ready",
   "preview.error",
