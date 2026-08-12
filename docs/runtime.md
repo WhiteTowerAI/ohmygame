@@ -9,9 +9,11 @@
 
 Vite proxies the renderer's `/api` requests to the daemon. On load, the
 renderer restores the last project ID from local storage or creates a new
-project, subscribes to its event stream, and starts the workspace preview. Pi
-events populate the conversation on the left while preview lifecycle events
-control the iframe on the right.
+project, subscribes to its event stream, and leaves the preview waiting until
+the workspace becomes runnable. After a successful Pi turn creates a
+`package.json` with a non-empty `scripts.dev`, the daemon starts the workspace
+preview. Pi events populate the conversation on the left while preview
+lifecycle events control the iframe on the right.
 
 The daemon configures Node's HTTP dispatcher from uppercase or lowercase proxy
 environment variables and excludes localhost. The outer renderer ignores
@@ -20,9 +22,10 @@ reload the project shell. A generated workspace still updates its own preview.
 
 ## API
 
-- `POST /projects` creates a workspace from `template/starter`.
+- `POST /projects` creates an empty workspace.
 - `GET /projects/:id` returns authoritative current state.
-- `POST /projects/:id/preview` starts or restarts Vite.
+- `POST /projects/:id/preview` starts or restarts the development server and
+  returns `409` while the workspace has no `package.json` `scripts.dev`.
 - `POST /projects/:id/prompts` starts a Pi coding turn.
 - `POST /projects/:id/cancel` aborts the active turn.
 - `GET /projects/:id/events` streams replayable SSE events.
@@ -39,7 +42,7 @@ event objects:
 The daemon keeps the most recent 1,000 events in memory. SSE reconnects can
 replay events still inside that window, but the renderer timeline intentionally
 starts empty after a daemon restart. Pi's own session remains persistent.
-Preview dependencies are installed the first time a workspace starts; restarts
+Preview dependencies are installed the first time a runnable workspace starts; restarts
 reuse the existing installation.
 
 This milestone runs Pi in trusted-local mode. The workspace is Pi's working
@@ -72,6 +75,6 @@ projects/<project-id>/
 `project.json` stores project identity, Pi owns the append-only files inside
 `session/`. On startup the daemon scans these directories, migrates older
 workspace-only projects by writing missing metadata, and initializes runtime
-state as idle and stopped. The renderer waits briefly for the daemon,
+state as idle and waiting. The renderer waits briefly for the daemon,
 reconnects to the in-memory event stream, and refreshes authoritative project
 state.

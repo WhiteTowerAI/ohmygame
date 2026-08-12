@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, cp, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 
@@ -18,10 +18,7 @@ export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
   readonly #projectsDirectory: string;
 
-  constructor(
-    dataDirectory: string,
-    private readonly templateDirectory: string,
-  ) {
+  constructor(dataDirectory: string) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
   }
 
@@ -34,7 +31,7 @@ export class ProjectManager {
       const workspacePath = path.join(projectDirectory, "workspace");
       if (!await exists(workspacePath)) continue;
       const { metadata, missing } = await readMetadata(projectDirectory, entry.name);
-      const project = projectState(workspacePath, metadata);
+      const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath));
       this.#projects.set(project.id, project);
       if (missing) await writeMetadata(projectDirectory, metadata);
     }
@@ -50,9 +47,9 @@ export class ProjectManager {
       name: name?.trim() || "Untitled project",
     };
     await mkdir(projectDirectory, { recursive: true });
-    await cp(this.templateDirectory, workspacePath, { recursive: true });
+    await mkdir(workspacePath, { recursive: true });
     await writeMetadata(projectDirectory, metadata);
-    const project = projectState(workspacePath, metadata);
+    const project = projectState(workspacePath, metadata, false);
     this.#projects.set(id, project);
     return project;
   }
@@ -63,14 +60,26 @@ export class ProjectManager {
 function projectState(
   workspacePath: string,
   metadata: ProjectMetadata,
+  runnable: boolean,
 ): ProjectState {
   return {
     id: metadata.id,
     name: metadata.name,
     workspacePath,
-    preview: { status: "stopped" },
+    preview: { status: runnable ? "stopped" : "waiting" },
     agent: { status: "idle" },
   };
+}
+
+export async function isRunnableWorkspace(workspacePath: string): Promise<boolean> {
+  try {
+    const packageJson = JSON.parse(await readFile(path.join(workspacePath, "package.json"), "utf8")) as {
+      scripts?: { dev?: unknown };
+    };
+    return typeof packageJson.scripts?.dev === "string" && packageJson.scripts.dev.trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function readMetadata(projectDirectory: string, id: string): Promise<LoadedMetadata> {

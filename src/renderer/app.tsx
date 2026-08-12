@@ -45,11 +45,12 @@ export function App() {
           onError: () => { if (!disposed) dispatch({ type: "connection", status: "reconnecting" }); },
         });
 
-        if (restored.created || restored.project.preview.status === "stopped") {
+        if (restored.project.preview.status === "stopped") {
           void startPreview(restored.project.id).catch((error) => {
             if (!disposed) dispatch({ type: "notice", message: errorMessage(error) });
           });
         }
+
       } catch (error) {
         if (!disposed) dispatch({ type: "fatal", message: errorMessage(error) });
       }
@@ -204,7 +205,7 @@ function ViewerPane({ project, onRestart }: { project?: import("../shared/contra
             className="icon-button quiet-button"
             type="button"
             onClick={onRestart}
-            disabled={!project || preview?.status === "starting"}
+            disabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
             title="Restart preview"
             aria-label="Restart preview"
           >
@@ -242,6 +243,9 @@ function PreviewState({ status, error }: { status?: string; error?: string }) {
   }
   if (status === "stopped") {
     return <div className="centered-state"><span>Preview stopped</span></div>;
+  }
+  if (status === "waiting") {
+    return <div className="centered-state"><span>Waiting for a runnable project</span></div>;
   }
   return (
     <div className="centered-state">
@@ -342,6 +346,7 @@ function previewStatusLabel(status?: string): string {
   if (status === "ready") return "Ready";
   if (status === "error") return "Error";
   if (status === "stopped") return "Stopped";
+  if (status === "waiting") return "Waiting";
   return "Starting";
 }
 

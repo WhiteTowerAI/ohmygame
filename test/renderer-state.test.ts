@@ -61,7 +61,7 @@ function project(): ProjectState {
     id: "project-1",
     name: "Untitled project",
     workspacePath: "/tmp/project-1",
-    preview: { status: "stopped" },
+    preview: { status: "waiting" },
     agent: { status: "idle" },
   };
 }

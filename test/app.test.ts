@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,14 +8,15 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
-  it("creates an isolated project from the starter", async () => {
+  it("creates an isolated empty project", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } });
     expect(response.statusCode).toBe(201);
     const project = response.json();
     expect(project.name).toBe("First");
-    expect(await readFile(path.join(project.workspacePath, "index.html"), "utf8")).toContain("New project");
+    expect(await readdir(project.workspacePath)).toEqual([]);
+    expect(project.preview).toEqual({ status: "waiting" });
   });
 
   it("exposes health and rejects empty prompts", async () => {
@@ -25,6 +26,9 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const response = await app.inject({ method: "POST", url: `/projects/${project.id}/prompts`, payload: { prompt: " " } });
     expect(response.statusCode).toBe(400);
+    const preview = await app.inject({ method: "POST", url: `/projects/${project.id}/preview` });
+    expect(preview.statusCode).toBe(409);
+    expect(preview.json()).toEqual({ error: "Workspace is not runnable yet" });
   });
 
   it("validates request bodies before they reach a manager", async () => {

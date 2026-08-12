@@ -1,4 +1,10 @@
-import { createAgentSession, SessionManager, type AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
+  SessionManager,
+  type AgentSessionEvent,
+} from "@mariozechner/pi-coding-agent";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
@@ -12,6 +18,7 @@ export interface CodingSession {
 }
 
 export type SessionFactory = (workspacePath: string) => Promise<CodingSession>;
+export type AgentRunResult = "completed" | "cancelled";
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
@@ -25,7 +32,7 @@ interface ManagedSession {
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
   readonly #activeProjects = new Map<string, ProjectState>();
-  readonly #runs = new Set<Promise<void>>();
+  readonly #runs = new Set<Promise<AgentRunResult>>();
   #closing = false;
 
   constructor(
@@ -33,7 +40,7 @@ export class AgentManager {
     private readonly options: AgentManagerOptions = {},
   ) {}
 
-  prompt(project: ProjectState, prompt: string): Promise<void> {
+  prompt(project: ProjectState, prompt: string): Promise<AgentRunResult> {
     if (!prompt.trim()) return Promise.reject(new Error("Prompt must not be empty"));
     if (this.#closing) return Promise.reject(new Error("Agent manager is closing"));
     if (project.agent.status !== "idle" && project.agent.status !== "error") {
@@ -52,32 +59,32 @@ export class AgentManager {
     return run;
   }
 
-  async #runPrompt(project: ProjectState, prompt: string): Promise<void> {
+  async #runPrompt(project: ProjectState, prompt: string): Promise<AgentRunResult> {
     try {
       const managed = await this.#getSession(project);
       if (isCancelling(project)) {
         this.#markCancelled(project);
-        return;
+        return "cancelled";
       }
 
       await managed.session.prompt(prompt);
       if (isCancelling(project)) {
         this.#markCancelled(project);
-        return;
+        return "cancelled";
       }
 
       const sessionError = lastAssistantError(managed.session.messages);
       if (sessionError) {
-        this.#markError(project, sessionError);
-        return;
+        throw new Error(sessionError);
       }
 
       project.agent = { status: "idle" };
       this.events.publish(project.id, "agent.completed", {});
+      return "completed";
     } catch (cause) {
       if (isCancelling(project)) {
         this.#markCancelled(project);
-        return;
+        return "cancelled";
       }
       const error = cause instanceof Error ? cause.message : String(cause);
       this.#markError(project, error);
@@ -106,7 +113,7 @@ export class AgentManager {
     this.#sessions.clear();
   }
 
-  #finishRun(projectId: string, run: Promise<void>): void {
+  #finishRun(projectId: string, run: Promise<AgentRunResult>): void {
     this.#runs.delete(run);
     this.#activeProjects.delete(projectId);
   }
@@ -167,9 +174,20 @@ function isCancelling(project: ProjectState): boolean {
 
 async function createPiSession(workspacePath: string): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: workspacePath,
+    agentDir: getAgentDir(),
+    appendSystemPrompt: [
+      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
+      "When the user asks you to build a game or web app in this workspace, create it as a complete browser-based project whose package.json has a non-empty scripts.dev command. " +
+      "Do not leave a long-running development server active; the host starts the preview after your turn.",
+    ],
+  });
+  await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: workspacePath,
     tools: ["read", "write", "edit", "bash"],
+    resourceLoader,
     sessionManager: SessionManager.continueRecent(workspacePath, path.join(path.dirname(workspacePath), "session")),
   });
   return session;

@@ -6,11 +6,10 @@ import { RuntimeEventBus } from "../shared/events.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager } from "./agent.js";
 import { PreviewManager } from "./preview.js";
-import { ProjectManager } from "./projects.js";
+import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 
 export interface AppOptions {
   dataDirectory?: string;
-  templateDirectory?: string;
   logger?: boolean;
   accessToken?: string;
   allowedOrigins?: string[];
@@ -37,10 +36,7 @@ export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const events = new RuntimeEventBus();
-  const projects = new ProjectManager(
-    dataDirectory,
-    options.templateDirectory ?? path.join(repositoryRoot, "template", "starter"),
-  );
+  const projects = new ProjectManager(dataDirectory);
   const previews = new PreviewManager(events);
   const agents = new AgentManager(events);
   const app = Fastify({
@@ -81,6 +77,9 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (!(await isRunnableWorkspace(project.workspacePath))) {
+      return reply.code(409).send({ error: "Workspace is not runnable yet" });
+    }
     return { url: await previews.start(project) };
   });
 
@@ -91,7 +90,15 @@ export function createApp(options: AppOptions = {}) {
     if (project.agent.status === "running" || project.agent.status === "cancelling") {
       return reply.code(409).send({ error: "Agent is already running" });
     }
-    void agents.prompt(project, request.body.prompt).catch(() => {});
+    void agents.prompt(project, request.body.prompt).then(async (result) => {
+      if (
+        result !== "completed" ||
+        project.preview.status === "ready" ||
+        project.preview.status === "starting" ||
+        !(await isRunnableWorkspace(project.workspacePath))
+      ) return;
+      await previews.start(project).catch(() => {});
+    }).catch(() => {});
     return reply.code(202).send({ accepted: true });
   });
 

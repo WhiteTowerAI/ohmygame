@@ -1,8 +1,0 @@
-{
-  "name": "generated-project",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": { "dev": "vite" },
-  "devDependencies": { "vite": "7.1.3" }
-}

@@ -1,4 +1,4 @@
-export type PreviewStatus = "stopped" | "starting" | "ready" | "error";
+export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 
 export interface ProjectState {

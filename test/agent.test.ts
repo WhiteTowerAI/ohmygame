@@ -30,7 +30,7 @@ describe("AgentManager", () => {
     await expect(manager.prompt(project, "Second")).rejects.toThrow("already running");
 
     prompt.resolve();
-    await firstRun;
+    await expect(firstRun).resolves.toBe("completed");
     expect(project.agent.status).toBe("idle");
     await manager.close();
   });
@@ -46,6 +46,17 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("rejects when Pi resolves with an assistant error", async () => {
+    const session = new FakeSession();
+    session.messages.push({ role: "assistant", stopReason: "error", errorMessage: "No API key" });
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+
+    await expect(manager.prompt(project, "Build")).rejects.toThrow("No API key");
+    expect(project.agent).toEqual({ status: "error", error: "No API key" });
+    await manager.close();
+  });
+
   it("aborts and waits for active work before closing", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -58,7 +69,7 @@ describe("AgentManager", () => {
     await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
 
     await manager.close();
-    await run;
+    await expect(run).resolves.toBe("cancelled");
     expect(session.abort).toHaveBeenCalledOnce();
     expect(session.dispose).toHaveBeenCalledOnce();
     expect(project.agent.status).toBe("idle");
@@ -116,7 +127,7 @@ function createProject(): ProjectState {
     id: "project-1",
     name: "Project",
     workspacePath: "/tmp/project-1",
-    preview: { status: "stopped" },
+    preview: { status: "waiting" },
     agent: { status: "idle" },
   };
 }

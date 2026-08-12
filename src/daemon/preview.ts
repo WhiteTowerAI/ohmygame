@@ -127,7 +127,7 @@ export class PreviewManager {
 
 async function needsInstall(workspacePath: string): Promise<boolean> {
   try {
-    await access(path.join(workspacePath, "node_modules", ".bin", "vite"));
+    await access(path.join(workspacePath, "node_modules"));
     return false;
   } catch {
     return true;

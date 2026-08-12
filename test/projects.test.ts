@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ describe("ProjectManager", () => {
     const workspace = path.join(dataDirectory, "projects", id, "workspace");
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "keep.txt"), "user data");
-    const manager = new ProjectManager(dataDirectory, "/unused");
+    const manager = new ProjectManager(dataDirectory);
 
     await manager.load();
 
@@ -26,9 +26,31 @@ describe("ProjectManager", () => {
     const projectDirectory = path.join(dataDirectory, "projects", id);
     await mkdir(path.join(projectDirectory, "workspace"), { recursive: true });
     await writeFile(path.join(projectDirectory, "project.json"), "not json");
-    const manager = new ProjectManager(dataDirectory, "/unused");
+    const manager = new ProjectManager(dataDirectory);
 
     await expect(manager.load()).rejects.toThrow();
     expect(await readFile(path.join(projectDirectory, "project.json"), "utf8")).toBe("not json");
+  });
+
+  it("creates an empty workspace", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Blank");
+    expect(project.preview).toEqual({ status: "waiting" });
+    expect(await readdir(project.workspacePath)).toEqual([]);
+  });
+
+  it("restores runnable and non-runnable workspaces with distinct preview states", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const runnable = await manager.create("Runnable");
+    const waiting = await manager.create("Waiting");
+    await writeFile(path.join(runnable.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+
+    const restored = new ProjectManager(dataDirectory);
+    await restored.load();
+
+    expect(restored.get(runnable.id)?.preview.status).toBe("stopped");
+    expect(restored.get(waiting.id)?.preview.status).toBe("waiting");
   });
 });
