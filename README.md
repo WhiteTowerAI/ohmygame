@@ -20,6 +20,19 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
+The daemon also exposes a standalone GPT Image 2 tool. Copy `.env.example` to
+an ignored `.env.local` and set `OPENAI_API_KEY` to enable image generation:
+
+```dotenv
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+Existing shell environment variables take precedence over `.env.local`. The
+key remains in the daemon and is never exposed to the renderer, Pi, or project
+workspaces. Set `OPENAI_BASE_URL` to the `/v1` root of an OpenAI-compatible
+service when using a non-OpenAI API key.
+
 Projects, workspaces, and Pi sessions are stored under the daemon data
 directory. Restarting the daemon restores the same project, Pi context, and
 conversation shown in the Project Shell.

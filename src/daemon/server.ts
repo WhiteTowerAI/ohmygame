@@ -6,6 +6,11 @@ import { configureNetworkProxy } from "./proxy.js";
 
 configureNetworkProxy();
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+try {
+  process.loadEnvFile(path.join(repositoryRoot, ".env.local"));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
 const dataDirectory = process.env.OPEN_GAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const play = createPlayApp({ dataDirectory, logger: true });
 let app: ReturnType<typeof createApp> | undefined;

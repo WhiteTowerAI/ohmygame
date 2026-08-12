@@ -26,6 +26,10 @@ reload the project shell. A generated workspace still updates its own preview.
 ## API
 
 - `POST /projects` creates an empty workspace.
+- `GET /tools` lists the fixed local tool catalog.
+- `POST /tools/generate-image/runs` generates one image with GPT Image 2 and
+  stores the completed run outside project workspaces.
+- `GET /tool-runs/:runId/files/:fileName` returns a generated tool output.
 - `GET /projects/:id` returns authoritative current state.
 - `POST /projects/:id/preview` starts or restarts the development server and
   returns `409` while the workspace has no `package.json` `scripts.dev`.
@@ -111,3 +115,20 @@ publishable when it either has a non-empty `scripts.build` that produces a
 static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Hidden files, dependencies, and symbolic links are not copied.
 Binary assets are copied byte-for-byte.
+
+Standalone tool runs are stored separately:
+
+```text
+tools/runs/<run-id>/
+├── run.json
+└── output.webp
+```
+
+Image generation calls OpenAI's native Images API with the fixed
+`gpt-image-2` model. At startup, the daemon loads an optional repository-root
+`.env.local`; existing process environment values take precedence. The file is
+ignored by Git and `.env.example` documents its only current setting.
+`OPENAI_API_KEY` is read only by the daemon. `OPENAI_BASE_URL` optionally points
+to the `/v1` root of an OpenAI-compatible service and defaults to OpenAI's
+official API. Tool runs are not Pi tools and are not added to project
+workspaces in this milestone.

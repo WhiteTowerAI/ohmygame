@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import type { CreateProjectRequest, PromptRequest, RuntimeEvent } from "../shared/contracts.js";
+import { IMAGE_SIZES, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, loadConversation, type SessionFactory } from "./agent.js";
@@ -9,6 +9,8 @@ import { CommunityStore } from "./community.js";
 import { DeploymentManager, PublishError } from "./deployments.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
+import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
+import { ToolRunner, ToolRunError } from "./tools.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -18,6 +20,9 @@ export interface AppOptions {
   playOrigin?: string;
   verifyPlayUrl?: (url: string) => Promise<void>;
   createSession?: SessionFactory;
+  imageGenerator?: ImageGenerator;
+  openAIApiKey?: string;
+  openAIBaseUrl?: string;
 }
 
 const createProjectSchema = {
@@ -37,6 +42,18 @@ const promptSchema = {
   },
 } as const;
 
+const toolRunSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["prompt"],
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      size: { type: "string", enum: [...IMAGE_SIZES] },
+    },
+  },
+} as const;
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -47,13 +64,20 @@ export function createApp(options: AppOptions = {}) {
   const deployments = new DeploymentManager(dataDirectory, playOrigin);
   const previews = new PreviewManager(events);
   const agents = new AgentManager(events, { createSession: options.createSession });
+  const tools = new ToolRunner(
+    dataDirectory,
+    options.imageGenerator ?? new OpenAIImageGenerator(
+      options.openAIApiKey ?? process.env.OPENAI_API_KEY,
+      options.openAIBaseUrl ?? process.env.OPENAI_BASE_URL,
+    ),
+  );
   const app = Fastify({
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), community.load(), deployments.load()]);
+    await Promise.all([projects.load(), community.load(), deployments.load(), tools.load()]);
     for (const game of community.list()) {
       projects.setPublication(game.projectId, {
         gameId: game.id,
@@ -81,6 +105,33 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  app.get("/tools", async () => tools.list());
+
+  app.post<{ Params: { toolId: string }; Body: RunImageToolRequest }>(
+    "/tools/:toolId/runs",
+    { schema: toolRunSchema },
+    async (request, reply) => {
+      try {
+        return reply.code(201).send(await tools.run(request.params.toolId, request.body));
+      } catch (cause) {
+        if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.get<{ Params: { runId: string; fileName: string } }>(
+    "/tool-runs/:runId/files/:fileName",
+    async (request, reply) => {
+      const file = await tools.file(request.params.runId, request.params.fileName);
+      if (!file) return reply.code(404).send({ error: "Tool output not found" });
+      reply.header("content-type", file.mediaType);
+      reply.header("x-content-type-options", "nosniff");
+      reply.header("cache-control", "private, max-age=31536000, immutable");
+      return reply.send(file.bytes);
+    },
+  );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     const project = await projects.create(request.body?.name);

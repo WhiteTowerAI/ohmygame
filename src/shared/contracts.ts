@@ -51,6 +51,35 @@ export interface ProjectConversation {
 export interface CreateProjectRequest { name?: string }
 export interface PromptRequest { prompt: string }
 
+export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
+export type ImageSize = (typeof IMAGE_SIZES)[number];
+
+export interface ToolDefinition {
+  id: "generate-image";
+  name: string;
+  description: string;
+  category: "images";
+  sizes: readonly ImageSize[];
+  defaultSize: ImageSize;
+}
+
+export interface RunImageToolRequest {
+  prompt: string;
+  size?: ImageSize;
+}
+
+export interface ToolRunFile {
+  name: string;
+  mediaType: string;
+}
+
+export interface ToolRun {
+  id: string;
+  toolId: ToolDefinition["id"];
+  createdAt: string;
+  files: ToolRunFile[];
+}
+
 export interface RuntimeEventData {
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };
