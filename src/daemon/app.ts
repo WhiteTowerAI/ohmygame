@@ -1,16 +1,18 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, loadConversation, type SessionFactory } from "./agent.js";
+import { AgentManager, createPiSession, loadConversation, type SessionFactory } from "./agent.js";
+import { activePiToolNames, createAgentTools } from "./agent-tools.js";
 import { CommunityStore } from "./community.js";
 import { DeploymentManager, PublishError } from "./deployments.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
+import { ToolSettingsStore } from "./tool-settings.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -66,6 +68,21 @@ const addToolResultSchema = {
   },
 } as const;
 
+const toolSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["enabledTools"],
+    properties: {
+      enabledTools: {
+        type: "array",
+        uniqueItems: true,
+        items: { type: "string", enum: ["generate-image"] },
+      },
+    },
+  },
+} as const;
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -75,7 +92,6 @@ export function createApp(options: AppOptions = {}) {
   const community = new CommunityStore(dataDirectory, playOrigin);
   const deployments = new DeploymentManager(dataDirectory, playOrigin);
   const previews = new PreviewManager(events);
-  const agents = new AgentManager(events, { createSession: options.createSession });
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? new OpenAIImageGenerator(
@@ -83,13 +99,21 @@ export function createApp(options: AppOptions = {}) {
       options.openAIBaseUrl ?? process.env.OPENAI_BASE_URL,
     ),
   );
+  const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
+  const agents = new AgentManager(events, {
+    createSession: options.createSession ?? ((project) => createPiSession(
+      project.workspacePath,
+      createAgentTools(project, tools, projects),
+    )),
+    activeToolNames: () => activePiToolNames(toolSettings.get()),
+  });
   const app = Fastify({
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), community.load(), deployments.load(), tools.load()]);
+    await Promise.all([projects.load(), community.load(), deployments.load(), tools.load(), toolSettings.load()]);
     for (const game of community.list()) {
       projects.setPublication(game.projectId, {
         gameId: game.id,
@@ -106,7 +130,7 @@ export function createApp(options: AppOptions = {}) {
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
       reply.header("access-control-allow-headers", "authorization, content-type, last-event-id");
-      reply.header("access-control-allow-methods", "GET, POST, OPTIONS");
+      reply.header("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
       reply.header("vary", "Origin");
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
@@ -119,6 +143,12 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.get("/tools", async () => tools.list());
+
+  app.get("/tool-settings", async () => toolSettings.get());
+
+  app.put<{ Body: ToolSettings }>("/tool-settings", { schema: toolSettingsSchema }, async (request) => {
+    return toolSettings.update(request.body.enabledTools);
+  });
 
   app.post<{ Params: { toolId: string }; Body: RunImageToolRequest }>(
     "/tools/:toolId/runs",

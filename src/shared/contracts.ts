@@ -63,6 +63,10 @@ export interface ToolDefinition {
   defaultSize: ImageSize;
 }
 
+export interface ToolSettings {
+  enabledTools: ToolDefinition["id"][];
+}
+
 export interface RunImageToolRequest {
   prompt: string;
   size?: ImageSize;

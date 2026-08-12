@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, getProjectConversation, getToolRunFile, listProjects, listTools, runTool, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
+import { addToolResultToProject, getProjectConversation, getToolRunFile, getToolSettings, listProjects, listTools, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -152,6 +152,24 @@ describe("renderer tools API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/tool-results", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ runId: "run-1", fileName: "output.webp" }),
+    }));
+  });
+
+  it("loads and updates agent tool settings", async () => {
+    installWindow();
+    const disabled = { enabledTools: [] };
+    const enabled = { enabledTools: ["generate-image"] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(disabled))
+      .mockResolvedValueOnce(Response.json(enabled));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getToolSettings()).resolves.toEqual(disabled);
+    await expect(updateToolSettings(enabled as never)).resolves.toEqual(enabled);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tool-settings", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-settings", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify(enabled),
     }));
   });
 });

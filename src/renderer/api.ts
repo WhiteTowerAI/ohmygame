@@ -11,6 +11,7 @@ import {
   type RunImageToolRequest,
   type ToolDefinition,
   type ToolRun,
+  type ToolSettings,
 } from "../shared/contracts.js";
 
 const API_BASE = "/api";
@@ -42,6 +43,14 @@ export async function listCommunityGames(): Promise<CommunityGame[]> {
 
 export async function listTools(): Promise<ToolDefinition[]> {
   return request("/tools");
+}
+
+export async function getToolSettings(): Promise<ToolSettings> {
+  return request("/tool-settings");
+}
+
+export async function updateToolSettings(settings: ToolSettings): Promise<ToolSettings> {
+  return request("/tool-settings", { method: "PUT", body: JSON.stringify(settings) });
 }
 
 export async function runTool(toolId: ToolDefinition["id"], input: RunImageToolRequest): Promise<ToolRun> {

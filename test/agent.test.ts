@@ -148,6 +148,51 @@ describe("AgentManager", () => {
     ]);
     await manager.close();
   });
+
+  it("updates cached session tools without recreating the session", async () => {
+    const session = new FakeSession();
+    let enabled = false;
+    const createSession = vi.fn(async () => session);
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession,
+      activeToolNames: () => ["read", ...(enabled ? ["generate_image"] : [])],
+    });
+    const project = createProject();
+
+    await manager.prompt(project, "First");
+    enabled = true;
+    await manager.prompt(project, "Second");
+
+    expect(createSession).toHaveBeenCalledOnce();
+    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(1, ["read"]);
+    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(2, ["read", "generate_image"]);
+    expect(session.dispose).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
+  it("does not change tools during an active run", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    let enabled = false;
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      activeToolNames: () => ["read", ...(enabled ? ["generate_image"] : [])],
+    });
+    const project = createProject();
+
+    const run = manager.prompt(project, "First");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    enabled = true;
+    expect(session.setActiveToolsByName).toHaveBeenCalledTimes(1);
+
+    prompt.resolve();
+    await run;
+    session.prompt.mockResolvedValue();
+    await manager.prompt(project, "Second");
+    expect(session.setActiveToolsByName).toHaveBeenLastCalledWith(["read", "generate_image"]);
+    await manager.close();
+  });
 });
 
 class FakeSession implements CodingSession {
@@ -155,6 +200,7 @@ class FakeSession implements CodingSession {
   prompt = vi.fn<(prompt: string) => Promise<void>>(async () => {});
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
+  setActiveToolsByName = vi.fn<(toolNames: string[]) => void>();
   #listener?: (event: AgentSessionEvent) => void;
 
   subscribe(listener: (event: AgentSessionEvent) => void): () => void {

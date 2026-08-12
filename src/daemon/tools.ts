@@ -48,7 +48,7 @@ export class ToolRunner {
     return [generateImage];
   }
 
-  async run(toolId: string, input: RunImageToolRequest): Promise<ToolRun> {
+  async run(toolId: string, input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
@@ -59,7 +59,9 @@ export class ToolRunner {
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     try {
-      const generated = await this.imageGenerator.generate({ prompt, size });
+      signal?.throwIfAborted();
+      const generated = await this.imageGenerator.generate({ prompt, size }, signal);
+      signal?.throwIfAborted();
       const run: StoredToolRun = {
         version: 1,
         id,

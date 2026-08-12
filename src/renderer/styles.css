@@ -385,6 +385,13 @@ button.home-project:hover {
   color: var(--danger);
 }
 
+.tools-inline-error {
+  width: min(1068px, 100%);
+  margin: -12px auto 16px;
+  color: var(--danger);
+  font-size: 11px;
+}
+
 .tools-grid {
   display: grid;
   width: min(1068px, 100%);
@@ -395,7 +402,7 @@ button.home-project:hover {
 
 .tool-card {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 94px;
   align-items: center;
@@ -405,14 +412,15 @@ button.home-project:hover {
   border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 120ms ease, background-color 120ms ease;
 }
 
-.tool-card:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
+.tool-card-summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  text-align: left;
 }
 
 .tool-card-icon,
@@ -452,9 +460,46 @@ button.home-project:hover {
 }
 
 .tool-card-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--accent);
+  cursor: pointer;
   font-size: 10px;
   font-weight: 650;
+}
+
+.tool-card-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  flex-direction: column;
+}
+
+.tool-agent-toggle {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tool-agent-toggle:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tool-agent-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .tool-dialog-backdrop {
@@ -1442,6 +1487,10 @@ textarea:focus-visible {
   }
 
   .tool-card {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-card-summary {
     grid-template-columns: 48px minmax(0, 1fr);
   }
 
@@ -1450,8 +1499,10 @@ textarea:focus-visible {
     height: 48px;
   }
 
-  .tool-card-action {
-    display: none;
+  .tool-card-actions {
+    align-items: center;
+    justify-content: flex-end;
+    flex-direction: row;
   }
 
   .tool-size-options {
@@ -1463,5 +1514,4 @@ textarea:focus-visible {
   .spin { animation: none; }
   .icon-button { transition: none; }
   .home-project-skeleton { animation: none; }
-  .tool-card { transition: none; }
 }

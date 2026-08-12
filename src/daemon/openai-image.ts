@@ -7,7 +7,7 @@ export interface GeneratedImage {
 }
 
 export interface ImageGenerator {
-  generate(input: { prompt: string; size: ImageSize }): Promise<GeneratedImage>;
+  generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -25,9 +25,10 @@ export class OpenAIImageGenerator implements ImageGenerator {
     private readonly request: Fetch = fetch,
   ) {}
 
-  async generate(input: { prompt: string; size: ImageSize }): Promise<GeneratedImage> {
+  async generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage> {
     if (!this.apiKey) throw new ImageGenerationError("Image generation is not configured", 503);
     const endpoint = imageEndpoint(this.baseUrl);
+    const timeout = AbortSignal.timeout(130_000);
 
     let response: Response;
     try {
@@ -45,9 +46,10 @@ export class OpenAIImageGenerator implements ImageGenerator {
           output_format: "webp",
           n: 1,
         }),
-        signal: AbortSignal.timeout(130_000),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
     } catch (cause) {
+      if (signal?.aborted) throw signal.reason ?? cause;
       const message = cause instanceof Error && cause.name === "TimeoutError"
         ? "Image generation timed out"
         : "Could not reach OpenAI image generation";

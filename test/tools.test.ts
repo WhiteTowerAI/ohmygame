@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
+import { ToolRunner } from "../src/daemon/tools.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -43,7 +44,7 @@ describe("tool runner", () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" });
+    expect(generate).toHaveBeenCalledWith({ prompt: "A forest game background", size: "1536x1024" }, undefined);
     const run = response.json();
     expect(run).toMatchObject({
       toolId: "generate-image",
@@ -120,6 +121,49 @@ describe("tool runner", () => {
       url: "/projects/missing/tool-results",
       payload: { runId: "missing", fileName: "output.webp" },
     })).statusCode).toBe(404);
+  });
+
+  it("cancels image generation without persisting a run", async () => {
+    const dataDirectory = await temporaryData();
+    const generate: ImageGenerator["generate"] = async (_input, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    const runner = new ToolRunner(dataDirectory, { generate });
+    await runner.load();
+    const controller = new AbortController();
+
+    const run = runner.run("generate-image", { prompt: "A forest" }, controller.signal);
+    controller.abort();
+
+    await expect(run).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+  });
+
+  it("persists the tools enabled for the agent", async () => {
+    const dataDirectory = await temporaryData();
+    const app = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/tool-settings" })).json()).toEqual({ enabledTools: [] });
+    const update = await app.inject({
+      method: "PUT",
+      url: "/tool-settings",
+      payload: { enabledTools: ["generate-image"] },
+    });
+    expect(update.statusCode).toBe(200);
+    expect(update.json()).toEqual({ enabledTools: ["generate-image"] });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/tool-settings",
+      payload: { enabledTools: ["missing"] },
+    })).statusCode).toBe(400);
+
+    await app.close();
+    apps.splice(apps.indexOf(app), 1);
+    const restarted = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
+    apps.push(restarted);
+    expect((await restarted.inject({ method: "GET", url: "/tool-settings" })).json())
+      .toEqual({ enabledTools: ["generate-image"] });
   });
 });
 

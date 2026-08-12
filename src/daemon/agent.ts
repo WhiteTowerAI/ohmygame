@@ -5,6 +5,7 @@ import {
   SessionManager,
   type AgentSessionEvent,
   type SessionEntry,
+  type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
 import type { ConversationItem, ProjectState } from "../shared/contracts.js";
@@ -16,9 +17,10 @@ export interface CodingSession {
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+  setActiveToolsByName?(toolNames: string[]): void;
 }
 
-export type SessionFactory = (workspacePath: string) => Promise<CodingSession>;
+export type SessionFactory = (project: ProjectState) => Promise<CodingSession>;
 export type AgentRunResult = "completed" | "cancelled";
 
 export function loadConversation(workspacePath: string, before?: string): ConversationItem[] {
@@ -78,6 +80,7 @@ export function conversationItems(entries: readonly SessionEntry[]): Conversatio
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
+  activeToolNames?: () => string[];
 }
 
 interface ManagedSession {
@@ -123,6 +126,7 @@ export class AgentManager {
         return "cancelled";
       }
 
+      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.() ?? BASE_TOOL_NAMES);
       await managed.session.prompt(prompt);
       if (isCancelling(project)) {
         this.#markCancelled(project);
@@ -178,7 +182,7 @@ export class AgentManager {
     const existing = this.#sessions.get(project.id);
     if (existing) return existing;
 
-    const session = await (this.options.createSession ?? createPiSession)(project.workspacePath);
+    const session = await (this.options.createSession ?? ((state) => createPiSession(state.workspacePath)))(project);
     if (this.#closing) {
       session.dispose();
       throw new Error("Agent manager is closing");
@@ -241,21 +245,26 @@ function textContent(content: unknown): string {
     .join("");
 }
 
-async function createPiSession(workspacePath: string): Promise<CodingSession> {
+const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
+
+export async function createPiSession(
+  workspacePath: string,
+  customTools: ToolDefinition[] = [],
+): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir: getAgentDir(),
     appendSystemPrompt: [
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
-      "When the user asks you to build a game or web app in this workspace, create it as a complete browser-based project whose package.json has a non-empty scripts.dev command. " +
+      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has a non-empty scripts.dev command. " +
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
     ],
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: workspacePath,
-    tools: ["read", "write", "edit", "bash"],
+    customTools,
     resourceLoader,
     sessionManager: SessionManager.continueRecent(workspacePath, path.join(path.dirname(workspacePath), "session")),
   });

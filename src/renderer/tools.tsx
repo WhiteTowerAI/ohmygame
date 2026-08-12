@@ -1,7 +1,7 @@
-import { Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
+import { Download, FolderInput, Image, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ImageSize, ProjectState, ToolDefinition, ToolRun } from "../shared/contracts.js";
-import { addToolResultToProject, getToolRunFile, listProjects, listTools, runTool, waitForRuntime } from "./api.js";
+import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 
 interface ToolsProps {
@@ -14,13 +14,18 @@ export function Tools({ onCommunity, onHome }: ToolsProps) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [selectedTool, setSelectedTool] = useState<ToolDefinition>();
+  const [enabledTools, setEnabledTools] = useState<ToolDefinition["id"][]>([]);
+  const [updatingTool, setUpdatingTool] = useState<ToolDefinition["id"]>();
+  const [settingsError, setSettingsError] = useState<string>();
 
   async function load() {
     setPhase("loading");
     setError(undefined);
     try {
       await waitForRuntime();
-      setTools(await listTools());
+      const [loadedTools, settings] = await Promise.all([listTools(), getToolSettings()]);
+      setTools(loadedTools);
+      setEnabledTools(settings.enabledTools);
       setPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -29,6 +34,22 @@ export function Tools({ onCommunity, onHome }: ToolsProps) {
   }
 
   useEffect(() => { void load(); }, []);
+
+  async function toggleTool(tool: ToolDefinition) {
+    if (updatingTool) return;
+    setUpdatingTool(tool.id);
+    setSettingsError(undefined);
+    const enabled = enabledTools.includes(tool.id);
+    const next = enabled ? enabledTools.filter((id) => id !== tool.id) : [...enabledTools, tool.id];
+    try {
+      const settings = await updateToolSettings({ enabledTools: next });
+      setEnabledTools(settings.enabledTools);
+    } catch (cause) {
+      setSettingsError(errorMessage(cause));
+    } finally {
+      setUpdatingTool(undefined);
+    }
+  }
 
   return (
     <main className="home-shell">
@@ -48,18 +69,36 @@ export function Tools({ onCommunity, onHome }: ToolsProps) {
 
         {phase === "loading" ? <div className="tools-state"><LoaderCircle className="spin" size={18} />Loading tools</div> : null}
         {phase === "error" ? <div className="tools-state tools-error" role="alert">{error}</div> : null}
+        {settingsError ? <div className="tools-inline-error" role="alert">{settingsError}</div> : null}
         {phase === "ready" ? (
           <div className="tools-grid">
-            {tools.map((tool) => (
-              <button className="tool-card" type="button" key={tool.id} onClick={() => setSelectedTool(tool)}>
-                <span className="tool-card-icon"><Image size={24} /></span>
-                <span className="tool-card-copy">
-                  <strong>{tool.name}</strong>
-                  <span>{tool.description}</span>
-                </span>
-                <span className="tool-card-action">Open</span>
-              </button>
-            ))}
+            {tools.map((tool) => {
+              const enabled = enabledTools.includes(tool.id);
+              const updating = updatingTool === tool.id;
+              return (
+                <article className="tool-card" key={tool.id}>
+                  <div className="tool-card-summary">
+                    <span className="tool-card-icon"><Image size={24} /></span>
+                    <span className="tool-card-copy">
+                      <strong>{tool.name}</strong>
+                      <span>{tool.description}</span>
+                    </span>
+                  </div>
+                  <div className="tool-card-actions">
+                    <button className="tool-card-action" type="button" onClick={() => setSelectedTool(tool)}>Open</button>
+                    <button
+                      className="tool-agent-toggle"
+                      type="button"
+                      disabled={Boolean(updatingTool)}
+                      onClick={() => void toggleTool(tool)}
+                    >
+                      {updating ? <LoaderCircle className="spin" size={13} /> : enabled ? <Minus size={13} /> : <Plus size={13} />}
+                      {enabled ? "Remove from Agent" : "Add to Agent"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : null}
       </section>

@@ -77,4 +77,17 @@ describe("OpenAI image generator", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("preserves caller cancellation", async () => {
+    const request = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    const generator = new OpenAIImageGenerator("key", undefined, request);
+    const controller = new AbortController();
+
+    const generation = generator.generate({ prompt: "image", size: "1024x1024" }, controller.signal);
+    controller.abort();
+
+    await expect(generation).rejects.toMatchObject({ name: "AbortError" });
+  });
+
 });
