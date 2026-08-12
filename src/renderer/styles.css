@@ -36,6 +36,265 @@ body {
   overflow: hidden;
 }
 
+.home-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.home-sidebar {
+  padding: 24px 13px;
+  border-right: 1px solid var(--border);
+  background: #101115;
+}
+
+.home-sidebar-brand {
+  height: 34px;
+  padding: 0 11px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 34px;
+}
+
+.home-sidebar nav {
+  margin-top: 26px;
+}
+
+.home-nav-label {
+  margin: 0 3px 8px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.home-nav-item {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 11px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.home-nav-item-active {
+  background: #1b2e29;
+  color: var(--text);
+}
+
+.home-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 64px 34px 44px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.home-start {
+  width: min(612px, 100%);
+  margin: 0 auto;
+  text-align: center;
+}
+
+.home-start h1 {
+  margin: 0 0 20px;
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.home-composer {
+  position: relative;
+  min-height: 124px;
+  overflow: hidden;
+  border: 1px solid #30323a;
+  border-radius: 14px;
+  background: #17181d;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
+  text-align: left;
+}
+
+.home-composer:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 38%), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.home-composer textarea {
+  display: block;
+  width: 100%;
+  height: 82px;
+  resize: none;
+  padding: 16px 58px 12px 17px;
+  overflow: auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.home-composer textarea::placeholder {
+  color: #777a84;
+  opacity: 1;
+}
+
+.home-send-button {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.home-send-button:disabled {
+  cursor: default;
+  opacity: 0.36;
+}
+
+.home-notice {
+  margin: 10px 2px 0;
+  color: var(--danger);
+  font-size: 11px;
+  text-align: left;
+}
+
+.home-projects {
+  max-width: 1068px;
+  margin: 72px auto 0;
+}
+
+.home-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13px;
+}
+
+.home-section-heading h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.home-section-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.home-project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.home-project {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: 21px 18px;
+  min-width: 0;
+  min-height: 76px;
+  align-items: center;
+  gap: 1px 12px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  text-align: left;
+}
+
+button.home-project {
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+button.home-project:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.home-project-icon {
+  display: grid;
+  grid-row: 1 / span 2;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 5px;
+  background: #1b2e29;
+  color: var(--accent);
+}
+
+.home-project-name,
+.home-project-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-project-name {
+  align-self: end;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.home-project-status {
+  align-self: start;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.home-project-status-ready,
+.home-project-status-stopped {
+  color: var(--accent);
+}
+
+.home-project-status-error {
+  color: var(--danger);
+}
+
+.home-project-state {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.home-project-skeleton {
+  min-height: 76px;
+  animation: home-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes home-pulse {
+  from { opacity: 0.42; }
+  to { opacity: 0.75; }
+}
+
 button,
 textarea {
   color: inherit;
@@ -91,6 +350,24 @@ textarea:focus-visible {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-back-button {
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+}
+
+.header-back-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .runtime-status {
@@ -464,6 +741,11 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.fatal-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .spin {
   animation: spin 900ms linear infinite;
 }
@@ -474,6 +756,51 @@ textarea:focus-visible {
 
 @media (max-width: 720px) {
   body { overflow: auto; }
+
+  .home-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .home-sidebar {
+    display: flex;
+    height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .home-sidebar-brand {
+    padding: 0;
+  }
+
+  .home-sidebar nav {
+    margin: 0;
+  }
+
+  .home-nav-label {
+    display: none;
+  }
+
+  .home-nav-item {
+    padding: 0 10px;
+  }
+
+  .home-content {
+    overflow: visible;
+    padding: 38px 18px 28px;
+  }
+
+  .home-start h1 {
+    font-size: 22px;
+  }
+
+  .home-projects {
+    margin-top: 48px;
+  }
 
   .workspace-shell {
     grid-template-columns: 1fr;
@@ -503,4 +830,5 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
   .icon-button { transition: none; }
+  .home-project-skeleton { animation: none; }
 }

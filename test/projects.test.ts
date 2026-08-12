@@ -40,6 +40,15 @@ describe("ProjectManager", () => {
     expect(await readdir(project.workspacePath)).toEqual([]);
   });
 
+  it("lists its projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const first = await manager.create("First");
+    const second = await manager.create("Second");
+
+    expect(manager.list()).toEqual([first, second]);
+  });
+
   it("restores runnable and non-runnable workspaces with distinct preview states", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);

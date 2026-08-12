@@ -1,0 +1,146 @@
+import { ArrowUp, FolderCode, House, LoaderCircle, RefreshCw } from "lucide-react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import type { ProjectState } from "../shared/contracts.js";
+import { createProject, listProjects, waitForRuntime } from "./api.js";
+
+interface HomeProps {
+  onCreate: (projectId: string, prompt: string) => void;
+  onOpen: (projectId: string) => void;
+}
+
+export function Home({ onCreate, onOpen }: HomeProps) {
+  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [prompt, setPrompt] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const [createError, setCreateError] = useState<string>();
+
+  async function loadProjects() {
+    setPhase("loading");
+    setLoadError(undefined);
+    try {
+      await waitForRuntime();
+      setProjects(await listProjects());
+      setPhase("ready");
+    } catch (error) {
+      setLoadError(errorMessage(error));
+      setPhase("error");
+    }
+  }
+
+  useEffect(() => { void loadProjects(); }, []);
+
+  async function submitPrompt(event?: FormEvent) {
+    event?.preventDefault();
+    const nextPrompt = prompt.trim();
+    if (!nextPrompt || creating) return;
+    setCreating(true);
+    setCreateError(undefined);
+    try {
+      const project = await createProject();
+      onCreate(project.id, nextPrompt);
+    } catch (error) {
+      setCreateError(errorMessage(error));
+      setCreating(false);
+    }
+  }
+
+  return (
+    <main className="home-shell">
+      <aside className="home-sidebar">
+        <div className="home-sidebar-brand">OpenGame</div>
+        <nav aria-label="Main navigation">
+          <div className="home-nav-label">WORKSPACE</div>
+          <div className="home-nav-item home-nav-item-active" aria-current="page">
+            <House size={16} />
+            <span>Home</span>
+          </div>
+        </nav>
+      </aside>
+
+      <section className="home-content">
+        <div className="home-start">
+          <h1>OpenGame</h1>
+          <form className="home-composer" onSubmit={submitPrompt}>
+            <textarea
+              aria-label="Prompt"
+              disabled={creating}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void submitPrompt();
+                }
+              }}
+              placeholder="Ask your agent to build anything"
+              rows={3}
+              value={prompt}
+            />
+            <button
+              className="home-send-button"
+              type="submit"
+              disabled={!prompt.trim() || creating}
+              title="Create project"
+              aria-label="Create project"
+            >
+              {creating ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={17} />}
+            </button>
+          </form>
+          {createError ? <p className="home-notice" role="alert">{createError}</p> : null}
+        </div>
+
+        <section className="home-projects" aria-labelledby="projects-heading">
+          <div className="home-section-heading">
+            <h2 id="projects-heading">Projects</h2>
+            {phase === "error" ? (
+              <button type="button" onClick={() => void loadProjects()}>
+                <RefreshCw size={14} />Retry
+              </button>
+            ) : null}
+          </div>
+
+          {phase === "loading" ? <ProjectGridSkeleton /> : null}
+          {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
+          {phase === "ready" && projects.length === 0 ? (
+            <p className="home-project-state">No projects yet</p>
+          ) : null}
+          {phase === "ready" && projects.length > 0 ? (
+            <div className="home-project-grid">
+              {projects.map((project) => (
+                <button className="home-project" type="button" key={project.id} onClick={() => onOpen(project.id)}>
+                  <span className="home-project-icon"><FolderCode size={22} /></span>
+                  <span className="home-project-name" title={project.name}>{project.name}</span>
+                  <span className={`home-project-status home-project-status-${project.preview.status}`}>
+                    {projectStatus(project)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function ProjectGridSkeleton() {
+  return (
+    <div className="home-project-grid" aria-label="Loading projects">
+      {[0, 1, 2, 3].map((item) => <div className="home-project home-project-skeleton" key={item} />)}
+    </div>
+  );
+}
+
+function projectStatus(project: ProjectState): string {
+  if (project.agent.status === "running" || project.agent.status === "cancelling") return "Agent working";
+  if (project.agent.status === "error") return "Needs attention";
+  if (project.preview.status === "ready") return "Preview ready";
+  if (project.preview.status === "error") return "Preview failed";
+  if (project.preview.status === "waiting") return "Not built yet";
+  return "Ready to open";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

@@ -54,6 +54,8 @@ export class ProjectManager {
     return project;
   }
 
+  list(): ProjectState[] { return [...this.#projects.values()]; }
+
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
 }
 

@@ -69,6 +69,8 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(201).send(project);
   });
 
+  app.get("/projects", async () => projects.list());
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });

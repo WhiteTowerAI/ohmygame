@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { subscribeToProject } from "../src/renderer/api.js";
+import { listProjects, sendPrompt, subscribeToProject } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -66,6 +66,32 @@ describe("renderer event stream", () => {
     await reconnected;
 
     expect(urls[1]).toContain("cursor=7");
+  });
+});
+
+describe("renderer project API", () => {
+  it("lists projects", async () => {
+    installWindow();
+    const projects = [{ id: "project-1", name: "First" }];
+    const fetchMock = vi.fn(async () => Response.json(projects));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listProjects()).resolves.toEqual(projects);
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects", expect.objectContaining({ headers: {} }));
+  });
+
+  it("sends a prompt to a project", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPrompt("project-1", "Build a game");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/prompts", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ prompt: "Build a game" }),
+      headers: { "content-type": "application/json" },
+    }));
   });
 });
 

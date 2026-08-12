@@ -24,6 +24,10 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
   return request("/projects", { method: "POST", body: JSON.stringify(input) });
 }
 
+export async function listProjects(): Promise<ProjectState[]> {
+  return request("/projects");
+}
+
 export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

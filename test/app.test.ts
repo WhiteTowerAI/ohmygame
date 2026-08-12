@@ -19,6 +19,18 @@ describe("daemon", () => {
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
+  it("lists projects", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    apps.push(app);
+    const first = (await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } })).json();
+    const second = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Second" } })).json();
+
+    const response = await app.inject({ method: "GET", url: "/projects" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([first, second]);
+  });
+
   it("exposes health and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
