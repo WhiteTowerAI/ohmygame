@@ -5,32 +5,41 @@
   "type": "module",
   "main": "dist/desktop/bootstrap.cjs",
   "scripts": {
-    "build": "npm run build:node && npm run build:renderer",
+    "build": "npm run build:node && npm run build:renderer && npm run build:community",
+    "build:community": "vite build --config vite.community.config.ts",
     "build:node": "tsc -p tsconfig.build.json",
     "build:daemon": "npm run build:node",
     "build:renderer": "vite build",
     "dev": "concurrently --kill-others --names daemon,renderer --prefix-colors cyan,green \"npm:dev:daemon\" \"npm:dev:renderer\"",
     "dev:daemon": "tsx watch src/daemon/server.ts",
+    "dev:publish": "tsx watch src/publish-server/server.ts",
+    "dev:community": "vite --config vite.community.config.ts --host 127.0.0.1 --port 43140",
     "dev:desktop": "npm run build:node && concurrently --kill-others --names renderer,desktop --prefix-colors green,cyan \"npm:dev:renderer\" \"electron .\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 43120",
     "start": "node dist/daemon/server.js",
-    "start:desktop": "npm run build && electron . --built-renderer",
+    "start:publish": "node dist/publish-server/server.js",
+    "start:desktop": "npm run build:node && npm run build:renderer && electron . --built-renderer",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/multipart": "10.1.0",
     "@mariozechner/pi-coding-agent": "0.73.1",
     "fastify": "5.11.3",
     "lucide-react": "1.31.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typebox": "1.3.12",
-    "undici": "7.29.0"
+    "undici": "7.29.0",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "concurrently": "10.0.4",
     "electron": "43.3.0",
@@ -40,6 +49,6 @@
     "vitest": "3.2.6"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5.0"
   }
 }

@@ -57,8 +57,8 @@ describe("rendererReducer", () => {
       event: runtimeEvent(1, "publish.completed", {
         game: {
           id: "game-1",
-          projectId: "project-1",
           title: "Game",
+          description: "",
           deploymentId: "deployment-1",
           playUrl: "https://play.example/game",
           publishedAt: new Date(0).toISOString(),

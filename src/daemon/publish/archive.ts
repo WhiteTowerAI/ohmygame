@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { access, copyFile, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import type { Deployment, ProjectState } from "../shared/contracts.js";
+import type { Readable } from "node:stream";
+import { ZipFile } from "yazl";
+import type { ProjectState } from "../../shared/contracts.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES } from "../../shared/publish-v1.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -10,84 +12,30 @@ interface PackageJson {
   devDependencies?: Record<string, unknown>;
 }
 
+const ZIP_TIMESTAMP = new Date("1980-01-02T00:00:00.000Z");
+
 export class PublishError extends Error {
   constructor(message: string, readonly statusCode = 409) {
     super(message);
   }
 }
 
-export class DeploymentManager {
-  readonly #deploymentsDirectory: string;
-  readonly #publishing = new Set<string>();
+export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
 
-  constructor(
-    dataDirectory: string,
-    private readonly playOrigin: string,
-  ) {
-    this.#deploymentsDirectory = path.join(dataDirectory, "deployments");
-  }
-
-  async load(): Promise<void> {
-    await mkdir(this.#deploymentsDirectory, { recursive: true });
-  }
-
-  async create(project: ProjectState): Promise<Deployment> {
-    if (this.#publishing.has(project.id)) throw new PublishError("Project is already being published");
-    this.#publishing.add(project.id);
-
+  async create(project: ProjectState): Promise<Buffer> {
     try {
       const source = await prepareSource(project.workspacePath, (child) => this.#running.set(project.id, child));
-      const id = randomUUID();
-      const temporary = path.join(this.#deploymentsDirectory, `.${id}.tmp`);
-      const destination = path.join(this.#deploymentsDirectory, id);
-      const createdAt = new Date().toISOString();
-      const deployment: Deployment = {
-        id,
-        projectId: project.id,
-        playUrl: playUrlFor(this.playOrigin, id),
-        createdAt,
-      };
-      await mkdir(path.join(temporary, "files"), { recursive: true });
-      try {
-        await copyDirectory(source, path.join(temporary, "files"));
-        await rename(temporary, destination);
-        return deployment;
-      } catch (error) {
-        await rm(temporary, { recursive: true, force: true });
-        throw error;
-      }
+      return createZip(source);
     } finally {
-      this.#publishing.delete(project.id);
       this.#running.delete(project.id);
     }
   }
 
-  async remove(deploymentId: string): Promise<void> {
-    if (!isDeploymentId(deploymentId)) return;
-    await rm(path.join(this.#deploymentsDirectory, deploymentId), { recursive: true, force: true });
-  }
-
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
-    this.#publishing.clear();
     this.#running.clear();
   }
-}
-
-export function deploymentFilesPath(dataDirectory: string, deploymentId: string): string | undefined {
-  if (!isDeploymentId(deploymentId)) return undefined;
-  return path.join(dataDirectory, "deployments", deploymentId, "files");
-}
-
-export function playUrlFor(playOrigin: string, deploymentId: string): string {
-  if (!isDeploymentId(deploymentId)) throw new Error("Invalid deployment ID");
-  const origin = new URL(playOrigin);
-  origin.hostname = `${deploymentId}.${origin.hostname}`;
-  origin.pathname = "/";
-  origin.search = "";
-  origin.hash = "";
-  return origin.toString();
 }
 
 async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void): Promise<string> {
@@ -99,14 +47,47 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
     }
     await run("npm", ["run", "build"], workspacePath, track);
     const output = await findBuildOutput(workspacePath);
-    if (!output) {
-      throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
-    }
+    if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
     return output;
   }
-
   if (await exists(path.join(workspacePath, "index.html"))) return workspacePath;
   throw new PublishError("Project has no build script or static index.html yet");
+}
+
+async function createZip(source: string): Promise<Buffer> {
+  const zip = new ZipFile();
+  for (const file of await filesIn(source)) {
+    zip.addFile(path.join(source, ...file.split("/")), file, { mtime: ZIP_TIMESTAMP });
+  }
+  const chunks: Buffer[] = [];
+  const output = zip.outputStream as Readable;
+  const completed = new Promise<Buffer>((resolve, reject) => {
+    let bytes = 0;
+    output.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > PUBLISH_ARTIFACT_MAX_BYTES) {
+        output.destroy(new PublishError("Publish artifact exceeds 25 MB", 413));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    output.once("error", reject);
+    output.once("end", () => resolve(Buffer.concat(chunks)));
+  });
+  zip.end();
+  return completed;
+}
+
+async function filesIn(root: string, relative = ""): Promise<string[]> {
+  const files: string[] = [];
+  const directory = path.join(root, relative);
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (ignored(entry.name) || entry.isSymbolicLink()) continue;
+    const child = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) files.push(...await filesIn(root, child));
+    else if (entry.isFile()) files.push(child);
+  }
+  return files;
 }
 
 async function readPackageJson(workspacePath: string): Promise<PackageJson | undefined> {
@@ -148,17 +129,6 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
   });
 }
 
-async function copyDirectory(source: string, destination: string): Promise<void> {
-  await mkdir(destination, { recursive: true });
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    if (ignored(entry.name) || entry.isSymbolicLink()) continue;
-    const from = path.join(source, entry.name);
-    const to = path.join(destination, entry.name);
-    if (entry.isDirectory()) await copyDirectory(from, to);
-    else if (entry.isFile()) await copyFile(from, to);
-  }
-}
-
 function ignored(name: string): boolean {
   return name.startsWith(".") || name === "node_modules";
 }
@@ -180,8 +150,4 @@ async function terminate(child: ChildProcess): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
-}
-
-export function isDeploymentId(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

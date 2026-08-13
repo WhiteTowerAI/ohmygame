@@ -2,13 +2,10 @@
 
 ## Project shell
 
-`npm run dev` starts the renderer and daemon; the daemon also owns an isolated
-game server:
+`npm run dev` starts the renderer and daemon:
 
 - the React renderer on `http://127.0.0.1:43120`
 - the Fastify daemon on `http://127.0.0.1:43110`
-- the game server on port `43111`, with one
-  `http://<deployment-id>.localhost:43111/` origin per deployment
 
 Vite proxies the renderer's `/api` requests to the daemon. On load, the
 renderer restores the last project ID from local storage or creates a new
@@ -37,10 +34,15 @@ reload the project shell. A generated workspace still updates its own preview.
 - `POST /projects/:id/cancel` aborts the active turn.
 - `GET /projects/:id/conversation` returns the current Pi session branch as a
   normalized UI timeline and the SSE cursor to continue from.
-- `POST /projects/:id/publish` creates an immutable deployment, verifies its
-  play URL, and creates or updates its Community game.
-- `GET /community/games` lists published Community games.
+- `POST /projects/:id/publish` builds and uploads static output to the remote
+  Publish v1 service, then lists the resulting Game.
+- `GET /community/games` proxies the public remote Community list.
 - `GET /projects/:id/events` streams replayable SSE events.
+
+The local API above is the current single-user runtime. The separate public
+publishing contract is documented in [`publish-v1.md`](publish-v1.md). It keeps
+immutable deployments and Community discovery as distinct remote resources and
+does not expose Pi or workspace data.
 
 The event stream exposes a small runtime contract rather than Pi's internal
 event objects:
@@ -87,34 +89,30 @@ projects/<project-id>/
 └── session/
 ```
 
-`project.json` stores project identity, Pi owns the append-only files inside
-`session/`. On startup the daemon scans these directories, migrates older
+`project.json` stores project identity and the latest remote publication
+identity. Pi owns the append-only files inside `session/`. On startup the daemon
+scans these directories, migrates older
 workspace-only projects by writing missing metadata, and initializes runtime
 state as idle and waiting. The renderer waits briefly for the daemon,
 reconnects to the in-memory event stream, and refreshes authoritative project
 state.
 
-Published data lives outside the mutable workspace:
+Published artifacts and Community data live in the remote Publish v1 service.
+The local project stores only:
 
 ```text
-deployments/<deployment-id>/
-└── files/
-
-community/games/<project-id>.json
+publication: { gameId, deploymentId, playUrl, publishedAt }
 ```
 
-A project may have many immutable deployments, while its Community game points
-to only the latest verified one. Community records persist deployment identity;
-play URLs are derived from the current play origin, so random local ports do not
-become stale after restart. Each deployment has an origin separate from the
-authenticated daemon and other games. The game server only serves deployment
-files; it does not expose workspaces, Pi sessions, or daemon credentials.
+A project may have many immutable remote Deployments, while its Game points to
+only the latest one. The daemon receives absolute play URLs from the
+service and never sends the workspace, Pi session, conversation, or credentials.
 
 Publish does not require an OpenGame manifest or template. A workspace is
 publishable when it either has a non-empty `scripts.build` that produces a
 static `index.html` under `dist`, `build`, or `out`, or has a root
-`index.html`. Hidden files, dependencies, and symbolic links are not copied.
-Binary assets are copied byte-for-byte.
+`index.html`. Hidden files, dependencies, and symbolic links are not archived.
+Binary assets are preserved byte-for-byte.
 
 Standalone tool runs are stored separately:
 
@@ -127,7 +125,7 @@ tools/runs/<run-id>/
 Image generation calls OpenAI's native Images API with the fixed
 `gpt-image-2` model. At startup, the daemon loads an optional repository-root
 `.env.local`; existing process environment values take precedence. The file is
-ignored by Git and `.env.example` documents its only current setting.
+ignored by Git and `.env.example` documents the current settings.
 `OPENAI_API_KEY` is read only by the daemon. `OPENAI_BASE_URL` optionally points
 to the `/v1` root of an OpenAI-compatible service and defaults to OpenAI's
 official API. Tool runs are not Pi tools and are not added to project

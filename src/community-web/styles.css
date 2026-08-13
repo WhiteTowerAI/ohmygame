@@ -1,0 +1,87 @@
+:root {
+  color: #f1f3f5;
+  background: #090a0c;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --surface: #101115;
+  --surface-hover: #181a1f;
+  --border: #282b31;
+  --text: #f1f3f5;
+  --muted: #8c919c;
+  --faint: #676c76;
+  --accent: #48d6a5;
+  --danger: #f17a73;
+}
+
+* { box-sizing: border-box; letter-spacing: 0; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+body { background: #090a0c; }
+button, a { font: inherit; }
+a { color: inherit; text-decoration: none; }
+
+.community-page { min-height: 100dvh; padding: 54px 28px; }
+.page-content { width: min(1120px, 100%); margin: 0 auto; }
+.page-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 28px; }
+.eyebrow { color: var(--accent); font-size: 11px; font-weight: 650; }
+.page-heading h1 { margin: 5px 0 0; font-size: 26px; font-weight: 600; line-height: 1.2; }
+
+.icon-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-button:hover { background: var(--surface-hover); color: var(--text); }
+.icon-button:focus-visible, .status button:focus-visible, .game-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.game-card { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.game-card:hover { border-color: #3a3e46; background: var(--surface-hover); }
+.game-art { display: grid; aspect-ratio: 16 / 9; place-items: center; border-bottom: 1px solid var(--border); background: #14171a; color: var(--faint); }
+.game-copy { display: grid; min-width: 0; gap: 6px; padding: 13px 14px 14px; }
+.game-copy strong { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.game-copy span {
+  display: -webkit-box;
+  min-height: 34px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.game-copy time { color: var(--faint); font-size: 10px; }
+
+.status { display: flex; min-height: 220px; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 12px; }
+.status-error { color: var(--danger); }
+.status button { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; }
+
+.player-page { display: grid; width: 100%; height: 100dvh; grid-template-rows: 52px minmax(0, 1fr); background: #050506; }
+.player-header { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.player-header > div { display: grid; min-width: 0; gap: 2px; }
+.player-header strong, .player-header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-header strong { font-size: 12px; font-weight: 650; }
+.player-header span { color: var(--muted); font-size: 10px; }
+.player-page iframe { width: 100%; height: 100%; border: 0; background: white; }
+.player-page > .status { min-height: 0; }
+
+.spin { animation: spin 800ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 600px) {
+  .community-page { padding: 32px 16px; }
+  .game-grid { grid-template-columns: 1fr; }
+  .player-header span { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+}

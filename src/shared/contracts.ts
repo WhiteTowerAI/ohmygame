@@ -1,3 +1,5 @@
+import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 
@@ -17,24 +19,10 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export interface Deployment {
-  id: string;
-  projectId: string;
-  playUrl: string;
-  createdAt: string;
-}
-
-export interface CommunityGame {
-  id: string;
-  projectId: string;
-  title: string;
-  deploymentId: string;
-  playUrl: string;
-  publishedAt: string;
-}
+export type CommunityGame = PublishCommunityGame;
 
 export interface PublishResult {
-  deployment: Deployment;
+  deployment: PublishDeployment;
   game: CommunityGame;
 }
 

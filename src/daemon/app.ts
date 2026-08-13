@@ -3,11 +3,12 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools } from "./agent-tools.js";
-import { CommunityStore } from "./community.js";
-import { DeploymentManager, PublishError } from "./deployments.js";
+import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
@@ -19,8 +20,9 @@ export interface AppOptions {
   logger?: boolean;
   accessToken?: string;
   allowedOrigins?: string[];
-  playOrigin?: string;
-  verifyPlayUrl?: (url: string) => Promise<void>;
+  publishApiUrl?: string;
+  publishToken?: string;
+  publishFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   openAIApiKey?: string;
@@ -31,7 +33,7 @@ const createProjectSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    properties: { name: { type: "string", maxLength: 200 } },
+    properties: { name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
   },
 } as const;
 
@@ -88,9 +90,13 @@ export function createApp(options: AppOptions = {}) {
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const events = new RuntimeEventBus();
   const projects = new ProjectManager(dataDirectory);
-  const playOrigin = options.playOrigin ?? "http://localhost:43111";
-  const community = new CommunityStore(dataDirectory, playOrigin);
-  const deployments = new DeploymentManager(dataDirectory, playOrigin);
+  const publishing = new Set<string>();
+  const artifacts = new ArtifactBuilder();
+  const publisher = new RemotePublisher({
+    apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
+    token: options.publishToken ?? process.env.PUBLISH_TOKEN,
+    fetch: options.publishFetch,
+  });
   const previews = new PreviewManager(events);
   const tools = new ToolRunner(
     dataDirectory,
@@ -113,15 +119,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), community.load(), deployments.load(), tools.load(), toolSettings.load()]);
-    for (const game of community.list()) {
-      projects.setPublication(game.projectId, {
-        gameId: game.id,
-        deploymentId: game.deploymentId,
-        playUrl: game.playUrl,
-        publishedAt: game.publishedAt,
-      });
-    }
+    await Promise.all([projects.load(), tools.load(), toolSettings.load()]);
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -197,7 +195,14 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
-  app.get("/community/games", async () => community.list());
+  app.get("/community/games", async (_request, reply) => {
+    try {
+      return await publisher.community();
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -257,27 +262,26 @@ export function createApp(options: AppOptions = {}) {
     if (project.agent.status === "running" || project.agent.status === "cancelling") {
       return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
     }
+    if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
+    publishing.add(project.id);
     events.publish(project.id, "publish.started", {});
-    let deployment: Awaited<ReturnType<typeof deployments.create>> | undefined;
-    let committed = false;
     try {
-      deployment = await deployments.create(project);
-      await (options.verifyPlayUrl ?? verifyPlayUrl)(deployment.playUrl);
-      const game = await community.publish(project, deployment);
-      committed = true;
-      projects.setPublication(project.id, {
-        gameId: game.id,
-        deploymentId: game.deploymentId,
-        playUrl: game.playUrl,
-        publishedAt: game.publishedAt,
+      const result = await publisher.publish(project, await artifacts.create(project));
+      await projects.setPublication(project.id, {
+        gameId: result.game.id,
+        deploymentId: result.game.deploymentId,
+        playUrl: result.game.playUrl,
+        publishedAt: result.game.publishedAt,
       });
-      events.publish(project.id, "publish.completed", { game });
-      return reply.code(201).send({ deployment, game });
+      events.publish(project.id, "publish.completed", { game: result.game });
+      return reply.code(201).send(result);
     } catch (cause) {
-      if (deployment && !committed) await deployments.remove(deployment.id).catch(() => {});
       const error = cause instanceof Error ? cause.message : String(cause);
       events.publish(project.id, "publish.error", { error });
-      return reply.code(cause instanceof PublishError ? cause.statusCode : 502).send({ error });
+      const statusCode = cause instanceof PublishError || cause instanceof RemotePublishError ? cause.statusCode : 502;
+      return reply.code(statusCode).send({ error });
+    } finally {
+      publishing.delete(project.id);
     }
   });
 
@@ -301,19 +305,7 @@ export function createApp(options: AppOptions = {}) {
   app.addHook("onClose", async () => {
     await agents.close();
     await previews.stopAll();
-    await deployments.close();
+    await artifacts.close();
   });
   return app;
-}
-
-async function verifyPlayUrl(url: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Published game could not be reached");
 }

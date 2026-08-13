@@ -6,5 +6,5 @@
     "declaration": true,
     "sourceMap": true
   },
-  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/shared/**/*.ts"]
+  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/publish-server/**/*.ts", "src/shared/**/*.ts"]
 }

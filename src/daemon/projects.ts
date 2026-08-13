@@ -7,6 +7,7 @@ interface ProjectMetadata {
   version: 1;
   id: string;
   name: string;
+  publication?: PublicationState;
 }
 
 interface LoadedMetadata {
@@ -80,9 +81,16 @@ export class ProjectManager {
     return relativePath.split(path.sep).join("/");
   }
 
-  setPublication(id: string, publication: PublicationState): void {
+  async setPublication(id: string, publication: PublicationState): Promise<void> {
     const project = this.#projects.get(id);
-    if (project) project.publication = publication;
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await writeMetadata(path.dirname(project.workspacePath), {
+      version: 1,
+      id: project.id,
+      name: project.name,
+      publication,
+    });
+    project.publication = publication;
   }
 }
 
@@ -97,6 +105,7 @@ function projectState(
     workspacePath,
     preview: { status: runnable ? "stopped" : "waiting" },
     agent: { status: "idle" },
+    ...(metadata.publication ? { publication: metadata.publication } : {}),
   };
 }
 
@@ -114,8 +123,19 @@ export async function isRunnableWorkspace(workspacePath: string): Promise<boolea
 async function readMetadata(projectDirectory: string, id: string): Promise<LoadedMetadata> {
   try {
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
-    if (parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim()) {
-      return { metadata: { version: 1, id, name: parsed.name.trim() }, missing: false };
+    if (
+      parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
+      (parsed.publication === undefined || validPublication(parsed.publication))
+    ) {
+      return {
+        metadata: {
+          version: 1,
+          id,
+          name: parsed.name.trim(),
+          ...(parsed.publication ? { publication: parsed.publication } : {}),
+        },
+        missing: false,
+      };
     }
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
   } catch (error) {
@@ -154,4 +174,11 @@ async function ensureDirectory(target: string, create = false): Promise<void> {
 
 function isProjectId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validPublication(value: unknown): value is PublicationState {
+  if (!value || typeof value !== "object") return false;
+  const publication = value as Partial<PublicationState>;
+  return typeof publication.gameId === "string" && typeof publication.deploymentId === "string" &&
+    typeof publication.playUrl === "string" && typeof publication.publishedAt === "string";
 }

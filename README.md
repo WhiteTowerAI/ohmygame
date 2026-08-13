@@ -1,12 +1,12 @@
 # OpenGame
 
-The current milestone is a local-first creation and publishing loop: a Pi
-coding session on the left, a live preview on the right, and a self-hosted
+The current milestone is a local-first creation loop with remote publishing: a
+Pi coding session on the left, a live preview on the right, and a public
 Community backed by immutable game deployments.
 
 ## Development
 
-Requires Node.js 22+. Pi reads the user's existing Pi credentials.
+Requires Node.js 22.5+. Pi reads the user's existing Pi credentials.
 
 ```bash
 npm install
@@ -41,15 +41,43 @@ conversation shown in the Project Shell.
 
 Project Shell exposes one Publish action. The daemon runs a project's existing
 `build` script when present, or publishes a root `index.html` workspace
-directly. Every successful publish creates a new immutable deployment, verifies
-its playable URL, and only then creates or updates the Community game.
+directly. It archives only the static output and uploads it to the configured
+Publish v1 service. Later publishes reuse the same remote Game while creating a
+new immutable Deployment.
 
-Development uses a separate local play server on port `43111`. Each deployment
-has its own `http://<deployment-id>.localhost:43111/` origin, so root-relative
-assets work and games do not share browser storage. This is a local,
-self-hostable reference backend, not an official public cloud. A public host can
-set `PLAY_ORIGIN` to a wildcard-routed play domain while keeping the same client
-contract.
+For local development, this repository includes a minimal Publish v1 service.
+Set the client and server settings in the ignored `.env.local`:
+
+```dotenv
+PUBLISH_API_URL=http://127.0.0.1:43130
+PUBLISH_TOKEN=your-publisher-token
+```
+
+Then start it alongside `npm run dev`:
+
+```bash
+npm run dev:publish
+```
+
+The public Community is a separate web app. During development, start it after
+the Publish service and open `http://127.0.0.1:43140`:
+
+```bash
+npm run dev:community
+```
+
+It reads the public `/v1/community` API directly and provides shareable
+`/games/:gameId` pages without requiring the local daemon. In production,
+serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
+service on the same origin.
+
+It listens on `http://127.0.0.1:43130` by default. Creator routes use
+`Authorization: Bearer <PUBLISH_TOKEN>`; Community routes and published games
+are public. Data is stored under `.data/publish`. This server implements the
+public protocol in [docs/publish-v1.md](docs/publish-v1.md). `PUBLISH_API_URL`
+may instead point the daemon at a separately hosted implementation. The token
+stays in the daemon and is never written to a project, sent to Pi, or included
+in the uploaded artifact.
 
 ## Desktop
 
@@ -59,8 +87,10 @@ npm run dev:desktop
 
 Electron starts a managed daemon on an available local port, waits for its
 health check, and then opens the same renderer. Closing the desktop window
-stops the managed daemon and its preview process. `npm run start:desktop`
-builds all three parts and runs the built renderer.
+stops the managed daemon and its preview process. Publishing uses the remote
+service configured through the desktop process environment. `npm run start:desktop`
+builds the desktop runtime and renderer without building the separate Community
+Web app.
 
 The desktop daemon uses a random process-scoped access token. The preload
 bridge exposes only its runtime connection. Node.js APIs are not available to

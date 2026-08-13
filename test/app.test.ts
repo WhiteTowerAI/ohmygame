@@ -57,6 +57,12 @@ describe("daemon", () => {
       payload: { prompt: 42 },
     });
     expect(invalidPrompt.statusCode).toBe(400);
+    const longName = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "x".repeat(201) },
+    });
+    expect(longName.statusCode).toBe(400);
   });
 
   it("restores a project after an app restart", async () => {
