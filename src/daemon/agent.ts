@@ -257,7 +257,7 @@ export async function createPiSession(
     agentDir: getAgentDir(),
     appendSystemPrompt: [
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
-      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has a non-empty scripts.dev command. " +
+      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
     ],
   });

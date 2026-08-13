@@ -75,6 +75,22 @@ describe("remote publish", () => {
     expect(await readdir(path.join(runtime.publishData, "artifacts", deployment.id))).not.toContain("build.mjs");
   });
 
+  it("rejects a package project without a build command", async () => {
+    const publishFetch = vi.fn(fetch);
+    const runtime = await testRuntime(undefined, publishFetch);
+    const project = await createProject(runtime.daemon, "Source project");
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    await writeFile(path.join(project.workspacePath, "index.html"), '<script type="module" src="/src/main.jsx"></script>');
+
+    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: "Projects with package.json need a non-empty scripts.build command before publishing",
+    });
+    expect(publishFetch).not.toHaveBeenCalled();
+  });
+
   it("rejects an empty workspace before contacting the publish service", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);

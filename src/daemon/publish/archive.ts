@@ -40,8 +40,11 @@ export class ArtifactBuilder {
 
 async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void): Promise<string> {
   const packageJson = await readPackageJson(workspacePath);
-  const build = packageJson?.scripts?.build;
-  if (packageJson && typeof build === "string" && build.trim()) {
+  if (packageJson) {
+    const build = packageJson.scripts?.build;
+    if (typeof build !== "string" || !build.trim()) {
+      throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
+    }
     if (hasDependencies(packageJson) && !await exists(path.join(workspacePath, "node_modules"))) {
       await run("npm", ["install", "--no-audit", "--no-fund"], workspacePath, track);
     }
