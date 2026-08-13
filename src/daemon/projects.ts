@@ -104,7 +104,6 @@ function projectState(
     name: metadata.name,
     workspacePath,
     preview: { status: runnable ? "stopped" : "waiting" },
-    agent: { status: "idle" },
     ...(metadata.publication ? { publication: metadata.publication } : {}),
   };
 }

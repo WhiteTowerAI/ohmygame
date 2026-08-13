@@ -1,12 +1,12 @@
 import { ArrowUp, FolderCode, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { ProjectState } from "../shared/contracts.js";
-import { createProject, listProjects, waitForRuntime } from "./api.js";
+import { createConversation, createProject, listProjects, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 
 interface HomeProps {
   onCommunity: () => void;
-  onCreate: (projectId: string, prompt: string) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string) => void;
   onOpen: (projectId: string) => void;
   onTools: () => void;
 }
@@ -42,7 +42,8 @@ export function Home({ onCommunity, onCreate, onOpen, onTools }: HomeProps) {
     setCreateError(undefined);
     try {
       const project = await createProject();
-      onCreate(project.id, nextPrompt);
+      const conversation = await createConversation(project.id);
+      onCreate(project.id, conversation.id, nextPrompt);
     } catch (error) {
       setCreateError(errorMessage(error));
       setCreating(false);
@@ -127,8 +128,6 @@ function ProjectGridSkeleton() {
 }
 
 function projectStatus(project: ProjectState): string {
-  if (project.agent.status === "running" || project.agent.status === "cancelling") return "Agent working";
-  if (project.agent.status === "error") return "Needs attention";
   if (project.preview.status === "ready") return "Preview ready";
   if (project.preview.status === "error") return "Preview failed";
   if (project.preview.status === "waiting") return "Not built yet";

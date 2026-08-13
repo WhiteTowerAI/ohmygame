@@ -4,12 +4,16 @@ import {
   getAgentDir,
   SessionManager,
   type AgentSessionEvent,
+  type ExtensionFactory,
   type SessionEntry,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
-import type { ConversationItem, ProjectState } from "../shared/contracts.js";
+import { randomUUID } from "node:crypto";
+import type { ActiveTurnState, AgentItem, AgentStatus, ApprovalDecisionRequest, ApprovalRequest, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
+import type { StoredConversation } from "./conversations.js";
+import { evaluateToolCall } from "./permissions.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -20,78 +24,133 @@ export interface CodingSession {
   setActiveToolsByName?(toolNames: string[]): void;
 }
 
-export type SessionFactory = (project: ProjectState) => Promise<CodingSession>;
 export type AgentRunResult = "completed" | "cancelled";
-
-export function loadConversation(workspacePath: string, before?: string): ConversationItem[] {
-  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
-  const entries = SessionManager.continueRecent(workspacePath, sessionDirectory).getBranch();
-  return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries);
+export interface ToolApprovalResult {
+  allowed: boolean;
+  reason?: string;
 }
 
-export function conversationItems(entries: readonly SessionEntry[]): ConversationItem[] {
-  const items: ConversationItem[] = [];
-  const tools = new Map<string, Extract<ConversationItem, { kind: "tool" }>>();
-  let assistant: Extract<ConversationItem, { kind: "assistant" }> | undefined;
+export type ToolApprovalHandler = (
+  toolCallId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<ToolApprovalResult>;
+export type SessionFactory = (
+  project: ProjectState,
+  conversation: StoredConversation,
+  approveTool: ToolApprovalHandler,
+) => Promise<CodingSession>;
+
+export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): AgentItem[] {
+  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
+  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+  return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries, markInterrupted);
+}
+
+export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): AgentItem[] {
+  const items: AgentItem[] = [];
+  const tools = new Map<string, Extract<AgentItem, { kind: "tool" }>>();
+  let turnId: string | undefined;
+  let turnFinished = true;
 
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (message.role === "user") {
-      assistant = undefined;
-      const text = textContent(message.content);
-      if (text) items.push({ id: entry.id, kind: "user", text });
+      turnId = entry.id;
+      turnFinished = false;
+      const parsed = parseUserPrompt(textContent(message.content));
+      if (parsed.text) items.push({ id: entry.id, turnId, kind: "user", text: parsed.text });
       continue;
     }
     if (message.role === "assistant") {
-      if (!assistant) {
-        assistant = { id: entry.id, kind: "assistant", text: "", status: "complete" };
-        items.push(assistant);
-      }
-      assistant.text += textContent(message.content);
-      if (message.stopReason === "error") {
-        assistant.status = "error";
-        assistant.error = message.errorMessage || "The model request failed";
-      } else if (message.stopReason === "aborted") {
-        assistant.status = "cancelled";
+      turnId ??= entry.id;
+      const text = textContent(message.content);
+      if (text || message.stopReason === "error" || message.stopReason === "aborted") {
+        items.push({
+          id: `${entry.id}:assistant`,
+          turnId,
+          kind: "assistant",
+          text,
+          status: assistantStatus(message.stopReason),
+          ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
+        });
       }
       for (const content of message.content) {
-        if (content.type !== "toolCall") continue;
-        const tool: Extract<ConversationItem, { kind: "tool" }> = {
-          id: entry.id + ":" + content.id,
-          kind: "tool",
-          toolCallId: content.id,
-          toolName: content.name,
-          status: "error",
-        };
-        tools.set(content.id, tool);
-        items.push(tool);
+        if (content.type === "toolCall") {
+          const tool: Extract<AgentItem, { kind: "tool" }> = {
+            id: `${entry.id}:tool:${content.id}`,
+            turnId,
+            kind: "tool",
+            toolCallId: content.id,
+            toolName: content.name,
+            status: "running",
+            args: toolArguments(content.name, content.arguments),
+          };
+          tools.set(content.id, tool);
+          items.push(tool);
+        }
       }
+      if (message.stopReason !== "toolUse") turnFinished = true;
       continue;
     }
     if (message.role === "toolResult") {
       const tool = tools.get(message.toolCallId);
-      if (tool) tool.status = message.isError ? "error" : "complete";
+      if (tool) {
+        tool.status = message.isError ? "error" : "complete";
+        const result = toolOutput(message);
+        if (result.output) tool.output = result.output;
+        if (result.truncated) tool.truncated = true;
+      }
     }
   }
 
-  return items.filter((item) => item.kind !== "assistant" || item.text || item.status !== "complete");
+  if (markInterrupted && turnId && !turnFinished) {
+    items.push({ id: `${turnId}:interrupted`, turnId, kind: "assistant", text: "", status: "interrupted" });
+  }
+
+  return items.map((item) => markInterrupted && item.kind === "tool" && item.status === "running"
+    ? { ...item, status: "error" }
+    : item);
 }
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
   activeToolNames?: () => string[];
+  onRunCompleted?: (project: ProjectState) => void;
 }
 
 interface ManagedSession {
+  conversationId: string;
   session: CodingSession;
   unsubscribe: () => void;
 }
 
+interface ActiveTurn {
+  conversationId: string;
+  turnId: string;
+  status: Extract<AgentStatus, "running" | "cancelling">;
+  assistantItemId?: string;
+  assistantSequence: number;
+}
+
+interface QueuedPrompt extends PendingPrompt {
+  project: ProjectState;
+  conversation: StoredConversation;
+}
+
+interface PendingApproval {
+  request: ApprovalRequest;
+  resolve: (result: ToolApprovalResult) => void;
+}
+
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
-  readonly #activeProjects = new Map<string, ProjectState>();
+  readonly #activeTurns = new Map<string, ActiveTurn>();
+  readonly #conversationStates = new Map<string, ConversationState["agent"]>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
+  readonly #pendingPrompts = new Map<string, QueuedPrompt>();
+  readonly #pendingApprovals = new Map<string, PendingApproval>();
   #closing = false;
 
   constructor(
@@ -99,37 +158,74 @@ export class AgentManager {
     private readonly options: AgentManagerOptions = {},
   ) {}
 
-  prompt(project: ProjectState, prompt: string): Promise<AgentRunResult> {
-    if (!prompt.trim()) return Promise.reject(new Error("Prompt must not be empty"));
-    if (this.#closing) return Promise.reject(new Error("Agent manager is closing"));
-    if (project.agent.status !== "idle" && project.agent.status !== "error") {
-      return Promise.reject(new Error("Agent is already running"));
+  state(conversation: StoredConversation): ConversationState {
+    return {
+      ...conversation.summary,
+      agent: this.#conversationStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" },
+    };
+  }
+
+  prompt(
+    project: ProjectState,
+    conversation: StoredConversation,
+    prompt: string,
+    references: PromptReference[] = [],
+    turnId = randomUUID(),
+  ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult> } {
+    if (!prompt.trim()) throw new Error("Prompt must not be empty");
+    if (this.#closing) throw new Error("Agent manager is closing");
+    const active = this.#activeTurns.get(project.id);
+    if (active) {
+      if (active.conversationId !== conversation.summary.id) throw new Error("Agent is already running in this project");
+      if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
+      const queued = { turnId, prompt, references, project, conversation };
+      this.#pendingPrompts.set(conversationKey(project.id, conversation.summary.id), queued);
+      this.events.publish(project.id, "prompt.queued", { prompt, references }, { conversationId: conversation.summary.id, turnId });
+      return { turnId, queued: true };
     }
 
-    project.agent = { status: "running" };
-    this.#activeProjects.set(project.id, project);
-    this.events.publish(project.id, "agent.started", { prompt });
-    const run = this.#runPrompt(project, prompt);
+    this.#pendingPrompts.delete(conversationKey(project.id, conversation.summary.id));
+    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, turnId) };
+  }
+
+  #startPrompt(
+    project: ProjectState,
+    conversation: StoredConversation,
+    prompt: string,
+    references: PromptReference[],
+    turnId: string,
+  ): Promise<AgentRunResult> {
+
+    const active: ActiveTurn = { conversationId: conversation.summary.id, turnId, status: "running", assistantSequence: 0 };
+    this.#activeTurns.set(project.id, active);
+    this.#setState(project.id, active.conversationId, { status: "running", turnId });
+    this.events.publish(project.id, "agent.started", { prompt }, eventScope(active));
+    const run = this.#runPrompt(project, conversation, promptWithReferences(prompt, references), active);
     this.#runs.add(run);
     void run.then(
-      () => this.#finishRun(project.id, run),
-      () => this.#finishRun(project.id, run),
+      (result) => this.#finishRun(project, active, run, result),
+      () => this.#finishRun(project, active, run),
     );
     return run;
   }
 
-  async #runPrompt(project: ProjectState, prompt: string): Promise<AgentRunResult> {
+  async #runPrompt(
+    project: ProjectState,
+    conversation: StoredConversation,
+    prompt: string,
+    active: ActiveTurn,
+  ): Promise<AgentRunResult> {
     try {
-      const managed = await this.#getSession(project);
-      if (isCancelling(project)) {
-        this.#markCancelled(project);
+      const managed = await this.#getSession(project, conversation);
+      if (isCancelling(active)) {
+        this.#markCancelled(project.id, active);
         return "cancelled";
       }
 
       managed.session.setActiveToolsByName?.(this.options.activeToolNames?.() ?? BASE_TOOL_NAMES);
       await managed.session.prompt(prompt);
-      if (isCancelling(project)) {
-        this.#markCancelled(project);
+      if (isCancelling(active)) {
+        this.#markCancelled(project.id, active);
         return "cancelled";
       }
 
@@ -138,30 +234,107 @@ export class AgentManager {
         throw new Error(sessionError);
       }
 
-      project.agent = { status: "idle" };
-      this.events.publish(project.id, "agent.completed", {});
+      this.#setState(project.id, active.conversationId, { status: "idle" });
+      this.events.publish(project.id, "agent.completed", {}, eventScope(active));
       return "completed";
     } catch (cause) {
-      if (isCancelling(project)) {
-        this.#markCancelled(project);
+      if (isCancelling(active)) {
+        this.#markCancelled(project.id, active);
         return "cancelled";
       }
       const error = cause instanceof Error ? cause.message : String(cause);
-      this.#markError(project, error);
+      this.#markError(project.id, active, error);
       throw cause;
     }
   }
 
-  async cancel(project: ProjectState): Promise<void> {
-    if (project.agent.status !== "running") return;
-    project.agent = { status: "cancelling" };
-    await this.#sessions.get(project.id)?.session.abort();
+  async cancel(projectId: string, conversationId: string, turnId: string): Promise<void> {
+    const active = this.#activeTurns.get(projectId);
+    if (!active || active.conversationId !== conversationId || active.turnId !== turnId || active.status !== "running") return;
+    active.status = "cancelling";
+    this.#setState(projectId, conversationId, { status: "cancelling", turnId });
+    this.#clearPending(projectId, conversationId);
+    this.#resolveApproval(projectId, "deny");
+    const managed = this.#sessions.get(projectId);
+    if (managed?.conversationId === conversationId) await managed.session.abort();
+  }
+
+  removePending(projectId: string, conversationId: string, turnId: string): boolean {
+    const key = conversationKey(projectId, conversationId);
+    const pending = this.#pendingPrompts.get(key);
+    if (!pending || pending.turnId !== turnId) return false;
+    this.#clearPending(projectId, conversationId);
+    return true;
+  }
+
+  #clearPending(projectId: string, conversationId: string): void {
+    const key = conversationKey(projectId, conversationId);
+    const pending = this.#pendingPrompts.get(key);
+    if (!pending) return;
+    this.#pendingPrompts.delete(key);
+    this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: pending.turnId });
+  }
+
+  pendingPrompt(projectId: string, conversationId: string): PendingPrompt | undefined {
+    const pending = this.#pendingPrompts.get(conversationKey(projectId, conversationId));
+    return pending ? { turnId: pending.turnId, prompt: pending.prompt, references: pending.references } : undefined;
+  }
+
+  pendingApproval(projectId: string, conversationId: string): ApprovalRequest | undefined {
+    const pending = this.#pendingApprovals.get(projectId);
+    return pending?.request.conversationId === conversationId ? pending.request : undefined;
+  }
+
+  resolveApproval(projectId: string, conversationId: string, approvalId: string, decision: ApprovalDecisionRequest["decision"]): boolean {
+    const pending = this.#pendingApprovals.get(projectId);
+    if (!pending || pending.request.conversationId !== conversationId || pending.request.id !== approvalId) return false;
+    this.#resolveApproval(projectId, decision);
+    return true;
+  }
+
+  async requestApproval(
+    project: ProjectState,
+    conversation: StoredConversation,
+    toolCallId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<ToolApprovalResult> {
+    const active = this.#activeTurns.get(project.id);
+    if (!active || active.conversationId !== conversation.summary.id || active.status !== "running") {
+      return { allowed: false, reason: "The run is no longer active" };
+    }
+    const policy = evaluateToolCall(project.workspacePath, toolName, input);
+    if (policy.action === "allow") return { allowed: true };
+    if (policy.action === "deny") return { allowed: false, reason: policy.reason };
+    if (this.#pendingApprovals.has(project.id)) {
+      return { allowed: false, reason: "Another tool approval is already pending" };
+    }
+
+    const request: ApprovalRequest = {
+      id: randomUUID(),
+      conversationId: conversation.summary.id,
+      turnId: active.turnId,
+      toolCallId,
+      kind: policy.kind,
+      title: policy.title,
+      detail: policy.detail,
+    };
+    const result = await new Promise<ToolApprovalResult>((resolve) => {
+      this.#pendingApprovals.set(project.id, { request, resolve });
+      this.events.publish(project.id, "approval.requested", { approval: request }, eventScope(active));
+    });
+    if (!result.allowed) return result;
+    return this.#activeTurns.get(project.id) === active && active.status === "running"
+      ? result
+      : { allowed: false, reason: "The run is no longer active" };
   }
 
   async close(): Promise<void> {
     this.#closing = true;
-    for (const project of this.#activeProjects.values()) {
-      if (project.agent.status === "running") project.agent = { status: "cancelling" };
+    for (const [projectId, active] of this.#activeTurns) {
+      active.status = "cancelling";
+      this.#setState(projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
+      this.#resolveApproval(projectId, "deny");
     }
     const sessions = [...this.#sessions.values()];
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
@@ -173,63 +346,177 @@ export class AgentManager {
     this.#sessions.clear();
   }
 
-  #finishRun(projectId: string, run: Promise<AgentRunResult>): void {
+  #finishRun(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, result?: AgentRunResult): void {
+    const projectId = project.id;
     this.#runs.delete(run);
-    this.#activeProjects.delete(projectId);
+    if (this.#activeTurns.get(projectId) !== active) return;
+    this.#activeTurns.delete(projectId);
+    const key = conversationKey(projectId, active.conversationId);
+    const pending = this.#pendingPrompts.get(key);
+    if (!pending || this.#closing) {
+      if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
+      return;
+    }
+    if (result !== "completed") {
+      this.#pendingPrompts.delete(key);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId: active.conversationId, turnId: pending.turnId });
+      return;
+    }
+    this.#pendingPrompts.delete(key);
+    this.#startPrompt(pending.project, pending.conversation, pending.prompt, pending.references, pending.turnId);
   }
 
-  async #getSession(project: ProjectState): Promise<ManagedSession> {
+  async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
     const existing = this.#sessions.get(project.id);
-    if (existing) return existing;
+    if (existing?.conversationId === conversation.summary.id) return existing;
+    if (existing) {
+      existing.unsubscribe();
+      existing.session.dispose();
+      this.#sessions.delete(project.id);
+    }
 
-    const session = await (this.options.createSession ?? ((state) => createPiSession(state.workspacePath)))(project);
+    const session = await (this.options.createSession ?? ((state, stored, approveTool) => createPiSession(
+      state.workspacePath,
+      SessionManager.open(stored.sessionPath, path.join(path.dirname(state.workspacePath), "session"), state.workspacePath),
+      [],
+      approveTool,
+    )))(project, conversation, (toolCallId, toolName, input) => (
+      this.requestApproval(project, conversation, toolCallId, toolName, input)
+    ));
     if (this.#closing) {
       session.dispose();
       throw new Error("Agent manager is closing");
     }
-    const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, event));
-    const managed = { session, unsubscribe };
+    const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
+    const managed = { conversationId: conversation.summary.id, session, unsubscribe };
     this.#sessions.set(project.id, managed);
     return managed;
   }
 
-  #forwardEvent(projectId: string, event: AgentSessionEvent): void {
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      this.events.publish(projectId, "assistant.delta", { delta: event.assistantMessageEvent.delta });
+  #forwardEvent(projectId: string, conversationId: string, event: AgentSessionEvent): void {
+    const active = this.#activeTurns.get(projectId);
+    if (!active || active.conversationId !== conversationId) return;
+    if (event.type === "message_start" && isAssistantMessage(event.message)) {
+      active.assistantItemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
+      this.events.publish(projectId, "assistant.started", { itemId: active.assistantItemId }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+      const itemId = active.assistantItemId ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
+      if (!active.assistantItemId) {
+        active.assistantItemId = itemId;
+        this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
+      }
+      this.events.publish(projectId, "assistant.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+    } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
+      const itemId = active.assistantItemId ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
+      if (!active.assistantItemId) this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
+      this.events.publish(projectId, "assistant.completed", {
+        itemId,
+        status: assistantStatus(event.message.stopReason),
+        ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
+      }, eventScope(active));
+      active.assistantItemId = undefined;
     } else if (event.type === "auto_retry_start") {
       this.events.publish(projectId, "agent.retrying", {
         attempt: event.attempt,
         maxAttempts: event.maxAttempts,
         delayMs: event.delayMs,
         error: event.errorMessage,
-      });
+      }, eventScope(active));
+    } else if (event.type === "compaction_start") {
+      this.events.publish(projectId, "agent.compaction.started", { reason: event.reason }, eventScope(active));
+    } else if (event.type === "compaction_end") {
+      this.events.publish(projectId, "agent.compaction.completed", {
+        aborted: event.aborted,
+        willRetry: event.willRetry,
+        ...(event.errorMessage ? { error: event.errorMessage } : {}),
+      }, eventScope(active));
     } else if (event.type === "tool_execution_start") {
+      const itemId = `${active.turnId}:tool:${event.toolCallId}`;
       this.events.publish(projectId, "tool.started", {
+        itemId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-      });
+        args: toolArguments(event.toolName, event.args),
+      }, eventScope(active));
+    } else if (event.type === "tool_execution_update") {
+      const result = toolOutput(event.partialResult);
+      this.events.publish(projectId, "tool.updated", {
+        itemId: `${active.turnId}:tool:${event.toolCallId}`,
+        toolCallId: event.toolCallId,
+        ...result,
+      }, eventScope(active));
     } else if (event.type === "tool_execution_end") {
+      const result = toolOutput(event.result);
       this.events.publish(projectId, "tool.completed", {
+        itemId: `${active.turnId}:tool:${event.toolCallId}`,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         isError: event.isError,
-      });
+        ...result,
+      }, eventScope(active));
     }
   }
 
-  #markCancelled(project: ProjectState): void {
-    project.agent = { status: "idle" };
-    this.events.publish(project.id, "agent.cancelled", {});
+  #markCancelled(projectId: string, active: ActiveTurn): void {
+    this.#setState(projectId, active.conversationId, { status: "idle" });
+    this.events.publish(projectId, "agent.cancelled", {}, eventScope(active));
   }
 
-  #markError(project: ProjectState, error: string): void {
-    project.agent = { status: "error", error };
-    this.events.publish(project.id, "agent.error", { error });
+  #markError(projectId: string, active: ActiveTurn, error: string): void {
+    this.#setState(projectId, active.conversationId, { status: "error", error });
+    this.events.publish(projectId, "agent.error", { error }, eventScope(active));
+  }
+
+  #setState(projectId: string, conversationId: string, state: ConversationState["agent"]): void {
+    this.#conversationStates.set(conversationKey(projectId, conversationId), state);
+  }
+
+  #resolveApproval(projectId: string, decision: ApprovalDecisionRequest["decision"]): void {
+    const pending = this.#pendingApprovals.get(projectId);
+    if (!pending) return;
+    this.#pendingApprovals.delete(projectId);
+    this.events.publish(projectId, "approval.resolved", {
+      approvalId: pending.request.id,
+      decision,
+    }, { conversationId: pending.request.conversationId, turnId: pending.request.turnId });
+    pending.resolve(decision === "allow"
+      ? { allowed: true }
+      : { allowed: false, reason: "Denied by user" });
+  }
+
+  isProjectBusy(projectId: string): boolean {
+    return this.#activeTurns.has(projectId);
+  }
+
+  activeTurn(projectId: string): ActiveTurnState | undefined {
+    const active = this.#activeTurns.get(projectId);
+    return active ? { conversationId: active.conversationId, turnId: active.turnId } : undefined;
   }
 }
 
-function isCancelling(project: ProjectState): boolean {
-  return project.agent.status === "cancelling";
+const REFERENCE_MARKER = "<workspace-file-references>";
+
+function promptWithReferences(prompt: string, references: PromptReference[]): string {
+  if (references.length === 0) return prompt;
+  return `${prompt}\n\n${REFERENCE_MARKER}\n${JSON.stringify(references.map(({ path }) => path))}\n</workspace-file-references>`;
+}
+
+function parseUserPrompt(value: string): { text: string } {
+  const marker = `\n\n${REFERENCE_MARKER}\n`;
+  const index = value.lastIndexOf(marker);
+  return { text: index < 0 ? value : value.slice(0, index) };
+}
+
+function conversationKey(projectId: string, conversationId: string): string {
+  return `${projectId}:${conversationId}`;
+}
+
+function isCancelling(turn: ActiveTurn): boolean {
+  return turn.status === "cancelling";
+}
+
+function eventScope(turn: ActiveTurn): { conversationId: string; turnId: string } {
+  return { conversationId: turn.conversationId, turnId: turn.turnId };
 }
 
 function textContent(content: unknown): string {
@@ -245,11 +532,88 @@ function textContent(content: unknown): string {
     .join("");
 }
 
+function assistantStatus(stopReason: string): "complete" | "cancelled" | "error" {
+  if (stopReason === "error") return "error";
+  if (stopReason === "aborted") return "cancelled";
+  return "complete";
+}
+
+function isAssistantMessage(message: unknown): message is {
+  role: "assistant";
+  stopReason: string;
+  errorMessage?: string;
+} {
+  return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "assistant");
+}
+
+const MAX_TOOL_OUTPUT = 12_000;
+const MAX_GENERIC_TOOL_ARGUMENTS = 2_000;
+
+function toolArguments(toolName: string, args: unknown): unknown {
+  const values = record(args);
+  if (!values) return boundedValue(args);
+
+  switch (toolName) {
+    case "bash": return boundedValue(compactRecord(values, ["command", "timeout"]));
+    case "read": return boundedValue(compactRecord(values, ["path", "offset", "limit"]));
+    case "write":
+    case "edit": return boundedValue(compactRecord(values, ["path", "file_path"]));
+    default: return boundedValue(args);
+  }
+}
+
+function compactRecord(values: Record<string, unknown>, keys: string[]): Record<string, unknown> | undefined {
+  const result = Object.fromEntries(keys.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function boundedValue(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return String(value).slice(0, MAX_GENERIC_TOOL_ARGUMENTS);
+  }
+  if (serialized === undefined) return String(value).slice(0, MAX_GENERIC_TOOL_ARGUMENTS);
+  if (serialized.length <= MAX_GENERIC_TOOL_ARGUMENTS) return JSON.parse(serialized) as unknown;
+  return `${serialized.slice(0, MAX_GENERIC_TOOL_ARGUMENTS)}\n... arguments truncated ...`;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function toolOutput(result: unknown): { output?: string; truncated?: boolean } {
+  const value = result && typeof result === "object" && "content" in result
+    ? textContent((result as { content?: unknown }).content)
+    : stringify(result);
+  if (!value) return {};
+  if (value.length <= MAX_TOOL_OUTPUT) return { output: value };
+  const half = MAX_TOOL_OUTPUT / 2;
+  return {
+    output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
+    truncated: true,
+  };
+}
+
+function stringify(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
 export async function createPiSession(
   workspacePath: string,
+  sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
+  approveTool?: ToolApprovalHandler,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const resourceLoader = new DefaultResourceLoader({
@@ -260,15 +624,25 @@ export async function createPiSession(
       "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
     ],
+    ...(approveTool ? { extensionFactories: [approvalExtension(approveTool)] } : {}),
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: workspacePath,
     customTools,
     resourceLoader,
-    sessionManager: SessionManager.continueRecent(workspacePath, path.join(path.dirname(workspacePath), "session")),
+    sessionManager,
   });
   return session;
+}
+
+function approvalExtension(approveTool: ToolApprovalHandler): ExtensionFactory {
+  return (pi) => {
+    pi.on("tool_call", async (event) => {
+      const result = await approveTool(event.toolCallId, event.toolName, event.input);
+      return result.allowed ? undefined : { block: true, reason: result.reason ?? "Tool execution was not approved" };
+    });
+  };
 }
 
 export function lastAssistantError(messages: readonly unknown[]): string | undefined {

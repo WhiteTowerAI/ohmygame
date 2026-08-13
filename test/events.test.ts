@@ -22,5 +22,7 @@ describe("RuntimeEventBus", () => {
     const third = bus.publish("a", "preview.starting", {});
 
     expect(bus.since("a")).toEqual([second, third]);
+    expect(bus.canReplay("a", 0)).toBe(false);
+    expect(bus.canReplay("a", second.id - 1)).toBe(true);
   });
 });

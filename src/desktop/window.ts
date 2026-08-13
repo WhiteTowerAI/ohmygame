@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -38,7 +38,10 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     },
   });
 
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpUrl(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== rendererTarget) event.preventDefault();
   });
@@ -47,6 +50,15 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   await window.loadURL(rendererTarget);
 
   return window;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export async function waitForRenderer(url: string, timeoutMs = 15_000): Promise<void> {

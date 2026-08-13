@@ -15,8 +15,36 @@ export interface ProjectState {
   name: string;
   workspacePath: string;
   preview: { status: PreviewStatus; url?: string; error?: string };
-  agent: { status: AgentStatus; error?: string };
   publication?: PublicationState;
+}
+
+export interface ConversationSummary {
+  id: string;
+  projectId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export interface ConversationState extends ConversationSummary {
+  agent: { status: AgentStatus; turnId?: string; error?: string };
+}
+
+export interface ActiveTurnState {
+  conversationId: string;
+  turnId: string;
+}
+
+export interface PromptReference {
+  type: "workspace-file";
+  path: string;
+}
+
+export interface PendingPrompt {
+  turnId: string;
+  prompt: string;
+  references: PromptReference[];
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -26,18 +54,116 @@ export interface PublishResult {
   game: CommunityGame;
 }
 
-export type ConversationItem =
-  | { id: string; kind: "user"; text: string }
-  | { id: string; kind: "assistant"; text: string; status: "complete" | "cancelled" | "error"; error?: string }
-  | { id: string; kind: "tool"; toolCallId: string; toolName: string; status: "complete" | "error" };
+export type AgentItem =
+  | { id: string; turnId: string; kind: "user"; text: string }
+  | {
+      id: string;
+      turnId: string;
+      kind: "assistant";
+      text: string;
+      status: "streaming" | "complete" | "cancelled" | "interrupted" | "error";
+      error?: string;
+    }
+  | {
+      id: string;
+      turnId: string;
+      kind: "tool";
+      toolCallId: string;
+      toolName: string;
+      status: "running" | "complete" | "error";
+      args?: unknown;
+      output?: string;
+      truncated?: boolean;
+    }
+  | {
+      id: string;
+      turnId: string;
+      kind: "retry";
+      attempt: number;
+      maxAttempts: number;
+      delayMs: number;
+      error: string;
+    }
+  | {
+      id: string;
+      turnId: string;
+      kind: "compaction";
+      status: "running" | "complete" | "error";
+      error?: string;
+    };
 
-export interface ProjectConversation {
-  items: ConversationItem[];
+export interface ConversationDetail {
+  conversation: ConversationState;
+  items: AgentItem[];
   cursor: number;
+  activeTurn?: ActiveTurnState;
+  pendingPrompt?: PendingPrompt;
+  pendingApproval?: ApprovalRequest;
+}
+
+export type ApprovalKind = "command" | "external-tool";
+
+export interface ApprovalRequest {
+  id: string;
+  conversationId: string;
+  turnId: string;
+  toolCallId: string;
+  kind: ApprovalKind;
+  title: string;
+  detail: string;
+}
+
+export interface ApprovalDecisionRequest {
+  decision: "allow" | "deny";
 }
 
 export interface CreateProjectRequest { name?: string }
-export interface PromptRequest { prompt: string }
+export interface RenameConversationRequest { title: string }
+export interface PromptRequest {
+  prompt: string;
+  references?: PromptReference[];
+}
+
+export interface PromptResponse {
+  turnId: string;
+  queued: boolean;
+}
+
+export interface RemovePendingPromptRequest {
+  turnId: string;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+}
+
+export interface WorkspaceFileContent {
+  path: string;
+  size: number;
+  binary: boolean;
+  content?: string;
+  truncated?: boolean;
+}
+
+export interface WorkspaceChange {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  previousPath?: string;
+}
+
+export interface WorkspaceChanges {
+  files: WorkspaceChange[];
+  diff: string;
+  truncated: boolean;
+}
+
+export interface PreviewLogLine {
+  id: number;
+  stream: "stdout" | "stderr";
+  text: string;
+  timestamp: string;
+}
 
 export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
@@ -88,12 +214,21 @@ export interface RuntimeEventData {
   "preview.stopped": Record<string, never>;
   "agent.started": { prompt: string };
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
-  "assistant.delta": { delta: string };
-  "tool.started": { toolCallId: string; toolName: string };
-  "tool.completed": { toolCallId: string; toolName: string; isError: boolean };
+  "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
+  "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
+  "approval.requested": { approval: ApprovalRequest };
+  "approval.resolved": { approvalId: string; decision: "allow" | "deny" };
+  "assistant.started": { itemId: string };
+  "assistant.delta": { itemId: string; delta: string };
+  "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; error?: string };
+  "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
+  "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean };
+  "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
+  "prompt.queued": { prompt: string; references: PromptReference[] };
+  "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: CommunityGame };
   "publish.error": { error: string };
@@ -108,12 +243,21 @@ export const RUNTIME_EVENT_TYPES = [
   "preview.stopped",
   "agent.started",
   "agent.retrying",
+  "agent.compaction.started",
+  "agent.compaction.completed",
+  "approval.requested",
+  "approval.resolved",
+  "assistant.started",
   "assistant.delta",
+  "assistant.completed",
   "tool.started",
+  "tool.updated",
   "tool.completed",
   "agent.completed",
   "agent.cancelled",
   "agent.error",
+  "prompt.queued",
+  "prompt.removed",
   "publish.started",
   "publish.completed",
   "publish.error",
@@ -123,6 +267,8 @@ export type RuntimeEvent<T extends RuntimeEventType = RuntimeEventType> = T exte
   ? {
       id: number;
       projectId: string;
+      conversationId?: string;
+      turnId?: string;
       type: T;
       timestamp: string;
       data: RuntimeEventData[T];

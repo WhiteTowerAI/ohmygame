@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Community } from "./community.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
-import { parseAppRoute, projectHash } from "./routes.js";
+import { conversationHash, parseAppRoute, projectHash } from "./routes.js";
 import { Tools } from "./tools.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ projectId: string; prompt: string }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -28,15 +28,17 @@ export function App() {
     <ProjectShell
       key={route.projectId}
       projectId={route.projectId}
-      initialPrompt={initialPrompt?.projectId === route.projectId ? initialPrompt.prompt : undefined}
+      conversationId={route.conversationId}
+      initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt.prompt : undefined}
       onInitialPromptHandled={clearInitialPrompt}
+      onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
       onHome={goHome}
     />
   );
 
-  function openCreatedProject(projectId: string, prompt: string): void {
-    setInitialPrompt({ projectId, prompt });
-    navigateToProject(projectId);
+  function openCreatedProject(projectId: string, conversationId: string, prompt: string): void {
+    setInitialPrompt({ conversationId, prompt });
+    navigateToConversation(projectId, conversationId);
   }
 
   function openProject(projectId: string): void {
@@ -51,6 +53,12 @@ export function App() {
   function navigateToProject(projectId: string): void {
     window.history.pushState(null, "", projectHash(projectId));
     setRoute({ page: "project", projectId });
+  }
+
+  function navigateToConversation(projectId: string, conversationId: string, replace = false): void {
+    const hash = conversationHash(projectId, conversationId);
+    window.history[replace ? "replaceState" : "pushState"](null, "", hash);
+    setRoute({ page: "project", projectId, conversationId });
   }
 
   function goHome(): void {

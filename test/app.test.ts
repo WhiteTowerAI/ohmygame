@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 
@@ -32,16 +32,214 @@ describe("daemon", () => {
     expect(response.json()).toEqual([first, second]);
   });
 
+  it("exposes read-only workspace files and changes", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
+
+    const files = await app.inject({ method: "GET", url: `/projects/${project.id}/files` });
+    const content = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/content?path=${encodeURIComponent("hello world.txt")}`,
+    });
+    const changes = await app.inject({ method: "GET", url: `/projects/${project.id}/changes` });
+    const logs = await app.inject({ method: "GET", url: `/projects/${project.id}/logs` });
+
+    expect(files.json()).toEqual([{ path: "hello world.txt", size: 6 }]);
+    expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
+    expect(changes.json()).toMatchObject({ files: [{ path: "hello world.txt", status: "added" }] });
+    expect(logs.json()).toEqual([]);
+  });
+
+  it("rejects unsafe workspace file paths", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/content?path=${encodeURIComponent("../project.json")}`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Invalid workspace path" });
+  });
+
+  it("validates workspace references before prompting", async () => {
+    const prompts: string[] = [];
+    const session: CodingSession = {
+      messages: [],
+      prompt: async (prompt) => { prompts.push(prompt); },
+      abort: async () => {},
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-reference-api-")),
+      createSession: async () => session,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(project.workspacePath, "index.html"), "Hello");
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Review", references: [{ type: "workspace-file", path: "index.html" }] },
+    });
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Review", references: [{ type: "workspace-file", path: "missing.html" }] },
+    });
+
+    expect(accepted.statusCode).toBe(202);
+    await vi.waitFor(() => expect(prompts[0]).toContain('["index.html"]'));
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toEqual({ error: "File not found" });
+  });
+
+  it("removes only the expected pending follow-up", async () => {
+    let finishPrompt!: () => void;
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-pending-api-")),
+      createSession: async () => session,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "First" },
+    });
+    const pending = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Second" },
+    });
+
+    const stale = await app.inject({
+      method: "DELETE",
+      url: `/projects/${project.id}/conversations/${conversation.id}/pending-prompt`,
+      payload: { turnId: "stale-turn" },
+    });
+    const current = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/projects/${project.id}/conversations/${conversation.id}/pending-prompt`,
+      payload: { turnId: pending.json().turnId },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect(current.json().pendingPrompt.turnId).toBe(pending.json().turnId);
+    expect(removed.statusCode).toBe(204);
+    finishPrompt();
+  });
+
+  it("restores and resolves a pending approval", async () => {
+    let finishPrompt!: () => void;
+    let approveTool!: (toolCallId: string, toolName: string, input: Record<string, unknown>) => Promise<{ allowed: boolean; reason?: string }>;
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-approval-api-")),
+      createSession: async (_project, _conversation, approve) => {
+        approveTool = approve;
+        return session;
+      },
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Install" },
+    });
+    await vi.waitFor(() => expect(approveTool).toBeTypeOf("function"));
+    const decision = approveTool("call-1", "bash", { command: "npm install" });
+    let detail;
+    await vi.waitFor(async () => {
+      detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
+      expect(detail.json().pendingApproval).toMatchObject({ toolCallId: "call-1", kind: "command" });
+    });
+    const approvalId = detail!.json().pendingApproval.id;
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/approvals/${approvalId}`,
+      payload: { decision: "allow" },
+    });
+
+    expect(resolved.statusCode).toBe(204);
+    await expect(decision).resolves.toEqual({ allowed: true });
+    finishPrompt();
+  });
+
   it("exposes health and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
     expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({ status: "ok" });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const response = await app.inject({ method: "POST", url: `/projects/${project.id}/prompts`, payload: { prompt: " " } });
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: " " },
+    });
     expect(response.statusCode).toBe(400);
     const preview = await app.inject({ method: "POST", url: `/projects/${project.id}/preview` });
     expect(preview.statusCode).toBe(409);
     expect(preview.json()).toEqual({ error: "Workspace is not runnable yet" });
+  });
+
+  it("titles a new conversation before Pi produces a response", async () => {
+    const session: CodingSession = {
+      messages: [],
+      prompt: async () => { throw new Error("No API key"); },
+      abort: async () => {},
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-title-")),
+      createSession: async () => session,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+    })).json();
+
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Build a small game" },
+    });
+    const conversations = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations`,
+    });
+
+    expect(conversations.json()).toEqual([
+      expect.objectContaining({ id: conversation.id, title: "Build a small game" }),
+    ]);
   });
 
   it("validates request bodies before they reach a manager", async () => {
@@ -51,9 +249,10 @@ describe("daemon", () => {
     expect(invalidProject.statusCode).toBe(400);
 
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     const invalidPrompt = await app.inject({
       method: "POST",
-      url: `/projects/${project.id}/prompts`,
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
       payload: { prompt: 42 },
     });
     expect(invalidPrompt.statusCode).toBe(400);
@@ -108,13 +307,20 @@ describe("daemon", () => {
       }),
     ].join("\n") + "\n");
 
-    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversation` });
+    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
+      conversation: expect.objectContaining({
+        id: "session-1",
+        projectId: project.id,
+        title: "Hello",
+        messageCount: 2,
+        agent: { status: "idle" },
+      }),
       items: [
-        { id: "user-1", kind: "user", text: "Hello" },
-        { id: "assistant-1", kind: "assistant", text: "Hi", status: "complete" },
+        { id: "user-1", turnId: "user-1", kind: "user", text: "Hello" },
+        { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete" },
       ],
       cursor: 0,
     });
@@ -143,14 +349,19 @@ describe("daemon", () => {
       sessionEntry("old-assistant", "old-user", oldTimestamp, { role: "assistant", content: [{ type: "text", text: "Answer" }], stopReason: "stop", timestamp: 1 }),
       sessionEntry("current-user", "old-assistant", currentTimestamp, { role: "user", content: "Current", timestamp: 2 }),
     ].join("\n") + "\n");
-    await app.inject({ method: "POST", url: `/projects/${project.id}/prompts`, payload: { prompt: "Current" } });
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/session-1/turns`,
+      payload: { prompt: "Current" },
+    });
 
-    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversation` });
+    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
 
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
+      conversation: { id: "session-1", agent: { status: "running", turnId: expect.any(String) } },
       items: [
-        { id: "old-user", kind: "user", text: "Current" },
-        { id: "old-assistant", kind: "assistant", text: "Answer", status: "complete" },
+        { id: "old-user", turnId: "old-user", kind: "user", text: "Current" },
+        { id: "old-assistant:assistant", turnId: "old-user", kind: "assistant", text: "Answer", status: "complete" },
       ],
       cursor: 0,
     });

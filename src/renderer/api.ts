@@ -2,9 +2,12 @@ import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
   type AddToolResultRequest,
+  type ApprovalDecisionRequest,
   type CreateProjectRequest,
   type CommunityGame,
-  type ProjectConversation,
+  type ConversationDetail,
+  type ConversationState,
+  type ConversationSummary,
   type ProjectState,
   type PublishResult,
   type RuntimeEvent,
@@ -12,6 +15,12 @@ import {
   type ToolDefinition,
   type ToolRun,
   type ToolSettings,
+  type PreviewLogLine,
+  type PromptReference,
+  type PromptResponse,
+  type WorkspaceChanges,
+  type WorkspaceFile,
+  type WorkspaceFileContent,
 } from "../shared/contracts.js";
 
 const API_BASE = "/api";
@@ -93,23 +102,82 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function getProjectConversation(projectId: string): Promise<ProjectConversation> {
-  return request(`/projects/${projectId}/conversation`);
+export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
+  return request(`/projects/${projectId}/files`);
+}
+
+export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
+  return request(`/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`);
+}
+
+export async function getWorkspaceChanges(projectId: string): Promise<WorkspaceChanges> {
+  return request(`/projects/${projectId}/changes`);
+}
+
+export async function getPreviewLogs(projectId: string): Promise<PreviewLogLine[]> {
+  return request(`/projects/${projectId}/logs`);
+}
+
+export async function listConversations(projectId: string): Promise<ConversationSummary[]> {
+  return request(`/projects/${projectId}/conversations`);
+}
+
+export async function createConversation(projectId: string): Promise<ConversationState> {
+  return request(`/projects/${projectId}/conversations`, { method: "POST" });
+}
+
+export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {
+  return request(`/projects/${projectId}/conversations/${conversationId}${reset ? "?reset=1" : ""}`);
+}
+
+export async function renameConversation(
+  projectId: string,
+  conversationId: string,
+  title: string,
+): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
 }
 
 export async function startPreview(projectId: string): Promise<{ url: string }> {
   return request(`/projects/${projectId}/preview`, { method: "POST" });
 }
 
-export async function sendPrompt(projectId: string, prompt: string): Promise<void> {
-  await request(`/projects/${projectId}/prompts`, {
+export async function sendPrompt(
+  projectId: string,
+  conversationId: string,
+  prompt: string,
+  references: PromptReference[] = [],
+): Promise<PromptResponse> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...(references.length ? { references } : {}) }),
   });
 }
 
-export async function cancelPrompt(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}/cancel`, { method: "POST" });
+export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/pending-prompt`, {
+    method: "DELETE",
+    body: JSON.stringify({ turnId }),
+  });
+}
+
+export async function cancelPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/turns/${turnId}/cancel`, { method: "POST" });
+}
+
+export async function resolveApproval(
+  projectId: string,
+  conversationId: string,
+  approvalId: string,
+  decision: ApprovalDecisionRequest["decision"],
+): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/approvals/${approvalId}`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
 }
 
 export function subscribeToProject(
@@ -119,6 +187,7 @@ export function subscribeToProject(
     onEvent: (event: RuntimeEvent) => void;
     onOpen: () => void;
     onError: () => void;
+    onReset?: () => Promise<number>;
   },
 ): () => void {
   const controller = new AbortController();
@@ -162,6 +231,7 @@ async function streamProjectEvents(
     onEvent: (event: RuntimeEvent) => void;
     onOpen: () => void;
     onError: () => void;
+    onReset?: () => Promise<number>;
   },
 ): Promise<void> {
   let cursor = initialCursor;
@@ -171,6 +241,10 @@ async function streamProjectEvents(
         headers: { accept: "text/event-stream", ...runtimeHeaders() },
         signal,
       });
+      if (response.status === 409 && handlers.onReset) {
+        cursor = await handlers.onReset();
+        continue;
+      }
       if (!response.ok || !response.body) {
         throw new ApiError(`Event stream failed with ${response.status}`, response.status);
       }

@@ -2,24 +2,29 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { access } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
-import type { ProjectState } from "../shared/contracts.js";
+import type { PreviewLogLine, ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
+  logCapacity?: number;
 }
 
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, symbol>();
+  readonly #logs = new Map<string, PreviewLogLine[]>();
   readonly #readinessTimeoutMs: number;
+  readonly #logCapacity: number;
+  #nextLogId = 1;
 
   constructor(
     private readonly events: RuntimeEventBus,
     options: PreviewOptions = {},
   ) {
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
+    this.#logCapacity = options.logCapacity ?? 500;
   }
 
   async start(project: ProjectState): Promise<string> {
@@ -28,6 +33,7 @@ export class PreviewManager {
     project.preview = { status: "starting" };
     this.events.publish(project.id, "preview.starting", {});
     await this.#terminateProject(project.id);
+    this.#logs.set(project.id, []);
 
     try {
       this.#assertCurrent(project.id, operation);
@@ -44,6 +50,7 @@ export class PreviewManager {
         detached: process.platform !== "win32",
       });
       this.#track(project.id, child);
+      this.#capture(project.id, child);
       this.#running.set(project.id, child);
       const url = `http://127.0.0.1:${port}`;
 
@@ -87,6 +94,10 @@ export class PreviewManager {
     await Promise.all([...this.#children.keys()].map((projectId) => this.#terminateProject(projectId)));
   }
 
+  logs(projectId: string): PreviewLogLine[] {
+    return [...(this.#logs.get(projectId) ?? [])];
+  }
+
   async #terminateProject(projectId: string): Promise<void> {
     this.#running.delete(projectId);
     const children = [...(this.#children.get(projectId) ?? [])];
@@ -97,10 +108,11 @@ export class PreviewManager {
   async #run(projectId: string, command: string, args: string[], cwd: string): Promise<void> {
     const child = spawn(command, args, {
       cwd,
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
     this.#track(projectId, child);
+    this.#capture(projectId, child);
     try {
       await waitForCommand(child, command);
     } finally {
@@ -122,6 +134,38 @@ export class PreviewManager {
     const children = this.#children.get(projectId);
     children?.delete(child);
     if (children?.size === 0) this.#children.delete(projectId);
+  }
+
+  #capture(projectId: string, child: ChildProcess): void {
+    this.#captureStream(projectId, child.stdout, "stdout");
+    this.#captureStream(projectId, child.stderr, "stderr");
+  }
+
+  #captureStream(projectId: string, stream: NodeJS.ReadableStream | null, source: PreviewLogLine["stream"]): void {
+    if (!stream) return;
+    let pending = "";
+    stream.on("data", (chunk) => {
+      pending += String(chunk);
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+      for (const line of lines) this.#appendLog(projectId, source, line);
+    });
+    stream.on("end", () => {
+      if (pending) this.#appendLog(projectId, source, pending);
+    });
+  }
+
+  #appendLog(projectId: string, stream: PreviewLogLine["stream"], text: string): void {
+    const line: PreviewLogLine = {
+      id: this.#nextLogId++,
+      stream,
+      text,
+      timestamp: new Date().toISOString(),
+    };
+    const logs = this.#logs.get(projectId) ?? [];
+    logs.push(line);
+    if (logs.length > this.#logCapacity) logs.splice(0, logs.length - this.#logCapacity);
+    this.#logs.set(projectId, logs);
   }
 }
 

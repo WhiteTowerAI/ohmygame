@@ -1,12 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type ApprovalDecisionRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools } from "./agent-tools.js";
+import { ConversationManager } from "./conversations.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
@@ -14,6 +15,7 @@ import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { ToolSettingsStore } from "./tool-settings.js";
+import { getWorkspaceChanges, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -42,7 +44,49 @@ const promptSchema = {
     type: "object",
     additionalProperties: false,
     required: ["prompt"],
-    properties: { prompt: { type: "string", minLength: 1 } },
+    properties: {
+      prompt: { type: "string", minLength: 1 },
+      references: {
+        type: "array",
+        maxItems: 20,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "path"],
+          properties: {
+            type: { const: "workspace-file" },
+            path: { type: "string", minLength: 1, maxLength: 1_000 },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+const renameConversationSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["title"],
+    properties: { title: { type: "string", minLength: 1, maxLength: 80 } },
+  },
+} as const;
+
+const removePendingPromptSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["turnId"],
+    properties: { turnId: { type: "string", minLength: 1 } },
+  },
+} as const;
+
+const approvalDecisionSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["decision"],
+    properties: { decision: { type: "string", enum: ["allow", "deny"] } },
   },
 } as const;
 
@@ -90,6 +134,7 @@ export function createApp(options: AppOptions = {}) {
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const events = new RuntimeEventBus();
   const projects = new ProjectManager(dataDirectory);
+  const conversations = new ConversationManager();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder();
   const publisher = new RemotePublisher({
@@ -107,11 +152,19 @@ export function createApp(options: AppOptions = {}) {
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   const agents = new AgentManager(events, {
-    createSession: options.createSession ?? ((project) => createPiSession(
+    createSession: options.createSession ?? ((project, conversation, approveTool) => createPiSession(
       project.workspacePath,
+      conversations.open(project, conversation),
       createAgentTools(project, tools, projects),
+      approveTool,
     )),
     activeToolNames: () => activePiToolNames(toolSettings.get()),
+    onRunCompleted: (project) => {
+      if (project.preview.status === "ready" || project.preview.status === "starting") return;
+      void isRunnableWorkspace(project.workspacePath).then((runnable) => {
+        if (runnable) return previews.start(project).catch(() => {});
+      });
+    },
   });
   const app = Fastify({
     logger: options.logger ?? false,
@@ -128,7 +181,7 @@ export function createApp(options: AppOptions = {}) {
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
       reply.header("access-control-allow-headers", "authorization, content-type, last-event-id");
-      reply.header("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
+      reply.header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       reply.header("vary", "Origin");
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
@@ -209,17 +262,94 @@ export function createApp(options: AppOptions = {}) {
     return project ?? reply.code(404).send({ error: "Project not found" });
   });
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/conversation", async (request, reply) => {
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/files", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const currentRun = project.agent.status === "running" || project.agent.status === "cancelling"
-      ? events.since(project.id).findLast((event) => event.type === "agent.started")
-      : undefined;
-    if (currentRun?.type === "agent.started") {
-      return { items: loadConversation(project.workspacePath, currentRun.timestamp), cursor: currentRun.id - 1 };
-    }
-    return { items: loadConversation(project.workspacePath), cursor: events.cursor() };
+    return listWorkspaceFiles(project.workspacePath);
   });
+
+  app.get<{ Params: { projectId: string }; Querystring: { path?: string } }>(
+    "/projects/:projectId/files/content",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!request.query.path) return reply.code(400).send({ error: "File path is required" });
+      try {
+        return await readWorkspaceFile(project.workspacePath, request.query.path);
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/changes", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return getWorkspaceChanges(project.workspacePath);
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/logs", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return previews.logs(project.id);
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/conversations", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return conversations.list(project);
+  });
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/conversations", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return reply.code(201).send(agents.state(await conversations.create(project)));
+  });
+
+  app.get<{ Params: { projectId: string; conversationId: string }; Querystring: { reset?: string } }>(
+    "/projects/:projectId/conversations/:conversationId",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const state = agents.state(conversation);
+      const reset = request.query.reset === "1";
+      const currentRun = state.agent.status === "running" || state.agent.status === "cancelling"
+        ? events.since(project.id).findLast((event) =>
+          event.type === "agent.started" && event.conversationId === conversation.summary.id)
+        : undefined;
+      return {
+        conversation: state,
+        items: loadConversation(
+          project.workspacePath,
+          conversation.sessionPath,
+          reset ? undefined : currentRun?.timestamp,
+          !currentRun,
+        ),
+        cursor: reset || !currentRun ? events.cursor() : currentRun.id - 1,
+        activeTurn: agents.activeTurn(project.id),
+        pendingPrompt: agents.pendingPrompt(project.id, conversation.summary.id),
+        pendingApproval: agents.pendingApproval(project.id, conversation.summary.id),
+      };
+    },
+  );
+
+  app.patch<{ Params: { projectId: string; conversationId: string }; Body: RenameConversationRequest }>(
+    "/projects/:projectId/conversations/:conversationId",
+    { schema: renameConversationSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const conversation = await conversations.rename(project, request.params.conversationId, request.body.title);
+        return conversation ?? reply.code(404).send({ error: "Conversation not found" });
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -230,36 +360,85 @@ export function createApp(options: AppOptions = {}) {
     return { url: await previews.start(project) };
   });
 
-  app.post<{ Params: { projectId: string }; Body: PromptRequest }>("/projects/:projectId/prompts", { schema: promptSchema }, async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (!request.body?.prompt?.trim()) return reply.code(400).send({ error: "Prompt must not be empty" });
-    if (project.agent.status === "running" || project.agent.status === "cancelling") {
-      return reply.code(409).send({ error: "Agent is already running" });
-    }
-    void agents.prompt(project, request.body.prompt).then(async (result) => {
-      if (
-        result !== "completed" ||
-        project.preview.status === "ready" ||
-        project.preview.status === "starting" ||
-        !(await isRunnableWorkspace(project.workspacePath))
-      ) return;
-      await previews.start(project).catch(() => {});
-    }).catch(() => {});
-    return reply.code(202).send({ accepted: true });
-  });
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
+    "/projects/:projectId/conversations/:conversationId/turns",
+    { schema: promptSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      if (!request.body?.prompt?.trim()) return reply.code(400).send({ error: "Prompt must not be empty" });
+      let references;
+      try {
+        references = await Promise.all((request.body.references ?? []).map(async (reference) => ({
+          type: reference.type,
+          path: await validateWorkspaceFile(project.workspacePath, reference.path),
+        })));
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+      let turn;
+      try {
+        turn = agents.prompt(project, conversation, request.body.prompt, references);
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      conversations.setInitialTitle(project.id, conversation.summary.id, request.body.prompt);
+      return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
+    },
+  );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/cancel", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    await agents.cancel(project);
-    return reply.code(202).send({ accepted: true });
-  });
+  app.delete<{ Params: { projectId: string; conversationId: string }; Body: RemovePendingPromptRequest }>(
+    "/projects/:projectId/conversations/:conversationId/pending-prompt",
+    { schema: removePendingPromptSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      if (!agents.removePending(project.id, conversation.summary.id, request.body.turnId)) {
+        return reply.code(409).send({ error: "Pending prompt has already changed" });
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string; turnId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/turns/:turnId/cancel",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      await agents.cancel(project.id, conversation.summary.id, request.params.turnId);
+      return reply.code(202).send({ accepted: true });
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; conversationId: string; approvalId: string };
+    Body: ApprovalDecisionRequest;
+  }>(
+    "/projects/:projectId/conversations/:conversationId/approvals/:approvalId",
+    { schema: approvalDecisionSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      if (!agents.resolveApproval(project.id, conversation.summary.id, request.params.approvalId, request.body.decision)) {
+        return reply.code(409).send({ error: "Approval request has already changed" });
+      }
+      return reply.code(204).send();
+    },
+  );
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/publish", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.agent.status === "running" || project.agent.status === "cancelling") {
+    if (agents.isProjectBusy(project.id)) {
       return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
     }
     if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
@@ -289,6 +468,9 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const cursor = Number(request.query.cursor ?? request.headers["last-event-id"] ?? 0) || 0;
+    if (!events.canReplay(project.id, cursor)) {
+      return reply.code(409).send({ error: "Event cursor expired" });
+    }
     reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",

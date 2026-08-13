@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, getProjectConversation, getToolRunFile, getToolSettings, listProjects, listTools, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, resolveApproval, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -12,7 +12,7 @@ describe("renderer event stream", () => {
     const content = [
       sse(1, "agent.started", { prompt: "Build" }),
       "event: assistant.delta\ndata: {bad json}\n\n",
-      sse(2, "assistant.delta", { delta: "你好" }),
+      sse(2, "assistant.delta", { itemId: "assistant-1", delta: "你好" }),
     ].join("");
     const encoded = new TextEncoder().encode(content);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(chunkedStream(encoded, [17, 83, 121]), {
@@ -37,7 +37,7 @@ describe("renderer event stream", () => {
     });
 
     expect(received.map((event) => event.id)).toEqual([1, 2]);
-    expect(received[1]?.data).toEqual({ delta: "你好" });
+    expect(received[1]?.data).toEqual({ itemId: "assistant-1", delta: "你好" });
   });
 
   it("reconnects from the latest event cursor", async () => {
@@ -68,6 +68,36 @@ describe("renderer event stream", () => {
     expect(urls[0]).toContain("cursor=5");
     expect(urls[1]).toContain("cursor=7");
   });
+
+  it("reloads a snapshot after the event cursor expires", async () => {
+    installWindow();
+    const urls: string[] = [];
+    let unsubscribe = () => {};
+    let resolveReset = () => {};
+    const reset = new Promise<void>((resolve) => { resolveReset = resolve; });
+    const onReset = vi.fn(async () => 40);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      urls.push(String(input));
+      if (urls.length === 1) return Response.json({ error: "Event cursor expired" }, { status: 409 });
+      queueMicrotask(() => {
+        unsubscribe();
+        resolveReset();
+      });
+      return new Response(streamFrom(""), { status: 200 });
+    }));
+
+    unsubscribe = subscribeToProject("project", 3, {
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onReset,
+    });
+    await reset;
+
+    expect(onReset).toHaveBeenCalledOnce();
+    expect(urls[0]).toContain("cursor=3");
+    expect(urls[1]).toContain("cursor=40");
+  });
 });
 
 describe("renderer project API", () => {
@@ -87,22 +117,96 @@ describe("renderer project API", () => {
     const fetchMock = vi.fn(async () => Response.json(conversation));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getProjectConversation("project-1")).resolves.toEqual(conversation);
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversation", expect.objectContaining({ headers: {} }));
+    await expect(getConversation("project-1", "conversation-1")).resolves.toEqual(conversation);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/conversations/conversation-1",
+      expect.objectContaining({ headers: {} }),
+    );
+
+    await getConversation("project-1", "conversation-1", true);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/projects/project-1/conversations/conversation-1?reset=1",
+      expect.objectContaining({ headers: {} }),
+    );
   });
 
   it("sends a prompt to a project", async () => {
     installWindow();
-    const fetchMock = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }));
+    const fetchMock = vi.fn(async () => Response.json({ accepted: true, turnId: "turn-1" }, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await sendPrompt("project-1", "Build a game");
+    await expect(sendPrompt("project-1", "conversation-1", "Build a game")).resolves.toMatchObject({ turnId: "turn-1" });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/prompts", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json" },
     }));
+  });
+
+  it("sends file references and removes a pending follow-up", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ queued: true, turnId: "turn-2" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPrompt("project-1", "conversation-1", "Review this", [{ type: "workspace-file", path: "src/app.ts" }]);
+    await removePendingPrompt("project-1", "conversation-1", "turn-2");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+      body: JSON.stringify({ prompt: "Review this", references: [{ type: "workspace-file", path: "src/app.ts" }] }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/pending-prompt", expect.objectContaining({
+      method: "DELETE",
+      body: JSON.stringify({ turnId: "turn-2" }),
+    }));
+  });
+
+  it("renames a conversation", async () => {
+    installWindow();
+    const renamed = { id: "conversation-1", title: "New title" };
+    const fetchMock = vi.fn(async () => Response.json(renamed));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(renameConversation("project-1", "conversation-1", "New title")).resolves.toEqual(renamed);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/conversations/conversation-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ title: "New title" }),
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+
+  it("resolves an approval once", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await resolveApproval("project-1", "conversation-1", "approval-1", "allow");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/conversations/conversation-1/approvals/approval-1",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "allow" }) }),
+    );
+  });
+
+  it("loads workspace inspection data and encodes file paths", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async (_input: string | URL | Request) => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listWorkspaceFiles("project-1");
+    await getWorkspaceFile("project-1", "src/my file.ts");
+    await getWorkspaceChanges("project-1");
+    await getPreviewLogs("project-1");
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/projects/project-1/files",
+      "/api/projects/project-1/files/content?path=src%2Fmy%20file.ts",
+      "/api/projects/project-1/changes",
+      "/api/projects/project-1/logs",
+    ]);
   });
 });
 

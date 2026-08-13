@@ -4,6 +4,7 @@ import type { RuntimeEvent, RuntimeEventData, RuntimeEventType } from "./contrac
 export class RuntimeEventBus {
   readonly #emitter = new EventEmitter();
   readonly #events: RuntimeEvent[] = [];
+  readonly #droppedThrough = new Map<string, number>();
   #nextId = 1;
 
   constructor(private readonly capacity = 1_000) {
@@ -12,17 +13,24 @@ export class RuntimeEventBus {
     }
   }
 
-  publish<T extends RuntimeEventType>(projectId: string, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
+  publish<T extends RuntimeEventType>(
+    projectId: string,
+    type: T,
+    data: RuntimeEventData[T],
+    scope: { conversationId: string; turnId: string } | undefined = undefined,
+  ): RuntimeEvent<T> {
     const event = {
       id: this.#nextId++,
       projectId,
+      ...scope,
       type,
       timestamp: new Date().toISOString(),
       data,
     } as RuntimeEvent<T>;
     this.#events.push(event);
     if (this.#events.length > this.capacity) {
-      this.#events.splice(0, this.#events.length - this.capacity);
+      const dropped = this.#events.splice(0, this.#events.length - this.capacity);
+      for (const oldEvent of dropped) this.#droppedThrough.set(oldEvent.projectId, oldEvent.id);
     }
     this.#emitter.emit(projectId, event);
     return event;
@@ -34,6 +42,10 @@ export class RuntimeEventBus {
 
   cursor(): number {
     return this.#nextId - 1;
+  }
+
+  canReplay(projectId: string, cursor: number): boolean {
+    return cursor >= (this.#droppedThrough.get(projectId) ?? 0);
   }
 
   subscribe(projectId: string, listener: (event: RuntimeEvent) => void): () => void {

@@ -1,6 +1,7 @@
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
+import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 
@@ -25,7 +26,8 @@ describe("conversationItems", () => {
         role: "assistant",
         content: [
           { type: "text", text: "I will build it. " },
-          { type: "toolCall", id: "call-1", name: "write", arguments: { path: "secret" } },
+          { type: "toolCall", id: "call-1", name: "write", arguments: { path: "secret", content: "private source" } },
+          { type: "text", text: "Starting now." },
         ],
         stopReason: "toolUse",
       }),
@@ -43,9 +45,19 @@ describe("conversationItems", () => {
         stopReason: "stop",
       }),
     ] as never)).toEqual([
-      { id: "user-1", kind: "user", text: "Build a game" },
-      { id: "assistant-1", kind: "assistant", text: "I will build it. Done.", status: "complete" },
-      { id: "assistant-1:call-1", kind: "tool", toolCallId: "call-1", toolName: "write", status: "complete" },
+      { id: "user-1", turnId: "user-1", kind: "user", text: "Build a game" },
+      { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "I will build it. Starting now.", status: "complete" },
+      {
+        id: "assistant-1:tool:call-1",
+        turnId: "user-1",
+        kind: "tool",
+        toolCallId: "call-1",
+        toolName: "write",
+        status: "complete",
+        args: { path: "secret" },
+        output: "large private output",
+      },
+      { id: "assistant-2:assistant", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete" },
     ]);
   });
 
@@ -55,28 +67,169 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error", kind: "assistant", text: "", status: "error", error: "No API key" },
-      { id: "user", kind: "user", text: "Stop" },
-      { id: "cancelled", kind: "assistant", text: "", status: "cancelled" },
+      { id: "error:assistant", turnId: "error", kind: "assistant", text: "", status: "error", error: "No API key" },
+      { id: "user", turnId: "user", kind: "user", text: "Stop" },
+      { id: "cancelled:assistant", turnId: "user", kind: "assistant", text: "", status: "cancelled" },
     ]);
+  });
+
+  it("marks a turn interrupted when its persisted session has no terminal assistant message", () => {
+    expect(conversationItems([
+      sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-1", name: "write", arguments: { path: "index.html" } }],
+        stopReason: "toolUse",
+      }),
+    ] as never).at(-1)).toMatchObject({ kind: "assistant", status: "interrupted" });
+  });
+
+  it("truncates large tool output while keeping its beginning and end", () => {
+    const output = `start-${"x".repeat(13_000)}-end`;
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Run", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "test" } }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("tool", {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "bash",
+        content: [{ type: "text", text: output }],
+        isError: false,
+      }),
+    ] as never);
+
+    expect(items[1]).toMatchObject({ kind: "tool", truncated: true });
+    expect(items[1]?.kind === "tool" && items[1].output).toContain("start-");
+    expect(items[1]?.kind === "tool" && items[1].output).toContain("-end");
+  });
+
+  it("keeps only display-safe arguments for built-in tools", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Change it", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "write", name: "write", arguments: { path: "src/app.ts", content: "private source" } },
+          { type: "toolCall", id: "edit", name: "edit", arguments: { path: "src/app.ts", oldText: "private", newText: "source" } },
+          { type: "toolCall", id: "read", name: "read", arguments: { path: "src/app.ts", offset: 2, limit: 20, extra: "drop" } },
+          { type: "toolCall", id: "bash", name: "bash", arguments: { command: "npm test", timeout: 30, cwd: "/private" } },
+        ],
+        stopReason: "toolUse",
+      }),
+    ] as never).filter((item) => item.kind === "tool");
+
+    expect(items.map((item) => item.args)).toEqual([
+      { path: "src/app.ts" },
+      { path: "src/app.ts" },
+      { path: "src/app.ts", offset: 2, limit: 20 },
+      { command: "npm test", timeout: 30 },
+    ]);
+  });
+
+  it("bounds arguments from custom tools", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Generate", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "custom", name: "custom", arguments: { prompt: "x".repeat(3_000) } }],
+        stopReason: "toolUse",
+      }),
+    ] as never);
+
+    expect(items[1]?.kind === "tool" && typeof items[1].args === "string" && items[1].args.length).toBeLessThan(2_100);
   });
 });
 
 describe("AgentManager", () => {
-  it("reserves a project before asynchronous session creation", async () => {
+  it("queues one follow-up for the active conversation", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
     session.prompt.mockImplementation(() => prompt.promise);
     const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    const firstRun = manager.prompt(project, "First");
-    expect(project.agent.status).toBe("running");
-    await expect(manager.prompt(project, "Second")).rejects.toThrow("already running");
+    const firstRun = manager.prompt(project, conversation, "First").result;
+    expect(manager.state(conversation).agent.status).toBe("running");
+    const queued = manager.prompt(project, conversation, "Second");
+    expect(queued).toMatchObject({ queued: true, turnId: expect.any(String) });
+    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toMatchObject({ prompt: "Second" });
 
     prompt.resolve();
     await expect(firstRun).resolves.toBe("completed");
-    expect(project.agent.status).toBe("idle");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledTimes(2));
+    expect(session.prompt).toHaveBeenNthCalledWith(2, "Second");
+    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toBeUndefined();
+    await manager.close();
+  });
+
+  it("replaces and removes the single pending follow-up", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const stale = manager.prompt(project, conversation, "Second");
+    const replacement = manager.prompt(project, conversation, "Replacement", [{ type: "workspace-file", path: "src/app.ts" }]);
+    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toMatchObject({
+      prompt: "Replacement",
+      references: [{ type: "workspace-file", path: "src/app.ts" }],
+    });
+
+    expect(manager.removePending(project.id, conversation.summary.id, stale.turnId)).toBe(false);
+    expect(manager.pendingPrompt(project.id, conversation.summary.id)?.turnId).toBe(replacement.turnId);
+    expect(manager.removePending(project.id, conversation.summary.id, replacement.turnId)).toBe(true);
+    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toBeUndefined();
+    expect(events.since(project.id).at(-1)?.type).toBe("prompt.removed");
+    prompt.resolve();
+    await run;
+    expect(session.prompt).toHaveBeenCalledOnce();
+    await manager.close();
+  });
+
+  it("allows only one active turn across a project's conversations", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const first = createConversation(project, "conversation-1");
+    const second = createConversation(project, "conversation-2");
+
+    const run = manager.prompt(project, first, "First").result;
+    expect(() => manager.prompt(project, second, "Second")).toThrow("already running in this project");
+
+    prompt.resolve();
+    await run;
+    await manager.close();
+  });
+
+  it("cancels only the exact active conversation and turn", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    session.abort.mockImplementation(async () => prompt.resolve());
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+
+    await manager.cancel(project.id, "another-conversation", turn.turnId);
+    await manager.cancel(project.id, conversation.summary.id, "another-turn");
+    expect(session.abort).not.toHaveBeenCalled();
+
+    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+    await expect(turn.result).resolves.toBe("cancelled");
+    expect(session.abort).toHaveBeenCalledOnce();
     await manager.close();
   });
 
@@ -84,9 +237,10 @@ describe("AgentManager", () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => { throw new Error("Auth unavailable"); } });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    await expect(manager.prompt(project, "Build")).rejects.toThrow("Auth unavailable");
-    expect(project.agent).toEqual({ status: "error", error: "Auth unavailable" });
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("Auth unavailable");
+    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "Auth unavailable" });
     expect(events.since(project.id).at(-1)?.type).toBe("agent.error");
     await manager.close();
   });
@@ -96,9 +250,10 @@ describe("AgentManager", () => {
     session.messages.push({ role: "assistant", stopReason: "error", errorMessage: "No API key" });
     const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    await expect(manager.prompt(project, "Build")).rejects.toThrow("No API key");
-    expect(project.agent).toEqual({ status: "error", error: "No API key" });
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("No API key");
+    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "No API key" });
     await manager.close();
   });
 
@@ -110,14 +265,15 @@ describe("AgentManager", () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => session });
     const project = createProject();
-    const run = manager.prompt(project, "Build");
+    const conversation = createConversation(project);
+    const run = manager.prompt(project, conversation, "Build").result;
     await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
 
     await manager.close();
     await expect(run).resolves.toBe("cancelled");
     expect(session.abort).toHaveBeenCalledOnce();
     expect(session.dispose).toHaveBeenCalledOnce();
-    expect(project.agent.status).toBe("idle");
+    expect(manager.state(conversation).agent.status).toBe("idle");
     expect(events.since(project.id).at(-1)?.type).toBe("agent.cancelled");
   });
 
@@ -130,22 +286,119 @@ describe("AgentManager", () => {
         assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: {} as never },
       });
       session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: "fetch failed" });
-      session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { secret: "omitted" } });
-      session.emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: { large: true }, isError: false });
+      session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts", oldText: "private", newText: "source" } });
+      session.emit({ type: "tool_execution_update", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" }, partialResult: { content: [{ type: "text", text: "working" }] } });
+      session.emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: { content: [{ type: "text", text: "patched" }] }, isError: false });
     });
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => session });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    await manager.prompt(project, "Build");
-    expect(events.since(project.id).map(({ type, data }) => ({ type, data }))).toEqual([
+    await manager.prompt(project, conversation, "Build").result;
+    const published = events.since(project.id);
+    expect(published.map(({ type, data }) => ({ type, data }))).toEqual([
       { type: "agent.started", data: { prompt: "Build" } },
-      { type: "assistant.delta", data: { delta: "Hello" } },
+      { type: "assistant.started", data: { itemId: expect.any(String) } },
+      { type: "assistant.delta", data: { itemId: expect.any(String), delta: "Hello" } },
       { type: "agent.retrying", data: { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" } },
-      { type: "tool.started", data: { toolCallId: "call-1", toolName: "edit" } },
-      { type: "tool.completed", data: { toolCallId: "call-1", toolName: "edit", isError: false } },
+      { type: "tool.started", data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" } } },
+      { type: "tool.updated", data: { itemId: expect.any(String), toolCallId: "call-1", output: "working" } },
+      { type: "tool.completed", data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "edit", isError: false, output: "patched" } },
       { type: "agent.completed", data: {} },
     ]);
+    expect(published.every((event) => (
+      event.conversationId === conversation.summary.id && typeof event.turnId === "string"
+    ))).toBe(true);
+    await manager.close();
+  });
+
+  it("forwards Pi compaction lifecycle", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit({ type: "compaction_start", reason: "threshold" });
+      session.emit({ type: "compaction_end", reason: "threshold", result: undefined, aborted: false, willRetry: false });
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Continue").result;
+
+    expect(events.since(project.id).map((event) => event.type)).toEqual([
+      "agent.started",
+      "agent.compaction.started",
+      "agent.compaction.completed",
+      "agent.completed",
+    ]);
+    expect(events.since(project.id).find((event) => event.type === "agent.compaction.completed")?.data).toEqual({
+      aborted: false,
+      willRetry: false,
+    });
+    await manager.close();
+  });
+
+  it("keeps one approval recoverable and resolves it exactly once", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const run = manager.prompt(project, conversation, "Install").result;
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+
+    const approval = manager.requestApproval(project, conversation, "call-1", "bash", { command: "npm install" });
+    await vi.waitFor(() => expect(manager.pendingApproval(project.id, conversation.summary.id)).toBeDefined());
+    const request = manager.pendingApproval(project.id, conversation.summary.id)!;
+
+    expect(manager.resolveApproval(project.id, conversation.summary.id, request.id, "allow")).toBe(true);
+    expect(manager.resolveApproval(project.id, conversation.summary.id, request.id, "allow")).toBe(false);
+    await expect(approval).resolves.toEqual({ allowed: true });
+
+    prompt.resolve();
+    await run;
+    expect(events.since(project.id).map((event) => event.type)).toContain("approval.resolved");
+    await manager.close();
+  });
+
+  it("denies a pending approval when the turn is cancelled", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    session.abort.mockImplementation(async () => prompt.resolve());
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const turn = manager.prompt(project, conversation, "Install");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    const approval = manager.requestApproval(project, conversation, "call-1", "bash", { command: "npm install" });
+    await vi.waitFor(() => expect(manager.pendingApproval(project.id, conversation.summary.id)).toBeDefined());
+
+    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+
+    await expect(approval).resolves.toEqual({ allowed: false, reason: "Denied by user" });
+    await expect(turn.result).resolves.toBe("cancelled");
+    await manager.close();
+  });
+
+  it("disposes the cached session when switching conversations", async () => {
+    const firstSession = new FakeSession();
+    const secondSession = new FakeSession();
+    const createSession = vi.fn()
+      .mockResolvedValueOnce(firstSession)
+      .mockResolvedValueOnce(secondSession);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project, "conversation-1"), "First").result;
+    await manager.prompt(project, createConversation(project, "conversation-2"), "Second").result;
+
+    expect(createSession).toHaveBeenCalledTimes(2);
+    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    expect(secondSession.dispose).not.toHaveBeenCalled();
     await manager.close();
   });
 
@@ -158,10 +411,11 @@ describe("AgentManager", () => {
       activeToolNames: () => ["read", ...(enabled ? ["generate_image"] : [])],
     });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    await manager.prompt(project, "First");
+    await manager.prompt(project, conversation, "First").result;
     enabled = true;
-    await manager.prompt(project, "Second");
+    await manager.prompt(project, conversation, "Second").result;
 
     expect(createSession).toHaveBeenCalledOnce();
     expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(1, ["read"]);
@@ -180,8 +434,9 @@ describe("AgentManager", () => {
       activeToolNames: () => ["read", ...(enabled ? ["generate_image"] : [])],
     });
     const project = createProject();
+    const conversation = createConversation(project);
 
-    const run = manager.prompt(project, "First");
+    const run = manager.prompt(project, conversation, "First").result;
     await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
     enabled = true;
     expect(session.setActiveToolsByName).toHaveBeenCalledTimes(1);
@@ -189,7 +444,7 @@ describe("AgentManager", () => {
     prompt.resolve();
     await run;
     session.prompt.mockResolvedValue();
-    await manager.prompt(project, "Second");
+    await manager.prompt(project, conversation, "Second").result;
     expect(session.setActiveToolsByName).toHaveBeenLastCalledWith(["read", "generate_image"]);
     await manager.close();
   });
@@ -219,7 +474,20 @@ function createProject(): ProjectState {
     name: "Project",
     workspacePath: "/tmp/project-1",
     preview: { status: "waiting" },
-    agent: { status: "idle" },
+  };
+}
+
+function createConversation(project: ProjectState, id = "conversation-1"): StoredConversation {
+  return {
+    sessionPath: `/tmp/${id}.jsonl`,
+    summary: {
+      id,
+      projectId: project.id,
+      title: "Conversation",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      messageCount: 0,
+    },
   };
 }
 

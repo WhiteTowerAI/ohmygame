@@ -37,6 +37,19 @@ describe("PreviewManager", () => {
     await vi.waitFor(() => expect(isProcessRunning(pid)).toBe(false));
     expect(project.preview.status).toBe("error");
   });
+
+  it("keeps a bounded preview log outside the runtime event history", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const events = new RuntimeEventBus();
+    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000, logCapacity: 2 });
+    managers.push(manager);
+
+    await manager.start(project);
+    await vi.waitFor(() => expect(manager.logs(project.id)).toHaveLength(2));
+    expect(manager.logs(project.id).map((line) => line.text)).toEqual(["server output 2", "server error"]);
+    expect(events.since(project.id).map((event) => event.type)).not.toContain("preview.log");
+  });
 });
 
 async function createWorkspace(fail: boolean): Promise<string> {
@@ -54,6 +67,9 @@ async function createWorkspace(fail: boolean): Promise<string> {
     const portIndex = process.argv.indexOf("--port");
     const port = Number(process.argv[portIndex + 1]);
     writeFileSync("server.pid", String(process.pid));
+    console.log("server output 1");
+    console.log("server output 2");
+    console.error("server error");
     createServer((_request, response) => {
       response.statusCode = existsSync("fail") ? 500 : 200;
       response.end("ready");
@@ -68,7 +84,6 @@ function createProject(workspacePath: string): ProjectState {
     name: "Preview",
     workspacePath,
     preview: { status: "stopped" },
-    agent: { status: "idle" },
   };
 }
 
