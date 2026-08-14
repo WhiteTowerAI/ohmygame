@@ -23,8 +23,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.1",
     "@fastify/multipart": "10.1.0",
-    "@mariozechner/pi-coding-agent": "0.73.1",
     "fastify": "5.11.3",
     "lucide-react": "1.31.0",
     "react": "19.2.8",
@@ -49,6 +49,6 @@
     "vitest": "3.2.6"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.19.0"
   }
 }

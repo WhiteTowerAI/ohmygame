@@ -6,7 +6,7 @@ import {
   type AgentSessionEvent,
   type SessionEntry,
   type ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ActiveTurnState, AgentItem, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";

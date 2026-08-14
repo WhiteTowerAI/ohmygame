@@ -1,5 +1,5 @@
 import path from "node:path";
-import { SessionManager, type SessionInfo } from "@mariozechner/pi-coding-agent";
+import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 
 const UNTITLED_CONVERSATION = "New conversation";

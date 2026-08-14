@@ -1,4 +1,4 @@
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
