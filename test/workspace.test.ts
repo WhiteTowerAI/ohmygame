@@ -1,12 +1,8 @@
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { getWorkspaceChanges, listWorkspaceFiles, readWorkspaceFile } from "../src/daemon/workspace.js";
-
-const execFileAsync = promisify(execFile);
+import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile } from "../src/daemon/workspace.js";
 
 describe("workspace inspection", () => {
   it("lists source files and ignores generated directories", async () => {
@@ -15,10 +11,12 @@ describe("workspace inspection", () => {
     await mkdir(path.join(workspace, "node_modules"));
     await mkdir(path.join(workspace, "dist"));
     await writeFile(path.join(workspace, "src", "main.ts"), "export const game = true;\n");
+    await writeFile(path.join(workspace, "src", "cover.PNG"), "image");
     await writeFile(path.join(workspace, "node_modules", "dependency.js"), "ignored");
     await writeFile(path.join(workspace, "dist", "bundle.js"), "ignored");
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
+      { path: "src/cover.PNG", size: 5, mediaType: "image" },
       { path: "src/main.ts", size: 26 },
     ]);
   });
@@ -45,57 +43,16 @@ describe("workspace inspection", () => {
     await expect(readWorkspaceFile(workspace, "link.txt")).rejects.toThrow("Symbolic links cannot be opened");
   });
 
-  it("treats files in a non-Git workspace as added", async () => {
+  it("resolves supported media and rejects other raw files", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
-    await writeFile(path.join(workspace, "index.html"), "<h1>Hello</h1>\n");
+    await writeFile(path.join(workspace, "sound.mp3"), "audio");
+    await writeFile(path.join(workspace, "notes.txt"), "text");
 
-    await expect(getWorkspaceChanges(workspace)).resolves.toMatchObject({
-      files: [{ path: "index.html", status: "added" }],
-      diff: expect.stringContaining("+++ b/index.html"),
-      truncated: false,
+    await expect(getWorkspaceMedia(workspace, "sound.mp3")).resolves.toMatchObject({
+      absolutePath: expect.stringMatching(/sound\.mp3$/),
+      contentType: "audio/mpeg",
+      size: 5,
     });
-  });
-
-  it("uses the same ignored directories for Git status and diff", async () => {
-    const workspace = await createGitWorkspace();
-    await mkdir(path.join(workspace, "dist"));
-    await writeFile(path.join(workspace, "source.txt"), "one\n");
-    await writeFile(path.join(workspace, "dist", "bundle.js"), "built\n");
-    await git(workspace, "add", ".");
-    await git(workspace, "commit", "-m", "initial");
-    await writeFile(path.join(workspace, "source.txt"), "one\ntwo\n");
-    await writeFile(path.join(workspace, "dist", "bundle.js"), "built\nchanged\n");
-
-    const changes = await getWorkspaceChanges(workspace);
-
-    expect(changes.files).toEqual([{ path: "source.txt", status: "modified" }]);
-    expect(changes.diff).toContain("source.txt");
-    expect(changes.diff).not.toContain("dist/bundle.js");
-  });
-
-  it("marks an oversized Git diff as truncated", async () => {
-    const workspace = await createGitWorkspace();
-    await writeFile(path.join(workspace, "large.txt"), "a\n".repeat(350_000));
-    await git(workspace, "add", "large.txt");
-    await git(workspace, "commit", "-m", "initial");
-    await writeFile(path.join(workspace, "large.txt"), "b\n".repeat(350_000));
-
-    const changes = await getWorkspaceChanges(workspace);
-
-    expect(changes.files).toEqual([{ path: "large.txt", status: "modified" }]);
-    expect(changes.diff.length).toBeGreaterThan(0);
-    expect(changes.truncated).toBe(true);
+    await expect(getWorkspaceMedia(workspace, "notes.txt")).rejects.toThrow("not a supported media asset");
   });
 });
-
-async function createGitWorkspace(): Promise<string> {
-  const workspace = await mkdtemp(path.join(tmpdir(), "open-game-git-workspace-"));
-  await git(workspace, "init", "-q");
-  await git(workspace, "config", "user.email", "test@example.com");
-  await git(workspace, "config", "user.name", "Test");
-  return workspace;
-}
-
-async function git(workspace: string, ...args: string[]): Promise<void> {
-  await execFileAsync("git", ["-C", workspace, ...args]);
-}

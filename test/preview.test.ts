@@ -32,24 +32,13 @@ describe("PreviewManager", () => {
     const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 1_000 });
     managers.push(manager);
 
-    await expect(manager.start(project)).rejects.toThrow("did not become ready");
+    await expect(manager.start(project)).rejects.toThrow(/did not become ready[\s\S]*server error/);
     const pid = Number(await readFile(path.join(workspacePath, "server.pid"), "utf8"));
     await vi.waitFor(() => expect(isProcessRunning(pid)).toBe(false));
     expect(project.preview.status).toBe("error");
+    expect(project.preview.error).toContain("server error");
   });
 
-  it("keeps a bounded preview log outside the runtime event history", async () => {
-    const workspacePath = await createWorkspace(false);
-    const project = createProject(workspacePath);
-    const events = new RuntimeEventBus();
-    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000, logCapacity: 2 });
-    managers.push(manager);
-
-    await manager.start(project);
-    await vi.waitFor(() => expect(manager.logs(project.id)).toHaveLength(2));
-    expect(manager.logs(project.id).map((line) => line.text)).toEqual(["server output 2", "server error"]);
-    expect(events.since(project.id).map((event) => event.type)).not.toContain("preview.log");
-  });
 });
 
 async function createWorkspace(fail: boolean): Promise<string> {

@@ -33,24 +33,27 @@ describe("daemon", () => {
     expect(response.json()).toEqual([first, second]);
   });
 
-  it("exposes read-only workspace files and changes", async () => {
+  it("exposes read-only workspace code and media", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
+    await writeFile(path.join(project.workspacePath, "cover.png"), Buffer.from([1, 2, 3]));
 
     const files = await app.inject({ method: "GET", url: `/projects/${project.id}/files` });
     const content = await app.inject({
       method: "GET",
       url: `/projects/${project.id}/files/content?path=${encodeURIComponent("hello world.txt")}`,
     });
-    const changes = await app.inject({ method: "GET", url: `/projects/${project.id}/changes` });
-    const logs = await app.inject({ method: "GET", url: `/projects/${project.id}/logs` });
+    const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
 
-    expect(files.json()).toEqual([{ path: "hello world.txt", size: 6 }]);
+    expect(files.json()).toEqual([
+      { path: "cover.png", size: 3, mediaType: "image" },
+      { path: "hello world.txt", size: 6 },
+    ]);
     expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
-    expect(changes.json()).toMatchObject({ files: [{ path: "hello world.txt", status: "added" }] });
-    expect(logs.json()).toEqual([]);
+    expect(media.headers["content-type"]).toBe("image/png");
+    expect(media.rawPayload).toEqual(Buffer.from([1, 2, 3]));
   });
 
   it("rejects unsafe workspace file paths", async () => {

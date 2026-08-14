@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -16,7 +17,7 @@ import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { ToolSettingsStore } from "./tool-settings.js";
-import { getWorkspaceChanges, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -298,17 +299,26 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/changes", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    return getWorkspaceChanges(project.workspacePath);
-  });
-
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/logs", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    return previews.logs(project.id);
-  });
+  app.get<{ Params: { projectId: string }; Querystring: { path?: string } }>(
+    "/projects/:projectId/files/raw",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!request.query.path) return reply.code(400).send({ error: "File path is required" });
+      try {
+        const media = await getWorkspaceMedia(project.workspacePath, request.query.path);
+        return reply
+          .type(media.contentType)
+          .header("content-length", media.size)
+          .header("cache-control", "no-store")
+          .header("x-content-type-options", "nosniff")
+          .send(createReadStream(media.absolutePath));
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/conversations", async (request, reply) => {
     const project = projects.get(request.params.projectId);

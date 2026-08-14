@@ -1,22 +1,23 @@
 import {
   ExternalLink,
   FileCode2,
-  GitCompareArrows,
+  Film,
+  Image as ImageIcon,
   LoaderCircle,
+  Music2,
   Monitor,
   RefreshCw,
   RotateCw,
   Share2,
   Smartphone,
   Tablet,
-  TerminalSquare,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { PreviewLogLine, ProjectState, WorkspaceChanges, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import { getPreviewLogs, getWorkspaceChanges, getWorkspaceFile, listWorkspaceFiles } from "./api.js";
+import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles } from "./api.js";
 
-type WorkspaceTab = "preview" | "changes" | "files" | "logs";
+type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
 
 interface CodingWorkspaceProps {
@@ -38,48 +39,28 @@ export function CodingWorkspace({
 }: CodingWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("preview");
   const [viewport, setViewport] = useState<PreviewViewport>("fit");
-  const [changes, setChanges] = useState<WorkspaceChanges>();
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string>();
+  const [selectedCodePath, setSelectedCodePath] = useState<string>();
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
-  const [logs, setLogs] = useState<PreviewLogLine[]>([]);
-  const [changesLoading, setChangesLoading] = useState(false);
-  const [changesError, setChangesError] = useState<string>();
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string>();
-  const [logsError, setLogsError] = useState<string>();
   const [reload, setReload] = useState(0);
   const fileRequest = useRef(0);
 
   useEffect(() => {
-    if (!project) return;
-    let disposed = false;
-    setChangesLoading(true);
-    setChangesError(undefined);
-    void getWorkspaceChanges(project.id).then((result) => {
-      if (!disposed) setChanges(result);
-    }).catch((cause) => {
-      if (!disposed) setChangesError(errorMessage(cause));
-    }).finally(() => {
-      if (!disposed) setChangesLoading(false);
-    });
-    return () => { disposed = true; };
-  }, [project?.id, workspaceRevision]);
-
-  useEffect(() => {
-    if (!project || activeTab !== "files") return;
+    if (!project || activeTab === "preview") return;
     let disposed = false;
     setFilesLoading(true);
     setFilesError(undefined);
     void listWorkspaceFiles(project.id).then(async (result) => {
       if (disposed) return;
       setFiles(result);
-      if (selectedPath) {
-        if (result.some((file) => file.path === selectedPath)) {
-          const content = await getWorkspaceFile(project.id, selectedPath);
+      if (activeTab === "code" && selectedCodePath) {
+        if (result.some((file) => !file.mediaType && file.path === selectedCodePath)) {
+          const content = await getWorkspaceFile(project.id, selectedCodePath);
           if (!disposed) setSelectedFile(content);
         } else {
-          setSelectedPath(undefined);
+          setSelectedCodePath(undefined);
           setSelectedFile(undefined);
         }
       }
@@ -92,29 +73,17 @@ export function CodingWorkspace({
   }, [project?.id, activeTab, workspaceRevision]);
 
   useEffect(() => {
-    if (!project || activeTab !== "logs") return;
-    const projectId = project.id;
-    let disposed = false;
-    async function refreshLogs() {
-      try {
-        const result = await getPreviewLogs(projectId);
-        if (!disposed) {
-          setLogs(result);
-          setLogsError(undefined);
-        }
-      } catch (cause) {
-        if (!disposed) setLogsError(errorMessage(cause));
-      }
-    }
-    void refreshLogs();
-    const interval = window.setInterval(() => void refreshLogs(), 1_000);
-    return () => { disposed = true; window.clearInterval(interval); };
-  }, [project?.id, activeTab]);
+    fileRequest.current += 1;
+    setFiles([]);
+    setSelectedCodePath(undefined);
+    setSelectedFile(undefined);
+    setFilesError(undefined);
+  }, [project?.id]);
 
   async function selectFile(filePath: string): Promise<void> {
     if (!project) return;
     const request = ++fileRequest.current;
-    setSelectedPath(filePath);
+    setSelectedCodePath(filePath);
     setSelectedFile(undefined);
     setFilesLoading(true);
     setFilesError(undefined);
@@ -134,11 +103,8 @@ export function CodingWorkspace({
       <header className="pane-header viewer-header">
         <nav className="workspace-tabs" aria-label="Workspace views">
           <Tab active={activeTab === "preview"} onClick={() => setActiveTab("preview")}>Preview</Tab>
-          <Tab active={activeTab === "changes"} onClick={() => setActiveTab("changes")}>
-            Changes{changes?.files.length ? ` ${changes.files.length}` : ""}
-          </Tab>
-          <Tab active={activeTab === "files"} onClick={() => setActiveTab("files")}>Files</Tab>
-          <Tab active={activeTab === "logs"} onClick={() => setActiveTab("logs")}>Logs</Tab>
+          <Tab active={activeTab === "code"} onClick={() => setActiveTab("code")}>Code</Tab>
+          <Tab active={activeTab === "assets"} onClick={() => setActiveTab("assets")}>Assets</Tab>
         </nav>
         <div className="viewer-actions">
           {activeTab === "preview" ? (
@@ -196,19 +162,23 @@ export function CodingWorkspace({
 
       {activeTab === "preview" ? (
         <PreviewView project={project} reload={reload} viewport={viewport} />
-      ) : activeTab === "changes" ? (
-        <ChangesView changes={changes} loading={changesLoading} error={changesError} />
-      ) : activeTab === "files" ? (
-        <FilesView
-          files={files}
-          selectedPath={selectedPath}
+      ) : activeTab === "code" ? (
+        <CodeView
+          files={files.filter((file) => !file.mediaType)}
+          selectedPath={selectedCodePath}
           selectedFile={selectedFile}
           loading={filesLoading}
           error={filesError}
           onSelect={selectFile}
         />
       ) : (
-        <LogsView logs={logs} error={logsError} />
+        <AssetsView
+          projectId={project?.id}
+          files={files.filter((file) => file.mediaType)}
+          loading={filesLoading}
+          error={filesError}
+          revision={workspaceRevision}
+        />
       )}
     </section>
   );
@@ -252,26 +222,7 @@ function PreviewView({ project, reload, viewport }: { project?: ProjectState; re
   );
 }
 
-function ChangesView({ changes, loading, error }: { changes?: WorkspaceChanges; loading: boolean; error?: string }) {
-  if (error) return <WorkspaceState error={error} />;
-  if (loading && !changes) return <WorkspaceState loading label="Loading changes" />;
-  if (!changes?.files.length) return <WorkspaceState icon={<GitCompareArrows size={20} />} label="No changes" />;
-  return (
-    <div className="changes-view">
-      <div className="changes-list">
-        {changes.files.map((file) => (
-          <div className="change-row" key={`${file.previousPath ?? ""}:${file.path}`} title={file.path}>
-            <span className={`change-status change-status-${file.status}`}>{statusLetter(file.status)}</span>
-            <span>{file.path}</span>
-          </div>
-        ))}
-      </div>
-      <pre className="workspace-code">{changes.diff || "No text diff available."}{changes.truncated ? "\n\n... diff truncated" : ""}</pre>
-    </div>
-  );
-}
-
-function FilesView({
+function CodeView({
   files,
   selectedPath,
   selectedFile,
@@ -286,11 +237,11 @@ function FilesView({
   error?: string;
   onSelect: (path: string) => void;
 }) {
-  if (loading && files.length === 0) return <WorkspaceState loading label="Loading files" />;
+  if (loading && files.length === 0) return <WorkspaceState loading label="Loading code" />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
-  if (files.length === 0) return <WorkspaceState icon={<FileCode2 size={20} />} label="Workspace is empty" />;
+  if (files.length === 0) return <WorkspaceState icon={<FileCode2 size={20} />} label="No code files" />;
   return (
-    <div className="files-view">
+    <div className="code-view">
       <div className="file-list">
         {files.map((file) => (
           <button
@@ -321,32 +272,99 @@ function FilesView({
   );
 }
 
-function LogsView({ logs, error }: { logs: PreviewLogLine[]; error?: string }) {
-  const container = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
+function AssetsView({
+  projectId,
+  files,
+  loading,
+  error,
+  revision,
+}: {
+  projectId?: string;
+  files: WorkspaceFile[];
+  loading: boolean;
+  error?: string;
+  revision: number;
+}) {
+  const [selectedPath, setSelectedPath] = useState<string>();
+  const selected = files.find((file) => file.path === selectedPath);
+
   useEffect(() => {
-    const element = container.current;
-    if (element && follow.current) element.scrollTop = element.scrollHeight;
-  }, [logs]);
+    if (selectedPath && !files.some((file) => file.path === selectedPath)) setSelectedPath(undefined);
+  }, [files, selectedPath]);
+
+  if (loading && files.length === 0) return <WorkspaceState loading label="Loading assets" />;
   if (error) return <WorkspaceState error={error} />;
-  if (logs.length === 0) return <WorkspaceState icon={<TerminalSquare size={20} />} label="No preview logs" />;
+  if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label="No media assets" />;
   return (
-    <div
-      className="logs-view"
-      ref={container}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-      }}
-    >
-      {logs.map((line) => (
-        <div className={`log-line log-line-${line.stream}`} key={line.id}>
-          <span>{line.stream === "stderr" ? "err" : "out"}</span>
-          <pre>{line.text || " "}</pre>
-        </div>
-      ))}
+    <div className="assets-view">
+      <div className="asset-grid">
+        {files.map((file) => (
+          <button
+            className={`asset-card${file.path === selectedPath ? " asset-card-active" : ""}`}
+            key={file.path}
+            type="button"
+            onClick={() => setSelectedPath(file.path)}
+            title={file.path}
+          >
+            <AssetThumbnail projectId={projectId} file={file} revision={revision} />
+            <span>{file.path}</span>
+          </button>
+        ))}
+      </div>
+      <div className="asset-detail">
+        {selected ? <AssetPreview projectId={projectId} file={selected} revision={revision} /> : <WorkspaceState label="Select an asset" />}
+      </div>
     </div>
   );
+}
+
+function AssetThumbnail({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
+  const asset = useAssetUrl(file.mediaType === "image" ? projectId : undefined, file.path, revision);
+  if (file.mediaType === "image" && asset.url) return <img src={asset.url} alt="" />;
+  if (file.mediaType === "video") return <Film size={22} />;
+  if (file.mediaType === "audio") return <Music2 size={22} />;
+  return <ImageIcon size={22} />;
+}
+
+function AssetPreview({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
+  const asset = useAssetUrl(projectId, file.path, revision);
+  if (asset.error) return <WorkspaceState error={asset.error} />;
+  if (!asset.url) return <WorkspaceState loading label="Loading asset" />;
+  return (
+    <>
+      <div className="file-content-header">{file.path}</div>
+      <div className="asset-preview">
+        {file.mediaType === "image" ? <img src={asset.url} alt={file.path} /> : null}
+        {file.mediaType === "video" ? <video src={asset.url} controls /> : null}
+        {file.mediaType === "audio" ? <audio src={asset.url} controls /> : null}
+      </div>
+    </>
+  );
+}
+
+function useAssetUrl(projectId: string | undefined, filePath: string, revision: number): { url?: string; error?: string } {
+  const [state, setState] = useState<{ url?: string; error?: string }>({});
+  useEffect(() => {
+    if (!projectId) {
+      setState({});
+      return;
+    }
+    let disposed = false;
+    let objectUrl: string | undefined;
+    setState({});
+    void getWorkspaceAsset(projectId, filePath).then((blob) => {
+      if (disposed) return;
+      objectUrl = URL.createObjectURL(blob);
+      setState({ url: objectUrl });
+    }).catch((cause) => {
+      if (!disposed) setState({ error: errorMessage(cause) });
+    });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId, filePath, revision]);
+  return state;
 }
 
 function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {
@@ -363,13 +381,6 @@ function PreviewState({ status, error }: { status?: string; error?: string }) {
   if (status === "stopped") return <WorkspaceState label="Preview stopped" />;
   if (status === "waiting") return <WorkspaceState label="Waiting for a runnable project" />;
   return <WorkspaceState loading label="Preparing preview" />;
-}
-
-function statusLetter(status: string): string {
-  if (status === "added") return "A";
-  if (status === "deleted") return "D";
-  if (status === "renamed") return "R";
-  return "M";
 }
 
 function errorMessage(error: unknown): string {

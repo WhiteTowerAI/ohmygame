@@ -2,29 +2,26 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { access } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
-import type { PreviewLogLine, ProjectState } from "../shared/contracts.js";
+import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
-  logCapacity?: number;
 }
+
+const MAX_ERROR_OUTPUT = 8 * 1024;
 
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, symbol>();
-  readonly #logs = new Map<string, PreviewLogLine[]>();
   readonly #readinessTimeoutMs: number;
-  readonly #logCapacity: number;
-  #nextLogId = 1;
 
   constructor(
     private readonly events: RuntimeEventBus,
     options: PreviewOptions = {},
   ) {
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
-    this.#logCapacity = options.logCapacity ?? 500;
   }
 
   async start(project: ProjectState): Promise<string> {
@@ -33,7 +30,6 @@ export class PreviewManager {
     project.preview = { status: "starting" };
     this.events.publish(project.id, "preview.starting", {});
     await this.#terminateProject(project.id);
-    this.#logs.set(project.id, []);
 
     try {
       this.#assertCurrent(project.id, operation);
@@ -46,24 +42,24 @@ export class PreviewManager {
       const child = spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
         cwd: project.workspacePath,
         env: { ...process.env, BROWSER: "none" },
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", "ignore", "pipe"],
         detached: process.platform !== "win32",
       });
       this.#track(project.id, child);
-      this.#capture(project.id, child);
       this.#running.set(project.id, child);
+      const stderr = captureOutput(child.stderr);
       const url = `http://127.0.0.1:${port}`;
 
       child.once("exit", (code, signal) => {
         this.#untrack(project.id, child);
         if (this.#running.get(project.id) !== child) return;
         this.#running.delete(project.id);
-        const error = `Preview exited (${signal ?? code ?? "unknown"})`;
+        const error = withOutput(`Preview exited (${signal ?? code ?? "unknown"})`, stderr());
         project.preview = { status: "error", error };
         this.events.publish(project.id, "preview.error", { error });
       });
 
-      await waitUntilReady(url, child, this.#readinessTimeoutMs);
+      await waitUntilReady(url, child, this.#readinessTimeoutMs, stderr);
       this.#assertCurrent(project.id, operation);
       project.preview = { status: "ready", url };
       this.events.publish(project.id, "preview.ready", { url });
@@ -94,10 +90,6 @@ export class PreviewManager {
     await Promise.all([...this.#children.keys()].map((projectId) => this.#terminateProject(projectId)));
   }
 
-  logs(projectId: string): PreviewLogLine[] {
-    return [...(this.#logs.get(projectId) ?? [])];
-  }
-
   async #terminateProject(projectId: string): Promise<void> {
     this.#running.delete(projectId);
     const children = [...(this.#children.get(projectId) ?? [])];
@@ -108,11 +100,10 @@ export class PreviewManager {
   async #run(projectId: string, command: string, args: string[], cwd: string): Promise<void> {
     const child = spawn(command, args, {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "pipe"],
       detached: process.platform !== "win32",
     });
     this.#track(projectId, child);
-    this.#capture(projectId, child);
     try {
       await waitForCommand(child, command);
     } finally {
@@ -136,37 +127,6 @@ export class PreviewManager {
     if (children?.size === 0) this.#children.delete(projectId);
   }
 
-  #capture(projectId: string, child: ChildProcess): void {
-    this.#captureStream(projectId, child.stdout, "stdout");
-    this.#captureStream(projectId, child.stderr, "stderr");
-  }
-
-  #captureStream(projectId: string, stream: NodeJS.ReadableStream | null, source: PreviewLogLine["stream"]): void {
-    if (!stream) return;
-    let pending = "";
-    stream.on("data", (chunk) => {
-      pending += String(chunk);
-      const lines = pending.split(/\r?\n/);
-      pending = lines.pop() ?? "";
-      for (const line of lines) this.#appendLog(projectId, source, line);
-    });
-    stream.on("end", () => {
-      if (pending) this.#appendLog(projectId, source, pending);
-    });
-  }
-
-  #appendLog(projectId: string, stream: PreviewLogLine["stream"], text: string): void {
-    const line: PreviewLogLine = {
-      id: this.#nextLogId++,
-      stream,
-      text,
-      timestamp: new Date().toISOString(),
-    };
-    const logs = this.#logs.get(projectId) ?? [];
-    logs.push(line);
-    if (logs.length > this.#logCapacity) logs.splice(0, logs.length - this.#logCapacity);
-    this.#logs.set(projectId, logs);
-  }
 }
 
 async function needsInstall(workspacePath: string): Promise<boolean> {
@@ -190,16 +150,29 @@ async function availablePort(): Promise<number> {
   });
 }
 
-async function waitUntilReady(url: string, child: ChildProcess, timeoutMs: number): Promise<void> {
+async function waitUntilReady(url: string, child: ChildProcess, timeoutMs: number, stderr: () => string): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Preview exited before ready (${child.exitCode})`);
+    if (child.exitCode !== null) throw new Error(withOutput(`Preview exited before ready (${child.exitCode})`, stderr()));
     try {
       if ((await fetch(url, { signal: AbortSignal.timeout(1_000) })).ok) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Preview did not become ready within ${timeoutMs}ms`);
+  throw new Error(withOutput(`Preview did not become ready within ${timeoutMs}ms`, stderr()));
+}
+
+function captureOutput(stream: NodeJS.ReadableStream | null): () => string {
+  let output = "";
+  stream?.on("data", (chunk) => {
+    output = `${output}${String(chunk)}`.slice(-MAX_ERROR_OUTPUT);
+  });
+  return () => output;
+}
+
+function withOutput(message: string, output: string): string {
+  const detail = output.trim();
+  return detail ? `${message}\n\n${detail}` : message;
 }
 
 async function waitForCommand(child: ChildProcess, command: string): Promise<void> {

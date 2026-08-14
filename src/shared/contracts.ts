@@ -136,6 +136,7 @@ export interface RemovePendingPromptRequest {
 export interface WorkspaceFile {
   path: string;
   size: number;
+  mediaType?: "image" | "video" | "audio";
 }
 
 export interface WorkspaceFileContent {
@@ -144,25 +145,6 @@ export interface WorkspaceFileContent {
   binary: boolean;
   content?: string;
   truncated?: boolean;
-}
-
-export interface WorkspaceChange {
-  path: string;
-  status: "added" | "modified" | "deleted" | "renamed";
-  previousPath?: string;
-}
-
-export interface WorkspaceChanges {
-  files: WorkspaceChange[];
-  diff: string;
-  truncated: boolean;
-}
-
-export interface PreviewLogLine {
-  id: number;
-  stream: "stdout" | "stderr";
-  text: string;
-  timestamp: string;
 }
 
 export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;

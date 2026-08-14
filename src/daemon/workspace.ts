@@ -1,18 +1,24 @@
 import { isUtf8 } from "node:buffer";
-import { execFile, spawn } from "node:child_process";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
-import type { WorkspaceChange, WorkspaceChanges, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 
-const execFileAsync = promisify(execFile);
 const IGNORED_DIRECTORIES = new Set([".data", ".git", "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
-const MAX_DIFF_BYTES = 512 * 1024;
-const GIT_DIFF_PATHS = [
-  ".",
-  ...[...IGNORED_DIRECTORIES].map((directory) => `:(exclude,glob)**/${directory}/**`),
-];
+const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaType"]>; contentType: string }> = {
+  ".avif": { mediaType: "image", contentType: "image/avif" },
+  ".gif": { mediaType: "image", contentType: "image/gif" },
+  ".jpeg": { mediaType: "image", contentType: "image/jpeg" },
+  ".jpg": { mediaType: "image", contentType: "image/jpeg" },
+  ".png": { mediaType: "image", contentType: "image/png" },
+  ".webp": { mediaType: "image", contentType: "image/webp" },
+  ".m4a": { mediaType: "audio", contentType: "audio/mp4" },
+  ".mp3": { mediaType: "audio", contentType: "audio/mpeg" },
+  ".ogg": { mediaType: "audio", contentType: "audio/ogg" },
+  ".wav": { mediaType: "audio", contentType: "audio/wav" },
+  ".mp4": { mediaType: "video", contentType: "video/mp4" },
+  ".webm": { mediaType: "video", contentType: "video/webm" },
+};
 
 export class WorkspaceError extends Error {}
 
@@ -54,19 +60,16 @@ export async function validateWorkspaceFile(workspacePath: string, requestedPath
   return relativePath;
 }
 
-export async function getWorkspaceChanges(workspacePath: string): Promise<WorkspaceChanges> {
-  const files = await listWorkspaceFiles(workspacePath);
-  const gitRoot = await findLocalGitRoot(workspacePath);
-  if (!gitRoot) return changesForUntrackedWorkspace(workspacePath, files);
-
-  const records = await gitStatus(workspacePath);
-  const visibleRecords = records.filter((record) => !isIgnoredPath(record.path));
-  const trackedDiff = await gitDiff(workspacePath);
-  const untracked = visibleRecords.filter((record) => record.status === "added");
-  const untrackedFiles = files.filter((file) => untracked.some((record) => record.path === file.path));
-  const combined = [trackedDiff.text, await addedFilesDiff(workspacePath, untrackedFiles)].filter(Boolean).join("\n");
-  const bounded = boundText(combined, MAX_DIFF_BYTES);
-  return { files: visibleRecords, diff: bounded.text, truncated: trackedDiff.truncated || bounded.truncated };
+export async function getWorkspaceMedia(
+  workspacePath: string,
+  requestedPath: string,
+): Promise<{ absolutePath: string; contentType: string; size: number }> {
+  const { absolutePath } = await resolveFile(workspacePath, requestedPath);
+  const fileStat = await stat(absolutePath);
+  if (!fileStat.isFile()) throw new WorkspaceError("Path is not a file");
+  const media = mediaInfo(requestedPath);
+  if (!media) throw new WorkspaceError("File is not a supported media asset");
+  return { absolutePath, contentType: media.contentType, size: fileStat.size };
 }
 
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<void> {
@@ -80,8 +83,17 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
       continue;
     }
     if (!entry.isFile()) continue;
-    files.push({ path: relativePath, size: (await stat(path.join(directory, entry.name))).size });
+    const media = mediaInfo(entry.name);
+    files.push({
+      path: relativePath,
+      size: (await stat(path.join(directory, entry.name))).size,
+      ...(media ? { mediaType: media.mediaType } : {}),
+    });
   }
+}
+
+function mediaInfo(filePath: string): (typeof MEDIA_TYPES)[string] | undefined {
+  return MEDIA_TYPES[path.extname(filePath).toLowerCase()];
 }
 
 async function resolveFile(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
@@ -104,129 +116,4 @@ async function resolveFile(workspacePath: string, requestedPath: string): Promis
     throw new WorkspaceError("Path leaves the workspace");
   }
   return { absolutePath: target, relativePath: relativePath.split(path.sep).join("/") };
-}
-
-async function findLocalGitRoot(workspacePath: string): Promise<string | undefined> {
-  try {
-    const [{ stdout }, root] = await Promise.all([
-      execFileAsync("git", ["-C", workspacePath, "rev-parse", "--show-toplevel"], { encoding: "utf8" }),
-      realpath(workspacePath),
-    ]);
-    return await realpath(stdout.trim()) === root ? root : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function gitStatus(workspacePath: string): Promise<WorkspaceChange[]> {
-  const { stdout } = await execFileAsync(
-    "git",
-    ["-C", workspacePath, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    { encoding: "buffer", maxBuffer: MAX_DIFF_BYTES },
-  );
-  const parts = stdout.toString("utf8").split("\0");
-  const changes: WorkspaceChange[] = [];
-  for (let index = 0; index < parts.length;) {
-    const record = parts[index++];
-    if (!record) continue;
-    const code = record.slice(0, 2);
-    const filePath = record.slice(3);
-    if (code.includes("R")) {
-      const previousPath = parts[index++] || undefined;
-      changes.push({ path: filePath, status: "renamed", ...(previousPath ? { previousPath } : {}) });
-    } else {
-      changes.push({ path: filePath, status: changeStatus(code) });
-    }
-  }
-  return changes.sort((a, b) => a.path.localeCompare(b.path));
-}
-
-function changeStatus(code: string): WorkspaceChange["status"] {
-  if (code.includes("?") || code.includes("A")) return "added";
-  if (code.includes("D")) return "deleted";
-  return "modified";
-}
-
-function isIgnoredPath(filePath: string): boolean {
-  return filePath.split("/").some((part) => IGNORED_DIRECTORIES.has(part));
-}
-
-async function gitDiff(workspacePath: string): Promise<{ text: string; truncated: boolean }> {
-  try {
-    return await readBoundedProcess(
-      "git",
-      ["-C", workspacePath, "diff", "--no-ext-diff", "--no-color", "HEAD", "--", ...GIT_DIFF_PATHS],
-      MAX_DIFF_BYTES,
-    );
-  } catch {
-    return { text: "", truncated: false };
-  }
-}
-
-async function changesForUntrackedWorkspace(workspacePath: string, files: WorkspaceFile[]): Promise<WorkspaceChanges> {
-  const combined = await addedFilesDiff(workspacePath, files);
-  const bounded = boundText(combined, MAX_DIFF_BYTES);
-  return {
-    files: files.map((file) => ({ path: file.path, status: "added" })),
-    diff: bounded.text,
-    truncated: bounded.truncated,
-  };
-}
-
-async function addedFilesDiff(workspacePath: string, files: WorkspaceFile[]): Promise<string> {
-  const sections: string[] = [];
-  let size = 0;
-  for (const file of files) {
-    if (size >= MAX_DIFF_BYTES) break;
-    const result = await readWorkspaceFile(workspacePath, file.path);
-    if (result.binary || result.content === undefined) {
-      const section = `diff --git a/${file.path} b/${file.path}\nnew file mode 100644\nBinary file /dev/null and b/${file.path} differ\n`;
-      sections.push(section);
-      size += Buffer.byteLength(section);
-      continue;
-    }
-    const lines = result.content.split("\n");
-    if (lines.at(-1) === "") lines.pop();
-    const section = [
-      `diff --git a/${file.path} b/${file.path}`,
-      "new file mode 100644",
-      "--- /dev/null",
-      `+++ b/${file.path}`,
-      `@@ -0,0 +1,${lines.length} @@`,
-      ...lines.map((line) => `+${line}`),
-      "",
-    ].join("\n");
-    sections.push(section);
-    size += Buffer.byteLength(section);
-  }
-  return sections.join("\n");
-}
-
-function boundText(value: string, maxBytes: number): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(value);
-  if (bytes.length <= maxBytes) return { text: value, truncated: false };
-  return { text: bytes.subarray(0, maxBytes).toString("utf8"), truncated: true };
-}
-
-async function readBoundedProcess(command: string, args: string[], maxBytes: number): Promise<{ text: string; truncated: boolean }> {
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-  const chunks: Buffer[] = [];
-  let captured = 0;
-  let truncated = false;
-  let stderr = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    const remaining = maxBytes - captured;
-    if (remaining > 0) {
-      const visible = chunk.subarray(0, remaining);
-      chunks.push(visible);
-      captured += visible.length;
-    }
-    if (chunk.length > remaining) truncated = true;
-  });
-  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-  await new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `${command} exited with ${code}`)));
-  });
-  return { text: Buffer.concat(chunks).toString("utf8"), truncated };
 }

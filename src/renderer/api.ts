@@ -16,10 +16,8 @@ import {
   type ToolDefinition,
   type ToolRun,
   type ToolSettings,
-  type PreviewLogLine,
   type PromptReference,
   type PromptResponse,
-  type WorkspaceChanges,
   type WorkspaceFile,
   type WorkspaceFileContent,
 } from "../shared/contracts.js";
@@ -115,12 +113,12 @@ export async function getWorkspaceFile(projectId: string, filePath: string): Pro
   return request(`/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`);
 }
 
-export async function getWorkspaceChanges(projectId: string): Promise<WorkspaceChanges> {
-  return request(`/projects/${projectId}/changes`);
-}
-
-export async function getPreviewLogs(projectId: string): Promise<PreviewLogLine[]> {
-  return request(`/projects/${projectId}/logs`);
+export async function getWorkspaceAsset(projectId: string, filePath: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/files/raw?path=${encodeURIComponent(filePath)}`), {
+    headers: runtimeHeaders(),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export async function listConversations(projectId: string): Promise<ConversationSummary[]> {

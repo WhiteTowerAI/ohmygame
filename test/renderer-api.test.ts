@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -201,22 +201,36 @@ describe("renderer project API", () => {
     );
   });
 
-  it("loads workspace inspection data and encodes file paths", async () => {
+  it("loads workspace files and encodes file paths", async () => {
     installWindow();
     const fetchMock = vi.fn(async (_input: string | URL | Request) => Response.json([]));
     vi.stubGlobal("fetch", fetchMock);
 
     await listWorkspaceFiles("project-1");
     await getWorkspaceFile("project-1", "src/my file.ts");
-    await getWorkspaceChanges("project-1");
-    await getPreviewLogs("project-1");
+    await getWorkspaceAsset("project-1", "public/cover image.png");
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/projects/project-1/files",
       "/api/projects/project-1/files/content?path=src%2Fmy%20file.ts",
-      "/api/projects/project-1/changes",
-      "/api/projects/project-1/logs",
+      "/api/projects/project-1/files/raw?path=public%2Fcover%20image.png",
     ]);
+  });
+
+  it("downloads workspace assets with desktop authorization", async () => {
+    vi.stubGlobal("window", {
+      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      setTimeout,
+      clearTimeout,
+    });
+    const fetchMock = vi.fn(async () => new Response(new Blob(["image"], { type: "image/png" })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWorkspaceAsset("project-1", "cover.png")).resolves.toBeInstanceOf(Blob);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:43210/projects/project-1/files/raw?path=cover.png",
+      { headers: { authorization: "Bearer secret" } },
+    );
   });
 });
 
