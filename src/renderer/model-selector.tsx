@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelCatalog, AgentModelRef } from "../shared/contracts.js";
 import { listModels, waitForRuntime } from "./api.js";
 
@@ -11,34 +11,81 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ models, value, disabled, onChange }: ModelSelectorProps) {
-  if (models.length === 0) return null;
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
-  const currentAvailable = models.some((model) => modelKey(model) === currentKey);
-  const providers = [...new Set(models.map((model) => model.provider))];
+  const current = models.find((model) => modelKey(model) === currentKey);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  if (models.length === 0) return null;
 
   return (
-    <label className="model-selector" title="Model">
-      <span className="visually-hidden">Model</span>
-      <select
+    <div className="model-selector" ref={root}>
+      <button
+        ref={trigger}
+        className="model-selector-trigger"
+        type="button"
         aria-label="Model"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
         disabled={disabled}
-        value={currentAvailable ? currentKey : ""}
-        onChange={(event) => {
-          const model = models.find((candidate) => modelKey(candidate) === event.target.value);
-          if (model) onChange(model);
-        }}
+        onClick={() => setOpen((value) => !value)}
+        title="Model"
       >
-        <option value="" disabled>{value ? `${value.provider}/${value.id}` : "Default model"}</option>
-        {providers.map((provider) => (
-          <optgroup key={provider} label={provider}>
-            {models.filter((model) => model.provider === provider).map((model) => (
-              <option key={modelKey(model)} value={modelKey(model)}>{model.name}</option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      <ChevronDown aria-hidden="true" size={12} />
-    </label>
+        <span>{current?.name ?? (value ? value.id : "Default model")}</span>
+        <ChevronDown aria-hidden="true" size={12} />
+      </button>
+
+      {open ? (
+        <div className="model-selector-menu" id={menuId} role="menu" aria-label="Models">
+          {models.map((model) => {
+            const selected = modelKey(model) === currentKey;
+            return (
+              <button
+                className="model-selector-option"
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                key={modelKey(model)}
+                onClick={() => {
+                  setOpen(false);
+                  if (!selected) onChange(model);
+                  trigger.current?.focus();
+                }}
+                title={`${model.provider}/${model.id}`}
+              >
+                {model.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
