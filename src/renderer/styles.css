@@ -1880,17 +1880,30 @@ textarea:focus-visible {
 
 .workspace-tabs {
   display: flex;
-  min-width: 0;
-  height: 100%;
-  align-items: stretch;
-  gap: 2px;
+  width: 170px;
+  height: 32px;
+  min-width: 170px;
+  align-items: center;
+  gap: 0;
+  padding: 1px;
+  overflow: hidden;
+  border: 1px solid #292b33;
+  border-radius: 16px;
+  background: #141519;
   justify-self: start;
 }
 
 .workspace-tab {
-  position: relative;
-  padding: 0 9px;
-  border: 0;
+  display: flex;
+  width: 38px;
+  height: 30px;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 15px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1898,20 +1911,33 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.workspace-tab:hover { color: var(--text); }
-
-.workspace-tab-active {
+.workspace-tab:hover {
+  background: #1b1d23;
   color: var(--text);
 }
 
-.workspace-tab-active::after {
-  position: absolute;
-  right: 8px;
-  bottom: 0;
-  left: 8px;
-  height: 2px;
-  background: var(--accent);
-  content: "";
+.workspace-tab > svg { flex: 0 0 auto; }
+
+.workspace-tab > span { display: none; }
+
+.workspace-tab-active {
+  width: 90px;
+  flex-basis: 90px;
+  border-color: rgb(65 227 176 / 58%);
+  background: #1b2e29;
+  color: #f3f4f6;
+  font-weight: 600;
+}
+
+.workspace-tab-active:hover { background: #1b2e29; }
+
+.workspace-tab-active > span { display: block; }
+
+.workspace-tab-divider {
+  width: 1px;
+  height: 18px;
+  flex: 0 0 1px;
+  background: #292b33;
 }
 
 .publish-button {
@@ -2315,13 +2341,11 @@ textarea:focus-visible {
 
 @media (max-width: 900px) {
   .preview-external-button { display: none; }
-  .workspace-tab { padding: 0 5px; }
 }
 
 @media (min-width: 721px) and (max-width: 800px) {
   .preview-location { width: 72px; }
   .preview-location-path { display: none; }
-  .workspace-tab { padding: 0 3px; }
 }
 
 .centered-state {
@@ -2530,8 +2554,6 @@ textarea:focus-visible {
 
   .preview-controls { gap: 4px; }
 
-  .workspace-tab { padding: 0 6px; }
-
   .workspace-publish-button {
     width: 32px;
     justify-content: center;
@@ -2554,7 +2576,17 @@ textarea:focus-visible {
 }
 
 @media (max-width: 460px) {
-  .workspace-tab { padding: 0 5px; }
+  .workspace-tabs {
+    width: 118px;
+    min-width: 118px;
+  }
+
+  .workspace-tab-active {
+    width: 38px;
+    flex-basis: 38px;
+  }
+
+  .workspace-tab-active > span { display: none; }
 
   .home-nav-item {
     gap: 0;

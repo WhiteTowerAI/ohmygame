@@ -1,10 +1,13 @@
 import {
   Check,
   ChevronDown,
+  Code2,
   ExternalLink,
   FileCode2,
   Film,
+  Globe2,
   Image as ImageIcon,
+  Layers3,
   LoaderCircle,
   Music2,
   Monitor,
@@ -131,9 +134,11 @@ export function CodingWorkspace({
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header">
         <nav className="workspace-tabs" aria-label="Workspace views">
-          <Tab active={activeTab === "preview"} onClick={() => setActiveTab("preview")}>Preview</Tab>
-          <Tab active={activeTab === "code"} onClick={() => setActiveTab("code")}>Code</Tab>
-          <Tab active={activeTab === "assets"} onClick={() => setActiveTab("assets")}>Assets</Tab>
+          <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
+          <span className="workspace-tab-divider" aria-hidden="true" />
+          <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
+          <span className="workspace-tab-divider" aria-hidden="true" />
+          <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Assets" onClick={() => setActiveTab("assets")} />
         </nav>
         <div className="viewer-controls-slot">
           {activeTab === "preview" ? (
@@ -190,8 +195,19 @@ export function CodingWorkspace({
   );
 }
 
-function Tab({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
-  return <button className={`workspace-tab${active ? " workspace-tab-active" : ""}`} type="button" onClick={onClick}>{children}</button>;
+function Tab({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      className={`workspace-tab${active ? " workspace-tab-active" : ""}`}
+      type="button"
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
 }
 
 function PreviewControls({
