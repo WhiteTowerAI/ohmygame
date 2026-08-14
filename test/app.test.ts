@@ -330,8 +330,8 @@ describe("daemon", () => {
         agent: { status: "idle" },
       }),
       items: [
-        { id: "user-1", turnId: "user-1", kind: "user", text: "Hello" },
-        { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete" },
+        { id: "user-1", turnId: "user-1", kind: "user", text: "Hello", timestamp: 0 },
+        { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", timestamp: 1 },
       ],
       cursor: 0,
     });

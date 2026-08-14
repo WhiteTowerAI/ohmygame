@@ -36,11 +36,27 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(9, "agent.completed", {}) });
 
     expect(state.items).toEqual([
-      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Build a clock" },
-      { id: "assistant-1", turnId: "turn-1", kind: "assistant", text: "I will build it.", status: "complete", error: undefined },
-      { id: "tool-1", turnId: "turn-1", kind: "tool", toolCallId: "tool-1", toolName: "edit", status: "complete", args: { path: "src/app.ts" }, output: "done", truncated: undefined },
+      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Build a clock", timestamp: 0 },
+      { id: "assistant-1", turnId: "turn-1", kind: "assistant", text: "I will build it.", status: "complete", error: undefined, timestamp: 0 },
+      { id: "tool-1", turnId: "turn-1", kind: "tool", toolCallId: "tool-1", toolName: "edit", status: "complete", args: { path: "src/app.ts" }, output: "done", truncated: undefined, timestamp: 0 },
     ]);
     expect(state.conversation?.agent).toEqual({ status: "idle" });
+  });
+
+  it("tracks Pi thinking without adding it to conversation history", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
+    expect(state.agentThinking).toBe(true);
+
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "read" }) });
+    expect(state.agentThinking).toBe(false);
+
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking", {}) });
+    expect(state.agentThinking).toBe(true);
+    expect(state.items.some((item) => item.kind === "assistant" && !item.text)).toBe(false);
+
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.completed", {}) });
+    expect(state.agentThinking).toBe(false);
   });
 
   it("updates preview state and ignores duplicate events", () => {
@@ -151,7 +167,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.completed", { itemId: "assistant-1", status: "complete" }) });
 
     expect(state.items).toEqual([
-      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Read" },
+      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Read", timestamp: 0 },
     ]);
   });
 
@@ -177,6 +193,21 @@ describe("rendererReducer", () => {
     expect(state.lastEventId).toBe(1);
   });
 
+  it("clears transient thinking when another conversation's turn ends", () => {
+    const state = rendererReducer({
+      ...initialized(),
+      activeTurn: { conversationId: "conversation-2", turnId: "turn-1" },
+      agentThinking: true,
+    }, {
+      type: "runtime-event",
+      event: { ...runtimeEvent(1, "agent.completed", {}), conversationId: "conversation-2" },
+    });
+
+    expect(state.activeTurn).toBeUndefined();
+    expect(state.agentThinking).toBe(false);
+    expect(state.items).toEqual([]);
+  });
+
   it("resets the event cursor when loading another conversation", () => {
     let state = rendererReducer(initialized(), {
       type: "runtime-event",
@@ -194,7 +225,7 @@ describe("rendererReducer", () => {
       event: { ...runtimeEvent(9, "agent.started", { prompt: "Other" }), conversationId: "conversation-2" },
     });
 
-    expect(state.items).toEqual([{ id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Other" }]);
+    expect(state.items).toEqual([{ id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Other", timestamp: 0 }]);
   });
 
 });

@@ -45,8 +45,8 @@ describe("conversationItems", () => {
         stopReason: "stop",
       }),
     ] as never)).toEqual([
-      { id: "user-1", turnId: "user-1", kind: "user", text: "Build a game" },
-      { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "I will build it. Starting now.", status: "complete" },
+      { id: "user-1", turnId: "user-1", kind: "user", text: "Build a game", timestamp: 1 },
+      { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "I will build it. Starting now.", status: "complete", timestamp: 0 },
       {
         id: "assistant-1:tool:call-1",
         turnId: "user-1",
@@ -56,8 +56,9 @@ describe("conversationItems", () => {
         status: "complete",
         args: { path: "secret" },
         output: "large private output",
+        timestamp: 2,
       },
-      { id: "assistant-2:assistant", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete" },
+      { id: "assistant-2:assistant", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete", timestamp: 0 },
     ]);
   });
 
@@ -67,9 +68,9 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error:assistant", turnId: "error", kind: "assistant", text: "", status: "error", error: "No API key" },
-      { id: "user", turnId: "user", kind: "user", text: "Stop" },
-      { id: "cancelled:assistant", turnId: "user", kind: "assistant", text: "", status: "cancelled" },
+      { id: "error:assistant", turnId: "error", kind: "assistant", text: "", status: "error", error: "No API key", timestamp: 0 },
+      { id: "user", turnId: "user", kind: "user", text: "Stop", timestamp: 1 },
+      { id: "cancelled:assistant", turnId: "user", kind: "assistant", text: "", status: "cancelled", timestamp: 0 },
     ]);
   });
 
@@ -283,6 +284,11 @@ describe("AgentManager", () => {
       session.emit({
         type: "message_update",
         message: {} as never,
+        assistantMessageEvent: { type: "thinking_start", contentIndex: 0, partial: {} as never },
+      });
+      session.emit({
+        type: "message_update",
+        message: {} as never,
         assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: {} as never },
       });
       session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: "fetch failed" });
@@ -299,6 +305,7 @@ describe("AgentManager", () => {
     const published = events.since(project.id);
     expect(published.map(({ type, data }) => ({ type, data }))).toEqual([
       { type: "agent.started", data: { prompt: "Build" } },
+      { type: "assistant.thinking", data: {} },
       { type: "assistant.started", data: { itemId: expect.any(String) } },
       { type: "assistant.delta", data: { itemId: expect.any(String), delta: "Hello" } },
       { type: "agent.retrying", data: { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" } },

@@ -41,15 +41,18 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   const tools = new Map<string, Extract<AgentItem, { kind: "tool" }>>();
   let turnId: string | undefined;
   let turnFinished = true;
+  let lastTimestamp: number | undefined;
 
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message;
+    const timestamp = messageTime(entry);
+    if (timestamp !== undefined) lastTimestamp = timestamp;
     if (message.role === "user") {
       turnId = entry.id;
       turnFinished = false;
       const parsed = parseUserPrompt(textContent(message.content));
-      if (parsed.text) items.push({ id: entry.id, turnId, kind: "user", text: parsed.text });
+      if (parsed.text) items.push({ id: entry.id, turnId, kind: "user", text: parsed.text, timestamp });
       continue;
     }
     if (message.role === "assistant") {
@@ -62,6 +65,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           kind: "assistant",
           text,
           status: assistantStatus(message.stopReason),
+          timestamp,
           ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
         });
       }
@@ -75,6 +79,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             toolName: content.name,
             status: "running",
             args: toolArguments(content.name, content.arguments),
+            timestamp,
           };
           tools.set(content.id, tool);
           items.push(tool);
@@ -87,6 +92,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const tool = tools.get(message.toolCallId);
       if (tool) {
         tool.status = message.isError ? "error" : "complete";
+        tool.timestamp = timestamp;
         const result = toolOutput(message);
         if (result.output) tool.output = result.output;
         if (result.truncated) tool.truncated = true;
@@ -95,12 +101,19 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   }
 
   if (markInterrupted && turnId && !turnFinished) {
-    items.push({ id: `${turnId}:interrupted`, turnId, kind: "assistant", text: "", status: "interrupted" });
+    items.push({ id: `${turnId}:interrupted`, turnId, kind: "assistant", text: "", status: "interrupted", timestamp: lastTimestamp });
   }
 
   return items.map((item) => markInterrupted && item.kind === "tool" && item.status === "running"
     ? { ...item, status: "error" }
     : item);
+}
+
+function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number | undefined {
+  const messageTimestamp = (entry.message as { timestamp?: unknown }).timestamp;
+  if (typeof messageTimestamp === "number" && Number.isFinite(messageTimestamp)) return messageTimestamp;
+  const entryTimestamp = Date.parse(entry.timestamp);
+  return Number.isFinite(entryTimestamp) ? entryTimestamp : undefined;
 }
 
 interface AgentManagerOptions {
@@ -345,6 +358,8 @@ export class AgentManager {
     if (event.type === "message_start" && isAssistantMessage(event.message)) {
       active.assistantItemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
       this.events.publish(projectId, "assistant.started", { itemId: active.assistantItemId }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_start") {
+      this.events.publish(projectId, "assistant.thinking", {}, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
       const itemId = active.assistantItemId ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
       if (!active.assistantItemId) {

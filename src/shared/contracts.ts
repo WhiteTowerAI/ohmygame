@@ -69,7 +69,7 @@ export interface PublishResult {
   game: CommunityGame;
 }
 
-export type AgentItem =
+export type AgentItem = (
   | { id: string; turnId: string; kind: "user"; text: string }
   | {
       id: string;
@@ -105,7 +105,8 @@ export type AgentItem =
       kind: "compaction";
       status: "running" | "complete" | "error";
       error?: string;
-    };
+    }
+) & { timestamp?: number };
 
 export interface ConversationDetail {
   conversation: ConversationState;
@@ -199,6 +200,7 @@ export interface RuntimeEventData {
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
   "assistant.started": { itemId: string };
+  "assistant.thinking": Record<string, never>;
   "assistant.delta": { itemId: string; delta: string };
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; error?: string };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
@@ -226,6 +228,7 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.compaction.started",
   "agent.compaction.completed",
   "assistant.started",
+  "assistant.thinking",
   "assistant.delta",
   "assistant.completed",
   "tool.started",

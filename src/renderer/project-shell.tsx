@@ -359,7 +359,11 @@ export function ProjectShell({
             }}
           >
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
-            <AgentTimeline items={state.items} />
+            <AgentTimeline
+              items={state.items}
+              activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
+              thinking={currentConversationBusy && state.agentThinking}
+            />
           </div>
 
           <Composer
