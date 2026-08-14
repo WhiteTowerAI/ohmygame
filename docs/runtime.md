@@ -63,7 +63,9 @@ Preview dependencies are installed the first time a runnable workspace starts; r
 reuse the existing installation.
 
 This milestone runs Pi in trusted-local mode. The workspace is Pi's working
-directory, but `cwd` is not an operating-system security boundary.
+directory, but `cwd` is not an operating-system security boundary. Enabled Pi
+tools execute without an OpenGame approval prompt; the Tools page controls
+which custom tools are exposed to the session.
 
 ## Electron shell
 

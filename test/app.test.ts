@@ -146,51 +146,6 @@ describe("daemon", () => {
     finishPrompt();
   });
 
-  it("restores and resolves a pending approval", async () => {
-    let finishPrompt!: () => void;
-    let approveTool!: (toolCallId: string, toolName: string, input: Record<string, unknown>) => Promise<{ allowed: boolean; reason?: string }>;
-    const session: CodingSession = {
-      messages: [],
-      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
-      abort: async () => { finishPrompt(); },
-      dispose: () => {},
-      subscribe: () => () => {},
-    };
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-approval-api-")),
-      createSession: async (_project, _conversation, approve) => {
-        approveTool = approve;
-        return session;
-      },
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Install" },
-    });
-    await vi.waitFor(() => expect(approveTool).toBeTypeOf("function"));
-    const decision = approveTool("call-1", "bash", { command: "npm install" });
-    let detail;
-    await vi.waitFor(async () => {
-      detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
-      expect(detail.json().pendingApproval).toMatchObject({ toolCallId: "call-1", kind: "command" });
-    });
-    const approvalId = detail!.json().pendingApproval.id;
-
-    const resolved = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/approvals/${approvalId}`,
-      payload: { decision: "allow" },
-    });
-
-    expect(resolved.statusCode).toBe(204);
-    await expect(decision).resolves.toEqual({ allowed: true });
-    finishPrompt();
-  });
-
   it("exposes health and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);

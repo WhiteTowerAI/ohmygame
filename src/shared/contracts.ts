@@ -98,23 +98,6 @@ export interface ConversationDetail {
   cursor: number;
   activeTurn?: ActiveTurnState;
   pendingPrompt?: PendingPrompt;
-  pendingApproval?: ApprovalRequest;
-}
-
-export type ApprovalKind = "command" | "external-tool";
-
-export interface ApprovalRequest {
-  id: string;
-  conversationId: string;
-  turnId: string;
-  toolCallId: string;
-  kind: ApprovalKind;
-  title: string;
-  detail: string;
-}
-
-export interface ApprovalDecisionRequest {
-  decision: "allow" | "deny";
 }
 
 export interface CreateProjectRequest { name?: string }
@@ -216,8 +199,6 @@ export interface RuntimeEventData {
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
-  "approval.requested": { approval: ApprovalRequest };
-  "approval.resolved": { approvalId: string; decision: "allow" | "deny" };
   "assistant.started": { itemId: string };
   "assistant.delta": { itemId: string; delta: string };
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; error?: string };
@@ -245,8 +226,6 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.retrying",
   "agent.compaction.started",
   "agent.compaction.completed",
-  "approval.requested",
-  "approval.resolved",
   "assistant.started",
   "assistant.delta",
   "assistant.completed",

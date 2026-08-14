@@ -6,27 +6,16 @@ import {
   LoaderCircle,
   Search,
   Terminal,
-  ShieldAlert,
   Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
-import type { AgentItem, ApprovalRequest } from "../shared/contracts.js";
+import type { AgentItem } from "../shared/contracts.js";
 
-export function AgentTimeline({
-  items,
-  approval,
-  onApproval,
-}: {
-  items: AgentItem[];
-  approval?: ApprovalRequest;
-  onApproval: (approvalId: string, decision: "allow" | "deny") => Promise<void>;
-}) {
+export function AgentTimeline({ items }: { items: AgentItem[] }) {
   return (
     <>
       {items.map((item) => <TimelineEntry key={item.id} item={item} />)}
-      {approval ? <ApprovalCard approval={approval} onApproval={onApproval} /> : null}
     </>
   );
 }
@@ -60,35 +49,6 @@ function TimelineEntry({ item }: { item: AgentItem }) {
       {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
       {item.error ? <p className="message-error" role="alert">{item.error}</p> : null}
     </div>
-  );
-}
-
-function ApprovalCard({
-  approval,
-  onApproval,
-}: {
-  approval: ApprovalRequest;
-  onApproval: (approvalId: string, decision: "allow" | "deny") => Promise<void>;
-}) {
-  const [resolving, setResolving] = useState(false);
-
-  function decide(decision: "allow" | "deny"): void {
-    setResolving(true);
-    void onApproval(approval.id, decision).finally(() => setResolving(false));
-  }
-
-  return (
-    <section className="approval-card" aria-label="Approval required">
-      <div className="approval-heading">
-        <ShieldAlert size={15} />
-        <strong>{approval.title}</strong>
-      </div>
-      <pre>{approval.detail}</pre>
-      <div className="approval-actions">
-        <button type="button" className="secondary-button" disabled={resolving} onClick={() => decide("deny")}>Deny</button>
-        <button type="button" className="primary-button" disabled={resolving} onClick={() => decide("allow")}>Allow once</button>
-      </div>
-    </section>
   );
 }
 

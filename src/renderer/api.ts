@@ -2,7 +2,6 @@ import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
   type AddToolResultRequest,
-  type ApprovalDecisionRequest,
   type CreateProjectRequest,
   type CommunityGame,
   type ConversationDetail,
@@ -166,18 +165,6 @@ export async function removePendingPrompt(projectId: string, conversationId: str
 
 export async function cancelPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/turns/${turnId}/cancel`, { method: "POST" });
-}
-
-export async function resolveApproval(
-  projectId: string,
-  conversationId: string,
-  approvalId: string,
-  decision: ApprovalDecisionRequest["decision"],
-): Promise<void> {
-  await request(`/projects/${projectId}/conversations/${conversationId}/approvals/${approvalId}`, {
-    method: "POST",
-    body: JSON.stringify({ decision }),
-  });
 }
 
 export function subscribeToProject(

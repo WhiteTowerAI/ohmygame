@@ -1,4 +1,4 @@
-import type { ActiveTurnState, AgentItem, ApprovalRequest, ConversationState, PendingPrompt, ProjectState, RuntimeEvent } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, ConversationState, PendingPrompt, ProjectState, RuntimeEvent } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -11,7 +11,6 @@ export interface RendererState {
   conversation?: ConversationState;
   activeTurn?: ActiveTurnState;
   pendingPrompt?: PendingPrompt;
-  pendingApproval?: ApprovalRequest;
   items: TimelineItem[];
   retry?: { attempt: number; maxAttempts: number };
   lastEventId: number;
@@ -19,8 +18,8 @@ export interface RendererState {
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; pendingApproval?: ApprovalRequest; cursor: number }
-  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; pendingApproval?: ApprovalRequest; cursor: number }
+  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
+  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "connection"; status: ConnectionStatus }
   | { type: "notice"; message?: string }
@@ -41,7 +40,6 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       conversation: action.conversation,
       activeTurn: action.activeTurn,
       pendingPrompt: action.pendingPrompt,
-      pendingApproval: action.pendingApproval,
       items: action.items,
       retry: undefined,
       notice: undefined,
@@ -56,7 +54,6 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       conversation: action.conversation,
       activeTurn: action.activeTurn,
       pendingPrompt: action.pendingPrompt,
-      pendingApproval: action.pendingApproval,
       items: action.items ?? state.items,
       lastEventId: action.cursor,
     };
@@ -72,7 +69,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("prompt.") || event.type.startsWith("approval.");
+  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("prompt.");
   let scoped = next;
 
   if (event.type === "agent.started" && event.conversationId && event.turnId) {
@@ -153,10 +150,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
             : undefined),
         } : item),
       };
-    case "approval.requested":
-      return { ...scoped, pendingApproval: event.data.approval };
-    case "approval.resolved":
-      return state.pendingApproval?.id === event.data.approvalId ? { ...scoped, pendingApproval: undefined } : scoped;
     case "assistant.started":
       if (!event.turnId) return scoped;
       return {
@@ -277,7 +270,6 @@ function finishAgent(
     ...state,
     items,
     retry: undefined,
-    pendingApproval: undefined,
     conversation: {
       ...state.conversation,
       agent: status === "error" ? { status: "error", error } : { status: "idle" },

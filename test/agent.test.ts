@@ -339,51 +339,6 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("keeps one approval recoverable and resolves it exactly once", async () => {
-    const session = new FakeSession();
-    const prompt = deferred<void>();
-    session.prompt.mockImplementation(() => prompt.promise);
-    const events = new RuntimeEventBus();
-    const manager = new AgentManager(events, { createSession: async () => session });
-    const project = createProject();
-    const conversation = createConversation(project);
-    const run = manager.prompt(project, conversation, "Install").result;
-    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
-
-    const approval = manager.requestApproval(project, conversation, "call-1", "bash", { command: "npm install" });
-    await vi.waitFor(() => expect(manager.pendingApproval(project.id, conversation.summary.id)).toBeDefined());
-    const request = manager.pendingApproval(project.id, conversation.summary.id)!;
-
-    expect(manager.resolveApproval(project.id, conversation.summary.id, request.id, "allow")).toBe(true);
-    expect(manager.resolveApproval(project.id, conversation.summary.id, request.id, "allow")).toBe(false);
-    await expect(approval).resolves.toEqual({ allowed: true });
-
-    prompt.resolve();
-    await run;
-    expect(events.since(project.id).map((event) => event.type)).toContain("approval.resolved");
-    await manager.close();
-  });
-
-  it("denies a pending approval when the turn is cancelled", async () => {
-    const session = new FakeSession();
-    const prompt = deferred<void>();
-    session.prompt.mockImplementation(() => prompt.promise);
-    session.abort.mockImplementation(async () => prompt.resolve());
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
-    const project = createProject();
-    const conversation = createConversation(project);
-    const turn = manager.prompt(project, conversation, "Install");
-    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
-    const approval = manager.requestApproval(project, conversation, "call-1", "bash", { command: "npm install" });
-    await vi.waitFor(() => expect(manager.pendingApproval(project.id, conversation.summary.id)).toBeDefined());
-
-    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
-
-    await expect(approval).resolves.toEqual({ allowed: false, reason: "Denied by user" });
-    await expect(turn.result).resolves.toBe("cancelled");
-    await manager.close();
-  });
-
   it("disposes the cached session when switching conversations", async () => {
     const firstSession = new FakeSession();
     const secondSession = new FakeSession();

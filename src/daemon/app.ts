@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type ApprovalDecisionRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
@@ -81,15 +81,6 @@ const removePendingPromptSchema = {
   },
 } as const;
 
-const approvalDecisionSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["decision"],
-    properties: { decision: { type: "string", enum: ["allow", "deny"] } },
-  },
-} as const;
-
 const toolRunSchema = {
   body: {
     type: "object",
@@ -152,11 +143,10 @@ export function createApp(options: AppOptions = {}) {
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   const agents = new AgentManager(events, {
-    createSession: options.createSession ?? ((project, conversation, approveTool) => createPiSession(
+    createSession: options.createSession ?? ((project, conversation) => createPiSession(
       project.workspacePath,
       conversations.open(project, conversation),
       createAgentTools(project, tools, projects),
-      approveTool,
     )),
     activeToolNames: () => activePiToolNames(toolSettings.get()),
     onRunCompleted: (project) => {
@@ -331,7 +321,6 @@ export function createApp(options: AppOptions = {}) {
         cursor: reset || !currentRun ? events.cursor() : currentRun.id - 1,
         activeTurn: agents.activeTurn(project.id),
         pendingPrompt: agents.pendingPrompt(project.id, conversation.summary.id),
-        pendingApproval: agents.pendingApproval(project.id, conversation.summary.id),
       };
     },
   );
@@ -414,24 +403,6 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       await agents.cancel(project.id, conversation.summary.id, request.params.turnId);
       return reply.code(202).send({ accepted: true });
-    },
-  );
-
-  app.post<{
-    Params: { projectId: string; conversationId: string; approvalId: string };
-    Body: ApprovalDecisionRequest;
-  }>(
-    "/projects/:projectId/conversations/:conversationId/approvals/:approvalId",
-    { schema: approvalDecisionSchema },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const conversation = await conversations.get(project, request.params.conversationId);
-      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (!agents.resolveApproval(project.id, conversation.summary.id, request.params.approvalId, request.body.decision)) {
-        return reply.code(409).send({ error: "Approval request has already changed" });
-      }
-      return reply.code(204).send();
     },
   );
 

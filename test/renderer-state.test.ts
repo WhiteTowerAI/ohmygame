@@ -108,32 +108,15 @@ describe("rendererReducer", () => {
     expect(state.retry).toBeUndefined();
   });
 
-  it("tracks compaction and an inline approval", () => {
+  it("tracks context compaction", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "threshold" }) });
-    state = rendererReducer(state, {
-      type: "runtime-event",
-      event: runtimeEvent(3, "approval.requested", {
-        approval: {
-          id: "approval-1",
-          conversationId: "conversation-1",
-          turnId: "turn-1",
-          toolCallId: "call-1",
-          kind: "command",
-          title: "Allow network access?",
-          detail: "npm install",
-        },
-      }),
-    });
 
     expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "running" });
-    expect(state.pendingApproval?.id).toBe("approval-1");
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.compaction.completed", { aborted: false, willRetry: false }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "approval.resolved", { approvalId: "approval-1", decision: "deny" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "agent.compaction.completed", { aborted: false, willRetry: false }) });
     expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "complete" });
-    expect(state.pendingApproval).toBeUndefined();
   });
 
   it("does not present an aborted compaction as complete", () => {
@@ -233,7 +216,7 @@ function initialized() {
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
-  const agentScoped = type.startsWith("agent.") || type.startsWith("assistant.") || type.startsWith("tool.") || type.startsWith("prompt.") || type.startsWith("approval.");
+  const agentScoped = type.startsWith("agent.") || type.startsWith("assistant.") || type.startsWith("tool.") || type.startsWith("prompt.");
   return {
     id,
     projectId: "project-1",

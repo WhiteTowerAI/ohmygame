@@ -1148,38 +1148,6 @@ textarea:focus-visible {
   color: var(--danger);
 }
 
-.approval-card {
-  margin: -4px 0 18px;
-  padding: 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-}
-
-.approval-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.approval-card pre {
-  max-height: 120px;
-  margin: 10px 0;
-  overflow: auto;
-  color: var(--text-muted);
-  font: 11px/1.55 var(--font-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.approval-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .retry-activity svg {
   flex: 0 0 auto;
   margin-top: 2px;

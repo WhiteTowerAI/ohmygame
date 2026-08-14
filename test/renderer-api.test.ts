@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, resolveApproval, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -175,19 +175,6 @@ describe("renderer project API", () => {
         body: JSON.stringify({ title: "New title" }),
         headers: { "content-type": "application/json" },
       }),
-    );
-  });
-
-  it("resolves an approval once", async () => {
-    installWindow();
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await resolveApproval("project-1", "conversation-1", "approval-1", "allow");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/project-1/conversations/conversation-1/approvals/approval-1",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "allow" }) }),
     );
   });
 

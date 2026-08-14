@@ -15,7 +15,6 @@ import {
   listConversations,
   publishProject,
   removePendingPrompt,
-  resolveApproval,
   renameConversation,
   sendPrompt,
   startPreview,
@@ -79,7 +78,6 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompt: detail.pendingPrompt,
-          pendingApproval: detail.pendingApproval,
           cursor: detail.cursor,
         });
         return detail.cursor;
@@ -112,7 +110,6 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompt: detail.pendingPrompt,
-          pendingApproval: detail.pendingApproval,
           cursor: detail.cursor,
         });
         subscribe(detail.cursor, selected.id);
@@ -160,7 +157,6 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompt: detail.pendingPrompt,
-          pendingApproval: detail.pendingApproval,
           cursor: detail.cursor,
         });
         if (!disposed) subscribe(detail.cursor, requestedConversation.id);
@@ -236,15 +232,6 @@ export function ProjectShell({
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
-    }
-  }
-
-  async function decideApproval(approvalId: string, decision: "allow" | "deny"): Promise<void> {
-    if (!project || !conversation) return;
-    try {
-      await resolveApproval(project.id, conversation.id, approvalId, decision);
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
     }
   }
 
@@ -328,11 +315,7 @@ export function ProjectShell({
             {state.phase === "ready" && state.items.length === 0 ? (
               <div className="empty-timeline">Ready</div>
             ) : null}
-            <AgentTimeline
-              items={state.items}
-              approval={state.pendingApproval}
-              onApproval={decideApproval}
-            />
+            <AgentTimeline items={state.items} />
           </div>
 
           <Composer

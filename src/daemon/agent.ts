@@ -4,16 +4,14 @@ import {
   getAgentDir,
   SessionManager,
   type AgentSessionEvent,
-  type ExtensionFactory,
   type SessionEntry,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentStatus, ApprovalDecisionRequest, ApprovalRequest, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
-import { evaluateToolCall } from "./permissions.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -25,21 +23,7 @@ export interface CodingSession {
 }
 
 export type AgentRunResult = "completed" | "cancelled";
-export interface ToolApprovalResult {
-  allowed: boolean;
-  reason?: string;
-}
-
-export type ToolApprovalHandler = (
-  toolCallId: string,
-  toolName: string,
-  input: Record<string, unknown>,
-) => Promise<ToolApprovalResult>;
-export type SessionFactory = (
-  project: ProjectState,
-  conversation: StoredConversation,
-  approveTool: ToolApprovalHandler,
-) => Promise<CodingSession>;
+export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
 export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): AgentItem[] {
   const sessionDirectory = path.join(path.dirname(workspacePath), "session");
@@ -139,18 +123,12 @@ interface QueuedPrompt extends PendingPrompt {
   conversation: StoredConversation;
 }
 
-interface PendingApproval {
-  request: ApprovalRequest;
-  resolve: (result: ToolApprovalResult) => void;
-}
-
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #conversationStates = new Map<string, ConversationState["agent"]>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
   readonly #pendingPrompts = new Map<string, QueuedPrompt>();
-  readonly #pendingApprovals = new Map<string, PendingApproval>();
   #closing = false;
 
   constructor(
@@ -254,7 +232,6 @@ export class AgentManager {
     active.status = "cancelling";
     this.#setState(projectId, conversationId, { status: "cancelling", turnId });
     this.#clearPending(projectId, conversationId);
-    this.#resolveApproval(projectId, "deny");
     const managed = this.#sessions.get(projectId);
     if (managed?.conversationId === conversationId) await managed.session.abort();
   }
@@ -280,61 +257,11 @@ export class AgentManager {
     return pending ? { turnId: pending.turnId, prompt: pending.prompt, references: pending.references } : undefined;
   }
 
-  pendingApproval(projectId: string, conversationId: string): ApprovalRequest | undefined {
-    const pending = this.#pendingApprovals.get(projectId);
-    return pending?.request.conversationId === conversationId ? pending.request : undefined;
-  }
-
-  resolveApproval(projectId: string, conversationId: string, approvalId: string, decision: ApprovalDecisionRequest["decision"]): boolean {
-    const pending = this.#pendingApprovals.get(projectId);
-    if (!pending || pending.request.conversationId !== conversationId || pending.request.id !== approvalId) return false;
-    this.#resolveApproval(projectId, decision);
-    return true;
-  }
-
-  async requestApproval(
-    project: ProjectState,
-    conversation: StoredConversation,
-    toolCallId: string,
-    toolName: string,
-    input: Record<string, unknown>,
-  ): Promise<ToolApprovalResult> {
-    const active = this.#activeTurns.get(project.id);
-    if (!active || active.conversationId !== conversation.summary.id || active.status !== "running") {
-      return { allowed: false, reason: "The run is no longer active" };
-    }
-    const policy = evaluateToolCall(project.workspacePath, toolName, input);
-    if (policy.action === "allow") return { allowed: true };
-    if (policy.action === "deny") return { allowed: false, reason: policy.reason };
-    if (this.#pendingApprovals.has(project.id)) {
-      return { allowed: false, reason: "Another tool approval is already pending" };
-    }
-
-    const request: ApprovalRequest = {
-      id: randomUUID(),
-      conversationId: conversation.summary.id,
-      turnId: active.turnId,
-      toolCallId,
-      kind: policy.kind,
-      title: policy.title,
-      detail: policy.detail,
-    };
-    const result = await new Promise<ToolApprovalResult>((resolve) => {
-      this.#pendingApprovals.set(project.id, { request, resolve });
-      this.events.publish(project.id, "approval.requested", { approval: request }, eventScope(active));
-    });
-    if (!result.allowed) return result;
-    return this.#activeTurns.get(project.id) === active && active.status === "running"
-      ? result
-      : { allowed: false, reason: "The run is no longer active" };
-  }
-
   async close(): Promise<void> {
     this.#closing = true;
     for (const [projectId, active] of this.#activeTurns) {
       active.status = "cancelling";
       this.#setState(projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
-      this.#resolveApproval(projectId, "deny");
     }
     const sessions = [...this.#sessions.values()];
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
@@ -375,14 +302,11 @@ export class AgentManager {
       this.#sessions.delete(project.id);
     }
 
-    const session = await (this.options.createSession ?? ((state, stored, approveTool) => createPiSession(
+    const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
       state.workspacePath,
       SessionManager.open(stored.sessionPath, path.join(path.dirname(state.workspacePath), "session"), state.workspacePath),
       [],
-      approveTool,
-    )))(project, conversation, (toolCallId, toolName, input) => (
-      this.requestApproval(project, conversation, toolCallId, toolName, input)
-    ));
+    )))(project, conversation);
     if (this.#closing) {
       session.dispose();
       throw new Error("Agent manager is closing");
@@ -469,19 +393,6 @@ export class AgentManager {
 
   #setState(projectId: string, conversationId: string, state: ConversationState["agent"]): void {
     this.#conversationStates.set(conversationKey(projectId, conversationId), state);
-  }
-
-  #resolveApproval(projectId: string, decision: ApprovalDecisionRequest["decision"]): void {
-    const pending = this.#pendingApprovals.get(projectId);
-    if (!pending) return;
-    this.#pendingApprovals.delete(projectId);
-    this.events.publish(projectId, "approval.resolved", {
-      approvalId: pending.request.id,
-      decision,
-    }, { conversationId: pending.request.conversationId, turnId: pending.request.turnId });
-    pending.resolve(decision === "allow"
-      ? { allowed: true }
-      : { allowed: false, reason: "Denied by user" });
   }
 
   isProjectBusy(projectId: string): boolean {
@@ -613,7 +524,6 @@ export async function createPiSession(
   workspacePath: string,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
-  approveTool?: ToolApprovalHandler,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const resourceLoader = new DefaultResourceLoader({
@@ -624,7 +534,6 @@ export async function createPiSession(
       "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
     ],
-    ...(approveTool ? { extensionFactories: [approvalExtension(approveTool)] } : {}),
   });
   await resourceLoader.reload();
   const { session } = await createAgentSession({
@@ -634,15 +543,6 @@ export async function createPiSession(
     sessionManager,
   });
   return session;
-}
-
-function approvalExtension(approveTool: ToolApprovalHandler): ExtensionFactory {
-  return (pi) => {
-    pi.on("tool_call", async (event) => {
-      const result = await approveTool(event.toolCallId, event.toolName, event.input);
-      return result.allowed ? undefined : { block: true, reason: result.reason ?? "Tool execution was not approved" };
-    });
-  };
 }
 
 export function lastAssistantError(messages: readonly unknown[]): string | undefined {
