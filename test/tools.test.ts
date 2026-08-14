@@ -97,7 +97,7 @@ describe("tool runner", () => {
   });
 
   it("validates requests and reports missing configuration", async () => {
-    const app = createApp({ dataDirectory: await temporaryData(), openAIApiKey: "" });
+    const app = createApp({ dataDirectory: await temporaryData(), imageApiKey: "" });
     apps.push(app);
 
     expect((await app.inject({ method: "POST", url: "/tools/missing/runs", payload: { prompt: "image" } })).statusCode).toBe(404);

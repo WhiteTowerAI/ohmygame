@@ -14,6 +14,15 @@ describe("rendererReducer", () => {
     expect(state.items).toEqual(items);
   });
 
+  it("updates the selected conversation model", () => {
+    const state = rendererReducer(initialized(), {
+      type: "conversation-model",
+      model: { provider: "openai-codex", id: "gpt-5.5" },
+    });
+
+    expect(state.conversation?.model).toEqual({ provider: "openai-codex", id: "gpt-5.5" });
+  });
+
   it("builds a conversation from normalized runtime events", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build a clock" }) });

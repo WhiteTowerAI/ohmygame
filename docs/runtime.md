@@ -128,7 +128,7 @@ Image generation calls OpenAI's native Images API with the fixed
 `gpt-image-2` model. At startup, the daemon loads an optional repository-root
 `.env.local`; existing process environment values take precedence. The file is
 ignored by Git and `.env.example` documents the current settings.
-`OPENAI_API_KEY` is read only by the daemon. `OPENAI_BASE_URL` optionally points
+`IMAGE_API_KEY` is read only by the daemon. `IMAGE_API_URL` optionally points
 to the `/v1` root of an OpenAI-compatible service and defaults to OpenAI's
 official API. Tool runs are not Pi tools and are not added to project
 workspaces in this milestone.

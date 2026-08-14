@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, getConversation, getPreviewLogs, getToolRunFile, getToolSettings, getWorkspaceChanges, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -128,6 +128,29 @@ describe("renderer project API", () => {
       "/api/projects/project-1/conversations/conversation-1?reset=1",
       expect.objectContaining({ headers: {} }),
     );
+  });
+
+  it("lists models and selects one for a conversation", async () => {
+    installWindow();
+    const model = { provider: "openai-codex", id: "gpt-5.5", name: "GPT-5.5" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model }))
+      .mockResolvedValueOnce(Response.json({ id: "conversation-1", model }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(model));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listModels()).resolves.toEqual({ models: [model], defaultModel: model });
+    await createConversation("project-1", model);
+    await setConversationModel("project-1", "conversation-1", model);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ model }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations/conversation-1/model", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify(model),
+    }));
   });
 
   it("sends a prompt to a project", async () => {

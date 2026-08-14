@@ -2,14 +2,16 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
+  ModelRuntime,
   SessionManager,
+  SettingsManager,
   type AgentSessionEvent,
   type SessionEntry,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentModelRef, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptReference } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -19,8 +21,11 @@ export interface CodingSession {
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+  setModel?(model: RuntimeModel): Promise<void>;
   setActiveToolsByName?(toolNames: string[]): void;
 }
+
+export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
 export type AgentRunResult = "completed" | "cancelled";
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
@@ -136,11 +141,28 @@ export class AgentManager {
     private readonly options: AgentManagerOptions = {},
   ) {}
 
-  state(conversation: StoredConversation): ConversationState {
+  state(conversation: StoredConversation, model?: AgentModelRef): ConversationState {
     return {
       ...conversation.summary,
       agent: this.#conversationStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" },
+      ...(model ? { model } : {}),
     };
+  }
+
+  async setModel(
+    projectId: string,
+    conversationId: string,
+    model: RuntimeModel,
+    persist: () => void,
+  ): Promise<void> {
+    if (this.#activeTurns.has(projectId)) throw new Error("Wait for the agent to finish before changing models");
+    const managed = this.#sessions.get(projectId);
+    if (!managed || managed.conversationId !== conversationId) {
+      persist();
+      return;
+    }
+    if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
+    await managed.session.setModel(model);
   }
 
   prompt(
@@ -524,11 +546,17 @@ export async function createPiSession(
   workspacePath: string,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
+  modelRuntime?: ModelRuntime,
+  model?: RuntimeModel,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
+  const persistedSettings = SettingsManager.create(workspacePath, getAgentDir());
+  const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
+  sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir: getAgentDir(),
+    settingsManager: sessionSettings,
     appendSystemPrompt: [
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
       "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
@@ -539,8 +567,11 @@ export async function createPiSession(
   const { session } = await createAgentSession({
     cwd: workspacePath,
     customTools,
+    model,
+    modelRuntime,
     resourceLoader,
     sessionManager,
+    settingsManager: sessionSettings,
   });
   return session;
 }

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, ConversationSummary, ProjectState } from "../shared/contracts.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
@@ -23,8 +23,9 @@ export class ConversationManager {
     return [...persisted, ...pending].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async create(project: ProjectState): Promise<StoredConversation> {
+  async create(project: ProjectState, model?: AgentModelRef): Promise<StoredConversation> {
     const manager = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    if (model) manager.appendModelChange(model.provider, model.id);
     const sessionPath = manager.getSessionFile();
     if (!sessionPath) throw new Error("Pi did not create a persistent session");
     const stored = {
@@ -88,6 +89,15 @@ export class ConversationManager {
     const pending = this.#pending.get(key(project.id, stored.summary.id));
     if (pending) return pending.manager;
     return SessionManager.open(stored.sessionPath, sessionDirectory(project), project.workspacePath);
+  }
+
+  model(project: ProjectState, stored: StoredConversation): AgentModelRef | undefined {
+    const model = this.open(project, stored).buildSessionContext().model;
+    return model ? { provider: model.provider, id: model.modelId } : undefined;
+  }
+
+  setModel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): void {
+    this.open(project, stored).appendModelChange(model.provider, model.id);
   }
 
   async #sessions(project: ProjectState): Promise<SessionInfo[]> {

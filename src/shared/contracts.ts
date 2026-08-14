@@ -3,6 +3,20 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 
+export interface AgentModelRef {
+  provider: string;
+  id: string;
+}
+
+export interface AgentModel extends AgentModelRef {
+  name: string;
+}
+
+export interface AgentModelCatalog {
+  models: AgentModel[];
+  defaultModel?: AgentModelRef;
+}
+
 export interface PublicationState {
   gameId: string;
   deploymentId: string;
@@ -29,6 +43,7 @@ export interface ConversationSummary {
 
 export interface ConversationState extends ConversationSummary {
   agent: { status: AgentStatus; turnId?: string; error?: string };
+  model?: AgentModelRef;
 }
 
 export interface ActiveTurnState {
@@ -101,7 +116,9 @@ export interface ConversationDetail {
 }
 
 export interface CreateProjectRequest { name?: string }
+export interface CreateConversationRequest { model?: AgentModelRef }
 export interface RenameConversationRequest { title: string }
+export type SetConversationModelRequest = AgentModelRef;
 export interface PromptRequest {
   prompt: string;
   references?: PromptReference[];

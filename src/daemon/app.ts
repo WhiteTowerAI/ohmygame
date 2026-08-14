@@ -1,7 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type ToolSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
@@ -27,8 +28,9 @@ export interface AppOptions {
   publishFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
-  openAIApiKey?: string;
-  openAIBaseUrl?: string;
+  imageApiKey?: string;
+  imageApiUrl?: string;
+  createModelRuntime?: () => Promise<ModelRuntime>;
 }
 
 const createProjectSchema = {
@@ -71,6 +73,18 @@ const renameConversationSchema = {
     properties: { title: { type: "string", minLength: 1, maxLength: 80 } },
   },
 } as const;
+
+const modelRefSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["provider", "id"],
+  properties: {
+    provider: { type: "string", minLength: 1, maxLength: 100 },
+    id: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+const setConversationModelSchema = { body: modelRefSchema } as const;
 
 const removePendingPromptSchema = {
   body: {
@@ -137,17 +151,28 @@ export function createApp(options: AppOptions = {}) {
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? new OpenAIImageGenerator(
-      options.openAIApiKey ?? process.env.OPENAI_API_KEY,
-      options.openAIBaseUrl ?? process.env.OPENAI_BASE_URL,
+      options.imageApiKey ?? process.env.IMAGE_API_KEY,
+      options.imageApiUrl ?? process.env.IMAGE_API_URL,
     ),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
+  let modelRuntimePromise: Promise<ModelRuntime> | undefined;
+  const getModelRuntime = () => modelRuntimePromise ??= (options.createModelRuntime ?? (() => ModelRuntime.create()))();
   const agents = new AgentManager(events, {
-    createSession: options.createSession ?? ((project, conversation) => createPiSession(
-      project.workspacePath,
-      conversations.open(project, conversation),
-      createAgentTools(project, tools, projects),
-    )),
+    createSession: options.createSession ?? (async (project, conversation) => {
+      const modelRuntime = await getModelRuntime();
+      const selected = conversations.model(project, conversation);
+      const model = selected && modelRuntime.hasConfiguredAuth(selected.provider)
+        ? modelRuntime.getModel(selected.provider, selected.id)
+        : undefined;
+      return createPiSession(
+        project.workspacePath,
+        conversations.open(project, conversation),
+        createAgentTools(project, tools, projects),
+        modelRuntime,
+        model,
+      );
+    }),
     activeToolNames: () => activePiToolNames(toolSettings.get()),
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -291,11 +316,34 @@ export function createApp(options: AppOptions = {}) {
     return conversations.list(project);
   });
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/conversations", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    return reply.code(201).send(agents.state(await conversations.create(project)));
+  app.get("/models", async () => {
+    const models = await (await getModelRuntime()).getAvailable();
+    const piSettings = SettingsManager.create(dataDirectory, getAgentDir());
+    const defaultProvider = piSettings.getDefaultProvider();
+    const defaultId = piSettings.getDefaultModel();
+    const defaultModel = models.find(({ provider, id }) => provider === defaultProvider && id === defaultId);
+    return {
+      models: models.map(({ provider, id, name }) => ({ provider, id, name })),
+      ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
+    };
   });
+
+  app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
+    "/projects/:projectId/conversations",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!isCreateConversationRequest(request.body)) {
+        return reply.code(400).send({ error: "Invalid conversation request" });
+      }
+      const model = request.body?.model;
+      if (model && !(await availableModel(getModelRuntime, model.provider, model.id))) {
+        return reply.code(400).send({ error: "Model is not available" });
+      }
+      const conversation = await conversations.create(project, model);
+      return reply.code(201).send(agents.state(conversation, model));
+    },
+  );
 
   app.get<{ Params: { projectId: string; conversationId: string }; Querystring: { reset?: string } }>(
     "/projects/:projectId/conversations/:conversationId",
@@ -304,7 +352,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const state = agents.state(conversation);
+      const state = agents.state(conversation, conversations.model(project, conversation));
       const reset = request.query.reset === "1";
       const currentRun = state.agent.status === "running" || state.agent.status === "cancelling"
         ? events.since(project.id).findLast((event) =>
@@ -336,6 +384,27 @@ export function createApp(options: AppOptions = {}) {
         return conversation ?? reply.code(404).send({ error: "Conversation not found" });
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.put<{ Params: { projectId: string; conversationId: string }; Body: SetConversationModelRequest }>(
+    "/projects/:projectId/conversations/:conversationId/model",
+    { schema: setConversationModelSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const model = await availableModel(getModelRuntime, request.body.provider, request.body.id);
+      if (!model) return reply.code(400).send({ error: "Model is not available" });
+      try {
+        await agents.setModel(project.id, conversation.summary.id, model, () => {
+          conversations.setModel(project, conversation, request.body);
+        });
+        return request.body;
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
     },
   );
@@ -462,4 +531,27 @@ export function createApp(options: AppOptions = {}) {
     await artifacts.close();
   });
   return app;
+}
+
+async function availableModel(
+  getRuntime: () => Promise<ModelRuntime>,
+  provider: string,
+  id: string,
+) {
+  const runtime = await getRuntime();
+  const models = await runtime.getAvailable(provider);
+  return models.find((model) => model.id === id);
+}
+
+function isCreateConversationRequest(value: unknown): value is CreateConversationRequest | undefined {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== "model")) return false;
+  if (body.model === undefined) return true;
+  if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) return false;
+  const model = body.model as Record<string, unknown>;
+  return Object.keys(model).every((key) => key === "provider" || key === "id") &&
+    typeof model.provider === "string" && model.provider.length > 0 && model.provider.length <= 100 &&
+    typeof model.id === "string" && model.id.length > 0 && model.id.length <= 200;
 }

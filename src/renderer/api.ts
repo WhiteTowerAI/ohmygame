@@ -2,6 +2,8 @@ import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
   type AddToolResultRequest,
+  type AgentModelCatalog,
+  type AgentModelRef,
   type CreateProjectRequest,
   type CommunityGame,
   type ConversationDetail,
@@ -43,6 +45,10 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
 
 export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
+}
+
+export async function listModels(): Promise<AgentModelCatalog> {
+  return request("/models");
 }
 
 export async function listCommunityGames(): Promise<CommunityGame[]> {
@@ -121,8 +127,11 @@ export async function listConversations(projectId: string): Promise<Conversation
   return request(`/projects/${projectId}/conversations`);
 }
 
-export async function createConversation(projectId: string): Promise<ConversationState> {
-  return request(`/projects/${projectId}/conversations`, { method: "POST" });
+export async function createConversation(projectId: string, model?: AgentModelRef): Promise<ConversationState> {
+  return request(`/projects/${projectId}/conversations`, {
+    method: "POST",
+    body: JSON.stringify(model ? { model } : {}),
+  });
 }
 
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {
@@ -137,6 +146,17 @@ export async function renameConversation(
   return request(`/projects/${projectId}/conversations/${conversationId}`, {
     method: "PATCH",
     body: JSON.stringify({ title }),
+  });
+}
+
+export async function setConversationModel(
+  projectId: string,
+  conversationId: string,
+  model: AgentModelRef,
+): Promise<AgentModelRef> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/model`, {
+    method: "PUT",
+    body: JSON.stringify(model),
   });
 }
 

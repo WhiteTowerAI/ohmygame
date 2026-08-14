@@ -125,63 +125,6 @@ button.home-nav-item:hover {
   line-height: 1.2;
 }
 
-.home-composer {
-  position: relative;
-  min-height: 124px;
-  overflow: hidden;
-  border: 1px solid #30323a;
-  border-radius: 14px;
-  background: #17181d;
-  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
-  text-align: left;
-}
-
-.home-composer:focus-within {
-  border-color: var(--border-strong);
-  box-shadow: 0 10px 26px rgb(0 0 0 / 38%), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-.home-composer textarea {
-  display: block;
-  width: 100%;
-  height: 82px;
-  resize: none;
-  padding: 16px 58px 12px 17px;
-  overflow: auto;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.home-composer textarea::placeholder {
-  color: #777a84;
-  opacity: 1;
-}
-
-.home-send-button {
-  position: absolute;
-  right: 16px;
-  bottom: 13px;
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
-  cursor: pointer;
-}
-
-.home-send-button:disabled {
-  cursor: default;
-  opacity: 0.36;
-}
-
 .home-notice {
   margin: 10px 2px 0;
   color: var(--danger);
@@ -1270,26 +1213,98 @@ textarea:focus-visible {
   line-height: 1.4;
 }
 
-.composer-control {
+.prompt-box {
   display: grid;
   gap: 8px;
-  min-height: 60px;
-  padding: 11px 10px 10px 13px;
+  min-width: 0;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 14px;
   background: var(--surface-raised);
+  text-align: left;
 }
 
-.composer-input-row {
+.prompt-box-home {
+  min-height: 124px;
+  padding: 15px 15px 12px 17px;
+  border-color: #30323a;
+  background: #17181d;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
+}
+
+.prompt-box-project {
+  min-height: 88px;
+}
+
+.prompt-box:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.prompt-box-home:focus-within {
+  box-shadow: 0 10px 26px rgb(0 0 0 / 38%), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.prompt-box textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  max-height: 132px;
+  resize: none;
+  overflow: auto;
+  padding: 3px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.prompt-box-home textarea {
+  min-height: 48px;
+  font-size: 13px;
+}
+
+.prompt-box textarea::placeholder {
+  color: #7e838d;
+  opacity: 1;
+}
+
+.prompt-box-toolbar {
   display: flex;
   min-width: 0;
-  align-items: flex-end;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+.prompt-box-leading,
+.prompt-box-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-box-actions {
+  margin-left: auto;
 }
 
 .composer-attach-button {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
+  border-color: transparent;
+  background: transparent;
+  color: #cdd0d5;
+}
+
+.composer-attach-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .reference-picker-wrap {
@@ -1433,32 +1448,6 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.composer-control:focus-within {
-  border-color: var(--border-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-.composer textarea {
-  flex: 1;
-  min-width: 0;
-  min-height: 32px;
-  max-height: 132px;
-  resize: none;
-  overflow: auto;
-  padding: 6px 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.composer textarea::placeholder {
-  color: #7e838d;
-  opacity: 1;
-}
-
 .icon-button {
   display: inline-grid;
   flex: 0 0 auto;
@@ -1506,6 +1495,56 @@ textarea:focus-visible {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.model-selector {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.model-selector:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.model-selector select {
+  min-width: 0;
+  max-width: 190px;
+  height: 30px;
+  appearance: none;
+  padding: 0 25px 0 8px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.model-selector select:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.model-selector > svg {
+  position: absolute;
+  right: 7px;
+  pointer-events: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .viewer-pane {

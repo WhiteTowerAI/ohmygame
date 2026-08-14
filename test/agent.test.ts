@@ -379,6 +379,22 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("uses Pi to change the model of a cached session", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const model = { provider: "openai-codex", id: "gpt-5.5" } as never;
+    const persist = vi.fn();
+
+    await manager.prompt(project, conversation, "First").result;
+    await manager.setModel(project.id, conversation.summary.id, model, persist);
+
+    expect(session.setModel).toHaveBeenCalledWith(model);
+    expect(persist).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
   it("does not change tools during an active run", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -410,6 +426,7 @@ class FakeSession implements CodingSession {
   prompt = vi.fn<(prompt: string) => Promise<void>>(async () => {});
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
+  setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});
   setActiveToolsByName = vi.fn<(toolNames: string[]) => void>();
   #listener?: (event: AgentSessionEvent) => void;
 

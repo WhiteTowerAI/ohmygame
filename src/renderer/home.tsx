@@ -1,8 +1,10 @@
 import { ArrowUp, FolderCode, LoaderCircle, RefreshCw } from "lucide-react";
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { ProjectState } from "../shared/contracts.js";
+import { useEffect, useState } from "react";
+import type { AgentModelRef, ProjectState } from "../shared/contracts.js";
 import { createConversation, createProject, listProjects, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
+import { ModelSelector, useAgentModels } from "./model-selector.js";
+import { PromptBox } from "./prompt-box.js";
 
 interface HomeProps {
   onCommunity: () => void;
@@ -18,6 +20,8 @@ export function Home({ onCommunity, onCreate, onOpen, onTools }: HomeProps) {
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [createError, setCreateError] = useState<string>();
+  const [model, setModel] = useState<AgentModelRef>();
+  const modelCatalog = useAgentModels();
 
   async function loadProjects() {
     setPhase("loading");
@@ -33,16 +37,18 @@ export function Home({ onCommunity, onCreate, onOpen, onTools }: HomeProps) {
   }
 
   useEffect(() => { void loadProjects(); }, []);
+  useEffect(() => {
+    if (!model && modelCatalog.defaultModel) setModel(modelCatalog.defaultModel);
+  }, [model, modelCatalog.defaultModel]);
 
-  async function submitPrompt(event?: FormEvent) {
-    event?.preventDefault();
+  async function submitPrompt() {
     const nextPrompt = prompt.trim();
     if (!nextPrompt || creating) return;
     setCreating(true);
     setCreateError(undefined);
     try {
       const project = await createProject();
-      const conversation = await createConversation(project.id);
+      const conversation = await createConversation(project.id, model);
       onCreate(project.id, conversation.id, nextPrompt);
     } catch (error) {
       setCreateError(errorMessage(error));
@@ -57,31 +63,28 @@ export function Home({ onCommunity, onCreate, onOpen, onTools }: HomeProps) {
       <section className="home-content">
         <div className="home-start">
           <h1>OpenGame</h1>
-          <form className="home-composer" onSubmit={submitPrompt}>
-            <textarea
-              aria-label="Prompt"
-              disabled={creating}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void submitPrompt();
-                }
-              }}
-              placeholder="Ask your agent to build anything"
-              rows={3}
-              value={prompt}
-            />
-            <button
-              className="home-send-button"
-              type="submit"
-              disabled={!prompt.trim() || creating}
-              title="Create project"
-              aria-label="Create project"
-            >
-              {creating ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={17} />}
-            </button>
-          </form>
+          <PromptBox
+            actions={(
+              <>
+                <ModelSelector models={modelCatalog.models} value={model} disabled={creating} onChange={setModel} />
+                <button
+                  className="icon-button send-button"
+                  type="submit"
+                  disabled={!prompt.trim() || creating}
+                  title="Create project"
+                  aria-label="Create project"
+                >
+                  {creating ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={17} />}
+                </button>
+              </>
+            )}
+            disabled={creating}
+            onChange={setPrompt}
+            onSubmit={() => void submitPrompt()}
+            placeholder="Ask your agent to build anything"
+            value={prompt}
+            variant="home"
+          />
           {createError ? <p className="home-notice" role="alert">{createError}</p> : null}
         </div>
 

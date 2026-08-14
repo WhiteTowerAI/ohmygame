@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
@@ -216,6 +217,39 @@ describe("daemon", () => {
     ]);
   });
 
+  it("lists Pi models and stores a conversation model without starting a session", async () => {
+    const first = { provider: "provider-one", id: "model-one", name: "Model One" };
+    const second = { provider: "provider-one", id: "model-two", name: "Model Two" };
+    const runtime = fakeModelRuntime([first, second]);
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-models-")),
+      createModelRuntime: async () => runtime,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+
+    const models = await app.inject({ method: "GET", url: "/models" });
+    const created = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+      payload: { model: { provider: first.provider, id: first.id } },
+    });
+    const changed = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/conversations/${created.json().id}/model`,
+      payload: { provider: second.provider, id: second.id },
+    });
+    const detail = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${created.json().id}`,
+    });
+
+    expect(models.json()).toEqual({ models: [first, second] });
+    expect(created.json().model).toEqual({ provider: first.provider, id: first.id });
+    expect(changed.json()).toEqual({ provider: second.provider, id: second.id });
+    expect(detail.json().conversation.model).toEqual({ provider: second.provider, id: second.id });
+  });
+
   it("validates request bodies before they reach a manager", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
@@ -345,4 +379,12 @@ describe("daemon", () => {
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
   return JSON.stringify({ type: "message", id, parentId, timestamp, message });
+}
+
+function fakeModelRuntime(models: Array<{ provider: string; id: string; name: string }>): ModelRuntime {
+  return {
+    getAvailable: async (provider?: string) => models.filter((model) => !provider || model.provider === provider),
+    getModel: (provider: string, id: string) => models.find((model) => model.provider === provider && model.id === id),
+    hasConfiguredAuth: () => true,
+  } as unknown as ModelRuntime;
 }

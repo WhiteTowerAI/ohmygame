@@ -1,7 +1,9 @@
-import { ArrowUp, FileCode2, Paperclip, Pencil, Square, X } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { PendingPrompt, PromptReference, WorkspaceFile } from "../shared/contracts.js";
+import { ArrowUp, FileCode2, Pencil, Plus, Square, X } from "lucide-react";
+import { useRef, useState } from "react";
+import type { AgentModel, AgentModelRef, PendingPrompt, PromptReference, WorkspaceFile } from "../shared/contracts.js";
 import { listWorkspaceFiles } from "./api.js";
+import { ModelSelector } from "./model-selector.js";
+import { PromptBox } from "./prompt-box.js";
 
 interface ComposerProps {
   projectId?: string;
@@ -10,7 +12,11 @@ interface ComposerProps {
   stopping: boolean;
   pendingPrompt?: PendingPrompt;
   notice?: string;
+  models: AgentModel[];
+  model?: AgentModelRef;
+  modelChanging: boolean;
   onSubmit: (prompt: string, references: PromptReference[]) => Promise<boolean>;
+  onModelChange: (model: AgentModel) => void;
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
 }
@@ -22,7 +28,11 @@ export function Composer({
   stopping,
   pendingPrompt,
   notice,
+  models,
+  model,
+  modelChanging,
   onSubmit,
+  onModelChange,
   onStop,
   onRemovePending,
 }: ComposerProps) {
@@ -49,14 +59,12 @@ export function Composer({
     }
   }
 
-  async function submit(event?: FormEvent) {
-    event?.preventDefault();
+  async function submit() {
     const value = prompt.trim();
     if (!conversationReady || !value || stopping) return;
     if (await onSubmit(value, references)) {
       setPrompt("");
       setReferences([]);
-      resizeTextarea(textarea.current);
       textarea.current?.focus();
     }
   }
@@ -66,7 +74,7 @@ export function Composer({
   const showStop = running && !prompt.trim();
 
   return (
-    <form className="composer" onSubmit={submit}>
+    <div className="composer">
       {pendingPrompt ? (
         <div className="pending-prompt">
           <div>
@@ -81,7 +89,6 @@ export function Composer({
                 setPrompt(pendingPrompt.prompt);
                 setReferences(pendingPrompt.references);
                 queueMicrotask(() => {
-                  resizeTextarea(textarea.current);
                   textarea.current?.focus();
                 });
               })(); }}
@@ -97,8 +104,27 @@ export function Composer({
         </div>
       ) : null}
       {notice ? <p className="composer-error" role="alert">{notice}</p> : null}
-      <div className="composer-control">
-        {references.length > 0 ? (
+      <PromptBox
+        actions={(
+          <>
+            <ModelSelector
+              models={models}
+              value={model}
+              disabled={!conversationReady || running || stopping || modelChanging}
+              onChange={onModelChange}
+            />
+            {showStop ? (
+              <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title="Stop agent" aria-label="Stop agent">
+                <Square size={14} fill="currentColor" />
+              </button>
+            ) : (
+              <button className="icon-button send-button" type="submit" disabled={!conversationReady || !prompt.trim() || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
+                <ArrowUp size={17} />
+              </button>
+            )}
+          </>
+        )}
+        content={references.length > 0 ? (
           <div className="composer-references" aria-label="Referenced files">
             {references.map((reference) => (
               <span className="reference-chip" key={reference.path} title={reference.path}>
@@ -116,10 +142,11 @@ export function Composer({
             ))}
           </div>
         ) : null}
-        <div className="composer-input-row">
+        disabled={!conversationReady}
+        leading={(
           <div className="reference-picker-wrap">
             <button
-              className="icon-button quiet-button composer-attach-button"
+              className="icon-button composer-attach-button"
               type="button"
               onClick={() => pickerOpen ? setPickerOpen(false) : void openPicker()}
               disabled={!conversationReady}
@@ -127,7 +154,7 @@ export function Composer({
               aria-label="Reference file"
               aria-expanded={pickerOpen}
             >
-              <Paperclip size={15} />
+              <Plus size={17} />
             </button>
             {pickerOpen ? (
               <div className="reference-picker">
@@ -162,39 +189,14 @@ export function Composer({
               </div>
             ) : null}
           </div>
-          <textarea
-            ref={textarea}
-            aria-label="Prompt"
-            disabled={!conversationReady}
-            onChange={(event) => setPrompt(event.target.value)}
-            onInput={(event) => resizeTextarea(event.currentTarget)}
-            onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder={running ? "Add a follow-up" : "Ask for a change"}
-            rows={1}
-            value={prompt}
-          />
-          {showStop ? (
-            <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title="Stop agent" aria-label="Stop agent">
-              <Square size={14} fill="currentColor" />
-            </button>
-          ) : (
-            <button className="icon-button send-button" type="submit" disabled={!conversationReady || !prompt.trim() || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
-              <ArrowUp size={17} />
-            </button>
-          )}
-        </div>
-      </div>
-    </form>
+        )}
+        onChange={setPrompt}
+        onSubmit={() => void submit()}
+        placeholder={running ? "Add a follow-up" : "Ask for a change"}
+        textareaRef={textarea}
+        value={prompt}
+        variant="project"
+      />
+    </div>
   );
-}
-
-function resizeTextarea(element: HTMLTextAreaElement | null): void {
-  if (!element) return;
-  element.style.height = "auto";
-  element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
 }

@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import type { ConversationSummary, PromptReference } from "../shared/contracts.js";
+import type { AgentModel, ConversationSummary, PromptReference } from "../shared/contracts.js";
 import {
   cancelPrompt,
   createConversation,
@@ -20,6 +20,7 @@ import {
   removePendingPrompt,
   renameConversation,
   sendPrompt,
+  setConversationModel,
   startPreview,
   subscribeToProject,
   waitForRuntime,
@@ -29,6 +30,7 @@ import { AgentTimeline } from "./agent-timeline.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { Composer } from "./composer.js";
 import { initialRendererState, rendererReducer } from "./state.js";
+import { useAgentModels } from "./model-selector.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -54,6 +56,8 @@ export function ProjectShell({
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [modelChanging, setModelChanging] = useState(false);
+  const modelCatalog = useAgentModels();
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
@@ -267,12 +271,26 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id);
+      const created = await createConversation(project.id, conversation?.model);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
       setCreatingConversation(false);
+    }
+  }
+
+  async function changeModel(model: AgentModel) {
+    if (!project || !conversation || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      const selected = await setConversationModel(project.id, conversation.id, model);
+      dispatch({ type: "conversation-model", model: selected });
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally {
+      setModelChanging(false);
     }
   }
 
@@ -352,7 +370,11 @@ export function ProjectShell({
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompt={state.pendingPrompt}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
+            models={modelCatalog.models}
+            model={conversation?.model}
+            modelChanging={modelChanging}
             onSubmit={submitPrompt}
+            onModelChange={(model) => void changeModel(model)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
           />
