@@ -148,9 +148,6 @@ export function CodingWorkspace({
                 <ViewportButton active={viewport === "tablet"} label="Tablet preview, 768 pixels" onClick={() => setViewport("tablet")}><Tablet size={14} /></ViewportButton>
                 <ViewportButton active={viewport === "mobile"} label="Mobile preview, 375 pixels" onClick={() => setViewport("mobile")}><Smartphone size={14} /></ViewportButton>
               </div>
-              <span className={`preview-status preview-status-${preview?.status ?? "starting"}`}>
-                {previewStatusLabel(preview?.status)}
-              </span>
               <button
                 className="icon-button quiet-button preview-reload-button"
                 type="button"
@@ -373,14 +370,6 @@ function statusLetter(status: string): string {
   if (status === "deleted") return "D";
   if (status === "renamed") return "R";
   return "M";
-}
-
-function previewStatusLabel(status?: string): string {
-  if (status === "ready") return "Ready";
-  if (status === "error") return "Error";
-  if (status === "stopped") return "Stopped";
-  if (status === "waiting") return "Waiting";
-  return "Starting";
 }
 
 function errorMessage(error: unknown): string {

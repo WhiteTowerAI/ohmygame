@@ -1,4 +1,4 @@
-import { Check, ChevronDown, FilePenLine, LoaderCircle, MessageSquare, Plus, X } from "lucide-react";
+import { Check, FilePenLine, History, LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 
@@ -6,9 +6,7 @@ interface ConversationMenuProps {
   conversations: ConversationSummary[];
   currentConversationId?: string;
   activeConversationId?: string;
-  creating: boolean;
   disabled: boolean;
-  onCreate: () => void;
   onRename: (conversationId: string, title: string) => Promise<void>;
   onSelect: (conversationId: string) => void;
 }
@@ -17,9 +15,7 @@ export function ConversationMenu({
   conversations,
   currentConversationId,
   activeConversationId,
-  creating,
   disabled,
-  onCreate,
   onRename,
   onSelect,
 }: ConversationMenuProps) {
@@ -31,7 +27,6 @@ export function ConversationMenu({
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
-  const current = conversations.find((conversation) => conversation.id === currentConversationId);
 
   useEffect(() => {
     if (!open) return;
@@ -88,17 +83,17 @@ export function ConversationMenu({
     <div className="conversation-menu" ref={root}>
       <button
         ref={trigger}
-        className="conversation-trigger"
+        className="icon-button pane-header-action conversation-trigger"
         type="button"
         disabled={disabled}
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
         aria-haspopup="dialog"
+        title="Conversation history"
+        aria-label="Conversation history"
         onClick={() => setOpen((value) => !value)}
       >
-        <MessageSquare size={14} />
-        <span>{current?.title ?? "Loading conversation"}</span>
-        <ChevronDown size={14} />
+        <History size={14} />
       </button>
 
       {open ? (
@@ -132,9 +127,6 @@ export function ConversationMenu({
                     if (conversation.id !== currentConversationId) onSelect(conversation.id);
                   }}
                 >
-                  <span className="conversation-option-mark" aria-hidden="true">
-                    {conversation.id === currentConversationId ? <Check size={13} /> : null}
-                  </span>
                   <span className="conversation-option-copy">
                     <span className="conversation-option-title">{conversation.title}</span>
                     <span className="conversation-option-meta">
@@ -144,6 +136,9 @@ export function ConversationMenu({
                           ? "Empty"
                           : `${conversation.messageCount} ${conversation.messageCount === 1 ? "message" : "messages"}`}
                     </span>
+                  </span>
+                  <span className="conversation-option-mark" aria-hidden="true">
+                    {conversation.id === currentConversationId ? <Check size={14} /> : null}
                   </span>
                 </button>
                 <button
@@ -159,10 +154,6 @@ export function ConversationMenu({
             ))}
           </div>
           {error ? <p className="conversation-menu-error" role="alert">{error}</p> : null}
-          <button className="conversation-new-button" type="button" disabled={creating} onClick={onCreate}>
-            {creating ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}
-            {creating ? "Creating" : "New conversation"}
-          </button>
         </div>
       ) : null}
     </div>

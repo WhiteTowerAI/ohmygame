@@ -1,9 +1,14 @@
 import {
   ArrowLeft,
+  House,
+  LoaderCircle,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   X,
 } from "lucide-react";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import type { ConversationSummary, PromptReference } from "../shared/contracts.js";
 import {
   cancelPrompt,
@@ -46,6 +51,7 @@ export function ProjectShell({
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const initialPromptAttempted = useRef(false);
@@ -277,27 +283,54 @@ export function ProjectShell({
   }
 
   return (
-    <main className="workspace-shell">
+    <main className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}`}>
+      {agentCollapsed ? (
+        <button
+          className="icon-button agent-expand-button"
+          type="button"
+          onClick={() => setAgentCollapsed(false)}
+          title="Show agent"
+          aria-label="Show agent"
+        >
+          <PanelLeftOpen size={15} />
+        </button>
+      ) : null}
+
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
           title={project?.name ?? "Loading project"}
           onHome={onHome}
-        />
+        >
+          <button
+            className="icon-button pane-header-action"
+            type="button"
+            disabled={!project || creatingConversation}
+            onClick={() => void newConversation()}
+            title="New conversation"
+            aria-label="New conversation"
+          >
+            {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
+          </button>
+          <ConversationMenu
+            conversations={conversations}
+            currentConversationId={conversation?.id}
+            activeConversationId={state.activeTurn?.conversationId}
+            disabled={!conversation}
+            onRename={rename}
+            onSelect={onOpenConversation}
+          />
+          <button
+            className="icon-button pane-header-action"
+            type="button"
+            onClick={() => setAgentCollapsed(true)}
+            title="Hide agent"
+            aria-label="Hide agent"
+          >
+            <PanelLeftClose size={14} />
+          </button>
+        </PaneHeader>
 
         <div className="agent-body">
-          <div className="section-heading conversation-heading">
-            <ConversationMenu
-              conversations={conversations}
-              currentConversationId={conversation?.id}
-              activeConversationId={state.activeTurn?.conversationId}
-              creating={creatingConversation}
-              disabled={!conversation}
-              onCreate={() => void newConversation()}
-              onRename={rename}
-              onSelect={onOpenConversation}
-            />
-          </div>
-
           <div
             className="timeline"
             aria-live="polite"
@@ -308,9 +341,6 @@ export function ProjectShell({
             }}
           >
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
-            {state.phase === "ready" && state.items.length === 0 ? (
-              <div className="empty-timeline">Ready</div>
-            ) : null}
             <AgentTimeline items={state.items} />
           </div>
 
@@ -344,18 +374,21 @@ export function ProjectShell({
 function PaneHeader({
   title,
   onHome,
+  children,
 }: {
   title: string;
   onHome: () => void;
+  children: ReactNode;
 }) {
   return (
     <header className="pane-header">
       <div className="project-heading">
-        <button className="icon-button header-back-button" type="button" onClick={onHome} title="Back to Home" aria-label="Back to Home">
-          <ArrowLeft size={15} />
+        <button className="icon-button pane-header-action" type="button" onClick={onHome} title="Home" aria-label="Home">
+          <House size={14} />
         </button>
         <span className="project-name" title={title}>{title}</span>
       </div>
+      <div className="pane-header-actions">{children}</div>
     </header>
   );
 }
