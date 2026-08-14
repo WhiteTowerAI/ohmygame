@@ -521,6 +521,10 @@ export function createApp(options: AppOptions = {}) {
     if (!events.canReplay(project.id, cursor)) {
       return reply.code(409).send({ error: "Event cursor expired" });
     }
+    const headers = reply.getHeaders();
+    for (const [name, value] of Object.entries(headers)) {
+      if (value !== undefined) reply.raw.setHeader(name, value);
+    }
     reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",

@@ -49,4 +49,40 @@ describe("desktop daemon access", () => {
     });
     expect(rejected.headers["access-control-allow-origin"]).toBeUndefined();
   });
+
+  it("preserves renderer CORS headers on the event stream", async () => {
+    const origin = "http://127.0.0.1:43120";
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-access-")),
+      accessToken: "desktop-secret",
+      allowedOrigins: [origin],
+    });
+    apps.push(app);
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      headers: { authorization: "Bearer desktop-secret" },
+      payload: {},
+    })).json();
+    const controller = new AbortController();
+
+    const response = await fetch(`${address}/projects/${project.id}/events`, {
+      headers: {
+        accept: "text/event-stream",
+        authorization: "Bearer desktop-secret",
+        origin,
+      },
+      signal: controller.signal,
+    });
+
+    try {
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    } finally {
+      await response.body?.cancel();
+      controller.abort();
+    }
+  });
 });
