@@ -1,4 +1,6 @@
 import {
+  Check,
+  ChevronDown,
   ExternalLink,
   FileCode2,
   Film,
@@ -7,13 +9,13 @@ import {
   Music2,
   Monitor,
   RefreshCw,
-  RotateCw,
+  Search,
   Share2,
   Smartphone,
   Tablet,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles } from "./api.js";
 
@@ -39,6 +41,8 @@ export function CodingWorkspace({
 }: CodingWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("preview");
   const [viewport, setViewport] = useState<PreviewViewport>("fit");
+  const [previewPath, setPreviewPath] = useState("/");
+  const [knownPaths, setKnownPaths] = useState<string[]>(["/"]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selectedCodePath, setSelectedCodePath] = useState<string>();
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
@@ -46,6 +50,17 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [reload, setReload] = useState(0);
   const fileRequest = useRef(0);
+  const preview = project?.preview;
+  const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
+  const previewPageUrl = previewBaseUrl ? new URL(previewPath, previewBaseUrl).toString() : undefined;
+
+  useEffect(() => {
+    setPreviewPath("/");
+  }, [project?.id, previewBaseUrl]);
+
+  useEffect(() => {
+    setKnownPaths(["/"]);
+  }, [project?.id]);
 
   useEffect(() => {
     if (!project || activeTab === "preview") return;
@@ -97,7 +112,21 @@ export function CodingWorkspace({
     }
   }
 
-  const preview = project?.preview;
+  function navigatePreview(path: string): void {
+    if (!previewBaseUrl) return;
+    const nextPath = normalizePreviewPath(path);
+    setPreviewPath(nextPath);
+    setKnownPaths((current) => current.includes(nextPath) ? current : [...current, nextPath]);
+  }
+
+  function refreshPreview(): void {
+    if (preview?.status === "ready") {
+      setReload((value) => value + 1);
+    } else if (preview?.status === "error" || preview?.status === "stopped") {
+      onRestart();
+    }
+  }
+
   return (
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header">
@@ -106,62 +135,39 @@ export function CodingWorkspace({
           <Tab active={activeTab === "code"} onClick={() => setActiveTab("code")}>Code</Tab>
           <Tab active={activeTab === "assets"} onClick={() => setActiveTab("assets")}>Assets</Tab>
         </nav>
-        <div className="viewer-actions">
+        <div className="viewer-controls-slot">
           {activeTab === "preview" ? (
-            <>
-              <div className="viewport-control" aria-label="Preview viewport">
-                <ViewportButton active={viewport === "fit"} label="Fit preview" onClick={() => setViewport("fit")}><Monitor size={14} /></ViewportButton>
-                <ViewportButton active={viewport === "tablet"} label="Tablet preview, 768 pixels" onClick={() => setViewport("tablet")}><Tablet size={14} /></ViewportButton>
-                <ViewportButton active={viewport === "mobile"} label="Mobile preview, 375 pixels" onClick={() => setViewport("mobile")}><Smartphone size={14} /></ViewportButton>
-              </div>
-              <button
-                className="icon-button quiet-button preview-reload-button"
-                type="button"
-                onClick={() => setReload((value) => value + 1)}
-                disabled={preview?.status !== "ready"}
-                title="Reload preview"
-                aria-label="Reload preview"
-              >
-                <RotateCw size={15} />
-              </button>
-              <button
-                className="icon-button quiet-button preview-server-button"
-                type="button"
-                onClick={onRestart}
-                disabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
-                title="Restart preview server"
-                aria-label="Restart preview server"
-              >
-                <RefreshCw className={preview?.status === "starting" ? "spin" : undefined} size={15} />
-              </button>
-              <button
-                className="icon-button quiet-button preview-external-button"
-                type="button"
-                onClick={() => preview?.url && window.open(preview.url, "_blank", "noopener,noreferrer")}
-                disabled={preview?.status !== "ready"}
-                title="Open preview in browser"
-                aria-label="Open preview in browser"
-              >
-                <ExternalLink size={15} />
-              </button>
-            </>
+            <PreviewControls
+              path={previewPath}
+              paths={knownPaths}
+              previewUrl={previewPageUrl}
+              refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
+              refreshLabel={preview?.status === "ready" ? "Reload preview" : "Restart preview"}
+              viewport={viewport}
+              onOpen={() => previewPageUrl && window.open(previewPageUrl, "_blank", "noopener,noreferrer")}
+              onNavigate={navigatePreview}
+              onRefresh={refreshPreview}
+              onViewportChange={setViewport}
+            />
           ) : null}
+        </div>
+        <div className="viewer-publish">
           <button
             className="publish-button workspace-publish-button"
             type="button"
             onClick={onPublish}
             disabled={!project || publishing || agentBusy}
-            title={publishing ? "Publishing" : project?.publication ? "Publish update" : "Publish"}
-            aria-label={publishing ? "Publishing" : project?.publication ? "Publish update" : "Publish"}
+            title={publishing ? "Publishing" : "Publish"}
+            aria-label={publishing ? "Publishing" : "Publish"}
           >
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>{publishing ? "Publishing" : project?.publication ? "Publish update" : "Publish"}</span>
+            <span>Publish</span>
           </button>
         </div>
       </header>
 
       {activeTab === "preview" ? (
-        <PreviewView project={project} reload={reload} viewport={viewport} />
+        <PreviewView project={project} reload={reload} url={previewPageUrl} viewport={viewport} />
       ) : activeTab === "code" ? (
         <CodeView
           files={files.filter((file) => !file.mediaType)}
@@ -188,31 +194,277 @@ function Tab({ active, children, onClick }: { active: boolean; children: React.R
   return <button className={`workspace-tab${active ? " workspace-tab-active" : ""}`} type="button" onClick={onClick}>{children}</button>;
 }
 
-function ViewportButton({ active, label, children, onClick }: { active: boolean; label: string; children: React.ReactNode; onClick: () => void }) {
+function PreviewControls({
+  path,
+  paths,
+  previewUrl,
+  refreshDisabled,
+  refreshLabel,
+  viewport,
+  onOpen,
+  onNavigate,
+  onRefresh,
+  onViewportChange,
+}: {
+  path: string;
+  paths: string[];
+  previewUrl?: string;
+  refreshDisabled: boolean;
+  refreshLabel: string;
+  viewport: PreviewViewport;
+  onOpen: () => void;
+  onNavigate: (path: string) => void;
+  onRefresh: () => void;
+  onViewportChange: (viewport: PreviewViewport) => void;
+}) {
   return (
-    <button
-      className={`viewport-button${active ? " viewport-button-active" : ""}`}
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-    >
-      {children}
-    </button>
+    <div className="preview-controls">
+      <ViewportMenu value={viewport} onChange={onViewportChange} />
+      <PreviewLocation
+        disabled={!previewUrl}
+        path={path}
+        paths={paths}
+        refreshDisabled={refreshDisabled}
+        refreshLabel={refreshLabel}
+        onNavigate={onNavigate}
+        onRefresh={onRefresh}
+      />
+      <button
+        className="icon-button quiet-button preview-external-button"
+        type="button"
+        onClick={onOpen}
+        disabled={!previewUrl}
+        title="Open preview in browser"
+        aria-label="Open preview in browser"
+      >
+        <ExternalLink size={15} />
+      </button>
+    </div>
   );
 }
 
-function PreviewView({ project, reload, viewport }: { project?: ProjectState; reload: number; viewport: PreviewViewport }) {
+function PreviewLocation({
+  disabled,
+  path,
+  paths,
+  refreshDisabled,
+  refreshLabel,
+  onNavigate,
+  onRefresh,
+}: {
+  disabled: boolean;
+  path: string;
+  paths: string[];
+  refreshDisabled: boolean;
+  refreshLabel: string;
+  onNavigate: (path: string) => void;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const popoverId = useId();
+  const normalizedQuery = query.trim() ? normalizePreviewPath(query) : undefined;
+  const matchingPaths = paths.filter((knownPath) => knownPath.toLowerCase().includes(query.trim().toLowerCase()));
+  const options = normalizedQuery && !matchingPaths.includes(normalizedQuery)
+    ? [...matchingPaths, normalizedQuery]
+    : matchingPaths;
+
+  useEffect(() => {
+    if (!open) return;
+    search.current?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  function navigate(nextPath: string): void {
+    onNavigate(nextPath);
+    setOpen(false);
+    setQuery("");
+    trigger.current?.focus();
+  }
+
+  return (
+    <div className="preview-location" ref={root}>
+      <button
+        className="preview-location-refresh"
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshDisabled}
+        title={refreshLabel}
+        aria-label={refreshLabel}
+      >
+        <RefreshCw size={15} />
+      </button>
+      <button
+        ref={trigger}
+        className="preview-location-trigger"
+        type="button"
+        aria-controls={popoverId}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        disabled={disabled}
+        onClick={() => {
+          setQuery("");
+          setOpen((current) => !current);
+        }}
+        title={path}
+      >
+        <span className="preview-location-path">{path}</span>
+        <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
+      </button>
+      {open ? (
+        <div className="preview-location-popover" id={popoverId} role="dialog" aria-label="Preview pages">
+          <form
+            className="preview-location-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (normalizedQuery) navigate(normalizedQuery);
+            }}
+          >
+            <Search size={16} />
+            <input
+              ref={search}
+              aria-label="Find page or enter path"
+              placeholder="Find page or enter path"
+              spellCheck={false}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || !normalizedQuery) return;
+                event.preventDefault();
+                navigate(normalizedQuery);
+              }}
+            />
+          </form>
+          <div className="preview-location-options">
+            {options.map((option) => (
+              <button
+                className="preview-location-option"
+                type="button"
+                aria-current={option === path ? "page" : undefined}
+                key={option}
+                onClick={() => navigate(option)}
+              >
+                <span>{option === path ? <Check size={14} /> : null}</span>
+                <strong>{option}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (value: PreviewViewport) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="viewport-menu" ref={root}>
+      <button
+        ref={trigger}
+        className="viewport-trigger"
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Preview viewport"
+        title={viewportLabel(value)}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ViewportIcon viewport={value} />
+        <ChevronDown size={11} />
+      </button>
+      {open ? (
+        <div className="viewport-menu-popover" id={menuId} role="menu" aria-label="Preview viewport">
+          {(["fit", "tablet", "mobile"] as const).map((viewport) => (
+            <button
+              className="viewport-option"
+              type="button"
+              role="menuitemradio"
+              aria-checked={viewport === value}
+              key={viewport}
+              onClick={() => {
+                onChange(viewport);
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              <ViewportIcon viewport={viewport} />
+              <span>{viewportLabel(viewport)}</span>
+              {viewport === value ? <Check size={13} /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
+  if (viewport === "tablet") return <Tablet size={14} />;
+  if (viewport === "mobile") return <Smartphone size={14} />;
+  return <Monitor size={14} />;
+}
+
+function viewportLabel(viewport: PreviewViewport): string {
+  if (viewport === "tablet") return "Tablet · 768px";
+  if (viewport === "mobile") return "Mobile · 375px";
+  return "Fit";
+}
+
+function PreviewView({ project, reload, url, viewport }: { project?: ProjectState; reload: number; url?: string; viewport: PreviewViewport }) {
   const preview = project?.preview;
   return (
     <div className={`viewer-stage viewer-stage-${viewport}`}>
-      {preview?.status === "ready" && preview.url ? (
+      {preview?.status === "ready" && url ? (
         <div className="preview-frame-wrap">
           <iframe
-            key={`${preview.url}:${reload}`}
+            key={`${url}:${reload}`}
             className="preview-frame"
-            src={preview.url}
+            src={url}
             title={`${project?.name ?? "Project"} preview`}
             sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
           />
@@ -220,6 +472,11 @@ function PreviewView({ project, reload, viewport }: { project?: ProjectState; re
       ) : <PreviewState status={preview?.status} error={preview?.error} />}
     </div>
   );
+}
+
+export function normalizePreviewPath(value: string): string {
+  const path = value.trim().replaceAll("\\", "/").replace(/^\/+/, "");
+  return path ? `/${path}` : "/";
 }
 
 function CodeView({
