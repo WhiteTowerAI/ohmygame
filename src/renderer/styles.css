@@ -2087,7 +2087,6 @@ textarea:focus-visible {
   width: 100%;
   height: 100%;
   margin: 0 auto;
-  background: #f4f4f2;
 }
 
 .viewer-stage-tablet,
@@ -2104,7 +2103,18 @@ textarea:focus-visible {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #f4f4f2;
+  background: #07080a;
+}
+
+.preview-starting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--text-faint);
+  font-size: 10px;
 }
 
 .workspace-state {

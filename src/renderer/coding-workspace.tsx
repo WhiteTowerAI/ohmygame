@@ -633,11 +633,26 @@ function WorkspaceState({ label, error, loading, icon }: { label?: string; error
   );
 }
 
-function PreviewState({ status, error }: { status?: string; error?: string }) {
-  if (status === "error") return <WorkspaceState error={error ?? "The preview process stopped."} />;
-  if (status === "stopped") return <WorkspaceState label="Preview stopped" />;
-  if (status === "waiting") return <WorkspaceState label="Waiting for a runnable project" />;
-  return <WorkspaceState loading label="Preparing preview" />;
+function PreviewState({ status, error }: { status?: ProjectState["preview"]["status"]; error?: string }) {
+  switch (status) {
+    case "error":
+      return <WorkspaceState error={error ?? "The preview process stopped."} />;
+    case "starting":
+      return (
+        <div className="preview-starting" role="status">
+          <LoaderCircle className="spin" size={14} />
+          <span>Starting preview</span>
+        </div>
+      );
+    case "waiting":
+    case "stopped":
+    case "ready":
+    case undefined:
+      return null;
+    default:
+      status satisfies never;
+      return null;
+  }
 }
 
 function errorMessage(error: unknown): string {
