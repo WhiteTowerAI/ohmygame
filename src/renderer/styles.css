@@ -1077,15 +1077,14 @@ textarea:focus-visible {
 
 .user-message {
   width: fit-content;
-  max-width: 92%;
-  margin: 8px 0 20px auto;
+  max-width: 86%;
+  margin: 6px 0 20px auto;
   padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
+  border-radius: 12px;
+  background: #23252b;
   color: #e7e9ec;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
