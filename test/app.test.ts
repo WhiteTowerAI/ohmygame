@@ -163,6 +163,25 @@ describe("daemon", () => {
     expect(preview.json()).toEqual({ error: "Workspace is not runnable yet" });
   });
 
+  it("opens an idle event stream immediately", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-sse-")) });
+    apps.push(app);
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_000);
+
+    try {
+      const response = await fetch(`${address}/projects/${project.id}/events`, { signal: controller.signal });
+      const chunk = await response.body?.getReader().read();
+      expect(response.status).toBe(200);
+      expect(new TextDecoder().decode(chunk?.value)).toBe(": connected\n\n");
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+    }
+  });
+
   it("titles a new conversation before Pi produces a response", async () => {
     const session: CodingSession = {
       messages: [],

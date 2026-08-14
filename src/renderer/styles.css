@@ -823,23 +823,6 @@ textarea:focus-visible {
   color: var(--text);
 }
 
-.runtime-status {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  margin-left: 12px;
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .agent-body {
   display: flex;
   flex: 1;

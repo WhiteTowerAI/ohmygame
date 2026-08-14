@@ -448,6 +448,7 @@ export function createApp(options: AppOptions = {}) {
       "cache-control": "no-cache",
       connection: "keep-alive",
     });
+    reply.raw.write(": connected\n\n");
     const send = (event: RuntimeEvent) => reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     for (const event of events.since(project.id, cursor)) send(event);
     const unsubscribe = events.subscribe(project.id, send);

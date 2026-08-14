@@ -1,7 +1,5 @@
 import {
   ArrowLeft,
-  Check,
-  LoaderCircle,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -283,8 +281,6 @@ export function ProjectShell({
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
           title={project?.name ?? "Loading project"}
-          status={agentStatusLabel(state.connection, conversation?.agent.status, state.retry, anotherConversationBusy)}
-          busy={state.connection !== "open" || agentBusy}
           onHome={onHome}
         />
 
@@ -325,7 +321,7 @@ export function ProjectShell({
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompt={state.pendingPrompt}
-            notice={state.notice}
+            notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             onSubmit={submitPrompt}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
@@ -347,13 +343,9 @@ export function ProjectShell({
 
 function PaneHeader({
   title,
-  status,
-  busy,
   onHome,
 }: {
   title: string;
-  status: string;
-  busy: boolean;
   onHome: () => void;
 }) {
   return (
@@ -363,12 +355,6 @@ function PaneHeader({
           <ArrowLeft size={15} />
         </button>
         <span className="project-name" title={title}>{title}</span>
-      </div>
-      <div className="header-actions">
-        <span className="runtime-status">
-          {busy ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
-          {status}
-        </span>
       </div>
     </header>
   );
@@ -396,21 +382,6 @@ function FatalState({ message, onHome }: { message: string; onHome: () => void }
       </div>
     </main>
   );
-}
-
-function agentStatusLabel(
-  connection: string,
-  status?: string,
-  retry?: { attempt: number; maxAttempts: number },
-  anotherConversationBusy = false,
-): string {
-  if (connection !== "open") return connection === "connecting" ? "Connecting" : "Reconnecting";
-  if (anotherConversationBusy) return "Working in another conversation";
-  if (retry) return `Retrying ${retry.attempt}/${retry.maxAttempts}`;
-  if (status === "running") return "Working";
-  if (status === "cancelling") return "Stopping";
-  if (status === "error") return "Needs attention";
-  return "Ready";
 }
 
 function errorMessage(error: unknown): string {
