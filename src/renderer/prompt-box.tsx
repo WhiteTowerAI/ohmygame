@@ -44,6 +44,7 @@ export function PromptBox({
         onChange={(event) => onChange(event.target.value)}
         onInput={(event) => resizeTextarea(event.currentTarget)}
         onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             submit();
