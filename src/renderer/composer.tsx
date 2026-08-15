@@ -1,12 +1,11 @@
-import { ArrowUp, FileCode2, Pencil, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Pencil, Square, X } from "lucide-react";
 import { useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, PendingPrompt, PromptReference, WorkspaceFile } from "../shared/contracts.js";
-import { listWorkspaceFiles } from "./api.js";
+import type { AgentModel, AgentModelRef, PendingPrompt, PromptImage } from "../shared/contracts.js";
+import { composerImages, ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
 
 interface ComposerProps {
-  projectId?: string;
   conversationReady: boolean;
   running: boolean;
   stopping: boolean;
@@ -15,14 +14,13 @@ interface ComposerProps {
   models: AgentModel[];
   model?: AgentModelRef;
   modelChanging: boolean;
-  onSubmit: (prompt: string, references: PromptReference[]) => Promise<boolean>;
+  onSubmit: (prompt: string, images: PromptImage[]) => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
 }
 
 export function Composer({
-  projectId,
   conversationReady,
   running,
   stopping,
@@ -37,41 +35,22 @@ export function Composer({
   onRemovePending,
 }: ComposerProps) {
   const [prompt, setPrompt] = useState("");
-  const [references, setReferences] = useState<PromptReference[]>([]);
-  const [files, setFiles] = useState<WorkspaceFile[]>([]);
-  const [query, setQuery] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [loadingFiles, setLoadingFiles] = useState(false);
-  const [pickerError, setPickerError] = useState<string>();
+  const [images, setImages] = useState<ComposerImage[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string>();
   const textarea = useRef<HTMLTextAreaElement>(null);
-
-  async function openPicker() {
-    if (!projectId) return;
-    setPickerOpen(true);
-    setPickerError(undefined);
-    setLoadingFiles(true);
-    try {
-      setFiles(await listWorkspaceFiles(projectId));
-    } catch (error) {
-      setPickerError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingFiles(false);
-    }
-  }
 
   async function submit() {
     const value = prompt.trim();
-    if (!conversationReady || !value || stopping) return;
-    if (await onSubmit(value, references)) {
+    if (!conversationReady || (!value && images.length === 0) || stopping) return;
+    if (await onSubmit(value, promptImages(images))) {
       setPrompt("");
-      setReferences([]);
+      setImages([]);
+      setAttachmentError(undefined);
       textarea.current?.focus();
     }
   }
 
-  const selectedPaths = new Set(references.map(({ path }) => path));
-  const filteredFiles = files.filter(({ path }) => !selectedPaths.has(path) && path.toLowerCase().includes(query.trim().toLowerCase()));
-  const showStop = running && !prompt.trim();
+  const showStop = running && !prompt.trim() && images.length === 0;
 
   return (
     <div className="composer">
@@ -79,7 +58,7 @@ export function Composer({
         <div className="pending-prompt">
           <div>
             <span>Up next</span>
-            <p>{pendingPrompt.prompt}</p>
+            <p>{pendingPrompt.prompt || `${pendingPrompt.images.length} image${pendingPrompt.images.length === 1 ? "" : "s"}`}</p>
           </div>
           <div className="pending-prompt-actions">
             <button
@@ -87,7 +66,7 @@ export function Composer({
               onClick={() => { void (async () => {
                 if (!(await onRemovePending(pendingPrompt.turnId))) return;
                 setPrompt(pendingPrompt.prompt);
-                setReferences(pendingPrompt.references);
+                setImages(composerImages(pendingPrompt.images));
                 queueMicrotask(() => {
                   textarea.current?.focus();
                 });
@@ -103,7 +82,7 @@ export function Composer({
           </div>
         </div>
       ) : null}
-      {notice ? <p className="composer-error" role="alert">{notice}</p> : null}
+      {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
       <PromptBox
         actions={(
           <>
@@ -118,77 +97,20 @@ export function Composer({
                 <Square size={14} fill="currentColor" />
               </button>
             ) : (
-              <button className="icon-button send-button" type="submit" disabled={!conversationReady || !prompt.trim() || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
+              <button className="icon-button send-button" type="submit" disabled={!conversationReady || (!prompt.trim() && images.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
                 <ArrowUp size={17} />
               </button>
             )}
           </>
         )}
-        content={references.length > 0 ? (
-          <div className="composer-references" aria-label="Referenced files">
-            {references.map((reference) => (
-              <span className="reference-chip" key={reference.path} title={reference.path}>
-                <FileCode2 size={12} />
-                <span>{reference.path}</span>
-                <button
-                  type="button"
-                  onClick={() => setReferences((items) => items.filter(({ path }) => path !== reference.path))}
-                  title={`Remove ${reference.path}`}
-                  aria-label={`Remove ${reference.path}`}
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
+        content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
         disabled={!conversationReady}
         leading={(
-          <div className="reference-picker-wrap">
-            <button
-              className="icon-button composer-attach-button"
-              type="button"
-              onClick={() => pickerOpen ? setPickerOpen(false) : void openPicker()}
-              disabled={!conversationReady}
-              title="Reference file"
-              aria-label="Reference file"
-              aria-expanded={pickerOpen}
-            >
-              <Plus size={17} />
-            </button>
-            {pickerOpen ? (
-              <div className="reference-picker">
-                <input
-                  autoFocus
-                  aria-label="Search workspace files"
-                  placeholder="Search files"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Escape") setPickerOpen(false); }}
-                />
-                <div className="reference-picker-list">
-                  {loadingFiles ? <span>Loading files</span> : pickerError ? <span className="error-state">{pickerError}</span> : filteredFiles.length ? (
-                    filteredFiles.slice(0, 100).map((file) => (
-                      <button
-                        type="button"
-                        key={file.path}
-                        title={file.path}
-                        onClick={() => {
-                          setReferences((items) => [...items, { type: "workspace-file", path: file.path }]);
-                          setQuery("");
-                          setPickerOpen(false);
-                          textarea.current?.focus();
-                        }}
-                      >
-                        <FileCode2 size={13} />
-                        <span>{file.path}</span>
-                      </button>
-                    ))
-                  ) : <span>No matching files</span>}
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <ImagePickerButton
+            disabled={!conversationReady}
+            onImages={(next) => { setAttachmentError(undefined); setImages((items) => [...items, ...next]); }}
+            onError={setAttachmentError}
+          />
         )}
         onChange={setPrompt}
         onSubmit={() => void submit()}

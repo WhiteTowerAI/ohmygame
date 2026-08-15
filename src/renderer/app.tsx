@@ -5,10 +5,11 @@ import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
 import { conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { ImagesPage } from "./tools.js";
+import type { PromptImage } from "../shared/contracts.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[] }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -31,15 +32,15 @@ export function App() {
       key={route.projectId}
       projectId={route.projectId}
       conversationId={route.conversationId}
-      initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt.prompt : undefined}
+      initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       onInitialPromptHandled={clearInitialPrompt}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
       onHome={goHome}
     />
   );
 
-  function openCreatedProject(projectId: string, conversationId: string, prompt: string): void {
-    setInitialPrompt({ conversationId, prompt });
+  function openCreatedProject(projectId: string, conversationId: string, prompt: string, images: PromptImage[]): void {
+    setInitialPrompt({ conversationId, prompt, images });
     navigateToConversation(projectId, conversationId);
   }
 

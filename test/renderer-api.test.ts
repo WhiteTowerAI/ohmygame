@@ -184,6 +184,19 @@ describe("renderer project API", () => {
     }));
   });
 
+  it("sends image attachments with a prompt", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ queued: false, turnId: "turn-1" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const image = { mediaType: "image/png" as const, data: "aW1hZ2U=" };
+
+    await sendPrompt("project-1", "conversation-1", "Describe this", [], [image]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+      body: JSON.stringify({ prompt: "Describe this", images: [image] }),
+    }));
+  });
+
   it("sends file references and removes a pending follow-up", async () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ queued: true, turnId: "turn-2" }, { status: 202 }));

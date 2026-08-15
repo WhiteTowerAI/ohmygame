@@ -57,10 +57,18 @@ export interface PromptReference {
   path: string;
 }
 
+export type PromptImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
+export interface PromptImage {
+  mediaType: PromptImageMediaType;
+  data: string;
+}
+
 export interface PendingPrompt {
   turnId: string;
   prompt: string;
   references: PromptReference[];
+  images: PromptImage[];
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -71,7 +79,7 @@ export interface PublishResult {
 }
 
 export type AgentItem = (
-  | { id: string; turnId: string; kind: "user"; text: string }
+  | { id: string; turnId: string; kind: "user"; text: string; images?: PromptImage[] }
   | {
       id: string;
       turnId: string;
@@ -124,6 +132,7 @@ export type SetConversationModelRequest = AgentModelRef;
 export interface PromptRequest {
   prompt: string;
   references?: PromptReference[];
+  images?: PromptImage[];
 }
 
 export interface PromptResponse {
@@ -196,7 +205,7 @@ export interface RuntimeEventData {
   "preview.ready": { url: string };
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
-  "agent.started": { prompt: string };
+  "agent.started": { prompt: string; images?: PromptImage[] };
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
@@ -210,7 +219,7 @@ export interface RuntimeEventData {
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
-  "prompt.queued": { prompt: string; references: PromptReference[] };
+  "prompt.queued": { prompt: string; references: PromptReference[]; images?: PromptImage[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: CommunityGame };

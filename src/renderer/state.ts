@@ -110,7 +110,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         retry: undefined,
         items: [
           ...state.items,
-          { id: `${event.turnId}:user`, turnId: event.turnId, kind: "user", text: event.data.prompt, timestamp: eventTime(event) },
+          { id: `${event.turnId}:user`, turnId: event.turnId, kind: "user", text: event.data.prompt, ...(event.data.images?.length ? { images: event.data.images } : {}), timestamp: eventTime(event) },
         ],
       };
     }
@@ -118,7 +118,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        pendingPrompt: { turnId: event.turnId, prompt: event.data.prompt, references: event.data.references },
+        pendingPrompt: { turnId: event.turnId, prompt: event.data.prompt, references: event.data.references, images: event.data.images ?? [] },
       };
     case "prompt.removed":
       return { ...scoped, pendingPrompt: undefined };

@@ -1,15 +1,16 @@
-import { ArrowUp, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { ArrowUp, Image, LoaderCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentModelRef, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, ProjectState, PromptImage } from "../shared/contracts.js";
 import { createConversation, createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
+import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import type { SidebarPage } from "./routes.js";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[]) => void;
   onOpen: (projectId: string) => void;
 }
 
@@ -19,6 +20,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<ComposerImage[]>([]);
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [createError, setCreateError] = useState<string>();
@@ -63,13 +65,13 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
   async function submitPrompt() {
     const nextPrompt = prompt.trim();
-    if (!nextPrompt || creating) return;
+    if ((!nextPrompt && images.length === 0) || creating) return;
     setCreating(true);
     setCreateError(undefined);
     try {
       const project = await createProject();
       const conversation = await createConversation(project.id, model);
-      onCreate(project.id, conversation.id, nextPrompt);
+      onCreate(project.id, conversation.id, nextPrompt, promptImages(images));
     } catch (error) {
       setCreateError(errorMessage(error));
       setCreating(false);
@@ -121,7 +123,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
                 <button
                   className="icon-button send-button"
                   type="submit"
-                  disabled={!prompt.trim() || creating}
+                  disabled={(!prompt.trim() && images.length === 0) || creating}
                   title="Create project"
                   aria-label="Create project"
                 >
@@ -129,8 +131,9 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
                 </button>
               </>
             )}
+            content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
             disabled={creating}
-            leading={<span className="prompt-box-plus" aria-hidden="true"><Plus size={18} /></span>}
+            leading={<ImagePickerButton disabled={creating} onImages={(next) => { setCreateError(undefined); setImages((items) => [...items, ...next]); }} onError={setCreateError} />}
             onChange={setPrompt}
             onSubmit={() => void submitPrompt()}
             placeholder="Ask your agent to build anything"

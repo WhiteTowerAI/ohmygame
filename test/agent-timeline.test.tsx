@@ -21,6 +21,17 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Working for");
     expect(html).toContain('class="work-summary-current" title="Thinking"');
   });
+
+  it("renders images attached to the user message", () => {
+    const html = renderToStaticMarkup(
+      <AgentTimeline items={[{ ...user(), images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] }]} />,
+    );
+
+    expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+    expect(html).toContain("Attached image 1");
+    expect(html).toContain('class="user-input"><div class="user-message-images"');
+    expect(html).toContain('</div><div class="user-message">Build</div></div>');
+  });
 });
 
 function user(): AgentItem {

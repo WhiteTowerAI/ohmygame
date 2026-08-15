@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, ConversationSummary, PromptReference } from "../shared/contracts.js";
+import type { AgentModel, ConversationSummary, PromptImage } from "../shared/contracts.js";
 import {
   cancelPrompt,
   createConversation,
@@ -43,7 +43,7 @@ import { useAgentModels } from "./model-selector.js";
 interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
-  initialPrompt?: string;
+  initialPrompt?: { prompt: string; images: PromptImage[] };
   onInitialPromptHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
   onHome: () => void;
@@ -243,7 +243,7 @@ export function ProjectShell({
     ) return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt).catch((error) => {
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
       onInitialPromptHandled?.();
@@ -285,12 +285,12 @@ export function ProjectShell({
   const currentConversationBusy = state.activeTurn?.conversationId === conversation?.id;
   const anotherConversationBusy = projectBusy && !currentConversationBusy;
 
-  async function submitPrompt(nextPrompt: string, references: PromptReference[]): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, images: PromptImage[]): Promise<boolean> {
     if (!project || !conversation || anotherConversationBusy) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, nextPrompt, references);
+      await sendPrompt(project.id, conversation.id, nextPrompt, [], images);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -452,7 +452,6 @@ export function ProjectShell({
 
           <Composer
             key={conversation?.id}
-            projectId={project?.id}
             conversationReady={Boolean(conversation) && !anotherConversationBusy && state.connection === "open"}
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}

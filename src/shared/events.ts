@@ -18,6 +18,7 @@ export class RuntimeEventBus {
     type: T,
     data: RuntimeEventData[T],
     scope: { conversationId: string; turnId: string } | undefined = undefined,
+    replayData?: RuntimeEventData[T],
   ): RuntimeEvent<T> {
     const event = {
       id: this.#nextId++,
@@ -27,10 +28,10 @@ export class RuntimeEventBus {
       timestamp: new Date().toISOString(),
       data,
     } as RuntimeEvent<T>;
-    this.#events.push(event);
+    this.#events.push(replayData === undefined ? event : { ...event, data: replayData } as RuntimeEvent<T>);
     if (this.#events.length > this.capacity) {
       const dropped = this.#events.splice(0, this.#events.length - this.capacity);
-      for (const oldEvent of dropped) this.#droppedThrough.set(oldEvent.projectId, oldEvent.id);
+      for (const oldEvent of dropped) this.#markDropped(oldEvent.projectId, oldEvent.id);
     }
     this.#emitter.emit(projectId, event);
     return event;
@@ -48,8 +49,16 @@ export class RuntimeEventBus {
     return cursor >= (this.#droppedThrough.get(projectId) ?? 0);
   }
 
+  expireThrough(projectId: string, eventId: number): void {
+    this.#markDropped(projectId, eventId);
+  }
+
   subscribe(projectId: string, listener: (event: RuntimeEvent) => void): () => void {
     this.#emitter.on(projectId, listener);
     return () => this.#emitter.off(projectId, listener);
+  }
+
+  #markDropped(projectId: string, eventId: number): void {
+    this.#droppedThrough.set(projectId, Math.max(eventId, this.#droppedThrough.get(projectId) ?? 0));
   }
 }

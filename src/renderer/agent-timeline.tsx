@@ -15,6 +15,7 @@ import { isValidElement, useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentItem } from "../shared/contracts.js";
+import { imageSource } from "./image-attachments.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 
 export function AgentTimeline({ items, activeTurnId, thinking = false }: { items: AgentItem[]; activeTurnId?: string; thinking?: boolean }) {
@@ -26,7 +27,16 @@ export function AgentTimeline({ items, activeTurnId, thinking = false }: { items
 function Turn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
   return (
     <article className="agent-turn">
-      {turn.user ? <div className="user-message">{turn.user.text}</div> : null}
+      {turn.user ? (
+        <div className="user-input">
+          {turn.user.images?.length ? (
+            <div className="user-message-images">
+              {turn.user.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
+            </div>
+          ) : null}
+          {turn.user.text ? <div className="user-message">{turn.user.text}</div> : null}
+        </div>
+      ) : null}
       {turn.active || turn.work.length > 0 ? <WorkSummary turn={turn} thinking={thinking} /> : null}
       {turn.response ? <AssistantResponse item={turn.response} /> : null}
     </article>

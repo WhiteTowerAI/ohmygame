@@ -74,6 +74,23 @@ describe("conversationItems", () => {
     ]);
   });
 
+  it("restores images from Pi user messages", () => {
+    expect(conversationItems([
+      sessionMessage("user", {
+        role: "user",
+        content: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }],
+        timestamp: 1,
+      }),
+    ] as never, false)).toEqual([{
+      id: "user",
+      turnId: "user",
+      kind: "user",
+      text: "",
+      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+      timestamp: 1,
+    }]);
+  });
+
   it("marks a turn interrupted when its persisted session has no terminal assistant message", () => {
     expect(conversationItems([
       sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
@@ -146,6 +163,35 @@ describe("conversationItems", () => {
 });
 
 describe("AgentManager", () => {
+  it("sends images through Pi prompt options", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "", [], [{ mediaType: "image/png", data: "aW1hZ2U=" }]).result;
+
+    expect(session.prompt).toHaveBeenCalledWith("", {
+      images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }],
+    });
+    await manager.close();
+  });
+
+  it("keeps image data out of replay events", async () => {
+    const session = new FakeSession();
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const image = { mediaType: "image/png" as const, data: "aW1hZ2U=" };
+
+    await manager.prompt(project, conversation, "Describe", [], [image]).result;
+
+    expect(events.since(project.id).find((event) => event.type === "agent.started")?.data).toEqual({ prompt: "Describe" });
+    expect(events.canReplay(project.id, 0)).toBe(false);
+    await manager.close();
+  });
+
   it("queues one follow-up for the active conversation", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -430,7 +476,7 @@ describe("AgentManager", () => {
 
 class FakeSession implements CodingSession {
   messages: unknown[] = [];
-  prompt = vi.fn<(prompt: string) => Promise<void>>(async () => {});
+  prompt = vi.fn<CodingSession["prompt"]>(async () => {});
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});

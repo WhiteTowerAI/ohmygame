@@ -57,7 +57,7 @@ const promptSchema = {
     additionalProperties: false,
     required: ["prompt"],
     properties: {
-      prompt: { type: "string", minLength: 1 },
+      prompt: { type: "string" },
       references: {
         type: "array",
         maxItems: 20,
@@ -68,6 +68,18 @@ const promptSchema = {
           properties: {
             type: { const: "workspace-file" },
             path: { type: "string", minLength: 1, maxLength: 1_000 },
+          },
+        },
+      },
+      images: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["mediaType", "data"],
+          properties: {
+            mediaType: { enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] },
+            data: { type: "string", minLength: 1 },
           },
         },
       },
@@ -402,20 +414,21 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const state = agents.state(conversation, conversations.model(project, conversation));
-      const reset = request.query.reset === "1";
-      const currentRun = state.agent.status === "running" || state.agent.status === "cancelling"
-        ? events.since(project.id).findLast((event) =>
-          event.type === "agent.started" && event.conversationId === conversation.summary.id)
-        : undefined;
+      const currentRun = agents.activeStart(project.id, conversation.summary.id);
+      const activeItem = agents.activeItem(project.id, conversation.summary.id);
+      const restoreActiveItem = Boolean(activeItem?.images?.length);
       return {
         conversation: state,
-        items: loadConversation(
-          project.workspacePath,
-          conversation.sessionPath,
-          reset ? undefined : currentRun?.timestamp,
-          !currentRun,
-        ),
-        cursor: reset || !currentRun ? events.cursor() : currentRun.id - 1,
+        items: [
+          ...loadConversation(
+            project.workspacePath,
+            conversation.sessionPath,
+            currentRun?.timestamp,
+            !currentRun,
+          ),
+          ...(restoreActiveItem && activeItem ? [activeItem] : []),
+        ],
+        cursor: !currentRun ? events.cursor() : restoreActiveItem ? currentRun.id : currentRun.id - 1,
         activeTurn: agents.activeTurn(project.id),
         pendingPrompt: agents.pendingPrompt(project.id, conversation.summary.id),
       };
@@ -469,13 +482,13 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/turns",
-    { schema: promptSchema },
+    { schema: promptSchema, bodyLimit: Number.MAX_SAFE_INTEGER },
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (!request.body?.prompt?.trim()) return reply.code(400).send({ error: "Prompt must not be empty" });
+      if (!request.body?.prompt?.trim() && !request.body?.images?.length) return reply.code(400).send({ error: "Prompt or image is required" });
       let references;
       try {
         references = await Promise.all((request.body.references ?? []).map(async (reference) => ({
@@ -489,7 +502,7 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
-        turn = agents.prompt(project, conversation, request.body.prompt, references);
+        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? []);
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -572,7 +585,13 @@ export function createApp(options: AppOptions = {}) {
       connection: "keep-alive",
     });
     reply.raw.write(": connected\n\n");
-    const send = (event: RuntimeEvent) => reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    const send = (event: RuntimeEvent) => {
+      const images = agents.eventImages(event.projectId, event.conversationId, event.turnId);
+      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued")
+        ? { ...event, data: { ...event.data, images } }
+        : event;
+      reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(hydrated)}\n\n`);
+    };
     for (const event of events.since(project.id, cursor)) send(event);
     const unsubscribe = events.subscribe(project.id, send);
     const heartbeat = setInterval(() => reply.raw.write(": heartbeat\n\n"), 15_000);

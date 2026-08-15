@@ -16,6 +16,7 @@ import {
   type ToolDefinition,
   type ToolRun,
   type ToolSettings,
+  type PromptImage,
   type PromptReference,
   type PromptResponse,
   type WorkspaceFile,
@@ -180,10 +181,11 @@ export async function sendPrompt(
   conversationId: string,
   prompt: string,
   references: PromptReference[] = [],
+  images: PromptImage[] = [],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(references.length ? { references } : {}) }),
+    body: JSON.stringify({ prompt, ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
   });
 }
 

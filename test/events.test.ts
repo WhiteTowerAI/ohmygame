@@ -25,4 +25,21 @@ describe("RuntimeEventBus", () => {
     expect(bus.canReplay("a", 0)).toBe(false);
     expect(bus.canReplay("a", second.id - 1)).toBe(true);
   });
+
+  it("streams full data while retaining lightweight replay data", () => {
+    const bus = new RuntimeEventBus();
+    const listener = vi.fn();
+    bus.subscribe("a", listener);
+    const event = bus.publish("a", "agent.started", {
+      prompt: "Describe",
+      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+    }, { conversationId: "conversation", turnId: "turn" }, { prompt: "Describe" });
+
+    expect(bus.since("a")).toEqual([{ ...event, data: { prompt: "Describe" } }]);
+    expect(listener).toHaveBeenCalledWith(event);
+    expect(bus.canReplay("a", event.id - 1)).toBe(true);
+    bus.expireThrough("a", event.id);
+    expect(bus.canReplay("a", event.id - 1)).toBe(false);
+    expect(bus.canReplay("a", event.id)).toBe(true);
+  });
 });

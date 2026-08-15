@@ -1386,10 +1386,18 @@ textarea:focus-visible {
   scrollbar-width: thin;
 }
 
+.user-input {
+  display: flex;
+  max-width: 100%;
+  margin: 6px 0 20px auto;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .user-message {
   width: fit-content;
   max-width: 86%;
-  margin: 6px 0 20px auto;
   padding: 10px 12px;
   border-radius: 12px;
   background: #23252b;
@@ -1398,6 +1406,22 @@ textarea:focus-visible {
   line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.user-message-images {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.user-message-images img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  border-radius: 8px;
+  object-fit: cover;
 }
 
 .assistant-message {
@@ -1853,14 +1877,6 @@ textarea:focus-visible {
   gap: 6px;
 }
 
-.prompt-box-plus {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  color: #cdd0d5;
-}
-
 .prompt-box-actions {
   margin-left: auto;
 }
@@ -1878,97 +1894,28 @@ textarea:focus-visible {
   color: var(--text);
 }
 
-.reference-picker-wrap {
-  position: relative;
-}
-
-.reference-picker {
-  position: absolute;
-  z-index: 5;
-  bottom: 38px;
-  left: 0;
-  display: grid;
-  width: min(300px, calc(50vw - 56px));
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 35%);
-}
-
-.reference-picker > input {
-  min-width: 0;
-  height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 11px;
-}
-
-.reference-picker-list {
-  display: grid;
-  max-height: 220px;
-  overflow: auto;
-  padding: 4px;
-}
-
-.reference-picker-list > span {
-  padding: 12px 9px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.reference-picker-list button {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-  text-align: left;
-}
-
-.reference-picker-list button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.reference-picker-list button span,
-.reference-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer-references {
+.composer-images {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 7px;
 }
 
-.reference-chip {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 5px 4px 7px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: 10px;
+.composer-image {
+  position: relative;
+  width: 52px;
+  height: 52px;
 }
 
-.reference-chip button,
+.composer-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.composer-image button,
 .pending-prompt button {
   display: inline-grid;
   width: 20px;
@@ -1981,7 +1928,16 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.reference-chip button:hover,
+.composer-image button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  border-radius: 50%;
+  background: #2b2d33;
+  color: var(--text);
+}
+
+.composer-image button:hover,
 .pending-prompt button:hover { color: var(--text); }
 
 .pending-prompt {

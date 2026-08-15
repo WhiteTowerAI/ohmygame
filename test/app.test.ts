@@ -124,6 +124,67 @@ describe("daemon", () => {
     expect(rejected.json()).toEqual({ error: "File not found" });
   });
 
+  it("accepts an image without text and passes it to Pi", async () => {
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-image-prompt-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const image = { mediaType: "image/png", data: "aW1hZ2U=" };
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "", images: [image] },
+    });
+
+    expect(response.statusCode).toBe(202);
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("", {
+      images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }],
+    }));
+  });
+
+  it("restores an active image prompt without replaying its base64 event", async () => {
+    let finishPrompt!: () => void;
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-active-image-")),
+      createSession: async () => ({
+        messages: [],
+        prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+        abort: async () => { finishPrompt(); },
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const image = { mediaType: "image/png", data: "aW1hZ2U=" };
+    const turn = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Describe", images: [image] },
+    });
+
+    const detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
+
+    expect(detail.json()).toMatchObject({
+      items: [{ kind: "user", text: "Describe", images: [image], turnId: turn.json().turnId }],
+      cursor: 1,
+      activeTurn: { conversationId: conversation.id, turnId: turn.json().turnId },
+    });
+    finishPrompt();
+  });
+
   it("removes only the expected pending follow-up", async () => {
     let finishPrompt!: () => void;
     const session: CodingSession = {
