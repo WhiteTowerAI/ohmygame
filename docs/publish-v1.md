@@ -156,3 +156,38 @@ It uses Node's built-in SQLite and a local artifact directory; it does not use
 an ORM, object storage, queue, or Pi. Start it with `npm run dev:publish` after
 setting `PUBLISH_TOKEN` in `.env.local`. Its default data directory is
 `.data/publish` and its default API and play port is `43130`.
+
+## Minimal production deployment
+
+The reference deployment keeps the Community Web and Publish service separate:
+
+```text
+community.example.com  -> Vercel
+publish.example.com    -> Railway
+*.play.example.com     -> Railway
+```
+
+Railway builds the Node runtime with `railway.toml`. Attach a persistent volume
+at `/data`, then configure:
+
+```dotenv
+PUBLISH_TOKEN=<secret>
+PUBLISHER_ID=local-publisher
+PUBLISH_DATA_DIR=/data
+PUBLISH_PLAY_ORIGIN=https://play.example.com
+```
+
+Railway supplies `PORT`; the server listens on `0.0.0.0` when it is present.
+Add both `publish.example.com` and `*.play.example.com` to the same Railway
+service. Stable game URLs use `g-<gameId>.play.example.com`, while immutable
+deployment URLs use `d-<deploymentId>.play.example.com`.
+
+Vercel builds the Community app with `vercel.json`. Set its build-time variable
+to the public Railway API origin:
+
+```dotenv
+VITE_PUBLISH_API_URL=https://publish.example.com
+```
+
+Only the public `GET /v1/community/*` routes allow cross-origin browser reads.
+Creator routes remain token-authenticated and do not expose CORS headers.

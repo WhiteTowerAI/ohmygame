@@ -1,0 +1,7 @@
+{
+  "buildCommand": "npm run build:community",
+  "outputDirectory": "dist/community-web",
+  "rewrites": [
+    { "source": "/games/:path*", "destination": "/index.html" }
+  ]
+}
