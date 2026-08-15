@@ -9,6 +9,7 @@ function argument(name: string): string {
 
 if (process.isMainFrame) {
   contextBridge.exposeInMainWorld("openGameDesktop", Object.freeze({
+    platform: process.platform,
     runtime: Object.freeze({
       daemonUrl: argument("open-game-daemon-url"),
       token: argument("open-game-daemon-token"),

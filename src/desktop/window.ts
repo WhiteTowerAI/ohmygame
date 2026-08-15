@@ -22,6 +22,12 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     `--open-game-daemon-url=${options.runtime.url}`,
     `--open-game-daemon-token=${options.runtime.token}`,
   ];
+  const macWindowOptions = process.platform === "darwin"
+    ? {
+        titleBarStyle: "hiddenInset" as const,
+        trafficLightPosition: { x: 18, y: 24 },
+      }
+    : {};
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -29,6 +35,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     minHeight: 640,
     backgroundColor: "#111214",
     show: false,
+    ...macWindowOptions,
     webPreferences: {
       preload: path.resolve(options.preloadPath),
       additionalArguments: runtimeArguments,

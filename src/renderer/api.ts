@@ -32,6 +32,7 @@ interface DesktopRuntime {
 declare global {
   interface Window {
     openGameDesktop?: {
+      platform: string;
       runtime: DesktopRuntime;
     };
   }

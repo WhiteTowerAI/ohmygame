@@ -71,6 +71,19 @@ body {
 .home-sidebar-traffic-yellow { background: #febc2e; }
 .home-sidebar-traffic-green { background: #28c840; }
 
+.desktop-macos .home-sidebar {
+  -webkit-app-region: drag;
+}
+
+.desktop-macos .home-sidebar-traffic {
+  visibility: hidden;
+}
+
+.desktop-macos .home-sidebar nav,
+.desktop-macos .home-sidebar-account {
+  -webkit-app-region: no-drag;
+}
+
 .home-sidebar-account {
   display: flex;
   align-items: center;
@@ -199,8 +212,9 @@ button.home-nav-item:hover {
 }
 
 .home-discover {
+  width: 100%;
   max-width: 1068px;
-  margin: 26px 0 0;
+  margin: 26px auto 0;
 }
 
 .home-section-heading {
@@ -982,6 +996,20 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
+.desktop-macos .pane-header {
+  -webkit-app-region: drag;
+}
+
+.desktop-macos .agent-pane > .pane-header {
+  padding-left: 88px;
+}
+
+.desktop-macos .pane-header button,
+.desktop-macos .pane-header input,
+.desktop-macos .pane-header select {
+  -webkit-app-region: no-drag;
+}
+
 .pane-header-actions {
   display: flex;
   flex: 0 0 auto;
@@ -1044,6 +1072,15 @@ textarea:focus-visible {
 
 .workspace-shell-agent-collapsed .viewer-header {
   padding-left: 52px;
+}
+
+.desktop-macos .workspace-shell-agent-collapsed .viewer-header {
+  padding-left: 88px;
+}
+
+.desktop-macos .workspace-shell-agent-collapsed .agent-expand-button {
+  left: 88px;
+  -webkit-app-region: no-drag;
 }
 
 .agent-body {
@@ -2934,7 +2971,7 @@ textarea:focus-visible {
   }
 
   .home-discover {
-    margin: 48px 0 0;
+    margin: 48px auto 0;
   }
 
   .home-whats-new-grid,
