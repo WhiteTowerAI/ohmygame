@@ -7,7 +7,8 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
     expect(parseAppRoute("#/community")).toEqual({ page: "community" });
-    expect(parseAppRoute("#/tools")).toEqual({ page: "tools" });
+    expect(parseAppRoute("#/images")).toEqual({ page: "images" });
+    expect(parseAppRoute("#/tools")).toEqual({ page: "home" });
   });
 
   it("parses and formats project routes", () => {

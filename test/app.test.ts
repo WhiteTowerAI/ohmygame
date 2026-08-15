@@ -30,7 +30,26 @@ describe("daemon", () => {
     const response = await app.inject({ method: "GET", url: "/projects" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([first, second]);
+    expect(response.json()).toEqual([second, first]);
+  });
+
+  it("renames, duplicates, and deletes projects", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-project-actions-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } })).json();
+    await writeFile(path.join(project.workspacePath, "index.html"), "<h1>First</h1>");
+
+    const renamed = await app.inject({ method: "PATCH", url: `/projects/${project.id}`, payload: { name: "Renamed" } });
+    const duplicated = await app.inject({ method: "POST", url: `/projects/${project.id}/duplicate` });
+    const deleted = await app.inject({ method: "DELETE", url: `/projects/${project.id}` });
+
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json()).toMatchObject({ name: "Renamed" });
+    expect(duplicated.statusCode).toBe(201);
+    expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
+    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect(deleted.statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
 
   it("exposes read-only workspace code and media", async () => {

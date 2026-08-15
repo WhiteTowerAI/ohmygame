@@ -4,12 +4,12 @@ import type { ImageSize, ProjectState, ToolDefinition, ToolRun } from "../shared
 import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 
-interface ToolsProps {
+interface ImagesPageProps {
   onCommunity: () => void;
   onHome: () => void;
 }
 
-export function Tools({ onCommunity, onHome }: ToolsProps) {
+export function ImagesPage({ onCommunity, onHome }: ImagesPageProps) {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -24,7 +24,7 @@ export function Tools({ onCommunity, onHome }: ToolsProps) {
     try {
       await waitForRuntime();
       const [loadedTools, settings] = await Promise.all([listTools(), getToolSettings()]);
-      setTools(loadedTools);
+      setTools(loadedTools.filter((tool) => tool.category === "images"));
       setEnabledTools(settings.enabledTools);
       setPhase("ready");
     } catch (cause) {
@@ -53,12 +53,12 @@ export function Tools({ onCommunity, onHome }: ToolsProps) {
 
   return (
     <main className="home-shell">
-      <AppSidebar active="tools" onCommunity={onCommunity} onHome={onHome} />
+      <AppSidebar active="images" onCommunity={onCommunity} onHome={onHome} />
       <section className="tools-content">
         <header className="tools-heading">
           <div>
-            <h1>Tools</h1>
-            <p>Try creative tools before using them in a project.</p>
+            <h1>Images</h1>
+            <p>Generate an image before adding it to a project.</p>
           </div>
           {phase === "error" ? (
             <button className="tools-retry" type="button" onClick={() => void load()}>

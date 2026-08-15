@@ -42,6 +42,15 @@ const createProjectSchema = {
   },
 } as const;
 
+const renameProjectSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["name"],
+    properties: { name: { type: "string", minLength: 1, maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+  },
+} as const;
+
 const promptSchema = {
   body: {
     type: "object",
@@ -264,6 +273,36 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
+  app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
+    "/projects/:projectId",
+    { schema: renameProjectSchema },
+    async (request, reply) => {
+      try {
+        return await projects.rename(request.params.projectId, request.body.name);
+      } catch (cause) {
+        return reply.code((cause as Error).message.startsWith("Project not found") ? 404 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/duplicate", async (request, reply) => {
+    try {
+      return reply.code(201).send(await projects.duplicate(request.params.projectId));
+    } catch (cause) {
+      return reply.code((cause as Error).message.startsWith("Project not found") ? 404 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
+    await previews.stop(project);
+    agents.forgetProject(project.id);
+    await projects.delete(project.id);
+    return reply.code(204).send();
+  });
+
   app.get("/community/games", async (_request, reply) => {
     try {
       return await publisher.community();
@@ -447,6 +486,7 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
       }
+      await projects.touch(project.id);
       let turn;
       try {
         turn = agents.prompt(project, conversation, request.body.prompt, references);

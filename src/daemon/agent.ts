@@ -436,6 +436,18 @@ export class AgentManager {
     return this.#activeTurns.has(projectId);
   }
 
+  forgetProject(projectId: string): void {
+    const managed = this.#sessions.get(projectId);
+    if (managed) {
+      managed.unsubscribe();
+      managed.session.dispose();
+      this.#sessions.delete(projectId);
+    }
+    for (const key of this.#conversationStates.keys()) {
+      if (key.startsWith(`${projectId}:`)) this.#conversationStates.delete(key);
+    }
+  }
+
   activeTurn(projectId: string): ActiveTurnState | undefined {
     const active = this.#activeTurns.get(projectId);
     return active ? { conversationId: active.conversationId, turnId: active.turnId } : undefined;

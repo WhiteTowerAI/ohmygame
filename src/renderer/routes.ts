@@ -1,12 +1,12 @@
 export type AppRoute =
   | { page: "home" }
   | { page: "community" }
-  | { page: "tools" }
+  | { page: "images" }
   | { page: "project"; projectId: string; conversationId?: string };
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/community") return { page: "community" };
-  if (hash === "#/tools") return { page: "tools" };
+  if (hash === "#/images") return { page: "images" };
   const conversationMatch = /^#\/projects\/([^/]+)\/conversations\/([^/]+)$/.exec(hash);
   const projectMatch = /^#\/projects\/([^/]+)$/.exec(hash);
   const match = conversationMatch ?? projectMatch;

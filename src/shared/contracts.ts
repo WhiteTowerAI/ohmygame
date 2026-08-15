@@ -27,6 +27,7 @@ export interface PublicationState {
 export interface ProjectState {
   id: string;
   name: string;
+  updatedAt: string;
   workspacePath: string;
   preview: { status: PreviewStatus; url?: string; error?: string };
   publication?: PublicationState;

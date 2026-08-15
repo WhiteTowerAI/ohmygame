@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -109,6 +109,23 @@ describe("renderer project API", () => {
 
     await expect(listProjects()).resolves.toEqual(projects);
     expect(fetchMock).toHaveBeenCalledWith("/api/projects", expect.objectContaining({ headers: {} }));
+  });
+
+  it("renames, duplicates, and deletes projects", async () => {
+    installWindow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: "project-1", name: "Renamed" }))
+      .mockResolvedValueOnce(Response.json({ id: "project-2", name: "Renamed copy" }, { status: 201 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renameProject("project-1", "Renamed");
+    await duplicateProject("project-1");
+    await deleteProject("project-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Renamed" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/duplicate", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("loads a project's persisted conversation", async () => {

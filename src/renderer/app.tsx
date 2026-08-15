@@ -3,7 +3,7 @@ import { Community } from "./community.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
 import { conversationHash, parseAppRoute, projectHash } from "./routes.js";
-import { Tools } from "./tools.js";
+import { ImagesPage } from "./tools.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
@@ -20,10 +20,10 @@ export function App() {
   }, []);
 
   if (route.page === "home") {
-    return <Home onCommunity={openCommunity} onCreate={openCreatedProject} onOpen={openProject} onTools={openTools} />;
+    return <Home onCommunity={openCommunity} onHome={goHome} onCreate={openCreatedProject} onOpen={openProject} onImages={openImages} />;
   }
   if (route.page === "community") return <Community onHome={goHome} />;
-  if (route.page === "tools") return <Tools onCommunity={openCommunity} onHome={goHome} />;
+  if (route.page === "images") return <ImagesPage onCommunity={openCommunity} onHome={goHome} />;
   return (
     <ProjectShell
       key={route.projectId}
@@ -71,8 +71,8 @@ export function App() {
     setRoute({ page: "community" });
   }
 
-  function openTools(): void {
-    window.history.pushState(null, "", "#/tools");
-    setRoute({ page: "tools" });
+  function openImages(): void {
+    window.history.pushState(null, "", "#/images");
+    setRoute({ page: "images" });
   }
 }

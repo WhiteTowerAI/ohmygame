@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, PublicationState } from "../shared/contracts.js";
 
@@ -7,6 +7,7 @@ interface ProjectMetadata {
   version: 1;
   id: string;
   name: string;
+  updatedAt: string;
   publication?: PublicationState;
 }
 
@@ -31,8 +32,12 @@ export class ProjectManager {
       const projectDirectory = path.join(this.#projectsDirectory, entry.name);
       const workspacePath = path.join(projectDirectory, "workspace");
       if (!await exists(workspacePath)) continue;
-      const { metadata, missing } = await readMetadata(projectDirectory, entry.name);
-      const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath));
+      const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
+      const project = projectState(
+        workspacePath,
+        metadata,
+        await isRunnableWorkspace(workspacePath),
+      );
       this.#projects.set(project.id, project);
       if (missing) await writeMetadata(projectDirectory, metadata);
     }
@@ -46,6 +51,7 @@ export class ProjectManager {
       version: 1,
       id,
       name: name?.trim() || "Untitled project",
+      updatedAt: new Date().toISOString(),
     };
     await mkdir(projectDirectory, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
@@ -55,9 +61,62 @@ export class ProjectManager {
     return project;
   }
 
-  list(): ProjectState[] { return [...this.#projects.values()]; }
+  list(): ProjectState[] {
+    return [...this.#projects.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
+
+  async rename(id: string, name: string): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    const normalized = name.trim();
+    if (!normalized) throw new Error("Project name must not be empty");
+    await this.#save(project, { name: normalized, updatedAt: new Date().toISOString() });
+    return project;
+  }
+
+  async duplicate(id: string): Promise<ProjectState> {
+    const source = this.#projects.get(id);
+    if (!source) throw new Error(`Project not found: ${id}`);
+    const duplicateId = randomUUID();
+    const duplicateDirectory = path.join(this.#projectsDirectory, duplicateId);
+    const updatedAt = new Date().toISOString();
+    const metadata: ProjectMetadata = {
+      version: 1,
+      id: duplicateId,
+      name: `${source.name} copy`,
+      updatedAt,
+    };
+    try {
+      await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
+        recursive: true,
+        errorOnExist: true,
+        filter: (sourcePath) => path.basename(sourcePath) !== "node_modules",
+      });
+      await writeMetadata(duplicateDirectory, metadata);
+    } catch (error) {
+      await rm(duplicateDirectory, { recursive: true, force: true });
+      throw error;
+    }
+    const project = projectState(path.join(duplicateDirectory, "workspace"), metadata, await isRunnableWorkspace(path.join(duplicateDirectory, "workspace")));
+    this.#projects.set(project.id, project);
+    return project;
+  }
+
+  async delete(id: string): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await rm(path.dirname(project.workspacePath), { recursive: true, force: false });
+    this.#projects.delete(id);
+    return project;
+  }
+
+  async touch(id: string): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#save(project, { updatedAt: new Date().toISOString() });
+  }
 
   async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
     const project = this.#projects.get(id);
@@ -78,19 +137,26 @@ export class ProjectManager {
     } finally {
       await rm(temporary, { force: true });
     }
+    await this.touch(id);
     return relativePath.split(path.sep).join("/");
   }
 
   async setPublication(id: string, publication: PublicationState): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await writeMetadata(path.dirname(project.workspacePath), {
-      version: 1,
-      id: project.id,
-      name: project.name,
-      publication,
-    });
-    project.publication = publication;
+    await this.#save(project, { publication, updatedAt: new Date().toISOString() });
+  }
+
+  async #save(
+    project: ProjectState,
+    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "publication">>,
+  ): Promise<void> {
+    const metadata = { ...metadataFor(project), ...changes };
+    await writeMetadata(path.dirname(project.workspacePath), metadata);
+    project.name = metadata.name;
+    project.updatedAt = metadata.updatedAt;
+    if (metadata.publication) project.publication = metadata.publication;
+    else delete project.publication;
   }
 }
 
@@ -102,6 +168,7 @@ function projectState(
   return {
     id: metadata.id,
     name: metadata.name,
+    updatedAt: metadata.updatedAt,
     workspacePath,
     preview: { status: runnable ? "stopped" : "waiting" },
     ...(metadata.publication ? { publication: metadata.publication } : {}),
@@ -119,35 +186,53 @@ export async function isRunnableWorkspace(workspacePath: string): Promise<boolea
   }
 }
 
-async function readMetadata(projectDirectory: string, id: string): Promise<LoadedMetadata> {
+async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
   try {
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
+      const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
+        ? parsed.updatedAt
+        : fallbackUpdatedAt;
       return {
         metadata: {
           version: 1,
           id,
           name: parsed.name.trim(),
+          updatedAt,
           ...(parsed.publication ? { publication: parsed.publication } : {}),
         },
-        missing: false,
+        missing: parsed.updatedAt !== updatedAt,
       };
     }
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return { metadata: { version: 1, id, name: "Untitled project" }, missing: true };
+    return { metadata: { version: 1, id, name: "Untitled project", updatedAt: fallbackUpdatedAt }, missing: true };
   }
+}
+
+function metadataFor(project: ProjectState): ProjectMetadata {
+  return {
+    version: 1,
+    id: project.id,
+    name: project.name,
+    updatedAt: project.updatedAt,
+    ...(project.publication ? { publication: project.publication } : {}),
+  };
 }
 
 async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata): Promise<void> {
   const destination = path.join(projectDirectory, "project.json");
-  const temporary = `${destination}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
-  await rename(temporary, destination);
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function exists(target: string): Promise<boolean> {

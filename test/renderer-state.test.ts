@@ -234,6 +234,7 @@ function project(): ProjectState {
   return {
     id: "project-1",
     name: "Untitled project",
+    updatedAt: new Date(0).toISOString(),
     workspacePath: "/tmp/project-1",
     preview: { status: "waiting" },
   };

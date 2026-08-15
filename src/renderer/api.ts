@@ -45,6 +45,18 @@ export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }
 
+export async function renameProject(projectId: string, name: string): Promise<ProjectState> {
+  return request(`/projects/${projectId}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export async function duplicateProject(projectId: string): Promise<ProjectState> {
+  return request(`/projects/${projectId}/duplicate`, { method: "POST" });
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await request(`/projects/${projectId}`, { method: "DELETE" });
+}
+
 export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
 }

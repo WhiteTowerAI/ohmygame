@@ -108,6 +108,7 @@ async function createProject(): Promise<ProjectState> {
   return {
     id: path.basename(directory),
     name: "Project",
+    updatedAt: new Date(0).toISOString(),
     workspacePath: path.join(directory, "workspace"),
     preview: { status: "waiting" },
   };

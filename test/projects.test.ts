@@ -70,7 +70,26 @@ describe("ProjectManager", () => {
     const first = await manager.create("First");
     const second = await manager.create("Second");
 
-    expect(manager.list()).toEqual([first, second]);
+    expect(manager.list()).toEqual([second, first]);
+  });
+
+  it("renames, duplicates, and deletes a project", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("First");
+    await writeFile(path.join(project.workspacePath, "index.html"), "<h1>First</h1>");
+    await mkdir(path.join(project.workspacePath, "node_modules", "dependency"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "node_modules", "dependency", "index.js"), "generated");
+
+    await expect(manager.rename(project.id, "Renamed")).resolves.toMatchObject({ name: "Renamed" });
+    const duplicate = await manager.duplicate(project.id);
+
+    expect(duplicate).toMatchObject({ name: "Renamed copy" });
+    expect(duplicate.publication).toBeUndefined();
+    expect(await readFile(path.join(duplicate.workspacePath, "index.html"), "utf8")).toBe("<h1>First</h1>");
+    await expect(readdir(path.join(duplicate.workspacePath, "node_modules"))).rejects.toThrow();
+    await expect(manager.delete(project.id)).resolves.toMatchObject({ id: project.id });
+    expect(manager.get(project.id)).toBeUndefined();
   });
 
   it("restores runnable and non-runnable workspaces with distinct preview states", async () => {
