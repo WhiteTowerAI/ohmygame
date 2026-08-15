@@ -25,7 +25,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   const macWindowOptions = process.platform === "darwin"
     ? {
         titleBarStyle: "hiddenInset" as const,
-        trafficLightPosition: { x: 18, y: 24 },
+        trafficLightPosition: { x: 18, y: 18 },
       }
     : {};
   const window = new BrowserWindow({
