@@ -72,7 +72,8 @@ body {
 .home-sidebar-traffic-green { background: #28c840; }
 
 .desktop-macos .home-sidebar {
-  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
 }
 
 .desktop-macos .home-sidebar-traffic {
@@ -81,7 +82,7 @@ body {
 
 .desktop-macos .home-sidebar nav,
 .desktop-macos .home-sidebar-account {
-  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .home-sidebar-account {
@@ -188,6 +189,17 @@ button.home-nav-item:hover {
   padding: 64px 34px 44px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.desktop-macos .home-content-drag-region {
+  position: fixed;
+  z-index: 2;
+  top: 0;
+  right: 8px;
+  left: 232px;
+  height: 50px;
+  app-region: drag;
+  user-select: none;
 }
 
 .home-start {
@@ -997,7 +1009,8 @@ textarea:focus-visible {
 }
 
 .desktop-macos .pane-header {
-  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
 }
 
 .desktop-macos .agent-pane > .pane-header {
@@ -1007,7 +1020,7 @@ textarea:focus-visible {
 .desktop-macos .pane-header button,
 .desktop-macos .pane-header input,
 .desktop-macos .pane-header select {
-  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .pane-header-actions {
@@ -1080,7 +1093,7 @@ textarea:focus-visible {
 
 .desktop-macos .workspace-shell-agent-collapsed .agent-expand-button {
   left: 88px;
-  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .agent-body {

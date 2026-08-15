@@ -111,6 +111,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       <AppSidebar active="home" onNavigate={onNavigate} />
 
       <section className="home-content">
+        <div className="home-content-drag-region" aria-hidden="true" />
         <div className="home-start">
           <h1>Open Game</h1>
           <PromptBox
