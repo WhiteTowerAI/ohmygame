@@ -38,7 +38,7 @@ body {
 
 .home-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
   min-height: 0;
@@ -46,6 +46,7 @@ body {
 }
 
 .home-sidebar {
+  position: relative;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -81,8 +82,51 @@ body {
 }
 
 .desktop-macos .home-sidebar nav,
-.desktop-macos .home-sidebar-account {
+.desktop-macos .home-sidebar-account,
+.desktop-macos .home-sidebar-resizer,
+.desktop-macos .home-sidebar-resize-shield {
   app-region: no-drag;
+}
+
+.home-sidebar-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.home-sidebar-resizer::after {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  content: "";
+  transition: background 120ms ease;
+}
+
+.home-sidebar-resizer:hover::after,
+.home-sidebar-resizer:focus-visible::after,
+.home-sidebar-resizing .home-sidebar-resizer::after {
+  background: var(--border-strong);
+}
+
+.home-sidebar-resizer:focus-visible {
+  outline: 0;
+}
+
+.home-sidebar-resize-shield {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
 }
 
 .home-sidebar-account {
@@ -196,7 +240,7 @@ button.home-nav-item:hover {
   z-index: 2;
   top: 0;
   right: 8px;
-  left: 232px;
+  left: var(--sidebar-width, 232px);
   height: 50px;
   app-region: drag;
   user-select: none;
@@ -969,14 +1013,14 @@ textarea:focus-visible {
 .workspace-shell {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+  grid-template-columns: clamp(320px, var(--agent-width, 430px), 65vw) 5px minmax(0, 1fr);
   min-height: 100dvh;
   height: 100dvh;
   background: #090a0c;
 }
 
 .workspace-shell-agent-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-columns: 0 0 minmax(0, 1fr);
 }
 
 .workspace-shell-agent-collapsed .agent-pane {
@@ -995,7 +1039,48 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+}
+
+.workspace-resizer {
+  position: relative;
+  z-index: 3;
+  min-width: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.workspace-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--border);
+  content: "";
+  transition: background 120ms ease;
+}
+
+.workspace-resizer:hover::after,
+.workspace-resizer:focus-visible::after,
+.workspace-shell-resizing .workspace-resizer::after {
+  background: var(--border-strong);
+}
+
+.workspace-resizer:focus-visible {
+  outline: 0;
+}
+
+.workspace-shell-agent-collapsed .workspace-resizer {
+  pointer-events: none;
+}
+
+.workspace-resize-shield {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
 }
 
 .pane-header {
@@ -2946,6 +3031,10 @@ textarea:focus-visible {
     border-bottom: 1px solid var(--border);
   }
 
+  .home-sidebar-resizer {
+    display: none;
+  }
+
   .home-sidebar-traffic {
     height: auto;
     padding: 0;
@@ -3029,6 +3118,10 @@ textarea:focus-visible {
   .workspace-shell-agent-collapsed {
     grid-template-columns: 1fr;
     grid-template-rows: 0 minmax(380px, 100dvh);
+  }
+
+  .workspace-resizer {
+    display: none;
   }
 
   .conversation-popover {

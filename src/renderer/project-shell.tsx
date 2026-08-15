@@ -8,7 +8,15 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
-import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import type { AgentModel, ConversationSummary, PromptReference } from "../shared/contracts.js";
 import {
   cancelPrompt,
@@ -41,6 +49,10 @@ interface ProjectShellProps {
   onHome: () => void;
 }
 
+const DEFAULT_AGENT_WIDTH = 430;
+const MIN_AGENT_WIDTH = 320;
+const AGENT_WIDTH_STORAGE_KEY = "open-game-agent-width";
+
 export function ProjectShell({
   projectId,
   conversationId,
@@ -54,6 +66,9 @@ export function ProjectShell({
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [agentWidth, setAgentWidth] = useState(readAgentWidth);
+  const [maximumAgentWidth, setMaximumAgentWidth] = useState(DEFAULT_AGENT_WIDTH);
+  const [resizingAgent, setResizingAgent] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [modelChanging, setModelChanging] = useState(false);
@@ -62,6 +77,49 @@ export function ProjectShell({
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
+  const workspaceShell = useRef<HTMLElement>(null);
+  const agentWidthRef = useRef(agentWidth);
+  const resizingAgentRef = useRef(false);
+
+  function resizeAgent(clientX: number): void {
+    const shell = workspaceShell.current;
+    const bounds = shell?.getBoundingClientRect();
+    if (!shell || !bounds) return;
+    const maximum = getMaximumAgentWidth(bounds.width);
+    const width = Math.round(Math.min(maximum, Math.max(MIN_AGENT_WIDTH, clientX - bounds.left)));
+    agentWidthRef.current = width;
+    shell.style.setProperty("--agent-width", `${width}px`);
+  }
+
+  function saveAgentWidth(): void {
+    localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(agentWidthRef.current));
+  }
+
+  function finishAgentResize(): void {
+    if (!resizingAgentRef.current) return;
+    resizingAgentRef.current = false;
+    setResizingAgent(false);
+    setAgentWidth(agentWidthRef.current);
+    saveAgentWidth();
+  }
+
+  function resetAgentWidth(): void {
+    const width = Math.min(DEFAULT_AGENT_WIDTH, maximumAgentWidth);
+    agentWidthRef.current = width;
+    setAgentWidth(width);
+    localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(width));
+  }
+
+  function resizeAgentWithKeyboard(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const bounds = workspaceShell.current?.getBoundingClientRect();
+    if (!bounds) return;
+    resizeAgent(bounds.left + agentWidthRef.current + direction * 16);
+    setAgentWidth(agentWidthRef.current);
+    saveAgentWidth();
+  }
 
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
@@ -198,6 +256,24 @@ export function ProjectShell({
     if (element && followTimeline.current) element.scrollTop = element.scrollHeight;
   }, [state.items]);
 
+  useEffect(() => {
+    const updateMaximum = () => {
+      if (window.matchMedia("(max-width: 720px)").matches) return;
+      const bounds = workspaceShell.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const maximum = getMaximumAgentWidth(bounds.width);
+      setMaximumAgentWidth(maximum);
+      if (agentWidthRef.current > maximum) {
+        agentWidthRef.current = maximum;
+        setAgentWidth(maximum);
+        localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(maximum));
+      }
+    };
+    updateMaximum();
+    window.addEventListener("resize", updateMaximum);
+    return () => window.removeEventListener("resize", updateMaximum);
+  }, []);
+
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
   }
@@ -301,7 +377,15 @@ export function ProjectShell({
   }
 
   return (
-    <main className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}`}>
+    <main
+      className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
+      ref={workspaceShell}
+      style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}
+    >
+      {resizingAgent ? (
+        <div className="workspace-resize-shield" />
+      ) : null}
+
       {agentCollapsed ? (
         <button
           className="icon-button agent-expand-button"
@@ -385,6 +469,36 @@ export function ProjectShell({
         </div>
       </section>
 
+      <div
+        className="workspace-resizer"
+        role="separator"
+        aria-label="Resize agent panel"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_AGENT_WIDTH}
+        aria-valuemax={maximumAgentWidth}
+        aria-valuenow={agentWidth}
+        aria-hidden={agentCollapsed || undefined}
+        tabIndex={agentCollapsed ? -1 : 0}
+        onDoubleClick={resetAgentWidth}
+        onKeyDown={resizeAgentWithKeyboard}
+        onPointerDown={(event) => {
+          if (!event.isPrimary || event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          resizingAgentRef.current = true;
+          setResizingAgent(true);
+        }}
+        onPointerMove={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeAgent(event.clientX);
+        }}
+        onPointerUp={(event) => {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          finishAgentResize();
+        }}
+        onPointerCancel={finishAgentResize}
+        onLostPointerCapture={finishAgentResize}
+      />
+
       <CodingWorkspace
         project={project}
         agentBusy={agentBusy}
@@ -445,4 +559,13 @@ function FatalState({ message, onHome }: { message: string; onHome: () => void }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function readAgentWidth(): number {
+  const stored = Number(localStorage.getItem(AGENT_WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) && stored >= MIN_AGENT_WIDTH ? stored : DEFAULT_AGENT_WIDTH;
+}
+
+function getMaximumAgentWidth(workspaceWidth: number): number {
+  return Math.round(Math.max(MIN_AGENT_WIDTH, Math.min(workspaceWidth * 0.65, workspaceWidth - MIN_AGENT_WIDTH - 5)));
 }
