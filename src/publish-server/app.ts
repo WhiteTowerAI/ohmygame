@@ -67,9 +67,6 @@ export function createPublishApp(options: PublishAppOptions) {
   app.addHook("onClose", async () => store.close());
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
-    if (request.method === "GET" && request.url.startsWith("/v1/community/")) {
-      reply.header("access-control-allow-origin", "*");
-    }
     const target = playTarget(request.headers.host, playOrigin);
     if (!target) return;
     if (request.method !== "GET" && request.method !== "HEAD") {

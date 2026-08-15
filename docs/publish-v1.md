@@ -182,12 +182,13 @@ Add both `publish.example.com` and `*.play.example.com` to the same Railway
 service. Stable game URLs use `g-<gameId>.play.example.com`, while immutable
 deployment URLs use `d-<deploymentId>.play.example.com`.
 
-Vercel builds the Community app with `vercel.json`. Set its build-time variable
-to the public Railway API origin:
+Vercel builds the Community app with `vercel.json` and proxies same-origin
+Community API requests to Railway:
 
-```dotenv
-VITE_PUBLISH_API_URL=https://publish.example.com
+```text
+/v1/* -> https://publish.example.com/v1/*
 ```
 
-Only the public `GET /v1/community/*` routes allow cross-origin browser reads.
-Creator routes remain token-authenticated and do not expose CORS headers.
+The browser continues to request relative `/v1` URLs, so the Community page's
+`connect-src 'self'` policy stays strict and the Publish service does not need
+to expose browser CORS headers.

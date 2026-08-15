@@ -152,7 +152,7 @@ describe("public publish server", () => {
     expect(games.map((game: { title: string }) => game.title).sort()).toEqual(["First", "Second"]);
   });
 
-  it("keeps the API host separate from wildcard games and exposes only public Community reads", async () => {
+  it("keeps the API host separate from wildcard game domains", async () => {
     const app = createPublishApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
       playOrigin: "https://play.example.com",
@@ -168,17 +168,6 @@ describe("public publish server", () => {
     const deployed = await publish(app, game.id, "wildcard-deployment", await zipFiles({ "index.html": "game" }));
     expect(new URL(deployed.json().deployment.versionUrl).hostname)
       .toBe(`d-${deployed.json().deployment.id}.play.example.com`);
-
-    const community = await app.inject({
-      method: "GET",
-      url: "/v1/community/games",
-      headers: { host: "publish.example.com", origin: "https://community.example.com" },
-    });
-    expect(community.statusCode).toBe(200);
-    expect(community.headers["access-control-allow-origin"]).toBe("*");
-
-    const creator = await app.inject({ method: "GET", url: "/v1/games/missing", headers: authorization });
-    expect(creator.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
   it("counts directory entries toward artifact limits", async () => {

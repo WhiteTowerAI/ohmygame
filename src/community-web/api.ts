@@ -3,17 +3,15 @@ import type {
   PublishCommunityGame,
 } from "../shared/publish-v1.js";
 
-const apiOrigin = (import.meta.env.VITE_PUBLISH_API_URL ?? "").replace(/\/$/, "");
-
 export function listCommunityGames(fetcher: typeof fetch = fetch): Promise<PublishCommunityGame[]> {
-  return request(`${apiOrigin}/v1/community/games`, fetcher);
+  return request("/v1/community/games", fetcher);
 }
 
 export function getCommunityGame(
   gameId: string,
   fetcher: typeof fetch = fetch,
 ): Promise<PublishCommunityGame> {
-  return request(`${apiOrigin}/v1/community/games/${encodeURIComponent(gameId)}`, fetcher);
+  return request(`/v1/community/games/${encodeURIComponent(gameId)}`, fetcher);
 }
 
 async function request<T>(pathname: string, fetcher: typeof fetch): Promise<T> {

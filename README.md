@@ -68,9 +68,8 @@ npm run dev:community
 
 It reads the public `/v1/community` API directly and provides shareable
 `/games/:gameId` pages without requiring the local daemon. In production,
-serve `dist/community-web` with history fallback. It uses same-origin `/v1` by
-default; set `VITE_PUBLISH_API_URL` at build time when the Publish service is on
-a separate origin. The included `vercel.json` configures the production build
+serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
+service. The included `vercel.json` configures the production build, API proxy,
 and shareable game routes.
 
 It listens on `http://127.0.0.1:43130` by default. Creator routes use
