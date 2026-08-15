@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Community } from "./community.js";
+import { EmptyPage } from "./empty-page.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
-import { conversationHash, parseAppRoute, projectHash } from "./routes.js";
+import { conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { ImagesPage } from "./tools.js";
 
 export function App() {
@@ -20,10 +21,11 @@ export function App() {
   }, []);
 
   if (route.page === "home") {
-    return <Home onCommunity={openCommunity} onHome={goHome} onCreate={openCreatedProject} onOpen={openProject} onImages={openImages} />;
+    return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
-  if (route.page === "community") return <Community onHome={goHome} />;
-  if (route.page === "images") return <ImagesPage onCommunity={openCommunity} onHome={goHome} />;
+  if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} />;
+  if (route.page === "images") return <ImagesPage onNavigate={navigateToSidebarPage} />;
+  if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
   return (
     <ProjectShell
       key={route.projectId}
@@ -66,13 +68,10 @@ export function App() {
     setRoute({ page: "home" });
   }
 
-  function openCommunity(): void {
-    window.history.pushState(null, "", "#/community");
-    setRoute({ page: "community" });
-  }
-
-  function openImages(): void {
-    window.history.pushState(null, "", "#/images");
-    setRoute({ page: "images" });
+  function navigateToSidebarPage(page: SidebarPage): void {
+    const hash = sidebarHash(page);
+    if (window.location.hash === hash) return;
+    window.history.pushState(null, "", hash);
+    setRoute({ page });
   }
 }

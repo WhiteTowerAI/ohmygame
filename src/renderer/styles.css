@@ -412,8 +412,8 @@ button.home-nav-item:hover {
 
 .home-project-actions {
   position: absolute;
+  top: 170px;
   right: 0;
-  bottom: 1px;
 }
 
 .home-project-actions-menu {
@@ -2412,7 +2412,7 @@ textarea:focus-visible {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   height: 54px;
   align-items: center;
   gap: 12px;

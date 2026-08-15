@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { conversationHash, parseAppRoute, projectHash } from "../src/renderer/routes.js";
+import { conversationHash, parseAppRoute, projectHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/community")).toEqual({ page: "community" });
-    expect(parseAppRoute("#/images")).toEqual({ page: "images" });
+    for (const page of ["projects", "library", "plugins", "avg-studio", "3d", "images", "audio", "video", "model-hub", "community"] as const) {
+      expect(parseAppRoute(`#/${page}`)).toEqual({ page });
+      expect(sidebarHash(page)).toBe(`#/${page}`);
+    }
+    expect(sidebarHash("home")).toBe("#/");
     expect(parseAppRoute("#/tools")).toEqual({ page: "home" });
   });
 

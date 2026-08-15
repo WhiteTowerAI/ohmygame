@@ -3,13 +3,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ImageSize, ProjectState, ToolDefinition, ToolRun } from "../shared/contracts.js";
 import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
+import type { SidebarPage } from "./routes.js";
 
 interface ImagesPageProps {
-  onCommunity: () => void;
-  onHome: () => void;
+  onNavigate: (page: SidebarPage) => void;
 }
 
-export function ImagesPage({ onCommunity, onHome }: ImagesPageProps) {
+export function ImagesPage({ onNavigate }: ImagesPageProps) {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -53,7 +53,7 @@ export function ImagesPage({ onCommunity, onHome }: ImagesPageProps) {
 
   return (
     <main className="home-shell">
-      <AppSidebar active="images" onCommunity={onCommunity} onHome={onHome} />
+      <AppSidebar active="images" onNavigate={onNavigate} />
       <section className="tools-content">
         <header className="tools-heading">
           <div>

@@ -5,18 +5,17 @@ import { createConversation, createProject, deleteProject, duplicateProject, lis
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
+import type { SidebarPage } from "./routes.js";
 
 interface HomeProps {
-  onCommunity: () => void;
-  onHome?: () => void;
+  onNavigate: (page: SidebarPage) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string) => void;
   onOpen: (projectId: string) => void;
-  onImages: () => void;
 }
 
 const RECENT_PROJECT_LIMIT = 4;
 
-export function Home({ onCommunity, onHome, onCreate, onOpen, onImages }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
@@ -109,7 +108,7 @@ export function Home({ onCommunity, onHome, onCreate, onOpen, onImages }: HomePr
 
   return (
     <main className="home-shell">
-      <AppSidebar active="home" onCommunity={onCommunity} onHome={onHome} onImages={onImages} />
+      <AppSidebar active="home" onNavigate={onNavigate} />
 
       <section className="home-content">
         <div className="home-start">
@@ -145,7 +144,7 @@ export function Home({ onCommunity, onHome, onCreate, onOpen, onImages }: HomePr
             <h2 id="whats-new-heading">What's New</h2>
           </div>
           <div className="home-whats-new-grid">
-            <button className="home-whats-new-item" type="button" onClick={onImages}>
+            <button className="home-whats-new-item" type="button" onClick={() => onNavigate("images")}>
               <span className="home-whats-new-icon"><Image size={23} /></span>
               <span className="home-whats-new-copy">
                 <strong>Image generation</strong>
