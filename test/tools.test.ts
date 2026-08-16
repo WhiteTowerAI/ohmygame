@@ -123,6 +123,22 @@ describe("tool runner", () => {
     })).statusCode).toBe(404);
   });
 
+  it("applies saved image settings without restarting", async () => {
+    const app = createApp({ dataDirectory: await temporaryData(), imageApiKey: "" });
+    apps.push(app);
+
+    const before = await app.inject({ method: "GET", url: "/settings/image-generation" });
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/settings/image-generation",
+      payload: { apiUrl: "https://images.example/v1", apiKey: "secret" },
+    });
+
+    expect(before.json()).toEqual({ apiUrl: "https://api.openai.com/v1", hasApiKey: false });
+    expect(saved.json()).toEqual({ apiUrl: "https://images.example/v1", hasApiKey: true });
+    expect(saved.body).not.toContain("secret");
+  });
+
   it("cancels image generation without persisting a run", async () => {
     const dataDirectory = await temporaryData();
     const generate: ImageGenerator["generate"] = async (_input, signal) => new Promise((_resolve, reject) => {

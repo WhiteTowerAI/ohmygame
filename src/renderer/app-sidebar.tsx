@@ -1,7 +1,8 @@
-import { AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, LogOut, MoreHorizontal, Plug, UserRound, Video } from "lucide-react";
+import { AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, MoreHorizontal, Plug, UserRound, Video } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
+import { SettingsDialog } from "./settings-dialog.js";
 
 interface AppSidebarProps {
   active: SidebarPage;
@@ -19,6 +20,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   const [resizing, setResizing] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountError, setAccountError] = useState<string>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useRef<HTMLElement>(null);
   const account = useRef<HTMLDivElement>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -71,6 +73,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   }
 
   return (
+    <>
     <aside className={`home-sidebar${resizing ? " home-sidebar-resizing" : ""}`} ref={sidebar}>
       {resizing ? <div className="home-sidebar-resize-shield" /> : null}
       <div className="home-sidebar-traffic" aria-hidden="true">
@@ -113,22 +116,49 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
           </button>
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
-              <button type="button" role="menuitem" onClick={() => void auth.signOut().then(() => {
+              <button type="button" role="menuitem" onClick={() => {
+                setAccountMenuOpen(false);
+                setSettingsOpen(true);
+              }}>
+                Settings
+              </button>
+              <button className="home-sidebar-account-sign-out" type="button" role="menuitem" onClick={() => void auth.signOut().then(() => {
                 setAccountMenuOpen(false);
               }).catch((error) => {
                 setAccountError(errorMessage(error));
               })}>
-                <LogOut size={14} /> Sign out
+                Sign out
               </button>
               {accountError ? <p className="home-sidebar-account-error" role="alert">{accountError}</p> : null}
             </div>
           ) : null}
         </div>
       ) : (
-        <button className="home-sidebar-account home-sidebar-sign-in" type="button" onClick={auth.openSignIn} disabled={auth.state.status === "loading"}>
-          <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
-          <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
-        </button>
+        <div className="home-sidebar-account" ref={account}>
+          <button className="home-sidebar-sign-in-main" type="button" onClick={auth.openSignIn} disabled={auth.state.status === "loading"}>
+            <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
+            <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
+          </button>
+          <button
+            className="home-sidebar-account-menu"
+            type="button"
+            aria-label="Application menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => setAccountMenuOpen((open) => !open)}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {accountMenuOpen ? (
+            <div className="home-sidebar-account-popover" role="menu">
+              <button type="button" role="menuitem" onClick={() => {
+                setAccountMenuOpen(false);
+                setSettingsOpen(true);
+              }}>
+                Settings
+              </button>
+            </div>
+          ) : null}
+        </div>
       )}
       <div
         className="home-sidebar-resizer"
@@ -159,6 +189,8 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         onLostPointerCapture={finishResize}
       />
     </aside>
+    {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+    </>
   );
 }
 

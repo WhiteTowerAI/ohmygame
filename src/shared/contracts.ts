@@ -17,6 +17,48 @@ export interface AgentModelCatalog {
   defaultModel?: AgentModelRef;
 }
 
+export type ModelAuthMethod = "api_key" | "oauth";
+
+export interface ModelProviderSummary {
+  id: string;
+  name: string;
+  configured: boolean;
+  source?: string;
+  credentialType?: ModelAuthMethod;
+  methods: Array<{ type: ModelAuthMethod; label: string }>;
+}
+
+export type ModelAuthPrompt =
+  | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
+  | { type: "select"; message: string; options: Array<{ id: string; label: string; description?: string }> };
+
+export type ModelAuthNotification =
+  | { type: "info"; message: string; links?: Array<{ url: string; label?: string }> }
+  | { type: "auth_url"; url: string; instructions?: string }
+  | { type: "device_code"; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number }
+  | { type: "progress"; message: string };
+
+export type ModelAuthEvent = {
+  id: number;
+  operationId: string;
+} & (
+  | { type: "notification"; notification: ModelAuthNotification }
+  | { type: "prompt"; promptId: string; prompt: ModelAuthPrompt }
+  | { type: "completed" }
+  | { type: "cancelled" }
+  | { type: "error"; error: string }
+);
+
+export interface ImageGenerationSettings {
+  apiUrl: string;
+  hasApiKey: boolean;
+}
+
+export interface UpdateImageGenerationSettings {
+  apiUrl: string;
+  apiKey?: string;
+}
+
 export interface PublicationState {
   gameId: string;
   deploymentId: string;

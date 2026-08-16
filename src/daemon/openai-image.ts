@@ -10,6 +10,11 @@ export interface ImageGenerator {
   generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 
+export interface ImageGeneratorConfig {
+  apiKey?: string;
+  apiUrl: string;
+}
+
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class ImageGenerationError extends Error {
@@ -70,6 +75,18 @@ export class OpenAIImageGenerator implements ImageGenerator {
       mediaType: "image/webp",
       requestId: response.headers.get("x-request-id") ?? undefined,
     };
+  }
+}
+
+export class ConfiguredImageGenerator implements ImageGenerator {
+  constructor(
+    private readonly configuration: () => ImageGeneratorConfig,
+    private readonly request: Fetch = fetch,
+  ) {}
+
+  generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage> {
+    const configuration = this.configuration();
+    return new OpenAIImageGenerator(configuration.apiKey, configuration.apiUrl, this.request).generate(input, signal);
   }
 }
 

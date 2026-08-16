@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
@@ -14,7 +14,9 @@ import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
-import { OpenAIImageGenerator, type ImageGenerator } from "./openai-image.js";
+import { ImageSettingsStore } from "./image-settings.js";
+import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
+import { ConfiguredImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { ToolSettingsStore } from "./tool-settings.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -164,6 +166,39 @@ const toolSettingsSchema = {
   },
 } as const;
 
+const modelAuthLoginSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["method"],
+    properties: { method: { enum: ["api_key", "oauth"] } },
+  },
+} as const;
+
+const modelAuthResponseSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["promptId", "value"],
+    properties: {
+      promptId: { type: "string", minLength: 1, maxLength: 100 },
+      value: { type: "string", maxLength: 100_000 },
+    },
+  },
+} as const;
+
+const imageSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["apiUrl"],
+    properties: {
+      apiUrl: { type: "string", minLength: 1, maxLength: 2_000 },
+      apiKey: { type: "string", maxLength: 100_000 },
+    },
+  },
+} as const;
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -177,16 +212,18 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
+  const imageSettings = new ImageSettingsStore(dataDirectory, {
+    apiKey: options.imageApiKey ?? process.env.IMAGE_API_KEY,
+    apiUrl: options.imageApiUrl ?? process.env.IMAGE_API_URL,
+  });
   const tools = new ToolRunner(
     dataDirectory,
-    options.imageGenerator ?? new OpenAIImageGenerator(
-      options.imageApiKey ?? process.env.IMAGE_API_KEY,
-      options.imageApiUrl ?? process.env.IMAGE_API_URL,
-    ),
+    options.imageGenerator ?? new ConfiguredImageGenerator(() => imageSettings.resolve()),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
   const getModelRuntime = () => modelRuntimePromise ??= (options.createModelRuntime ?? (() => ModelRuntime.create()))();
+  const modelAuth = new ModelAuthManager(getModelRuntime);
   const agents = new AgentManager(events, {
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
@@ -216,7 +253,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), toolSettings.load()]);
+    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load()]);
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -395,6 +432,69 @@ export function createApp(options: AppOptions = {}) {
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
     };
   });
+
+  app.get("/settings/models/providers", async () => modelAuth.providers());
+
+  app.post<{ Params: { providerId: string }; Body: { method: ModelAuthMethod } }>(
+    "/settings/models/providers/:providerId/login",
+    { schema: modelAuthLoginSchema },
+    async (request, reply) => {
+      try {
+        return reply.code(202).send({ operationId: await modelAuth.start(request.params.providerId, request.body.method) });
+      } catch (cause) {
+        if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.post<{ Params: { operationId: string }; Body: { promptId: string; value: string } }>(
+    "/settings/model-auth/:operationId/respond",
+    { schema: modelAuthResponseSchema },
+    async (request, reply) => {
+      try {
+        modelAuth.respond(request.params.operationId, request.body.promptId, request.body.value);
+        return reply.code(204).send();
+      } catch (cause) {
+        if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.delete<{ Params: { operationId: string } }>("/settings/model-auth/:operationId", async (request, reply) => {
+    try {
+      modelAuth.cancel(request.params.operationId);
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/credential", async (request, reply) => {
+    try {
+      await modelAuth.logout(request.params.providerId);
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.get("/settings/image-generation", async () => imageSettings.get());
+
+  app.put<{ Body: UpdateImageGenerationSettings }>(
+    "/settings/image-generation",
+    { schema: imageSettingsSchema },
+    async (request, reply) => {
+      try {
+        return await imageSettings.update(request.body);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
@@ -609,7 +709,40 @@ export function createApp(options: AppOptions = {}) {
     request.raw.once("close", () => { clearInterval(heartbeat); unsubscribe(); });
   });
 
+  app.get<{ Params: { operationId: string }; Querystring: { cursor?: string } }>("/settings/model-auth/:operationId/events", async (request, reply) => {
+    const cursor = Number(request.query.cursor ?? request.headers["last-event-id"] ?? 0) || 0;
+    try {
+      const history = modelAuth.eventsSince(request.params.operationId, cursor);
+      const headers = reply.getHeaders();
+      for (const [name, value] of Object.entries(headers)) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      reply.raw.write(": connected\n\n");
+      const send = (event: ReturnType<typeof modelAuth.eventsSince>[number]) => {
+        reply.raw.write(`id: ${event.id}\nevent: model-auth\ndata: ${JSON.stringify(event)}\n\n`);
+        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") reply.raw.end();
+      };
+      for (const event of history) {
+        send(event);
+        if (reply.raw.writableEnded) return;
+      }
+      const unsubscribe = modelAuth.subscribe(request.params.operationId, send);
+      const heartbeat = setInterval(() => reply.raw.write(": heartbeat\n\n"), 15_000);
+      request.raw.once("close", () => { clearInterval(heartbeat); unsubscribe(); });
+    } catch (cause) {
+      if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.addHook("onClose", async () => {
+    modelAuth.close();
     await agents.close();
     await previews.stopAll();
     await artifacts.close();

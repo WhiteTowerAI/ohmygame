@@ -14,6 +14,7 @@ if (process.isMainFrame) {
       daemonUrl: argument("open-game-daemon-url"),
       token: argument("open-game-daemon-token"),
     }),
+    openExternal: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
     auth: Object.freeze({
       callbackUrl: () => ipcRenderer.invoke("open-game:auth-callback-url") as Promise<string>,
       cancel: () => ipcRenderer.invoke("open-game:cancel-auth") as Promise<void>,

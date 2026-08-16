@@ -90,15 +90,25 @@ export function ModelSelector({ models, value, disabled, onChange }: ModelSelect
 }
 
 const EMPTY_CATALOG: AgentModelCatalog = { models: [] };
+const MODELS_CHANGED_EVENT = "open-game-models-changed";
+
+export function notifyAgentModelsChanged(): void {
+  window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+}
 
 export function useAgentModels(): AgentModelCatalog {
   const [catalog, setCatalog] = useState<AgentModelCatalog>(EMPTY_CATALOG);
   useEffect(() => {
     let disposed = false;
-    void waitForRuntime().then(listModels).then((available) => {
+    const load = () => void waitForRuntime().then(listModels).then((available) => {
       if (!disposed) setCatalog(available);
     }).catch(() => {});
-    return () => { disposed = true; };
+    load();
+    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    return () => {
+      disposed = true;
+      window.removeEventListener(MODELS_CHANGED_EVENT, load);
+    };
   }, []);
   return catalog;
 }

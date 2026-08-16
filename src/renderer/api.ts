@@ -4,6 +4,10 @@ import {
   type AddToolResultRequest,
   type AgentModelCatalog,
   type AgentModelRef,
+  type ImageGenerationSettings,
+  type ModelAuthEvent,
+  type ModelAuthMethod,
+  type ModelProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
   type ConversationDetail,
@@ -17,6 +21,7 @@ import {
   type ToolDefinition,
   type ToolRun,
   type ToolSettings,
+  type UpdateImageGenerationSettings,
   type PromptImage,
   type PromptReference,
   type PromptResponse,
@@ -36,6 +41,7 @@ declare global {
     openGameDesktop?: {
       platform: string;
       runtime: DesktopRuntime;
+      openExternal: (url: string) => Promise<void>;
       auth: {
         callbackUrl: () => Promise<string>;
         cancel: () => Promise<void>;
@@ -69,6 +75,50 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
+}
+
+export async function listModelProviders(): Promise<ModelProviderSummary[]> {
+  return request("/settings/models/providers");
+}
+
+export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
+  const result = await request<{ operationId: string }>(`/settings/models/providers/${encodeURIComponent(providerId)}/login`, {
+    method: "POST",
+    body: JSON.stringify({ method }),
+  });
+  return result.operationId;
+}
+
+export async function respondToModelAuth(operationId: string, promptId: string, value: string): Promise<void> {
+  await request(`/settings/model-auth/${encodeURIComponent(operationId)}/respond`, {
+    method: "POST",
+    body: JSON.stringify({ promptId, value }),
+  });
+}
+
+export async function cancelModelAuth(operationId: string): Promise<void> {
+  await request(`/settings/model-auth/${encodeURIComponent(operationId)}`, { method: "DELETE" });
+}
+
+export async function disconnectModelProvider(providerId: string): Promise<void> {
+  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/credential`, { method: "DELETE" });
+}
+
+export function subscribeToModelAuth(
+  operationId: string,
+  handlers: { onEvent: (event: ModelAuthEvent) => void; onError: () => void },
+): () => void {
+  const controller = new AbortController();
+  void streamModelAuthEvents(operationId, controller.signal, handlers);
+  return () => controller.abort();
+}
+
+export async function getImageGenerationSettings(): Promise<ImageGenerationSettings> {
+  return request("/settings/image-generation");
+}
+
+export async function updateImageGenerationSettings(input: UpdateImageGenerationSettings): Promise<ImageGenerationSettings> {
+  return request("/settings/image-generation", { method: "PUT", body: JSON.stringify(input) });
 }
 
 export async function listCommunityGames(): Promise<CommunityGame[]> {
@@ -288,6 +338,62 @@ async function streamProjectEvents(
   }
 }
 
+async function streamModelAuthEvents(
+  operationId: string,
+  signal: AbortSignal,
+  handlers: { onEvent: (event: ModelAuthEvent) => void; onError: () => void },
+): Promise<void> {
+  let cursor = 0;
+  while (!signal.aborted) {
+    try {
+      const response = await fetch(apiUrl(`/settings/model-auth/${encodeURIComponent(operationId)}/events?cursor=${cursor}`), {
+        headers: { accept: "text/event-stream", ...runtimeHeaders() },
+        signal,
+      });
+      if (!response.ok || !response.body) throw new ApiError(`Authentication stream failed with ${response.status}`, response.status);
+      const result = await consumeModelAuthStream(response.body, cursor, handlers.onEvent, signal);
+      cursor = result.cursor;
+      if (result.finished || signal.aborted) return;
+    } catch {
+      if (signal.aborted) return;
+      handlers.onError();
+    }
+    await reconnectDelay(signal);
+  }
+}
+
+async function consumeModelAuthStream(
+  body: ReadableStream<Uint8Array>,
+  initialCursor: number,
+  onEvent: (event: ModelAuthEvent) => void,
+  signal: AbortSignal,
+): Promise<{ cursor: number; finished: boolean }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let cursor = initialCursor;
+  let buffer = "";
+  let finished = false;
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const event = parseModelAuthEvent(block);
+        if (!event) continue;
+        cursor = Math.max(cursor, event.id);
+        onEvent(event);
+        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return { cursor, finished };
+}
+
 async function consumeEventStream(
   body: ReadableStream<Uint8Array>,
   initialCursor: number,
@@ -334,6 +440,19 @@ function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
   }
   try {
     return JSON.parse(data) as RuntimeEvent;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
+  const data = block.split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+  if (!data) return undefined;
+  try {
+    return JSON.parse(data) as ModelAuthEvent;
   } catch {
     return undefined;
   }
