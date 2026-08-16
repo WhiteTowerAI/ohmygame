@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -101,6 +101,19 @@ describe("renderer event stream", () => {
 });
 
 describe("renderer project API", () => {
+  it("passes the current user token only in the publish request body", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ deployment: {}, game: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await publishProject("project", "user-access-token");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project/publish", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ accessToken: "user-access-token" }),
+    }));
+  });
+
   it("lists projects", async () => {
     installWindow();
     const projects = [{ id: "project-1", name: "First" }];

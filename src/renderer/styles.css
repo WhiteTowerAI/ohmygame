@@ -130,12 +130,45 @@ body {
 }
 
 .home-sidebar-account {
+  position: relative;
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 12px;
   min-height: 40px;
   margin-top: auto;
   padding: 0 11px;
+}
+
+button.home-sidebar-account {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.home-sidebar-sign-in {
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.home-sidebar-sign-in:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.home-sidebar-sign-in:disabled {
+  cursor: default;
+}
+
+.home-sidebar-signed-out-icon {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: #1f2127;
+  color: var(--text-muted);
 }
 
 .home-sidebar-avatar {
@@ -149,6 +182,7 @@ body {
   color: var(--accent-ink);
   font-size: 10px;
   font-weight: 700;
+  object-fit: cover;
 }
 
 .home-sidebar-account-name {
@@ -178,6 +212,155 @@ body {
 .home-sidebar-account-menu:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.home-sidebar-account-popover {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  bottom: 44px;
+  width: 148px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 42%);
+}
+
+.home-sidebar-account-popover button {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.home-sidebar-account-popover button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.home-sidebar-account-error {
+  margin: 5px 9px 3px;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.sign-in-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(5 6 8 / 72%);
+}
+
+.sign-in-dialog {
+  position: relative;
+  display: flex;
+  width: min(420px, 100%);
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px 28px 24px;
+  overflow: hidden;
+  border: 1px solid #2e3038;
+  border-radius: 14px;
+  outline: 0;
+  background: #131417;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 38%);
+}
+
+.sign-in-dialog h2 {
+  margin: 0;
+  color: #f3f4f6;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  text-align: center;
+}
+
+.sign-in-dialog > p {
+  margin: 0;
+  color: #9ea3b0;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.sign-in-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sign-in-close:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.sign-in-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.sign-in-provider {
+  display: flex;
+  width: 100%;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #0e1014;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sign-in-provider:hover:not(:disabled) {
+  background: #fff;
+}
+
+.sign-in-provider:disabled,
+.sign-in-close:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.sign-in-dialog > .sign-in-error {
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.sign-in-dialog > .sign-in-note {
+  color: #787d8a;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .home-sidebar nav {

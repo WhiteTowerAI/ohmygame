@@ -15,14 +15,14 @@ import type {
   SetPublishListingRequest,
 } from "../shared/publish-v1.js";
 import { ArtifactError, ArtifactStore, contentType, DEFAULT_ARTIFACT_LIMITS, type ArtifactLimits } from "./artifacts.js";
-import { bearerToken, hashPublisherToken } from "./auth.js";
+import { bearerToken, type PublisherTokenVerifier } from "./auth.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
 import { PublishStore, type StoredCommunityGame, type StoredDeployment, type StoredGame } from "./store.js";
 
 export interface PublishAppOptions {
   dataDirectory: string;
   playOrigin?: string;
-  publisher?: { id: string; token: string };
+  verifyPublisherToken: PublisherTokenVerifier;
   artifactLimits?: ArtifactLimits;
   logger?: boolean;
 }
@@ -59,10 +59,6 @@ export function createPublishApp(options: PublishAppOptions) {
     },
   });
 
-  if (options.publisher) {
-    store.ensurePublisher(options.publisher.id, hashPublisherToken(options.publisher.token), new Date().toISOString());
-  }
-
   app.addHook("onReady", () => artifacts.load(store.deploymentIds()));
   app.addHook("onClose", async () => store.close());
   app.addHook("onRequest", async (request, reply) => {
@@ -97,7 +93,7 @@ export function createPublishApp(options: PublishAppOptions) {
     "/v1/games",
     { schema: { body: gameBodySchema } },
     async (request, reply) => {
-      const publisherId = authenticate(request, reply, store);
+      const publisherId = await authenticate(request, reply, store, options.verifyPublisherToken);
       if (!publisherId) return;
       const key = idempotencyKey(request, reply);
       if (!key) return;
@@ -140,7 +136,7 @@ export function createPublishApp(options: PublishAppOptions) {
   );
 
   app.get<{ Params: { gameId: string } }>("/v1/games/:gameId", async (request, reply) => {
-    const publisherId = authenticate(request, reply, store);
+    const publisherId = await authenticate(request, reply, store, options.verifyPublisherToken);
     if (!publisherId) return;
     const game = store.game(publisherId, request.params.gameId);
     return game
@@ -149,7 +145,7 @@ export function createPublishApp(options: PublishAppOptions) {
   });
 
   app.post<{ Params: { gameId: string } }>("/v1/games/:gameId/deployments", async (request, reply) => {
-    const publisherId = authenticate(request, reply, store);
+    const publisherId = await authenticate(request, reply, store, options.verifyPublisherToken);
     if (!publisherId) return;
     const game = store.game(publisherId, request.params.gameId);
     if (!game) return sendError(reply, request, 404, "not_found", "Game not found");
@@ -236,7 +232,7 @@ export function createPublishApp(options: PublishAppOptions) {
     "/v1/games/:gameId/listing",
     { schema: { body: listingBodySchema } },
     async (request, reply) => {
-      const publisherId = authenticate(request, reply, store);
+      const publisherId = await authenticate(request, reply, store, options.verifyPublisherToken);
       if (!publisherId) return;
       const listing = store.setListing(publisherId, request.params.gameId, request.body.status, new Date().toISOString());
       if (listing === "not_ready") {
@@ -264,10 +260,18 @@ export function createPublishApp(options: PublishAppOptions) {
   return app;
 }
 
-function authenticate(request: FastifyRequest, reply: FastifyReply, store: PublishStore): string | undefined {
+async function authenticate(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  store: PublishStore,
+  verifyToken: PublisherTokenVerifier,
+): Promise<string | undefined> {
   const token = bearerToken(request.headers.authorization);
-  const publisherId = token ? store.publisherForTokenHash(hashPublisherToken(token)) : undefined;
-  if (publisherId) return publisherId;
+  const publisherId = token ? await verifyToken(token) : undefined;
+  if (publisherId) {
+    store.ensurePublisher(publisherId, new Date().toISOString());
+    return publisherId;
+  }
   sendError(reply, request, 401, "authentication_required", "Authentication required");
   return undefined;
 }

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublishApp } from "./app.js";
+import { createSupabaseTokenVerifier } from "./auth.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 try {
@@ -9,8 +10,8 @@ try {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 
-const token = process.env.PUBLISH_TOKEN;
-if (!token) throw new Error("PUBLISH_TOKEN is required");
+const supabaseUrl = process.env.SUPABASE_URL;
+if (!supabaseUrl) throw new Error("SUPABASE_URL is required");
 
 const platformPort = process.env.PORT;
 const host = process.env.PUBLISH_HOST ?? (platformPort ? "0.0.0.0" : "127.0.0.1");
@@ -18,7 +19,7 @@ const port = Number(platformPort ?? process.env.PUBLISH_PORT ?? 43130);
 const app = createPublishApp({
   dataDirectory: process.env.PUBLISH_DATA_DIR ?? path.join(repositoryRoot, ".data", "publish"),
   playOrigin: process.env.PUBLISH_PLAY_ORIGIN ?? `http://localhost:${port}`,
-  publisher: { id: process.env.PUBLISHER_ID ?? "local-publisher", token },
+  verifyPublisherToken: createSupabaseTokenVerifier(supabaseUrl),
   logger: true,
 });
 

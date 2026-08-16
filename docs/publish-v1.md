@@ -15,8 +15,7 @@ Publisher 1 --- N Game 1 --- N Deployment
                        1 --- 1 CommunityListing
 ```
 
-- A `Publisher` owns games. Beta access provisions one publisher token out of
-  band; the service stores only its hash.
+- A `Publisher` owns games and is identified by the verified Supabase user ID.
 - A `Game` is the stable published work. Its play URL follows the deployment
   selected by `currentDeploymentId`.
 - A `Deployment` is one successful immutable upload.
@@ -31,12 +30,14 @@ The TypeScript resources, request bodies, and errors live in
 Creator routes require:
 
 ```http
-Authorization: Bearer <publisher-token>
+Authorization: Bearer <supabase-access-token>
 ```
 
-The token identifies one publisher and may own multiple games. It must stay in
-the daemon's private application state, never in a project workspace or a
-published artifact.
+The service verifies the token with the Supabase JWKS, issuer, and authenticated
+audience. The JWT `sub` identifies one publisher and may own multiple games.
+The client forwards the token only for the active publish request; it is never
+persisted by the daemon, placed in a project workspace, or included in an
+artifact.
 
 `POST /v1/games` and `POST /v1/games/:gameId/deployments` also require an
 `Idempotency-Key`. Keys are scoped to publisher, method, and route. Reusing a
@@ -154,7 +155,7 @@ and source-code remixing are outside Publish v1.
 The repository includes a minimal reference server under `src/publish-server`.
 It uses Node's built-in SQLite and a local artifact directory; it does not use
 an ORM, object storage, queue, or Pi. Start it with `npm run dev:publish` after
-setting `PUBLISH_TOKEN` in `.env.local`. Its default data directory is
+setting `SUPABASE_URL` in `.env.local`. Its default data directory is
 `.data/publish` and its default API and play port is `43130`.
 
 ## Minimal production deployment
@@ -171,8 +172,7 @@ Railway builds the Node runtime with `railway.toml`. Attach a persistent volume
 at `/data`, then configure:
 
 ```dotenv
-PUBLISH_TOKEN=<secret>
-PUBLISHER_ID=local-publisher
+SUPABASE_URL=https://your-project.supabase.co
 PUBLISH_DATA_DIR=/data
 PUBLISH_PLAY_ORIGIN=https://play.example.com
 ```

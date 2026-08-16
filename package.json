@@ -25,7 +25,9 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@fastify/multipart": "10.1.0",
+    "@supabase/supabase-js": "2.57.4",
     "fastify": "5.11.3",
+    "jose": "6.2.9",
     "lucide-react": "1.31.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

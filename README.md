@@ -33,6 +33,21 @@ key remains in the daemon and is never exposed to the renderer, Pi, or project
 workspaces. Set `IMAGE_API_URL` to the `/v1` root of an OpenAI-compatible
 service when using a non-OpenAI API key.
 
+Product sign-in uses Supabase Auth with Google and GitHub. To enable it in the
+web renderer, enable both providers in Supabase, add the renderer URL to the
+allowed redirect URLs, and set these public browser values in `.env.local`:
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
+```
+
+Without these values the app remains usable while signed out. For desktop
+OAuth, add `http://127.0.0.1:*/auth/callback/**` to the Supabase redirect allow
+list. The desktop app opens OAuth in the system browser and receives the result
+through a temporary loopback server; Google and GitHub use the same Supabase
+configuration as Web.
+
 Projects, workspaces, and Pi sessions are stored under the daemon data
 directory. Restarting the daemon restores the same project, Pi context, and
 conversation shown in the Project Shell.
@@ -50,7 +65,7 @@ Set the client and server settings in the ignored `.env.local`:
 
 ```dotenv
 PUBLISH_API_URL=http://127.0.0.1:43130
-PUBLISH_TOKEN=your-publisher-token
+SUPABASE_URL=https://your-project.supabase.co
 ```
 
 Then start it alongside `npm run dev`:
@@ -72,13 +87,14 @@ serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
 service. The included `vercel.json` configures the production build, API proxy,
 and shareable game routes.
 
-It listens on `http://127.0.0.1:43130` by default. Creator routes use
-`Authorization: Bearer <PUBLISH_TOKEN>`; Community routes and published games
-are public. Data is stored under `.data/publish`. This server implements the
-public protocol in [docs/publish-v1.md](docs/publish-v1.md). `PUBLISH_API_URL`
-may instead point the daemon at a separately hosted implementation. The token
-stays in the daemon and is never written to a project, sent to Pi, or included
-in the uploaded artifact.
+It listens on `http://127.0.0.1:43130` by default. Creator routes verify the
+signed-in user's Supabase access token and use its `sub` as the publisher ID;
+Community routes and published games are public. Data is stored under
+`.data/publish`. This server implements the public protocol in
+[docs/publish-v1.md](docs/publish-v1.md). `PUBLISH_API_URL` may instead point
+the daemon at a separately hosted implementation. The user token is forwarded
+only for the active publish request and is never stored by the daemon, written
+to a project, sent to Pi, or included in the uploaded artifact.
 
 The included `railway.toml` builds and starts the Publish service, uses
 Railway's `PORT`, and checks `/health`. For a persistent deployment, attach a

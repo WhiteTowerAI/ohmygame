@@ -10,6 +10,7 @@ import {
   type ConversationState,
   type ConversationSummary,
   type ProjectState,
+  type PublishProjectRequest,
   type PublishResult,
   type RuntimeEvent,
   type RunImageToolRequest,
@@ -35,6 +36,13 @@ declare global {
     openGameDesktop?: {
       platform: string;
       runtime: DesktopRuntime;
+      auth: {
+        callbackUrl: () => Promise<string>;
+        cancel: () => Promise<void>;
+        openUrl: (url: string) => Promise<void>;
+        takeCallback: () => Promise<string | undefined>;
+        onCallback: (listener: () => void) => () => void;
+      };
     };
   }
 }
@@ -98,8 +106,9 @@ export async function addToolResultToProject(
   return request(`/projects/${projectId}/tool-results`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function publishProject(projectId: string): Promise<PublishResult> {
-  return request(`/projects/${projectId}/publish`, { method: "POST" });
+export async function publishProject(projectId: string, accessToken: string): Promise<PublishResult> {
+  const body: PublishProjectRequest = { accessToken };
+  return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {

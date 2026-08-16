@@ -12,6 +12,18 @@ const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("remote publish", () => {
+  it("requires a user access token for each publish", async () => {
+    const publishFetch = vi.fn(fetch);
+    const runtime = await testRuntime(undefined, publishFetch);
+    const project = await createProject(runtime.daemon, "Signed out");
+    await writeFile(path.join(project.workspacePath, "index.html"), "game");
+
+    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+
+    expect(response.statusCode).toBe(400);
+    expect(publishFetch).not.toHaveBeenCalled();
+  });
+
   it("publishes a static workspace and exposes it through remote Community", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Static game");
@@ -19,7 +31,7 @@ describe("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "game.js"), "window.ready = true");
     await writeFile(path.join(project.workspacePath, ".env"), "SECRET=hidden");
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(201);
     const published = response.json();
@@ -34,9 +46,9 @@ describe("remote publish", () => {
     const runtime = await testRuntime(dataDirectory);
     const project = await createProject(runtime.daemon, "Persistent");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
-    const first = (await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` })).json();
+    const first = (await publishProject(runtime.daemon, project.id)).json();
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
-    const second = (await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` })).json();
+    const second = (await publishProject(runtime.daemon, project.id)).json();
 
     expect(second.game.id).toBe(first.game.id);
     expect(second.deployment.id).not.toBe(first.deployment.id);
@@ -45,7 +57,7 @@ describe("remote publish", () => {
 
     await runtime.daemon.close();
     apps.splice(apps.indexOf(runtime.daemon), 1);
-    const restarted = createApp({ dataDirectory, publishApiUrl: runtime.apiUrl, publishToken: token });
+    const restarted = createApp({ dataDirectory, publishApiUrl: runtime.apiUrl });
     apps.push(restarted);
     await restarted.ready();
     expect((await restarted.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication).toEqual({
@@ -67,7 +79,7 @@ describe("remote publish", () => {
       await writeFile("dist/assets/game.js", "window.built = true");
     `);
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(201);
     const deployment = response.json().deployment;
@@ -82,7 +94,7 @@ describe("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
     await writeFile(path.join(project.workspacePath, "index.html"), '<script type="module" src="/src/main.jsx"></script>');
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({
@@ -96,7 +108,7 @@ describe("remote publish", () => {
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Empty");
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({ error: "Project has no build script or static index.html yet" });
@@ -122,7 +134,7 @@ describe("remote publish", () => {
     const project = await createProject(runtime.daemon, "Retry");
     await writeFile(path.join(project.workspacePath, "index.html"), "retry");
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(201);
     expect(deploymentRequests).toBe(2);
@@ -144,9 +156,9 @@ describe("remote publish", () => {
     const project = await createProject(runtime.daemon, "Recover");
     await writeFile(path.join(project.workspacePath, "index.html"), "recover");
 
-    const failed = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const failed = await publishProject(runtime.daemon, project.id);
     await writeFile(path.join(project.workspacePath, "index.html"), "recover");
-    const recovered = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const recovered = await publishProject(runtime.daemon, project.id);
 
     expect(failed.statusCode).toBe(502);
     expect(recovered.statusCode).toBe(201);
@@ -167,12 +179,12 @@ describe("remote publish", () => {
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Recover update");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
-    const first = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const first = await publishProject(runtime.daemon, project.id);
     loseListingResponses = true;
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
 
-    const failed = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
-    const recovered = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const failed = await publishProject(runtime.daemon, project.id);
+    const recovered = await publishProject(runtime.daemon, project.id);
 
     expect(first.statusCode).toBe(201);
     expect(failed.statusCode).toBe(502);
@@ -195,13 +207,13 @@ describe("remote publish", () => {
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Latest workspace");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
-    await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    await publishProject(runtime.daemon, project.id);
     loseListingResponses = true;
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
-    const failed = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const failed = await publishProject(runtime.daemon, project.id);
     await writeFile(path.join(project.workspacePath, "index.html"), "three");
 
-    const published = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const published = await publishProject(runtime.daemon, project.id);
 
     expect(failed.statusCode).toBe(502);
     expect(published.statusCode).toBe(201);
@@ -227,10 +239,10 @@ describe("remote publish", () => {
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Concurrent");
     await writeFile(path.join(project.workspacePath, "index.html"), "game");
-    const first = runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const first = publishProject(runtime.daemon, project.id);
     await started;
 
-    const second = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const second = await publishProject(runtime.daemon, project.id);
     releaseUpload();
 
     expect(second.statusCode).toBe(409);
@@ -262,18 +274,18 @@ describe("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "index.html"), "game");
     await writeFile(path.join(project.workspacePath, "large.bin"), randomBytes(26 * 1024 * 1024));
 
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(413);
     expect(response.json()).toEqual({ error: "Publish artifact exceeds 25 MB" });
     expect(publishFetch).not.toHaveBeenCalled();
   });
 
-  it("keeps credentials out of the project and published artifact", async () => {
+  it("keeps the user token out of the project and published artifact", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Private token");
     await writeFile(path.join(project.workspacePath, "index.html"), "safe");
-    const response = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish` });
+    const response = await publishProject(runtime.daemon, project.id);
     const metadata = await readFile(path.join(path.dirname(project.workspacePath), "project.json"), "utf8");
     const artifact = await readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "index.html"), "utf8");
 
@@ -288,14 +300,13 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   const publishServer = createPublishApp({
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
-    publisher: { id: "publisher", token },
+    verifyPublisherToken: async (value) => value === token ? "publisher" : undefined,
   });
   apps.push(publishServer);
   const apiUrl = await publishServer.listen({ host: "127.0.0.1", port: 0 });
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("open-game-daemon-"),
     publishApiUrl: apiUrl,
-    publishToken: token,
     publishFetch,
   });
   apps.push(daemon);
@@ -305,6 +316,14 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
 
 async function createProject(app: FastifyInstance, name: string) {
   return (await app.inject({ method: "POST", url: "/projects", payload: { name } })).json();
+}
+
+function publishProject(app: FastifyInstance, projectId: string) {
+  return app.inject({
+    method: "POST",
+    url: `/projects/${projectId}/publish`,
+    payload: { accessToken: token },
+  });
 }
 
 function temporary(prefix: string): Promise<string> {

@@ -39,6 +39,8 @@ import { CodingWorkspace } from "./coding-workspace.js";
 import { Composer } from "./composer.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
+import { useAuth } from "./auth.js";
+import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -61,6 +63,7 @@ export function ProjectShell({
   onOpenConversation,
   onHome,
 }: ProjectShellProps) {
+  const auth = useAuth();
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
@@ -274,6 +277,14 @@ export function ProjectShell({
     return () => window.removeEventListener("resize", updateMaximum);
   }, []);
 
+  useEffect(() => {
+    const project = state.project;
+    const busy = sendingInitialPrompt || Boolean(state.activeTurn) ||
+      state.conversation?.agent.status === "running" || state.conversation?.agent.status === "cancelling";
+    if (auth.state.status !== "signed-in" || state.phase !== "ready" || !project || publishing || busy) return;
+    if (takePendingPublish(sessionStorage, project.id)) void publish();
+  }, [auth.state.status, state.phase, state.project?.id, state.activeTurn, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
+
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
   }
@@ -331,10 +342,18 @@ export function ProjectShell({
 
   async function publish() {
     if (!project || publishing || agentBusy) return;
+    const resumeAfterWebSignIn = !window.openGameDesktop && auth.state.status !== "signed-in";
+    if (resumeAfterWebSignIn) rememberPendingPublish(sessionStorage, project.id);
     setPublishing(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      await publishProject(project.id);
+      const accessToken = await auth.requestAccessToken();
+      if (!accessToken) {
+        if (resumeAfterWebSignIn) forgetPendingPublish(sessionStorage);
+        return;
+      }
+      forgetPendingPublish(sessionStorage);
+      await publishProject(project.id, accessToken);
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally {

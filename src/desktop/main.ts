@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
+import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { createDesktopWindow, waitForRenderer } from "./window.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -11,13 +12,22 @@ const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-render
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 let quitting = false;
+const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("open-game:auth-callback"));
+
+ipcMain.handle("open-game:open-auth-url", async (_event, url: unknown) => {
+  if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
+  await shell.openExternal(url);
+});
+ipcMain.handle("open-game:take-auth-callback", () => oauth.takeCallback());
+ipcMain.handle("open-game:auth-callback-url", () => oauth.callbackUrl());
+ipcMain.handle("open-game:cancel-auth", () => oauth.cancel());
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   if (quitting || !daemon) return;
   event.preventDefault();
   quitting = true;
-  void daemon.stop().finally(() => app.quit());
+  void Promise.all([daemon.stop(), oauth.cancel()]).finally(() => app.quit());
 });
 
 try {
@@ -42,6 +52,6 @@ try {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
   if (app.isReady()) dialog.showErrorBox("OpenGame could not start", message);
-  await daemon?.stop();
+  await Promise.all([daemon?.stop(), oauth.cancel()]);
   app.exit(1);
 }

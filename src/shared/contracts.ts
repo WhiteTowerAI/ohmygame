@@ -78,6 +78,10 @@ export interface PublishResult {
   game: CommunityGame;
 }
 
+export interface PublishProjectRequest {
+  accessToken: string;
+}
+
 export type AgentItem = (
   | { id: string; turnId: string; kind: "user"; text: string; images?: PromptImage[] }
   | {

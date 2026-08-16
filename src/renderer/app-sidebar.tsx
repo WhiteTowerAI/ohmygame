@@ -1,5 +1,6 @@
-import { AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, MoreHorizontal, Plug, Video } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, LogOut, MoreHorizontal, Plug, UserRound, Video } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
 
 interface AppSidebarProps {
@@ -13,15 +14,28 @@ const MAX_SIDEBAR_WIDTH = 272;
 const SIDEBAR_WIDTH_STORAGE_KEY = "open-game-sidebar-width";
 
 export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
+  const auth = useAuth();
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [resizing, setResizing] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountError, setAccountError] = useState<string>();
   const sidebar = useRef<HTMLElement>(null);
+  const account = useRef<HTMLDivElement>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizingRef = useRef(false);
 
   useLayoutEffect(() => {
     sidebar.current?.parentElement?.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!account.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [accountMenuOpen]);
 
   function resize(clientX: number): void {
     const shell = sidebar.current?.parentElement;
@@ -81,13 +95,41 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <div className="home-nav-label home-nav-label-spaced">DISCOVER</div>
         <NavigationItem active={active === "community"} icon={<Gamepad2 size={16} />} label="Community" onClick={() => onNavigate("community")} />
       </nav>
-      <div className="home-sidebar-account">
-        <span className="home-sidebar-avatar" aria-hidden="true">HD</span>
-        <span className="home-sidebar-account-name">Di Huang</span>
-        <button className="home-sidebar-account-menu" type="button" aria-label="Account menu" title="Account menu">
-          <MoreHorizontal size={16} />
+      {auth.state.status === "signed-in" ? (
+        <div className="home-sidebar-account" ref={account}>
+          <AccountAvatar name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
+          <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
+          <button
+            className="home-sidebar-account-menu"
+            type="button"
+            aria-label="Account menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => {
+              setAccountError(undefined);
+              setAccountMenuOpen((open) => !open);
+            }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {accountMenuOpen ? (
+            <div className="home-sidebar-account-popover" role="menu">
+              <button type="button" role="menuitem" onClick={() => void auth.signOut().then(() => {
+                setAccountMenuOpen(false);
+              }).catch((error) => {
+                setAccountError(errorMessage(error));
+              })}>
+                <LogOut size={14} /> Sign out
+              </button>
+              {accountError ? <p className="home-sidebar-account-error" role="alert">{accountError}</p> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <button className="home-sidebar-account home-sidebar-sign-in" type="button" onClick={auth.openSignIn} disabled={auth.state.status === "loading"}>
+          <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
+          <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
         </button>
-      </div>
+      )}
       <div
         className="home-sidebar-resizer"
         role="separator"
@@ -118,6 +160,20 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       />
     </aside>
   );
+}
+
+function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
+  return avatarUrl
+    ? <img className="home-sidebar-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+    : <span className="home-sidebar-avatar" aria-hidden="true">{initials(name)}</span>;
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "OG";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function clampSidebarWidth(width: number): number {

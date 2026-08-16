@@ -8,6 +8,11 @@ import { createPublishApp } from "../src/publish-server/app.js";
 
 const token = "test-publisher-token";
 const authorization = { authorization: `Bearer ${token}` };
+const verifyPublisherToken = async (value: string) => {
+  if (value === token) return "publisher";
+  if (value === "other-publisher-token") return "other-publisher";
+  return undefined;
+};
 const apps: FastifyInstance[] = [];
 
 afterEach(async () => {
@@ -41,6 +46,12 @@ describe("public publish server", () => {
     });
     expect(listing.statusCode).toBe(409);
     expect((await createGame(app, "long-title", { title: "x".repeat(201) })).statusCode).toBe(400);
+    const otherPublisher = await app.inject({
+      method: "GET",
+      url: `/v1/games/${gameId}`,
+      headers: { authorization: "Bearer other-publisher-token" },
+    });
+    expect(otherPublisher.statusCode).toBe(404);
   });
 
   it("publishes immutable versions, switches the stable URL, and controls Community discovery", async () => {
@@ -104,7 +115,7 @@ describe("public publish server", () => {
     const first = createPublishApp({
       dataDirectory,
       playOrigin: "http://localhost:43130",
-      publisher: { id: "publisher", token },
+      verifyPublisherToken,
     });
     apps.push(first);
     const game = (await createGame(first, "game", { title: "Persistent" })).json();
@@ -115,7 +126,7 @@ describe("public publish server", () => {
     const second = createPublishApp({
       dataDirectory,
       playOrigin: "http://localhost:43131",
-      publisher: { id: "publisher", token },
+      verifyPublisherToken,
     });
     apps.push(second);
     const detail = await second.inject({ method: "GET", url: `/v1/games/${game.id}`, headers: authorization });
@@ -156,7 +167,7 @@ describe("public publish server", () => {
     const app = createPublishApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
       playOrigin: "https://play.example.com",
-      publisher: { id: "publisher", token },
+      verifyPublisherToken,
     });
     apps.push(app);
 
@@ -174,7 +185,7 @@ describe("public publish server", () => {
     const app = createPublishApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
       playOrigin: "http://localhost:43130",
-      publisher: { id: "publisher", token },
+      verifyPublisherToken,
       artifactLimits: { compressedBytes: 1_000_000, expandedBytes: 1_000_000, fileBytes: 1_000_000, files: 2 },
     });
     apps.push(app);
@@ -194,7 +205,7 @@ async function testApp(): Promise<FastifyInstance> {
   const app = createPublishApp({
     dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
     playOrigin: "http://localhost:43130",
-    publisher: { id: "publisher", token },
+    verifyPublisherToken,
   });
   apps.push(app);
   return app;

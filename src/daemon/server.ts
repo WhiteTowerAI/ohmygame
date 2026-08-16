@@ -32,7 +32,6 @@ try {
       .filter(Boolean),
     logger: true,
     publishApiUrl: process.env.PUBLISH_API_URL,
-    publishToken: process.env.PUBLISH_TOKEN,
   });
   await app.listen({ host: process.env.DAEMON_HOST ?? "127.0.0.1", port: Number(process.env.DAEMON_PORT ?? 43110) });
 } catch (error) {

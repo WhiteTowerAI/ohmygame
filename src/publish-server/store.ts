@@ -51,17 +51,12 @@ export class PublishStore {
     this.#database.close();
   }
 
-  ensurePublisher(id: string, tokenHash: string, createdAt: string): void {
+  ensurePublisher(id: string, createdAt: string): void {
     this.#database.prepare(`
-      INSERT INTO publishers (id, token_hash, created_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET token_hash = excluded.token_hash
-    `).run(id, tokenHash, createdAt);
-  }
-
-  publisherForTokenHash(tokenHash: string): string | undefined {
-    const row = this.#database.prepare("SELECT id FROM publishers WHERE token_hash = ?").get(tokenHash) as Row | undefined;
-    return row ? String(row.id) : undefined;
+      INSERT INTO publishers (id, created_at)
+      VALUES (?, ?)
+      ON CONFLICT(id) DO NOTHING
+    `).run(id, createdAt);
   }
 
   reserveIdempotency(
@@ -298,7 +293,6 @@ function communityGameFrom(row: Row): StoredCommunityGame {
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS publishers (
     id TEXT PRIMARY KEY,
-    token_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL
   );
 

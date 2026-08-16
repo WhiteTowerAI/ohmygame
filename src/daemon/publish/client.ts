@@ -9,7 +9,6 @@ import type {
 
 export interface RemotePublisherOptions {
   apiUrl: string;
-  token?: string;
   fetch?: typeof fetch;
 }
 
@@ -21,21 +20,18 @@ export class RemotePublishError extends Error {
 
 export class RemotePublisher {
   readonly #apiUrl: string;
-  readonly #token?: string;
   readonly #fetch: typeof fetch;
 
   constructor(options: RemotePublisherOptions) {
     this.#apiUrl = options.apiUrl.replace(/\/$/, "");
-    this.#token = options.token;
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async publish(project: ProjectState, artifact: Buffer): Promise<PublishResult> {
-    if (!this.#token) throw new RemotePublishError("PUBLISH_TOKEN is required to publish", 503);
+  async publish(project: ProjectState, artifact: Buffer, accessToken: string): Promise<PublishResult> {
     const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
-    const game = await this.#game(project);
-    const created = await this.#createDeployment(project, game.id, artifact, artifactSha256);
-    await this.#list(game.id);
+    const game = await this.#game(project, accessToken);
+    const created = await this.#createDeployment(project, game.id, artifact, artifactSha256, accessToken);
+    await this.#list(game.id, accessToken);
     return publishResult(created.game, created.deployment);
   }
 
@@ -43,24 +39,24 @@ export class RemotePublisher {
     return this.#request("/v1/community/games");
   }
 
-  async #game(project: ProjectState): Promise<PublishGame> {
+  async #game(project: ProjectState, accessToken: string): Promise<PublishGame> {
     let game: PublishGame;
-    const gameId = project.publication?.gameId ?? (await this.#createGame(project)).id;
+    const gameId = project.publication?.gameId ?? (await this.#createGame(project, accessToken)).id;
     try {
-      game = await this.#request<PublishGame>(`/v1/games/${gameId}`, {}, true);
+      game = await this.#request<PublishGame>(`/v1/games/${gameId}`, {}, accessToken);
     } catch (error) {
       if (!(error instanceof RemotePublishError) || error.statusCode !== 404) throw error;
-      game = await this.#createGame(project);
+      game = await this.#createGame(project, accessToken);
     }
     return game;
   }
 
-  #createGame(project: Pick<ProjectState, "id" | "name">): Promise<PublishGame> {
+  #createGame(project: Pick<ProjectState, "id" | "name">, accessToken: string): Promise<PublishGame> {
     return this.#request("/v1/games", {
       method: "POST",
       headers: { "idempotency-key": `project-${project.id}` },
       body: JSON.stringify({ title: project.name }),
-    }, true);
+    }, accessToken);
   }
 
   #createDeployment(
@@ -68,6 +64,7 @@ export class RemotePublisher {
     gameId: string,
     artifact: Buffer,
     artifactSha256: string,
+    accessToken: string,
   ): Promise<CreatePublishDeploymentResult> {
     const metadata = {
       artifactSha256,
@@ -82,20 +79,19 @@ export class RemotePublisher {
         "idempotency-key": `publish-${project.id}-${project.publication?.deploymentId ?? "initial"}-${artifactSha256}`,
       },
       body: form,
-    }, true);
+    }, accessToken);
   }
 
-  async #list(gameId: string): Promise<void> {
+  async #list(gameId: string, accessToken: string): Promise<void> {
     await this.#request(`/v1/games/${gameId}/listing`, {
       method: "PUT",
       body: JSON.stringify({ status: "listed" }),
-    }, true);
+    }, accessToken);
   }
 
-  async #request<T>(pathname: string, init: RequestInit = {}, authenticated = false): Promise<T> {
-    if (authenticated && !this.#token) throw new RemotePublishError("PUBLISH_TOKEN is required to publish", 503);
+  async #request<T>(pathname: string, init: RequestInit = {}, accessToken?: string): Promise<T> {
     const headers = new Headers(init.headers);
-    if (authenticated) headers.set("authorization", `Bearer ${this.#token}`);
+    if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
     if (typeof init.body === "string") headers.set("content-type", "application/json");
     let response: Response | undefined;
     let networkError: unknown;

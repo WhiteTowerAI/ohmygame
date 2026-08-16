@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type PromptRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
@@ -25,7 +25,6 @@ export interface AppOptions {
   accessToken?: string;
   allowedOrigins?: string[];
   publishApiUrl?: string;
-  publishToken?: string;
   publishFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
@@ -48,6 +47,15 @@ const renameProjectSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+  },
+} as const;
+
+const publishProjectSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["accessToken"],
+    properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
   },
 } as const;
 
@@ -166,7 +174,6 @@ export function createApp(options: AppOptions = {}) {
   const artifacts = new ArtifactBuilder();
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
-    token: options.publishToken ?? process.env.PUBLISH_TOKEN,
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
@@ -538,34 +545,38 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/publish", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (agents.isProjectBusy(project.id)) {
-      return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
-    }
-    if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
-    publishing.add(project.id);
-    events.publish(project.id, "publish.started", {});
-    try {
-      const result = await publisher.publish(project, await artifacts.create(project));
-      await projects.setPublication(project.id, {
-        gameId: result.game.id,
-        deploymentId: result.game.deploymentId,
-        playUrl: result.game.playUrl,
-        publishedAt: result.game.publishedAt,
-      });
-      events.publish(project.id, "publish.completed", { game: result.game });
-      return reply.code(201).send(result);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      events.publish(project.id, "publish.error", { error });
-      const statusCode = cause instanceof PublishError || cause instanceof RemotePublishError ? cause.statusCode : 502;
-      return reply.code(statusCode).send({ error });
-    } finally {
-      publishing.delete(project.id);
-    }
-  });
+  app.post<{ Params: { projectId: string }; Body: PublishProjectRequest }>(
+    "/projects/:projectId/publish",
+    { schema: publishProjectSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (agents.isProjectBusy(project.id)) {
+        return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
+      }
+      if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
+      publishing.add(project.id);
+      events.publish(project.id, "publish.started", {});
+      try {
+        const result = await publisher.publish(project, await artifacts.create(project), request.body.accessToken);
+        await projects.setPublication(project.id, {
+          gameId: result.game.id,
+          deploymentId: result.game.deploymentId,
+          playUrl: result.game.playUrl,
+          publishedAt: result.game.publishedAt,
+        });
+        events.publish(project.id, "publish.completed", { game: result.game });
+        return reply.code(201).send(result);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        events.publish(project.id, "publish.error", { error });
+        const statusCode = cause instanceof PublishError || cause instanceof RemotePublishError ? cause.statusCode : 502;
+        return reply.code(statusCode).send({ error });
+      } finally {
+        publishing.delete(project.id);
+      }
+    },
+  );
 
   app.get<{ Params: { projectId: string }; Querystring: { cursor?: string } }>("/projects/:projectId/events", async (request, reply) => {
     const project = projects.get(request.params.projectId);
