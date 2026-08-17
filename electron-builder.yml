@@ -20,7 +20,8 @@ extraResources:
 
 mac:
   category: public.app-category.developer-tools
-  identity: null
+  hardenedRuntime: true
+  notarize: true
 
 dmg:
   artifactName: OpenGame-${version}-${arch}.${ext}

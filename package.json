@@ -24,7 +24,7 @@
     "start:publish": "node dist/publish-server/server.js",
     "start:desktop": "npm run build:node && npm run build:renderer && electron . --built-renderer",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
-    "package:mac:dir": "npm run prepare:desktop-runtime && npm run build:desktop-app && electron-builder --mac dir --arm64",
+    "package:mac:dir": "npm run prepare:desktop-runtime && npm run build:desktop-app && electron-builder --mac dir --arm64 --config.mac.notarize=false",
     "package:mac": "npm run prepare:desktop-runtime && npm run build:desktop-app && electron-builder --mac dmg --arm64",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
