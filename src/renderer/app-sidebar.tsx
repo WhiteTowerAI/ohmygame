@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
 import { SettingsDialog } from "./settings-dialog.js";
+import { UserAvatar } from "./user-avatar.js";
 
 interface AppSidebarProps {
   active: SidebarPage;
@@ -100,7 +101,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
-          <AccountAvatar name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
+          <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
           <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
           <button
             className="home-sidebar-account-menu"
@@ -192,16 +193,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
     {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
     </>
   );
-}
-
-function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
-  return avatarUrl
-    ? <img className="home-sidebar-avatar" src={avatarUrl} alt="" referrerPolicy="no-referrer" />
-    : <span className="home-sidebar-avatar" aria-hidden="true">{initials(name)}</span>;
-}
-
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "OG";
 }
 
 function errorMessage(error: unknown): string {

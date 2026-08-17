@@ -7,6 +7,8 @@ import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import type { SidebarPage } from "./routes.js";
+import { useAuth } from "./auth.js";
+import { UserAvatar } from "./user-avatar.js";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
@@ -17,6 +19,7 @@ interface HomeProps {
 const RECENT_PROJECT_LIMIT = 4;
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
+  const auth = useAuth();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
@@ -183,7 +186,9 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
                   <button className="home-project-open" type="button" onClick={() => onOpen(project.id)} aria-label={`Open ${project.name}`}>
                   <ProjectCover projectId={project.id} fallback={index % 4} />
                   <span className="home-project-meta">
-                    <span className="home-project-avatar" aria-hidden="true">HD</span>
+                    {auth.state.status === "signed-in" ? (
+                      <UserAvatar className="home-project-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
+                    ) : <UserAvatar className="home-project-avatar" name="OpenGame" />}
                     <span className="home-project-copy">
                       <span className="home-project-name" title={project.name}>{project.name}</span>
                       <span className="home-project-time">{projectTime(project.updatedAt)}</span>

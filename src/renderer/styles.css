@@ -170,7 +170,8 @@ body {
   color: var(--text-muted);
 }
 
-.home-sidebar-avatar {
+.home-sidebar-avatar,
+.home-project-avatar {
   display: grid;
   flex: 0 0 32px;
   width: 32px;
@@ -1110,19 +1111,6 @@ button.home-nav-item:hover {
   align-items: center;
   gap: 12px;
   margin-top: 18px;
-}
-
-.home-project-avatar {
-  display: grid;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 10px;
-  font-weight: 700;
 }
 
 .home-project-copy {
