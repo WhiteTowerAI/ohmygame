@@ -1,15 +1,17 @@
-import { Download, FolderInput, Image, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, X } from "lucide-react";
+import { Box, Download, FolderInput, Image, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { ImageSize, ProjectState, ToolDefinition, ToolRun } from "../shared/contracts.js";
+import type { ImageSize, ProjectState, PromptImage, ToolDefinition, ToolRun } from "../shared/contracts.js";
 import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
+import { ModelPreview } from "./model-preview.js";
 
 interface ImagesPageProps {
+  page: "images" | "3d";
   onNavigate: (page: SidebarPage) => void;
 }
 
-export function ImagesPage({ onNavigate }: ImagesPageProps) {
+export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -24,7 +26,7 @@ export function ImagesPage({ onNavigate }: ImagesPageProps) {
     try {
       await waitForRuntime();
       const [loadedTools, settings] = await Promise.all([listTools(), getToolSettings()]);
-      setTools(loadedTools.filter((tool) => tool.category === "images"));
+      setTools(loadedTools.filter((tool) => tool.category === page));
       setEnabledTools(settings.enabledTools);
       setPhase("ready");
     } catch (cause) {
@@ -33,7 +35,7 @@ export function ImagesPage({ onNavigate }: ImagesPageProps) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [page]);
 
   async function toggleTool(tool: ToolDefinition) {
     if (updatingTool) return;
@@ -53,12 +55,12 @@ export function ImagesPage({ onNavigate }: ImagesPageProps) {
 
   return (
     <main className="home-shell">
-      <AppSidebar active="images" onNavigate={onNavigate} />
+      <AppSidebar active={page} onNavigate={onNavigate} />
       <section className="tools-content">
         <header className="tools-heading">
           <div>
-            <h1>Images</h1>
-            <p>Generate an image before adding it to a project.</p>
+            <h1>{page === "3d" ? "3D" : "Images"}</h1>
+            <p>{page === "3d" ? "Turn a reference image into a project-ready 3D asset." : "Generate an image before adding it to a project."}</p>
           </div>
           {phase === "error" ? (
             <button className="tools-retry" type="button" onClick={() => void load()}>
@@ -78,7 +80,7 @@ export function ImagesPage({ onNavigate }: ImagesPageProps) {
               return (
                 <article className="tool-card" key={tool.id}>
                   <div className="tool-card-summary">
-                    <span className="tool-card-icon"><Image size={24} /></span>
+                    <span className="tool-card-icon">{tool.outputKind === "model" ? <Box size={24} /> : <Image size={24} />}</span>
                     <span className="tool-card-copy">
                       <strong>{tool.name}</strong>
                       <span>{tool.description}</span>
@@ -110,7 +112,9 @@ export function ImagesPage({ onNavigate }: ImagesPageProps) {
 
 function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState<ImageSize>(tool.defaultSize);
+  const [size, setSize] = useState<ImageSize>(tool.inputKind === "prompt" ? tool.defaultSize : "1024x1024");
+  const [sourceImage, setSourceImage] = useState<PromptImage>();
+  const [sourceName, setSourceName] = useState<string>();
   const [generating, setGenerating] = useState(false);
   const [run, setRun] = useState<ToolRun>();
   const [previewUrl, setPreviewUrl] = useState<string>();
@@ -128,7 +132,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    promptRef.current?.focus();
+    if (tool.inputKind === "prompt") promptRef.current?.focus();
     return () => previousFocus?.focus();
   }, []);
 
@@ -192,16 +196,18 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
   async function generate(event?: FormEvent) {
     event?.preventDefault();
     const nextPrompt = prompt.trim();
-    if (!nextPrompt || busy) return;
+    if (busy || (tool.inputKind === "prompt" ? !nextPrompt : !sourceImage)) return;
     setGenerating(true);
     setError(undefined);
     setAddError(undefined);
     setAddedPath(undefined);
     try {
-      const nextRun = await runTool(tool.id, { prompt: nextPrompt, size });
+      const nextRun = tool.inputKind === "prompt"
+        ? await runTool(tool.id, { prompt: nextPrompt, size })
+        : await runTool(tool.id, { image: sourceImage! });
       if (!mountedRef.current) return;
       const file = nextRun.files[0];
-      if (!file) throw new Error("The tool did not return an image");
+      if (!file) throw new Error("The tool did not return a result");
       const blob = await getToolRunFile(nextRun.id, file.name);
       if (!mountedRef.current) return;
       setRun(nextRun);
@@ -235,7 +241,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
       <section ref={dialogRef} className="tool-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-dialog-title" tabIndex={-1}>
         <header className="tool-dialog-header">
           <div>
-            <span className="tool-dialog-icon"><Image size={18} /></span>
+            <span className="tool-dialog-icon">{tool.outputKind === "model" ? <Box size={18} /> : <Image size={18} />}</span>
             <div>
               <h2 id="tool-dialog-title">{tool.name}</h2>
               <p>{tool.description}</p>
@@ -250,7 +256,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
           {previewUrl ? (
             <>
               <div className="tool-result-preview">
-                <img src={previewUrl} alt={prompt} />
+                {tool.outputKind === "model" ? <ModelPreview source={previewUrl} label="Generated 3D model" minHeight={360} /> : <img src={previewUrl} alt={prompt} />}
               </div>
               <div className="tool-project-target">
                 <label htmlFor="tool-project">Project</label>
@@ -282,32 +288,42 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
             </>
           ) : (
             <form id="tool-form" className="tool-form" onSubmit={generate}>
-              <label htmlFor="tool-prompt">Prompt</label>
-              <textarea
-                id="tool-prompt"
-                ref={promptRef}
-                rows={5}
-                value={prompt}
-                disabled={generating}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Describe the image you want to create"
-              />
-              <fieldset disabled={generating}>
-                <legend>Size</legend>
-                <div className="tool-size-options">
-                  {tool.sizes.map((option) => (
-                    <button
-                      className={option === size ? "tool-size-active" : undefined}
-                      type="button"
-                      key={option}
-                      onClick={() => setSize(option)}
-                      aria-pressed={option === size}
-                    >
-                      {sizeLabel(option)}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
+              {tool.inputKind === "prompt" ? (
+                <>
+                  <label htmlFor="tool-prompt">Prompt</label>
+                  <textarea
+                    id="tool-prompt"
+                    ref={promptRef}
+                    rows={5}
+                    value={prompt}
+                    disabled={generating}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="Describe the image you want to create"
+                  />
+                  <fieldset disabled={generating}>
+                    <legend>Size</legend>
+                    <div className="tool-size-options">
+                      {tool.sizes.map((option) => (
+                        <button
+                          className={option === size ? "tool-size-active" : undefined}
+                          type="button"
+                          key={option}
+                          onClick={() => setSize(option)}
+                          aria-pressed={option === size}
+                        >
+                          {sizeLabel(option)}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                </>
+              ) : (
+                <ImageTo3DInput image={sourceImage} name={sourceName} disabled={generating} onChange={(image, name) => {
+                  setSourceImage(image);
+                  setSourceName(name);
+                  setError(undefined);
+                }} onError={setError} />
+              )}
             </form>
           )}
           {error ? <p className="tool-dialog-error" role="alert">{error}</p> : null}
@@ -325,7 +341,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
               </a>
             </>
           ) : (
-            <button className="tool-primary-button" type="submit" form="tool-form" disabled={!prompt.trim() || generating}>
+            <button className="tool-primary-button" type="submit" form="tool-form" disabled={(tool.inputKind === "prompt" ? !prompt.trim() : !sourceImage) || generating}>
               {generating ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
               {generating ? "Generating..." : "Generate"}
             </button>
@@ -334,6 +350,42 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
       </section>
     </div>
   );
+}
+
+function ImageTo3DInput({ image, name, disabled, onChange, onError }: {
+  image?: PromptImage;
+  name?: string;
+  disabled: boolean;
+  onChange: (image: PromptImage, name: string) => void;
+  onError: (message?: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <label>Reference image</label>
+      <button className="tool-image-input" type="button" disabled={disabled} onClick={() => input.current?.click()}>
+        {image ? <img src={`data:${image.mediaType};base64,${image.data}`} alt={name ?? "Reference"} /> : <span><Upload size={20} />Choose a PNG or JPEG</span>}
+      </button>
+      {name ? <p className="tool-image-name">{name}</p> : null}
+      <input ref={input} className="visually-hidden" type="file" accept="image/png,image/jpeg" onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+        void readImage(file).then((next) => onChange(next, file.name)).catch((cause) => onError(errorMessage(cause)));
+      }} />
+    </>
+  );
+}
+
+async function readImage(file: File): Promise<PromptImage> {
+  if (file.type !== "image/png" && file.type !== "image/jpeg") throw new Error("Use a PNG or JPEG image");
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+    reader.readAsDataURL(file);
+  });
+  return { mediaType: file.type, data };
 }
 
 function sizeLabel(size: ImageSize): string {

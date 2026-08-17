@@ -10,7 +10,7 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
-  it("lists the fixed image tool", async () => {
+  it("lists the fixed media tools", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
     apps.push(app);
 
@@ -22,9 +22,77 @@ describe("tool runner", () => {
       name: "Image Generator",
       description: "Generate a game-ready image from a text prompt.",
       category: "images",
+      inputKind: "prompt",
+      outputKind: "image",
       sizes: ["1024x1024", "1536x1024", "1024x1536"],
       defaultSize: "1024x1024",
+    }, {
+      id: "image-to-3d",
+      name: "Image to 3D",
+      description: "Turn a reference image into a textured 3D model.",
+      category: "3d",
+      inputKind: "image",
+      outputKind: "model",
     }]);
+  });
+
+  it("runs Image to 3D and persists its GLB output", async () => {
+    const dataDirectory = await temporaryData();
+    const generate = vi.fn().mockResolvedValue({
+      bytes: Buffer.from("glb"),
+      mediaType: "model/gltf-binary" as const,
+      requestId: "meshy-task-1",
+    });
+    const app = createApp({
+      dataDirectory,
+      imageGenerator: fakeGenerator(),
+      model3DGenerator: { generate },
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { image: { mediaType: "image/png", data: "aW1hZ2U=" } },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(generate).toHaveBeenCalledWith({ image: { mediaType: "image/png", data: "aW1hZ2U=" } }, undefined);
+    const run = response.json();
+    expect(run).toMatchObject({
+      toolId: "image-to-3d",
+      files: [{ name: "model.glb", mediaType: "model/gltf-binary" }],
+    });
+    const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
+    expect(file.statusCode).toBe(200);
+    expect(file.rawPayload).toEqual(Buffer.from("glb"));
+  });
+
+  it("adds a generated 3D result to a project workspace", async () => {
+    const dataDirectory = await temporaryData();
+    const app = createApp({
+      dataDirectory,
+      imageGenerator: fakeGenerator(),
+      model3DGenerator: { generate: async () => ({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary" }) },
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Game" } })).json();
+    const run = (await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { image: { mediaType: "image/jpeg", data: "aW1hZ2U=" } },
+    })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/tool-results`,
+      payload: { runId: run.id, fileName: "model.glb" },
+    });
+
+    const expectedPath = `assets/generated/model-${run.id}.glb`;
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({ path: expectedPath });
+    expect(await readFile(path.join(project.workspacePath, expectedPath), "utf8")).toBe("glb");
   });
 
   it("runs the image tool and persists its output outside projects", async () => {
@@ -104,6 +172,11 @@ describe("tool runner", () => {
     expect((await app.inject({ method: "POST", url: "/tools/generate-image/runs", payload: { prompt: " " } })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { image: { mediaType: "image/webp", data: "aW1hZ2U=" } },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
       url: "/tools/generate-image/runs",
       payload: { prompt: "image", size: "800x600" },
     })).statusCode).toBe(400);
@@ -139,6 +212,38 @@ describe("tool runner", () => {
     expect(saved.body).not.toContain("secret");
   });
 
+  it("persists Meshy settings without exposing the key", async () => {
+    const app = createApp({
+      dataDirectory: await temporaryData(),
+      imageGenerator: fakeGenerator(),
+      model3DGenerator: {
+        generate: async () => ({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary" }),
+      },
+    });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/model-3d-generation" })).json())
+      .toEqual({ apiUrl: "https://api.meshy.ai", hasApiKey: false });
+    const saved = await app.inject({
+      method: "PUT",
+      url: "/settings/model-3d-generation",
+      payload: { apiUrl: "https://mesh.example", apiKey: "secret" },
+    });
+    expect(saved.json()).toEqual({ apiUrl: "https://mesh.example", hasApiKey: true });
+    expect(saved.body).not.toContain("secret");
+  });
+
+  it("limits tool request bodies", async () => {
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { image: { mediaType: "image/png", data: "a".repeat(26 * 1024 * 1024) } },
+    });
+    expect(response.statusCode).toBe(413);
+  });
+
   it("cancels image generation without persisting a run", async () => {
     const dataDirectory = await temporaryData();
     const generate: ImageGenerator["generate"] = async (_input, signal) => new Promise((_resolve, reject) => {
@@ -164,10 +269,10 @@ describe("tool runner", () => {
     const update = await app.inject({
       method: "PUT",
       url: "/tool-settings",
-      payload: { enabledTools: ["generate-image"] },
+      payload: { enabledTools: ["generate-image", "image-to-3d"] },
     });
     expect(update.statusCode).toBe(200);
-    expect(update.json()).toEqual({ enabledTools: ["generate-image"] });
+    expect(update.json()).toEqual({ enabledTools: ["generate-image", "image-to-3d"] });
     expect((await app.inject({
       method: "PUT",
       url: "/tool-settings",
@@ -179,7 +284,7 @@ describe("tool runner", () => {
     const restarted = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
     apps.push(restarted);
     expect((await restarted.inject({ method: "GET", url: "/tool-settings" })).json())
-      .toEqual({ enabledTools: ["generate-image"] });
+      .toEqual({ enabledTools: ["generate-image", "image-to-3d"] });
   });
 });
 

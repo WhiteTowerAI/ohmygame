@@ -1507,6 +1507,48 @@ button.home-nav-item:hover {
   opacity: 1;
 }
 
+.tool-image-input {
+  display: grid;
+  width: 100%;
+  min-height: 280px;
+  margin-top: 8px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tool-image-input:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--text);
+}
+
+.tool-image-input span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.tool-image-input img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.tool-image-name {
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-form fieldset {
   margin: 20px 0 0;
   padding: 0;

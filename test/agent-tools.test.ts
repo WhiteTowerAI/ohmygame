@@ -13,6 +13,9 @@ describe("agent tools", () => {
     expect(activePiToolNames({ enabledTools: ["generate-image"] })).toEqual([
       "read", "write", "edit", "bash", "generate_image",
     ]);
+    expect(activePiToolNames({ enabledTools: ["image-to-3d"] })).toEqual([
+      "read", "write", "edit", "bash", "generate_3d_asset",
+    ]);
   });
 
   it("generates an image into the current project workspace", async () => {
@@ -39,5 +42,31 @@ describe("agent tools", () => {
     expect(tool.name).toBe("generate_image");
     expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
+  });
+
+  it("generates a 3D model from a project image", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    await projects.addGeneratedAsset(project.id, "source.png", Buffer.from("source image"));
+    const runner = new ToolRunner(dataDirectory, {
+      generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }),
+    }, {
+      generate: async ({ image }) => {
+        expect(image).toEqual({ mediaType: "image/png", data: Buffer.from("source image").toString("base64") });
+        return { bytes: Buffer.from("generated glb"), mediaType: "model/gltf-binary" };
+      },
+    });
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_3d_asset");
+    if (!tool) throw new Error("Expected 3D tool");
+
+    const result = await tool.execute("call-1", { imagePath: "assets/generated/source.png" }, undefined, undefined, {} as never);
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    const relativePath = text.replace("Generated 3D model saved to ", "");
+
+    expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
+    expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated glb");
   });
 });

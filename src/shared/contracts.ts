@@ -59,6 +59,16 @@ export interface UpdateImageGenerationSettings {
   apiKey?: string;
 }
 
+export interface Model3DGenerationSettings {
+  apiUrl: string;
+  hasApiKey: boolean;
+}
+
+export interface UpdateModel3DGenerationSettings {
+  apiUrl: string;
+  apiKey?: string;
+}
+
 export interface PublicationState {
   gameId: string;
   deploymentId: string;
@@ -193,7 +203,7 @@ export interface RemovePendingPromptRequest {
 export interface WorkspaceFile {
   path: string;
   size: number;
-  mediaType?: "image" | "video" | "audio";
+  mediaType?: "image" | "video" | "audio" | "model";
 }
 
 export interface WorkspaceFileContent {
@@ -207,14 +217,30 @@ export interface WorkspaceFileContent {
 export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 
-export interface ToolDefinition {
-  id: "generate-image";
+interface BaseToolDefinition {
+  id: "generate-image" | "image-to-3d";
   name: string;
   description: string;
+  category: "images" | "3d";
+}
+
+export interface ImageToolDefinition extends BaseToolDefinition {
+  id: "generate-image";
   category: "images";
+  inputKind: "prompt";
+  outputKind: "image";
   sizes: readonly ImageSize[];
   defaultSize: ImageSize;
 }
+
+export interface ImageTo3DToolDefinition extends BaseToolDefinition {
+  id: "image-to-3d";
+  category: "3d";
+  inputKind: "image";
+  outputKind: "model";
+}
+
+export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition;
 
 export interface ToolSettings {
   enabledTools: ToolDefinition["id"][];
@@ -224,6 +250,12 @@ export interface RunImageToolRequest {
   prompt: string;
   size?: ImageSize;
 }
+
+export interface RunImageTo3DToolRequest {
+  image: PromptImage;
+}
+
+export type RunToolRequest = RunImageToolRequest | RunImageTo3DToolRequest;
 
 export interface ToolRunFile {
   name: string;

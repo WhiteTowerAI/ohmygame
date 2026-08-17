@@ -2,6 +2,7 @@ import { ArrowLeft, ExternalLink, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ImageGenerationSettings,
+  Model3DGenerationSettings,
   ModelAuthEvent,
   ModelAuthMethod,
   ModelAuthNotification,
@@ -12,11 +13,13 @@ import {
   cancelModelAuth,
   disconnectModelProvider,
   getImageGenerationSettings,
+  getModel3DGenerationSettings,
   listModelProviders,
   respondToModelAuth,
   startModelProviderLogin,
   subscribeToModelAuth,
   updateImageGenerationSettings,
+  updateModel3DGenerationSettings,
 } from "./api.js";
 import { notifyAgentModelsChanged } from "./model-selector.js";
 
@@ -36,15 +39,21 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
   const [settings, setSettings] = useState<ImageGenerationSettings>();
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [model3DSettings, setModel3DSettings] = useState<Model3DGenerationSettings>();
+  const [model3DApiUrl, setModel3DApiUrl] = useState("");
+  const [model3DApiKey, setModel3DApiKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingModel3D, setSavingModel3D] = useState(false);
   const [notice, setNotice] = useState<string>();
 
   useEffect(() => {
     let active = true;
-    void getImageGenerationSettings().then((loaded) => {
+    void Promise.all([getImageGenerationSettings(), getModel3DGenerationSettings()]).then(([loaded, loadedModel3D]) => {
       if (!active) return;
       setSettings(loaded);
       setApiUrl(loaded.apiUrl);
+      setModel3DSettings(loadedModel3D);
+      setModel3DApiUrl(loadedModel3D.apiUrl);
     }).catch((cause) => {
       if (active) setNotice(errorMessage(cause));
     });
@@ -69,6 +78,27 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
     }
   }
 
+  async function saveModel3D(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    if (!model3DApiUrl.trim() || savingModel3D) return;
+    setSavingModel3D(true);
+    setNotice(undefined);
+    try {
+      const updated = await updateModel3DGenerationSettings({
+        apiUrl: model3DApiUrl.trim(),
+        ...(model3DApiKey.trim() ? { apiKey: model3DApiKey.trim() } : {}),
+      });
+      setModel3DSettings(updated);
+      setModel3DApiUrl(updated.apiUrl);
+      setModel3DApiKey("");
+      setNotice("3D generation settings saved.");
+    } catch (cause) {
+      setNotice(errorMessage(cause));
+    } finally {
+      setSavingModel3D(false);
+    }
+  }
+
   return (
     <section className="settings-panel">
       <h3>Models</h3>
@@ -86,6 +116,16 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
         <input id="image-api-key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings?.hasApiKey ? "API key is configured" : "Enter image API key"} />
         <div className="settings-form-actions">
           <button className="settings-primary-button" type="submit" disabled={saving || !apiUrl.trim()}>{saving ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
+        </div>
+      </form>
+      <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
+        <h4>3D generation</h4>
+        <label htmlFor="model-3d-api-url">API endpoint</label>
+        <input id="model-3d-api-url" value={model3DApiUrl} onChange={(event) => setModel3DApiUrl(event.target.value)} placeholder="https://api.meshy.ai" />
+        <label htmlFor="model-3d-api-key">API key</label>
+        <input id="model-3d-api-key" type="password" value={model3DApiKey} onChange={(event) => setModel3DApiKey(event.target.value)} placeholder={model3DSettings?.hasApiKey ? "API key is configured" : "Enter Meshy API key"} />
+        <div className="settings-form-actions">
+          <button className="settings-primary-button" type="submit" disabled={savingModel3D || !model3DApiUrl.trim()}>{savingModel3D ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
         </div>
       </form>
       {notice ? <p className={notice.endsWith("saved.") ? "settings-success" : "settings-error"} role="status">{notice}</p> : null}

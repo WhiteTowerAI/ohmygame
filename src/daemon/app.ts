@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunImageToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { matchesBearerToken } from "./access.js";
@@ -14,8 +14,9 @@ import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
-import { ImageSettingsStore } from "./image-settings.js";
+import { ApiSettingsStore } from "./api-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
+import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
 import { ConfiguredImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { ToolSettingsStore } from "./tool-settings.js";
@@ -32,6 +33,9 @@ export interface AppOptions {
   imageGenerator?: ImageGenerator;
   imageApiKey?: string;
   imageApiUrl?: string;
+  model3DGenerator?: Model3DGenerator;
+  meshyApiKey?: string;
+  meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
 }
 
@@ -130,13 +134,33 @@ const removePendingPromptSchema = {
 
 const toolRunSchema = {
   body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["prompt"],
-    properties: {
-      prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-      size: { type: "string", enum: [...IMAGE_SIZES] },
-    },
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+          size: { type: "string", enum: [...IMAGE_SIZES] },
+        },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["image"],
+        properties: {
+          image: {
+            type: "object",
+            additionalProperties: false,
+            required: ["mediaType", "data"],
+            properties: {
+              mediaType: { enum: ["image/png", "image/jpeg"] },
+              data: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+    ],
   },
 } as const;
 
@@ -161,7 +185,7 @@ const toolSettingsSchema = {
       enabledTools: {
         type: "array",
         uniqueItems: true,
-        items: { type: "string", enum: ["generate-image"] },
+        items: { type: "string", enum: ["generate-image", "image-to-3d"] },
       },
     },
   },
@@ -200,6 +224,8 @@ const imageSettingsSchema = {
   },
 } as const;
 
+const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -213,13 +239,18 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
-  const imageSettings = new ImageSettingsStore(dataDirectory, {
+  const imageSettings = new ApiSettingsStore(dataDirectory, "image-settings.json", "https://api.openai.com/v1", "Image", {
     apiKey: options.imageApiKey ?? process.env.IMAGE_API_KEY,
     apiUrl: options.imageApiUrl ?? process.env.IMAGE_API_URL,
+  });
+  const model3DSettings = new ApiSettingsStore(dataDirectory, "model-3d-settings.json", "https://api.meshy.ai", "3D", {
+    apiKey: options.meshyApiKey ?? process.env.MESHY_API_KEY,
+    apiUrl: options.meshyApiUrl ?? process.env.MESHY_API_URL,
   });
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? new ConfiguredImageGenerator(() => imageSettings.resolve()),
+    options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
@@ -258,7 +289,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load()]);
+    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load(), model3DSettings.load()]);
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -287,9 +318,9 @@ export function createApp(options: AppOptions = {}) {
     return toolSettings.update(request.body.enabledTools);
   });
 
-  app.post<{ Params: { toolId: string }; Body: RunImageToolRequest }>(
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest }>(
     "/tools/:toolId/runs",
-    { schema: toolRunSchema },
+    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
     async (request, reply) => {
       try {
         return reply.code(201).send(await tools.run(request.params.toolId, request.body));
@@ -320,7 +351,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const file = await tools.file(request.body.runId, request.body.fileName);
       if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      const fileName = `image-${request.body.runId}${path.extname(request.body.fileName).toLowerCase()}`;
+      const prefix = path.extname(request.body.fileName).toLowerCase() === ".glb" ? "model" : "image";
+      const fileName = `${prefix}-${request.body.runId}${path.extname(request.body.fileName).toLowerCase()}`;
       return reply.code(201).send({
         path: await projects.addGeneratedAsset(project.id, fileName, file.bytes),
       });
@@ -521,6 +553,20 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       try {
         return await imageSettings.update(request.body);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.get("/settings/model-3d-generation", async () => model3DSettings.get());
+
+  app.put<{ Body: UpdateModel3DGenerationSettings }>(
+    "/settings/model-3d-generation",
+    { schema: imageSettingsSchema },
+    async (request, reply) => {
+      try {
+        return await model3DSettings.update(request.body);
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }

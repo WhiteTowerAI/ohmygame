@@ -26,6 +26,8 @@ reload the project shell. A generated workspace still updates its own preview.
 - `GET /tools` lists the fixed local tool catalog.
 - `POST /tools/generate-image/runs` generates one image with GPT Image 2 and
   stores the completed run outside project workspaces.
+- `POST /tools/image-to-3d/runs` submits a PNG or JPEG to Meshy and stores the
+  resulting textured GLB.
 - `GET /tool-runs/:runId/files/:fileName` returns a generated tool output.
 - `GET /projects/:id` returns authoritative current state.
 - `POST /projects/:id/preview` starts or restarts the development server and
@@ -131,4 +133,13 @@ ignored by Git and `.env.example` documents the current settings.
 `IMAGE_API_KEY` is read only by the daemon. `IMAGE_API_URL` optionally points
 to the `/v1` root of an OpenAI-compatible service and defaults to OpenAI's
 official API. Tool runs are not Pi tools and are not added to project
-workspaces in this milestone.
+workspaces until the user chooses Add to Project. Enabled tools are also
+available to Pi through the existing custom-tool integration.
+
+Image to 3D uses Meshy's native API. Set `MESHY_API_KEY`; `MESHY_API_URL`
+defaults to `https://api.meshy.ai`. Provider URLs are used only during the run.
+The same values can be saved from Settings → Models → 3D generation and take
+effect without restarting the daemon. Saved settings take precedence over the
+environment fallback.
+The completed `model.glb` is downloaded into the local tool-run directory, so
+downloads and project assets do not depend on an expiring provider URL.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setProjectCover, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -302,6 +302,21 @@ describe("renderer project API", () => {
 });
 
 describe("renderer tools API", () => {
+  it("loads and updates 3D generation settings", async () => {
+    installWindow();
+    const settings = { apiUrl: "https://api.meshy.ai", hasApiKey: true };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(settings))
+      .mockResolvedValueOnce(Response.json(settings));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getModel3DGenerationSettings()).resolves.toEqual(settings);
+    await expect(updateModel3DGenerationSettings({ apiUrl: settings.apiUrl, apiKey: "secret" })).resolves.toEqual(settings);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/settings/model-3d-generation", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ apiUrl: settings.apiUrl, apiKey: "secret" }),
+    }));
+  });
   it("lists and runs tools", async () => {
     installWindow();
     const tool = { id: "generate-image", name: "Image Generator" };

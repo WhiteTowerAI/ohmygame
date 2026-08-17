@@ -5,6 +5,7 @@ import {
   ExternalLink,
   FileCode2,
   Film,
+  Box,
   Globe2,
   Image as ImageIcon,
   Layers3,
@@ -21,6 +22,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
+import { ModelPreview } from "./model-preview.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
@@ -638,6 +640,7 @@ function AssetThumbnail({ projectId, file, revision }: { projectId: string; file
   if (file.mediaType === "image" && asset.url) return <img src={asset.url} alt="" />;
   if (file.mediaType === "video") return <Film size={22} />;
   if (file.mediaType === "audio") return <Music2 size={22} />;
+  if (file.mediaType === "model") return <Box size={22} />;
   return <ImageIcon size={22} />;
 }
 
@@ -652,6 +655,7 @@ function AssetPreview({ projectId, file, revision }: { projectId: string; file: 
         {file.mediaType === "image" ? <img src={asset.url} alt={file.path} /> : null}
         {file.mediaType === "video" ? <video src={asset.url} controls /> : null}
         {file.mediaType === "audio" ? <audio src={asset.url} controls /> : null}
+        {file.mediaType === "model" ? <ModelPreview source={asset.url} label="3D model asset" /> : null}
       </div>
     </>
   );

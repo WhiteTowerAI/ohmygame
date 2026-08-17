@@ -18,6 +18,7 @@ const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaT
   ".wav": { mediaType: "audio", contentType: "audio/wav" },
   ".mp4": { mediaType: "video", contentType: "video/mp4" },
   ".webm": { mediaType: "video", contentType: "video/webm" },
+  ".glb": { mediaType: "model", contentType: "model/gltf-binary" },
 };
 
 export class WorkspaceError extends Error {}

@@ -7,6 +7,7 @@ import {
   type ImageGenerationSettings,
   type ModelAuthEvent,
   type ModelAuthMethod,
+  type Model3DGenerationSettings,
   type ModelProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
@@ -17,11 +18,12 @@ import {
   type PublishProjectRequest,
   type PublishResult,
   type RuntimeEvent,
-  type RunImageToolRequest,
+  type RunToolRequest,
   type ToolDefinition,
   type ToolRun,
   type ToolSettings,
   type UpdateImageGenerationSettings,
+  type UpdateModel3DGenerationSettings,
   type PromptImage,
   type PromptReference,
   type PromptResponse,
@@ -122,6 +124,14 @@ export async function updateImageGenerationSettings(input: UpdateImageGeneration
   return request("/settings/image-generation", { method: "PUT", body: JSON.stringify(input) });
 }
 
+export async function getModel3DGenerationSettings(): Promise<Model3DGenerationSettings> {
+  return request("/settings/model-3d-generation");
+}
+
+export async function updateModel3DGenerationSettings(input: UpdateModel3DGenerationSettings): Promise<Model3DGenerationSettings> {
+  return request("/settings/model-3d-generation", { method: "PUT", body: JSON.stringify(input) });
+}
+
 export async function listCommunityGames(): Promise<CommunityGame[]> {
   return request("/community/games");
 }
@@ -142,7 +152,7 @@ export async function updateToolSettings(settings: ToolSettings): Promise<ToolSe
   return request("/tool-settings", { method: "PUT", body: JSON.stringify(settings) });
 }
 
-export async function runTool(toolId: ToolDefinition["id"], input: RunImageToolRequest): Promise<ToolRun> {
+export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest): Promise<ToolRun> {
   return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify(input) });
 }
 

@@ -5,18 +5,32 @@ import {
   IMAGE_SIZES,
   type ImageSize,
   type RunImageToolRequest,
+  type RunImageTo3DToolRequest,
+  type RunToolRequest,
   type ToolDefinition,
   type ToolRun,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
+import { Meshy3DGenerator, Model3DGenerationError, type Model3DGenerator } from "./meshy-3d.js";
 
 const generateImage: ToolDefinition = {
   id: "generate-image",
   name: "Image Generator",
   description: "Generate a game-ready image from a text prompt.",
   category: "images",
+  inputKind: "prompt",
+  outputKind: "image",
   sizes: IMAGE_SIZES,
   defaultSize: "1024x1024",
+};
+
+const imageTo3D: ToolDefinition = {
+  id: "image-to-3d",
+  name: "Image to 3D",
+  description: "Turn a reference image into a textured 3D model.",
+  category: "3d",
+  inputKind: "image",
+  outputKind: "model",
 };
 
 interface StoredToolRun extends ToolRun {
@@ -36,6 +50,7 @@ export class ToolRunner {
   constructor(
     dataDirectory: string,
     private readonly imageGenerator: ImageGenerator,
+    private readonly model3DGenerator: Model3DGenerator = new Meshy3DGenerator(),
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -45,14 +60,19 @@ export class ToolRunner {
   }
 
   list(): ToolDefinition[] {
-    return [generateImage];
+    return [generateImage, imageTo3D];
   }
 
-  async run(toolId: string, input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+    if (toolId === imageTo3D.id) return this.#runImageTo3D(input as RunImageTo3DToolRequest, signal);
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
+    return this.#runImage(input as RunImageToolRequest, signal);
+  }
+
+  async #runImage(input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
-    const size = input.size ?? generateImage.defaultSize;
+    const size = input.size ?? "1024x1024";
     if (!isImageSize(size)) throw new ToolRunError("Unsupported image size", 400);
 
     const id = randomUUID();
@@ -83,8 +103,38 @@ export class ToolRunner {
     }
   }
 
+  async #runImageTo3D(input: RunImageTo3DToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+    if (!isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
+    const id = randomUUID();
+    const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
+    const destination = path.join(this.#runsDirectory, id);
+    try {
+      signal?.throwIfAborted();
+      const generated = await this.model3DGenerator.generate({ image: input.image }, signal);
+      signal?.throwIfAborted();
+      const run: StoredToolRun = {
+        version: 1,
+        id,
+        toolId: imageTo3D.id,
+        createdAt: new Date().toISOString(),
+        files: [{ name: "model.glb", mediaType: generated.mediaType }],
+        requestId: generated.requestId,
+      };
+      await mkdir(temporary, { recursive: true });
+      await writeFile(path.join(temporary, "model.glb"), generated.bytes);
+      await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
+      await rename(temporary, destination);
+      return publicRun(run);
+    } catch (cause) {
+      await rm(temporary, { recursive: true, force: true });
+      if (cause instanceof ToolRunError) throw cause;
+      if (cause instanceof Model3DGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
+      throw cause;
+    }
+  }
+
   async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string } | undefined> {
-    if (!isRunId(runId) || fileName !== "output.webp") return undefined;
+    if (!isRunId(runId) || !["output.webp", "model.glb"].includes(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
       const run = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8")) as StoredToolRun;
@@ -97,6 +147,12 @@ export class ToolRunner {
       throw error;
     }
   }
+}
+
+function isPromptImage(value: unknown): value is RunImageTo3DToolRequest["image"] {
+  if (!value || typeof value !== "object") return false;
+  const image = value as { mediaType?: unknown; data?: unknown };
+  return (image.mediaType === "image/png" || image.mediaType === "image/jpeg") && typeof image.data === "string" && image.data.length > 0;
 }
 
 function publicRun({ version: _, requestId: __, ...run }: StoredToolRun): ToolRun {

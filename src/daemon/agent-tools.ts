@@ -1,11 +1,14 @@
+import { readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ProjectState, ToolDefinition, ToolSettings } from "../shared/contracts.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
+import { getWorkspaceMedia } from "./workspace.js";
 
 const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
   "generate-image": "generate_image",
+  "image-to-3d": "generate_3d_asset",
 };
 
 export function activePiToolNames(settings: ToolSettings): string[] {
@@ -41,6 +44,33 @@ export function createAgentTools(
       const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes);
       return {
         content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
+        details: { path: relativePath },
+      };
+    },
+  }), defineTool({
+    name: PI_TOOL_NAMES["image-to-3d"],
+    label: "Generate 3D Asset",
+    description: "Turn a PNG or JPEG in the current project into a textured GLB model.",
+    parameters: Type.Object({
+      imagePath: Type.String({ description: "Path to a PNG or JPEG image in the current project workspace" }),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.imagePath);
+      if (source.contentType !== "image/png" && source.contentType !== "image/jpeg") {
+        throw new Error("Image to 3D requires a PNG or JPEG image");
+      }
+      const run = await tools.run("image-to-3d", {
+        image: { mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") },
+      }, signal);
+      const output = run.files[0];
+      if (!output) throw new Error("3D generator returned no output");
+      const file = await tools.file(run.id, output.name);
+      if (!file) throw new Error("Generated 3D model could not be read");
+      signal?.throwIfAborted();
+      const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes);
+      return {
+        content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
         details: { path: relativePath },
       };
     },
