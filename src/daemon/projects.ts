@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, PublicationState } from "../shared/contracts.js";
 
@@ -15,6 +15,8 @@ interface LoadedMetadata {
   metadata: ProjectMetadata;
   missing: boolean;
 }
+
+const PROJECT_COVER_FILE = "cover.webp";
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
@@ -94,6 +96,9 @@ export class ProjectManager {
         errorOnExist: true,
         filter: (sourcePath) => path.basename(sourcePath) !== "node_modules",
       });
+      await copyFile(projectCoverPath(source.workspacePath), path.join(duplicateDirectory, PROJECT_COVER_FILE)).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      });
       await writeMetadata(duplicateDirectory, metadata);
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
@@ -116,6 +121,30 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#save(project, { updatedAt: new Date().toISOString() });
+  }
+
+  async cover(id: string): Promise<Buffer | undefined> {
+    const project = this.#projects.get(id);
+    if (!project) return undefined;
+    try {
+      return await readFile(projectCoverPath(project.workspacePath));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
+
+  async setCover(id: string, contents: Uint8Array): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    const destination = projectCoverPath(project.workspacePath);
+    const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, contents, { flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 
   async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
@@ -158,6 +187,10 @@ export class ProjectManager {
     if (metadata.publication) project.publication = metadata.publication;
     else delete project.publication;
   }
+}
+
+function projectCoverPath(workspacePath: string): string {
+  return path.join(path.dirname(workspacePath), PROJECT_COVER_FILE);
 }
 
 function projectState(

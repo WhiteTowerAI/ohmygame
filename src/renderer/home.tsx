@@ -1,7 +1,7 @@
 import { ArrowUp, Image, LoaderCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentModelRef, ProjectState, PromptImage } from "../shared/contracts.js";
-import { createConversation, createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { createConversation, createProject, deleteProject, duplicateProject, getProjectCover, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
@@ -181,7 +181,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
               {visibleProjects.map((project, index) => (
                 <article className="home-project" key={project.id}>
                   <button className="home-project-open" type="button" onClick={() => onOpen(project.id)} aria-label={`Open ${project.name}`}>
-                  <span className={`home-project-preview home-project-preview-${index % 4}`} aria-hidden="true" />
+                  <ProjectCover projectId={project.id} fallback={index % 4} />
                   <span className="home-project-meta">
                     <span className="home-project-avatar" aria-hidden="true">HD</span>
                     <span className="home-project-copy">
@@ -216,6 +216,30 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         </section>
       </section>
     </main>
+  );
+}
+
+function ProjectCover({ projectId, fallback }: { projectId: string; fallback: number }) {
+  const [url, setUrl] = useState<string>();
+
+  useEffect(() => {
+    let objectUrl: string | undefined;
+    let disposed = false;
+    void getProjectCover(projectId).then((cover) => {
+      if (!cover || disposed) return;
+      objectUrl = URL.createObjectURL(cover);
+      setUrl(objectUrl);
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [projectId]);
+
+  return (
+    <span className={`home-project-preview home-project-preview-${fallback}`} aria-hidden="true">
+      {url ? <img src={url} alt="" /> : null}
+    </span>
   );
 }
 

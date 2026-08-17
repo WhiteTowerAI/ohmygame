@@ -42,6 +42,7 @@ declare global {
       platform: string;
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
+      capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       auth: {
         callbackUrl: () => Promise<string>;
         cancel: () => Promise<void>;
@@ -176,6 +177,22 @@ export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
 
 export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
+}
+
+export async function getProjectCover(projectId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/cover`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function setProjectCover(projectId: string, cover: Blob): Promise<void> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/cover`), {
+    method: "PUT",
+    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    body: cover,
+  });
+  if (!response.ok) throw await responseError(response);
 }
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {

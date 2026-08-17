@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles } from "./api.js";
+import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
@@ -172,7 +172,7 @@ export function CodingWorkspace({
       </header>
 
       {activeTab === "preview" ? (
-        <PreviewView project={project} reload={reload} url={previewPageUrl} viewport={viewport} />
+        <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
       ) : activeTab === "code" ? (
         <CodeView
           files={files.filter((file) => !file.mediaType)}
@@ -471,23 +471,65 @@ function viewportLabel(viewport: PreviewViewport): string {
   return "Fit";
 }
 
-function PreviewView({ project, reload, url, viewport }: { project?: ProjectState; reload: number; url?: string; viewport: PreviewViewport }) {
+function PreviewView({ project, reload, revision, url, viewport }: { project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport }) {
   const preview = project?.preview;
+  const frame = useRef<HTMLIFrameElement>(null);
+  const captureTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(captureTimer.current), []);
+  useEffect(() => {
+    if (revision > 0 && frame.current) scheduleCoverCapture(frame.current);
+  }, [revision]);
+
+  function scheduleCoverCapture(frame: HTMLIFrameElement): void {
+    clearTimeout(captureTimer.current);
+    if (!project || !window.openGameDesktop?.capturePage) return;
+    captureTimer.current = setTimeout(() => {
+      void captureProjectCover(project.id, frame).catch(() => {});
+    }, 1_000);
+  }
+
   return (
     <div className={`viewer-stage viewer-stage-${viewport}`}>
       {preview?.status === "ready" && url ? (
         <div className="preview-frame-wrap">
           <iframe
+            ref={frame}
             key={`${url}:${reload}`}
             className="preview-frame"
             src={url}
             title={`${project?.name ?? "Project"} preview`}
             sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+            onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
           />
         </div>
       ) : <PreviewState status={preview?.status} error={preview?.error} />}
     </div>
   );
+}
+
+async function captureProjectCover(projectId: string, frame: HTMLIFrameElement): Promise<void> {
+  const bounds = frame.getBoundingClientRect();
+  if (bounds.width < 1 || bounds.height < 1) return;
+  const png = await window.openGameDesktop!.capturePage({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  });
+  const image = await createImageBitmap(new Blob([png as BlobPart], { type: "image/png" }));
+  try {
+    const width = Math.min(800, image.width);
+    const height = Math.max(1, Math.round(image.height * width / image.width));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
+    const cover = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.8));
+    if (cover) await setProjectCover(projectId, cover);
+  } finally {
+    image.close();
+  }
 }
 
 export function normalizePreviewPath(value: string): string {

@@ -51,6 +51,20 @@ describe("ProjectManager", () => {
     await expect(manager.addGeneratedAsset(project.id, "../outside.webp", Buffer.from("image"))).rejects.toThrow("Invalid asset name");
   });
 
+  it("stores one derived cover outside the workspace", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Game");
+    const cover = Buffer.from("cover");
+
+    expect(await manager.cover(project.id)).toBeUndefined();
+    await manager.setCover(project.id, cover);
+
+    expect(await manager.cover(project.id)).toEqual(cover);
+    expect(await readFile(path.join(dataDirectory, "projects", project.id, "cover.webp"))).toEqual(cover);
+    expect(await readdir(project.workspacePath)).toEqual([]);
+  });
+
   it("rejects generated asset directories that are symbolic links", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const outside = await mkdtemp(path.join(tmpdir(), "open-game-outside-"));
@@ -78,6 +92,7 @@ describe("ProjectManager", () => {
     const manager = new ProjectManager(dataDirectory);
     const project = await manager.create("First");
     await writeFile(path.join(project.workspacePath, "index.html"), "<h1>First</h1>");
+    await manager.setCover(project.id, Buffer.from("cover"));
     await mkdir(path.join(project.workspacePath, "node_modules", "dependency"), { recursive: true });
     await writeFile(path.join(project.workspacePath, "node_modules", "dependency", "index.js"), "generated");
 
@@ -87,6 +102,7 @@ describe("ProjectManager", () => {
     expect(duplicate).toMatchObject({ name: "Renamed copy" });
     expect(duplicate.publication).toBeUndefined();
     expect(await readFile(path.join(duplicate.workspacePath, "index.html"), "utf8")).toBe("<h1>First</h1>");
+    expect(await manager.cover(duplicate.id)).toEqual(Buffer.from("cover"));
     await expect(readdir(path.join(duplicate.workspacePath, "node_modules"))).rejects.toThrow();
     await expect(manager.delete(project.id)).resolves.toMatchObject({ id: project.id });
     expect(manager.get(project.id)).toBeUndefined();

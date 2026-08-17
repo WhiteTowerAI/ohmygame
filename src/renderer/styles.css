@@ -1088,7 +1088,15 @@ button.home-nav-item:hover {
   display: block;
   width: 100%;
   height: 150px;
+  overflow: hidden;
   border-radius: 8px;
+}
+
+.home-project-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .home-project-preview-0 { background: linear-gradient(180deg, #102720, #245c49); }

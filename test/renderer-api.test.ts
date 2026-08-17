@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setProjectCover, subscribeToProject, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -274,6 +274,30 @@ describe("renderer project API", () => {
       "http://127.0.0.1:43210/projects/project-1/files/raw?path=cover.png",
       { headers: { authorization: "Bearer secret" } },
     );
+  });
+
+  it("loads and stores project covers with desktop authorization", async () => {
+    vi.stubGlobal("window", {
+      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      setTimeout,
+      clearTimeout,
+    });
+    const cover = new Blob(["cover"], { type: "image/webp" });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(cover))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProjectCover("project-1")).resolves.toBeInstanceOf(Blob);
+    await expect(setProjectCover("project-1", cover)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://127.0.0.1:43210/projects/project-1/cover", {
+      headers: { authorization: "Bearer secret" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:43210/projects/project-1/cover", {
+      method: "PUT",
+      headers: { "content-type": "image/webp", authorization: "Bearer secret" },
+      body: cover,
+    });
   });
 });
 

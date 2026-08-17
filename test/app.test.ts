@@ -247,6 +247,35 @@ describe("daemon", () => {
     expect(preview.json()).toEqual({ error: "Workspace is not runnable yet" });
   });
 
+  it("stores and serves a WebP project cover", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-cover-api-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const cover = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+
+    const missing = await app.inject({ method: "GET", url: `/projects/${project.id}/cover` });
+    const invalid = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/cover`,
+      headers: { "content-type": "image/webp" },
+      payload: Buffer.from("not-webp"),
+    });
+    const stored = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/cover`,
+      headers: { "content-type": "image/webp" },
+      payload: cover,
+    });
+    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/cover` });
+
+    expect(missing.statusCode).toBe(404);
+    expect(invalid.statusCode).toBe(400);
+    expect(stored.statusCode).toBe(204);
+    expect(loaded.statusCode).toBe(200);
+    expect(loaded.headers["content-type"]).toBe("image/webp");
+    expect(loaded.rawPayload).toEqual(cover);
+  });
+
   it("opens an idle event stream immediately", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-sse-")) });
     apps.push(app);

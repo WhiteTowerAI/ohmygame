@@ -117,6 +117,7 @@ const modelRefSchema = {
 } as const;
 
 const setConversationModelSchema = { body: modelRefSchema } as const;
+const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 
 const removePendingPromptSchema = {
   body: {
@@ -252,6 +253,10 @@ export function createApp(options: AppOptions = {}) {
     ajv: { customOptions: { coerceTypes: false } },
   });
 
+  app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
+    done(null, body);
+  });
+
   app.addHook("onReady", async () => {
     await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load()]);
   });
@@ -371,6 +376,23 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/cover", async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    const cover = await projects.cover(request.params.projectId);
+    if (!cover) return reply.code(404).send({ error: "Project cover not found" });
+    reply.header("content-type", "image/webp");
+    reply.header("cache-control", "no-store");
+    reply.header("x-content-type-options", "nosniff");
+    return reply.send(cover);
+  });
+
+  app.put<{ Params: { projectId: string }; Body: Buffer }>("/projects/:projectId/cover", async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    if (!isWebp(request.body)) return reply.code(400).send({ error: "Project cover must be a WebP image" });
+    await projects.setCover(request.params.projectId, request.body);
+    return reply.code(204).send();
   });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/files", async (request, reply) => {
@@ -748,6 +770,12 @@ export function createApp(options: AppOptions = {}) {
     await artifacts.close();
   });
   return app;
+}
+
+function isWebp(value: unknown): value is Buffer {
+  return Buffer.isBuffer(value) && value.length >= 12 &&
+    value.subarray(0, 4).toString("ascii") === "RIFF" &&
+    value.subarray(8, 12).toString("ascii") === "WEBP";
 }
 
 async function availableModel(

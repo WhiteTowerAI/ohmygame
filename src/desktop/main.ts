@@ -22,6 +22,11 @@ ipcMain.handle("open-game:open-auth-url", async (_event, url: unknown) => {
 ipcMain.handle("open-game:take-auth-callback", () => oauth.takeCallback());
 ipcMain.handle("open-game:auth-callback-url", () => oauth.callbackUrl());
 ipcMain.handle("open-game:cancel-auth", () => oauth.cancel());
+ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
+  const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
+  return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
+});
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
@@ -69,4 +74,24 @@ function packagedEnvironment(): NodeJS.ProcessEnv {
     environment.PUBLISH_API_URL = config.publishApiUrl;
   }
   return environment;
+}
+
+function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Rectangle {
+  if (!value || typeof value !== "object") throw new Error("Invalid capture bounds");
+  const candidate = value as Partial<Electron.Rectangle>;
+  const numbers = [candidate.x, candidate.y, candidate.width, candidate.height];
+  if (!numbers.every((number) => typeof number === "number" && Number.isFinite(number))) {
+    throw new Error("Invalid capture bounds");
+  }
+  const bounds = {
+    x: Math.max(0, Math.round(candidate.x!)),
+    y: Math.max(0, Math.round(candidate.y!)),
+    width: Math.round(candidate.width!),
+    height: Math.round(candidate.height!),
+  };
+  if (bounds.width < 1 || bounds.height < 1 || bounds.width > 4096 || bounds.height > 4096 ||
+      bounds.x + bounds.width > content.width || bounds.y + bounds.height > content.height) {
+    throw new Error("Invalid capture bounds");
+  }
+  return bounds;
 }
