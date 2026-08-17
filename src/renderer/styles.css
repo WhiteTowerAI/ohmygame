@@ -2833,10 +2833,23 @@ textarea:focus-visible {
   position: absolute;
   top: 0;
   left: calc(100% + 2px);
-  max-height: min(300px, 50dvh);
-  overflow-y: auto;
+  max-height: min(200px, calc(100dvh - 32px));
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.model-selector-submenu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.model-selector-submenu::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--border-strong);
+  background-clip: padding-box;
 }
 
 .prompt-box-home .model-selector-popover {
