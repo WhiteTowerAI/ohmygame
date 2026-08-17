@@ -1,6 +1,7 @@
 import { ArrowUp, Image, LoaderCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentModelRef, ProjectState, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage } from "../shared/contracts.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
 import { createConversation, createProject, deleteProject, duplicateProject, getProjectCover, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
@@ -28,6 +29,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [loadError, setLoadError] = useState<string>();
   const [createError, setCreateError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
+  const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
@@ -52,6 +54,12 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     if (!model && modelCatalog.defaultModel) setModel(modelCatalog.defaultModel);
   }, [model, modelCatalog.defaultModel]);
   useEffect(() => {
+    const selected = modelCatalog.models.find((candidate) => sameModel(candidate, model));
+    if (!selected) return;
+    const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selected.reasoningLevels);
+    if (next && next !== reasoningLevel) setReasoningLevel(next);
+  }, [model, modelCatalog.models, modelCatalog.defaultReasoningLevel, reasoningLevel]);
+  useEffect(() => {
     const closeMenu = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setOpenProjectMenuId(undefined);
     };
@@ -73,7 +81,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     setCreateError(undefined);
     try {
       const project = await createProject();
-      const conversation = await createConversation(project.id, model);
+      const conversation = await createConversation(project.id, model, reasoningLevel);
       onCreate(project.id, conversation.id, nextPrompt, promptImages(images));
     } catch (error) {
       setCreateError(errorMessage(error));
@@ -122,7 +130,14 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           <PromptBox
             actions={(
               <>
-                <ModelSelector models={modelCatalog.models} value={model} disabled={creating} onChange={setModel} />
+                <ModelSelector
+                  models={modelCatalog.models}
+                  value={model}
+                  reasoningLevel={reasoningLevel}
+                  disabled={creating}
+                  onChange={setModel}
+                  onReasoningChange={setReasoningLevel}
+                />
                 <button
                   className="icon-button send-button"
                   type="submit"
@@ -222,6 +237,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       </section>
     </main>
   );
+}
+
+function sameModel(model: AgentModel, value?: AgentModelRef): boolean {
+  return Boolean(value && model.provider === value.provider && model.id === value.id);
 }
 
 function ProjectCover({ projectId, fallback }: { projectId: string; fallback: number }) {

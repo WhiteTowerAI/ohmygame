@@ -4,6 +4,8 @@ import {
   type AddToolResultRequest,
   type AgentModelCatalog,
   type AgentModelRef,
+  type AgentReasoningLevel,
+  type ConversationAgentSettings,
   type ImageGenerationSettings,
   type ModelAuthEvent,
   type ModelAuthMethod,
@@ -229,10 +231,14 @@ export async function listConversations(projectId: string): Promise<Conversation
   return request(`/projects/${projectId}/conversations`);
 }
 
-export async function createConversation(projectId: string, model?: AgentModelRef): Promise<ConversationState> {
+export async function createConversation(
+  projectId: string,
+  model?: AgentModelRef,
+  reasoningLevel?: AgentReasoningLevel,
+): Promise<ConversationState> {
   return request(`/projects/${projectId}/conversations`, {
     method: "POST",
-    body: JSON.stringify(model ? { model } : {}),
+    body: JSON.stringify({ ...(model ? { model } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
 }
 
@@ -255,11 +261,23 @@ export async function setConversationModel(
   projectId: string,
   conversationId: string,
   model: AgentModelRef,
-): Promise<AgentModelRef> {
+): Promise<ConversationAgentSettings> {
   return request(`/projects/${projectId}/conversations/${conversationId}/model`, {
     method: "PUT",
     body: JSON.stringify(model),
   });
+}
+
+export async function setConversationReasoning(
+  projectId: string,
+  conversationId: string,
+  level: AgentReasoningLevel,
+): Promise<AgentReasoningLevel> {
+  const result = await request<{ level: AgentReasoningLevel }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
+    method: "PUT",
+    body: JSON.stringify({ level }),
+  });
+  return result.level;
 }
 
 export async function startPreview(projectId: string): Promise<{ url: string }> {

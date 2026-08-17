@@ -1,6 +1,6 @@
 import { ArrowUp, Pencil, Square, X } from "lucide-react";
 import { useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, PendingPrompt, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PromptImage } from "../shared/contracts.js";
 import { composerImages, ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
@@ -13,9 +13,11 @@ interface ComposerProps {
   notice?: string;
   models: AgentModel[];
   model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
   modelChanging: boolean;
   onSubmit: (prompt: string, images: PromptImage[]) => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
+  onReasoningChange: (level: AgentReasoningLevel) => void;
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
 }
@@ -28,9 +30,11 @@ export function Composer({
   notice,
   models,
   model,
+  reasoningLevel,
   modelChanging,
   onSubmit,
   onModelChange,
+  onReasoningChange,
   onStop,
   onRemovePending,
 }: ComposerProps) {
@@ -89,8 +93,10 @@ export function Composer({
             <ModelSelector
               models={models}
               value={model}
+              reasoningLevel={reasoningLevel}
               disabled={!conversationReady || running || stopping || modelChanging}
               onChange={onModelChange}
+              onReasoningChange={onReasoningChange}
             />
             {showStop ? (
               <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title="Stop agent" aria-label="Stop agent">

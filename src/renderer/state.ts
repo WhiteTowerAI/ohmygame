@@ -1,4 +1,4 @@
-import type { ActiveTurnState, AgentItem, AgentModelRef, ConversationState, PendingPrompt, ProjectState, RuntimeEvent } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, RuntimeEvent } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -22,7 +22,7 @@ export type RendererAction =
   | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
   | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
   | { type: "runtime-event"; event: RuntimeEvent }
-  | { type: "conversation-model"; model: AgentModelRef }
+  | { type: "conversation-settings"; settings: ConversationAgentSettings }
   | { type: "connection"; status: ConnectionStatus }
   | { type: "notice"; message?: string }
   | { type: "fatal"; message: string };
@@ -64,8 +64,8 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
     };
   }
   if (action.type === "connection") return { ...state, connection: action.status };
-  if (action.type === "conversation-model") {
-    return state.conversation ? { ...state, conversation: { ...state.conversation, model: action.model } } : state;
+  if (action.type === "conversation-settings") {
+    return state.conversation ? { ...state, conversation: { ...state.conversation, ...action.settings } } : state;
   }
   if (action.type === "notice") return { ...state, notice: action.message };
   if (action.type === "fatal") return { ...state, phase: "fatal", notice: action.message };

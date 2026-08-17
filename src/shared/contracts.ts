@@ -10,12 +10,17 @@ export interface AgentModelRef {
 
 export interface AgentModel extends AgentModelRef {
   name: string;
+  reasoningLevels: AgentReasoningLevel[];
 }
 
 export interface AgentModelCatalog {
   models: AgentModel[];
   defaultModel?: AgentModelRef;
+  defaultReasoningLevel: AgentReasoningLevel;
 }
+
+export const AGENT_REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type AgentReasoningLevel = (typeof AGENT_REASONING_LEVELS)[number];
 
 export type ModelAuthMethod = "api_key" | "oauth";
 
@@ -97,6 +102,7 @@ export interface ConversationSummary {
 export interface ConversationState extends ConversationSummary {
   agent: { status: AgentStatus; turnId?: string; error?: string };
   model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
 }
 
 export interface ActiveTurnState {
@@ -182,9 +188,17 @@ export interface ConversationDetail {
 }
 
 export interface CreateProjectRequest { name?: string }
-export interface CreateConversationRequest { model?: AgentModelRef }
+export interface CreateConversationRequest {
+  model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
+}
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
+export interface SetConversationReasoningRequest { level: AgentReasoningLevel }
+export interface ConversationAgentSettings {
+  model: AgentModelRef;
+  reasoningLevel: AgentReasoningLevel;
+}
 export interface PromptRequest {
   prompt: string;
   references?: PromptReference[];

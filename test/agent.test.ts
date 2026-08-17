@@ -2,7 +2,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
-import type { ProjectState } from "../src/shared/contracts.js";
+import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 
 describe("lastAssistantError", () => {
@@ -448,6 +448,22 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("uses Pi to change reasoning on a cached session", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const persist = vi.fn();
+
+    await manager.prompt(project, conversation, "First").result;
+    const reasoning = await manager.setReasoningLevel(project.id, conversation.summary.id, "high", persist);
+
+    expect(session.setThinkingLevel).toHaveBeenCalledWith("high");
+    expect(reasoning).toBe("high");
+    expect(persist).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
   it("does not change tools during an active run", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -476,10 +492,12 @@ describe("AgentManager", () => {
 
 class FakeSession implements CodingSession {
   messages: unknown[] = [];
+  thinkingLevel: AgentReasoningLevel = "medium";
   prompt = vi.fn<CodingSession["prompt"]>(async () => {});
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});
+  setThinkingLevel = vi.fn<NonNullable<CodingSession["setThinkingLevel"]>>((level) => { this.thinkingLevel = level; });
   setActiveToolsByName = vi.fn<(toolNames: string[]) => void>();
   #listener?: (event: AgentSessionEvent) => void;
 

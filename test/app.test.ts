@@ -330,8 +330,8 @@ describe("daemon", () => {
   });
 
   it("lists Pi models and stores a conversation model without starting a session", async () => {
-    const first = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const second = { provider: "provider-one", id: "model-two", name: "Model Two" };
+    const first = { provider: "provider-one", id: "model-one", name: "Model One", reasoning: true };
+    const second = { provider: "provider-one", id: "model-two", name: "Model Two", reasoning: true };
     const runtime = fakeModelRuntime([first, second]);
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-models-")),
@@ -344,7 +344,7 @@ describe("daemon", () => {
     const created = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations`,
-      payload: { model: { provider: first.provider, id: first.id } },
+      payload: { model: { provider: first.provider, id: first.id }, reasoningLevel: "medium" },
     });
     const changed = await app.inject({
       method: "PUT",
@@ -355,10 +355,25 @@ describe("daemon", () => {
       method: "GET",
       url: `/projects/${project.id}/conversations/${created.json().id}`,
     });
+    const reasoning = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/conversations/${created.json().id}/reasoning`,
+      payload: { level: "high" },
+    });
 
-    expect(models.json()).toEqual({ models: [first, second] });
+    expect(models.json()).toEqual({
+      models: [
+        { provider: first.provider, id: first.id, name: first.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
+        { provider: second.provider, id: second.id, name: second.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
+      ],
+      defaultReasoningLevel: "medium",
+    });
     expect(created.json().model).toEqual({ provider: first.provider, id: first.id });
-    expect(changed.json()).toEqual({ provider: second.provider, id: second.id });
+    expect(changed.json()).toEqual({
+      model: { provider: second.provider, id: second.id },
+      reasoningLevel: "medium",
+    });
+    expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().conversation.model).toEqual({ provider: second.provider, id: second.id });
   });
 

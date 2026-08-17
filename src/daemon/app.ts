@@ -3,11 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { IMAGE_SIZES, type AddToolResultRequest, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, createPiSession, loadConversation, type SessionFactory } from "./agent.js";
+import { AgentManager, createPiSession, loadConversation, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools } from "./agent-tools.js";
 import { ConversationManager } from "./conversations.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
@@ -121,6 +122,14 @@ const modelRefSchema = {
 } as const;
 
 const setConversationModelSchema = { body: modelRefSchema } as const;
+const setConversationReasoningSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["level"],
+    properties: { level: { enum: AGENT_REASONING_LEVELS } },
+  },
+} as const;
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 
 const removePendingPromptSchema = {
@@ -491,8 +500,14 @@ export function createApp(options: AppOptions = {}) {
     const defaultId = piSettings.getDefaultModel();
     const defaultModel = models.find(({ provider, id }) => provider === defaultProvider && id === defaultId);
     return {
-      models: models.map(({ provider, id, name }) => ({ provider, id, name })),
+      models: models.map((model) => ({
+        provider: model.provider,
+        id: model.id,
+        name: model.name,
+        reasoningLevels: supportedReasoningLevels(model),
+      })),
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
+      defaultReasoningLevel: parseReasoningLevel(piSettings.getDefaultThinkingLevel()) ?? "medium",
     };
   });
 
@@ -582,11 +597,20 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(400).send({ error: "Invalid conversation request" });
       }
       const model = request.body?.model;
-      if (model && !(await availableModel(getModelRuntime, model.provider, model.id))) {
+      const selectedModel = model ? await availableModel(getModelRuntime, model.provider, model.id) : undefined;
+      if (model && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
       }
-      const conversation = await conversations.create(project, model);
-      return reply.code(201).send(agents.state(conversation, model));
+      if (request.body?.reasoningLevel && selectedModel && !supportedReasoningLevels(selectedModel).includes(request.body.reasoningLevel)) {
+        return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      }
+      const conversation = await conversations.create(project, model, request.body?.reasoningLevel);
+      return reply.code(201).send({
+        ...agents.state(conversation, model),
+        ...(selectedModel ? {
+          reasoningLevel: effectiveReasoningLevel(selectedModel, request.body?.reasoningLevel, defaultReasoningLevel(project.workspacePath)),
+        } : {}),
+      });
     },
   );
 
@@ -597,7 +621,18 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const state = agents.state(conversation, conversations.model(project, conversation));
+      const modelRef = conversations.model(project, conversation);
+      const model = modelRef ? (await getModelRuntime()).getModel(modelRef.provider, modelRef.id) : undefined;
+      const state = {
+        ...agents.state(conversation, modelRef),
+        ...(model ? {
+          reasoningLevel: effectiveReasoningLevel(
+            model,
+            conversations.reasoningLevel(project, conversation),
+            defaultReasoningLevel(project.workspacePath),
+          ),
+        } : {}),
+      };
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItem = agents.activeItem(project.id, conversation.summary.id);
       const restoreActiveItem = Boolean(activeItem?.images?.length);
@@ -648,7 +683,41 @@ export function createApp(options: AppOptions = {}) {
         await agents.setModel(project.id, conversation.summary.id, model, () => {
           conversations.setModel(project, conversation, request.body);
         });
-        return request.body;
+        return {
+          model: request.body,
+          reasoningLevel: effectiveReasoningLevel(
+            model,
+            conversations.reasoningLevel(project, conversation),
+            defaultReasoningLevel(project.workspacePath),
+          ),
+        } satisfies ConversationAgentSettings;
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.put<{ Params: { projectId: string; conversationId: string }; Body: SetConversationReasoningRequest }>(
+    "/projects/:projectId/conversations/:conversationId/reasoning",
+    { schema: setConversationReasoningSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const modelRef = conversations.model(project, conversation);
+      if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
+      const model = await availableModel(getModelRuntime, modelRef.provider, modelRef.id);
+      if (!model) return reply.code(400).send({ error: "Model is not available" });
+      const levels = supportedReasoningLevels(model);
+      if (!levels.includes(request.body.level)) {
+        return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      }
+      try {
+        const active = await agents.setReasoningLevel(project.id, conversation.summary.id, request.body.level, () => {
+          conversations.setReasoningLevel(project, conversation, request.body.level);
+        });
+        return { level: active ?? request.body.level };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -847,11 +916,33 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
   if (value === undefined) return true;
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== "model")) return false;
+  if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel")) return false;
+  if (body.reasoningLevel !== undefined && !AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel)) return false;
   if (body.model === undefined) return true;
   if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) return false;
   const model = body.model as Record<string, unknown>;
   return Object.keys(model).every((key) => key === "provider" || key === "id") &&
     typeof model.provider === "string" && model.provider.length > 0 && model.provider.length <= 100 &&
     typeof model.id === "string" && model.id.length > 0 && model.id.length <= 200;
+}
+
+function supportedReasoningLevels(model: RuntimeModel): AgentReasoningLevel[] {
+  if (!model.reasoning) return ["off"];
+  return AGENT_REASONING_LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    return level !== "xhigh" && level !== "max" || mapped !== undefined;
+  });
+}
+
+function effectiveReasoningLevel(
+  model: RuntimeModel,
+  requested: AgentReasoningLevel | undefined,
+  fallback: AgentReasoningLevel,
+): AgentReasoningLevel {
+  return clampReasoningLevel(requested ?? fallback, supportedReasoningLevels(model));
+}
+
+function defaultReasoningLevel(cwd: string): AgentReasoningLevel {
+  return parseReasoningLevel(SettingsManager.create(cwd, getAgentDir()).getDefaultThinkingLevel()) ?? "medium";
 }

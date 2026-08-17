@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentModelRef, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -22,6 +22,8 @@ export interface CodingSession {
   dispose(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   setModel?(model: RuntimeModel): Promise<void>;
+  readonly thinkingLevel?: AgentReasoningLevel;
+  setThinkingLevel?(level: AgentReasoningLevel): void;
   setActiveToolsByName?(toolNames: string[]): void;
 }
 
@@ -188,6 +190,25 @@ export class AgentManager {
     }
     if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
     await managed.session.setModel(model);
+  }
+
+  async setReasoningLevel(
+    projectId: string,
+    conversationId: string,
+    level: AgentReasoningLevel,
+    persist: () => void,
+  ): Promise<AgentReasoningLevel | undefined> {
+    if (this.#activeTurns.has(projectId)) throw new Error("Wait for the agent to finish before changing reasoning");
+    const managed = this.#sessions.get(projectId);
+    if (!managed || managed.conversationId !== conversationId) {
+      persist();
+      return undefined;
+    }
+    if (!managed.session.setThinkingLevel) {
+      throw new Error("The current agent session cannot change reasoning");
+    }
+    managed.session.setThinkingLevel(level);
+    return managed.session.thinkingLevel ?? level;
   }
 
   prompt(

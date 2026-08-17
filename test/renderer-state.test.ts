@@ -14,13 +14,17 @@ describe("rendererReducer", () => {
     expect(state.items).toEqual(items);
   });
 
-  it("updates the selected conversation model", () => {
+  it("updates the selected conversation agent settings", () => {
     const state = rendererReducer(initialized(), {
-      type: "conversation-model",
-      model: { provider: "openai-codex", id: "gpt-5.5" },
+      type: "conversation-settings",
+      settings: {
+        model: { provider: "openai-codex", id: "gpt-5.5" },
+        reasoningLevel: "high",
+      },
     });
 
     expect(state.conversation?.model).toEqual({ provider: "openai-codex", id: "gpt-5.5" });
+    expect(state.conversation?.reasoningLevel).toBe("high");
   });
 
   it("builds a conversation from normalized runtime events", () => {

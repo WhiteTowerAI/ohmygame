@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -162,24 +162,31 @@ describe("renderer project API", () => {
 
   it("lists models and selects one for a conversation", async () => {
     installWindow();
-    const model = { provider: "openai-codex", id: "gpt-5.5", name: "GPT-5.5" };
+    const model = { provider: "openai-codex", id: "gpt-5.5", name: "GPT-5.5", reasoningLevels: ["low", "medium", "high"] as const };
+    const settings = { model, reasoningLevel: "medium" };
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model }))
+      .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" }))
       .mockResolvedValueOnce(Response.json({ id: "conversation-1", model }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json(model));
+      .mockResolvedValueOnce(Response.json(settings))
+      .mockResolvedValueOnce(Response.json({ level: "high" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(listModels()).resolves.toEqual({ models: [model], defaultModel: model });
-    await createConversation("project-1", model);
+    await expect(listModels()).resolves.toEqual({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" });
+    await createConversation("project-1", model, "medium");
     await setConversationModel("project-1", "conversation-1", model);
+    await setConversationReasoning("project-1", "conversation-1", "high");
 
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ model }),
+      body: JSON.stringify({ model, reasoningLevel: "medium" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations/conversation-1/model", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify(model),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project-1/conversations/conversation-1/reasoning", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ level: "high" }),
     }));
   });
 

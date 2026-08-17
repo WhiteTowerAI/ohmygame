@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, ConversationSummary, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage } from "../shared/contracts.js";
 import {
   cancelPrompt,
   createConversation,
@@ -29,6 +29,7 @@ import {
   renameConversation,
   sendPrompt,
   setConversationModel,
+  setConversationReasoning,
   startPreview,
   subscribeToProject,
   waitForRuntime,
@@ -366,7 +367,7 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id, conversation?.model);
+      const created = await createConversation(project.id, conversation?.model, conversation?.reasoningLevel);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
@@ -380,8 +381,23 @@ export function ProjectShell({
     setModelChanging(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const selected = await setConversationModel(project.id, conversation.id, model);
-      dispatch({ type: "conversation-model", model: selected });
+      const settings = await setConversationModel(project.id, conversation.id, model);
+      dispatch({ type: "conversation-settings", settings });
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally {
+      setModelChanging(false);
+    }
+  }
+
+  async function changeReasoning(level: AgentReasoningLevel) {
+    if (!project || !conversation || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      const reasoningLevel = await setConversationReasoning(project.id, conversation.id, level);
+      if (!conversation.model) return;
+      dispatch({ type: "conversation-settings", settings: { model: conversation.model, reasoningLevel } });
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally {
@@ -478,9 +494,11 @@ export function ProjectShell({
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
             model={conversation?.model}
+            reasoningLevel={conversation?.reasoningLevel}
             modelChanging={modelChanging}
             onSubmit={submitPrompt}
             onModelChange={(model) => void changeModel(model)}
+            onReasoningChange={(level) => void changeReasoning(level)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
           />

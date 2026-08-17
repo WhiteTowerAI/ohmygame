@@ -1,6 +1,7 @@
 import path from "node:path";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentModelRef, ConversationSummary, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, ProjectState } from "../shared/contracts.js";
+import { parseReasoningLevel } from "../shared/reasoning.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
@@ -23,9 +24,10 @@ export class ConversationManager {
     return [...persisted, ...pending].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async create(project: ProjectState, model?: AgentModelRef): Promise<StoredConversation> {
+  async create(project: ProjectState, model?: AgentModelRef, reasoningLevel?: AgentReasoningLevel): Promise<StoredConversation> {
     const manager = SessionManager.create(project.workspacePath, sessionDirectory(project));
     if (model) manager.appendModelChange(model.provider, model.id);
+    if (reasoningLevel) manager.appendThinkingLevelChange(reasoningLevel);
     const sessionPath = manager.getSessionFile();
     if (!sessionPath) throw new Error("Pi did not create a persistent session");
     const stored = {
@@ -98,6 +100,15 @@ export class ConversationManager {
 
   setModel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): void {
     this.open(project, stored).appendModelChange(model.provider, model.id);
+  }
+
+  reasoningLevel(project: ProjectState, stored: StoredConversation): AgentReasoningLevel | undefined {
+    const entry = this.open(project, stored).getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
+    return entry?.type === "thinking_level_change" ? parseReasoningLevel(entry.thinkingLevel) : undefined;
+  }
+
+  setReasoningLevel(project: ProjectState, stored: StoredConversation, level: AgentReasoningLevel): void {
+    this.open(project, stored).appendThinkingLevelChange(level);
   }
 
   async #sessions(project: ProjectState): Promise<SessionInfo[]> {

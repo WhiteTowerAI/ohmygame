@@ -2809,58 +2809,98 @@ textarea:focus-visible {
   opacity: 0.5;
 }
 
-.model-selector-menu {
+.model-selector-popover {
   position: absolute;
   z-index: 20;
   right: 0;
   bottom: calc(100% + 8px);
+  width: 180px;
+}
+
+.model-selector-menu,
+.model-selector-submenu {
   display: flex;
   width: 180px;
-  max-height: min(300px, 50dvh);
   flex-direction: column;
-  overflow-y: auto;
   padding: 6px 8px;
   border: 1px solid #30323a;
   border-radius: 8px;
   background: #202126;
   box-shadow: 0 8px 18px rgb(0 0 0 / 28%);
+}
+
+.model-selector-submenu {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 2px);
+  max-height: min(300px, 50dvh);
+  overflow-y: auto;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 
-.prompt-box-home .model-selector-menu {
+.prompt-box-home .model-selector-popover {
   top: calc(100% + 8px);
   bottom: auto;
 }
 
-.model-selector-option {
+.model-selector-menu button,
+.model-selector-submenu button {
+  display: flex;
   width: 100%;
-  height: 32px;
-  flex: 0 0 32px;
-  padding: 0;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px;
   overflow: hidden;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
-  color: #b1b3bc;
+  color: #e7e9f1;
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   font-weight: 500;
   text-align: left;
+}
+
+.model-selector-submenu button {
+  height: 32px;
+  flex-basis: 32px;
+  color: #b1b3bc;
+}
+
+.model-selector-menu button:hover,
+.model-selector-menu button:focus-visible,
+.model-selector-menu button.active,
+.model-selector-submenu button:hover,
+.model-selector-submenu button:focus-visible,
+.model-selector-submenu button.active {
+  outline: 0;
+  background: #2a2b31;
+  color: var(--text);
+}
+
+.model-selector-menu button > span:first-child,
+.model-selector-submenu button > span:first-child {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.model-selector-option:hover,
-.model-selector-option:focus-visible {
-  outline: 0;
-  background: #292b31;
-  color: var(--text);
+.model-selector-setting-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #b1b3bc;
 }
 
-.model-selector-option[aria-checked="true"] {
-  color: var(--text);
+.model-selector-setting-value svg,
+.model-selector-submenu button > svg {
+  flex: 0 0 auto;
 }
 
 .visually-hidden {
@@ -3853,6 +3893,18 @@ textarea:focus-visible {
 }
 
 @media (max-width: 460px) {
+  .model-selector-submenu {
+    top: auto;
+    right: 0;
+    bottom: calc(100% + 2px);
+    left: auto;
+  }
+
+  .prompt-box-home .model-selector-submenu {
+    top: calc(100% + 2px);
+    bottom: auto;
+  }
+
   .workspace-tabs {
     width: 118px;
     min-width: 118px;
