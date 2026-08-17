@@ -4,7 +4,10 @@ docs/TechSpec/
 .data/
 node_modules/
 dist/
+release/
+.runtime/
 coverage/
+.DS_Store
 *.log
 .env
 .env.*

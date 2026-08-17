@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
@@ -38,6 +39,8 @@ try {
     dataDirectory: process.env.OPEN_GAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
+    runtimeBin: app.isPackaged ? path.join(process.resourcesPath, "runtime/node/bin") : undefined,
+    environment: app.isPackaged ? packagedEnvironment() : undefined,
   });
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
@@ -54,4 +57,16 @@ try {
   if (app.isReady()) dialog.showErrorBox("OpenGame could not start", message);
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   app.exit(1);
+}
+
+function packagedEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  if (environment.PUBLISH_API_URL) return environment;
+  const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
+    publishApiUrl?: unknown;
+  };
+  if (typeof config.publishApiUrl === "string" && config.publishApiUrl) {
+    environment.PUBLISH_API_URL = config.publishApiUrl;
+  }
+  return environment;
 }

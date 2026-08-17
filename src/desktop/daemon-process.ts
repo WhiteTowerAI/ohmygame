@@ -17,6 +17,7 @@ interface StartDaemonOptions {
   dataDirectory: string;
   token: string;
   allowedOrigins: string[];
+  runtimeBin?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   healthTimeoutMs?: number;
@@ -25,9 +26,13 @@ interface StartDaemonOptions {
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
   const port = await availablePort();
   const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
+  const environment = { ...(options.environment ?? process.env) };
+  if (options.runtimeBin) {
+    environment.PATH = [path.resolve(options.runtimeBin), environment.PATH].filter(Boolean).join(path.delimiter);
+  }
   const child = spawn(options.executable ?? process.execPath, [path.resolve(options.daemonEntry)], {
     env: {
-      ...(options.environment ?? process.env),
+      ...environment,
       ELECTRON_RUN_AS_NODE: "1",
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),

@@ -1,0 +1,26 @@
+appId: ai.opengame.desktop
+productName: OpenGame
+asar: true
+
+directories:
+  output: release
+
+files:
+  - dist/desktop/**/*.js
+  - dist/desktop/**/*.cjs
+  - dist/daemon/**/*.js
+  - dist/shared/**/*.js
+  - dist/renderer/**/*
+
+extraResources:
+  - from: .runtime/node
+    to: runtime/node
+  - from: .runtime/desktop-config.json
+    to: desktop-config.json
+
+mac:
+  category: public.app-category.developer-tools
+  identity: null
+
+dmg:
+  artifactName: OpenGame-${version}-${arch}.${ext}

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -39,6 +39,36 @@ describe("desktop daemon process", () => {
     expect(daemon.runtime.token).toBe("test-token");
     await daemon.stop();
     await vi.waitFor(() => expect(isRunning(pid)).toBe(false));
+  });
+
+  it("prepends the packaged runtime to the daemon path", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "open-game-runtime-"));
+    const runtimeBin = path.join(directory, "runtime", "node", "bin");
+    const pathFile = path.join(directory, "path");
+    const entry = path.join(directory, "daemon.mjs");
+    await mkdir(runtimeBin, { recursive: true });
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      writeFileSync(${JSON.stringify(pathFile)}, process.env.PATH ?? "");
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+
+    const daemon = await startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: { PATH: "/system/bin" },
+      runtimeBin,
+      healthTimeoutMs: 2_000,
+    });
+
+    expect(await readFile(pathFile, "utf8")).toBe(`${runtimeBin}${path.delimiter}/system/bin`);
+    await daemon.stop();
   });
 });
 
