@@ -48,13 +48,22 @@ export function Community({
           {phase === "error" ? <div className="community-state community-error"><X size={20} />{error}</div> : null}
           {phase === "ready" && games.length === 0 ? <div className="community-state">No published games yet</div> : null}
           {phase === "ready" && games.length > 0 ? (
-            <div className="community-grid">
-              {games.map((game) => (
-                <button className="community-game" type="button" key={game.id} onClick={() => onOpenGame(game.id)}>
-                  <span className="community-game-preview"><Gamepad2 size={28} /></span>
-                  <strong title={game.title}>{game.title}</strong>
-                  <span>{publishedDate(game.publishedAt)}</span>
-                </button>
+            <div className="home-project-grid">
+              {games.map((game, index) => (
+                <article className="home-project" key={game.id}>
+                  <button className="home-project-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
+                    <span className={`home-project-preview home-project-preview-${index % 4} community-game-preview`} aria-hidden="true">
+                      <Gamepad2 size={28} />
+                    </span>
+                    <span className="home-project-meta">
+                      <span className="home-project-avatar" aria-hidden="true"><Gamepad2 size={14} /></span>
+                      <span className="home-project-copy">
+                        <span className="home-project-name" title={game.title}>{game.title}</span>
+                        <span className="home-project-time">{publishedTime(game.publishedAt)}</span>
+                      </span>
+                    </span>
+                  </button>
+                </article>
               ))}
             </div>
           ) : null}
@@ -115,6 +124,13 @@ export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack
   );
 }
 
-function publishedDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
+function publishedTime(value: string): string {
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 60_000) return "Published just now";
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 60) return `Published ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Published ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Published ${days}d ago`;
 }

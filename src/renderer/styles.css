@@ -3178,62 +3178,15 @@ textarea:focus-visible {
 }
 
 .community-content {
-  width: min(1120px, calc(100% - 48px));
+  width: min(1068px, calc(100% - 48px));
   margin: 0 auto;
   padding: 34px 0 54px;
 }
 
-.community-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.community-game {
-  min-width: 0;
-  padding: 0 0 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.community-game:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-}
-
 .community-game-preview {
   display: grid;
-  width: 100%;
-  aspect-ratio: 16 / 10;
   place-items: center;
-  margin-bottom: 11px;
-  background: #090a0c;
   color: var(--accent);
-}
-
-.community-game strong,
-.community-game > span:last-child {
-  display: block;
-  min-width: 0;
-  margin: 0 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.community-game strong {
-  font-size: 12px;
-}
-
-.community-game > span:last-child {
-  margin-top: 5px;
-  color: var(--text-muted);
-  font-size: 10px;
 }
 
 .community-state {
@@ -3663,7 +3616,7 @@ textarea:focus-visible {
 @media (max-width: 720px) {
   body { overflow: auto; }
 
-  .community-content { width: min(100% - 24px, 1120px); }
+  .community-content { width: min(100% - 24px, 1068px); }
   .community-player-header {
     grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr) 32px;
   }
