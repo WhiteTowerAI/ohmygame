@@ -12,6 +12,7 @@ import type {
 import {
   cancelModelAuth,
   disconnectModelProvider,
+  getOpenAIEndpointSettings,
   getImageGenerationSettings,
   getModel3DGenerationSettings,
   listModelProviders,
@@ -20,6 +21,7 @@ import {
   subscribeToModelAuth,
   updateImageGenerationSettings,
   updateModel3DGenerationSettings,
+  updateOpenAIEndpointSettings,
 } from "./api.js";
 import { notifyAgentModelsChanged } from "./model-selector.js";
 
@@ -190,6 +192,8 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
 function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: ModelProviderSummary; onBack: () => void; onDisconnected: () => void }) {
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const endpoint = useProviderEndpoint(provider.id);
   async function disconnect(): Promise<void> {
     setDisconnecting(true);
     try {
@@ -201,14 +205,37 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
       setDisconnecting(false);
     }
   }
+  async function saveEndpoint(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      await endpoint.save();
+      notifyAgentModelsChanged();
+      setNotice("Base URL saved.");
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+  const displayedError = error ?? endpoint.error;
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={onBack} />
       <div className="settings-auth-status"><span className="settings-status-dot" /><span><strong>Connected</strong>{provider.source ? <small>{provider.source}</small> : null}</span></div>
+      {endpoint.supported ? (
+        <form className="settings-auth-form" onSubmit={(event) => void saveEndpoint(event)}>
+          <label htmlFor="model-provider-base-url">Base URL</label>
+          <input id="model-provider-base-url" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading} />
+          <div className="settings-form-actions">
+            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim()}>{endpoint.saving ? "Saving…" : "Save"}</button>
+          </div>
+        </form>
+      ) : null}
       <div className="settings-form-actions">
         {provider.credentialType ? <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button> : <span className="settings-managed-label">Managed outside OpenGame</span>}
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
+      {notice ? <p className="settings-success" role="status">{notice}</p> : null}
     </section>
   );
 }
@@ -220,6 +247,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string>();
   const operationRef = useRef<string | undefined>(undefined);
+  const endpoint = useProviderEndpoint(provider.id);
 
   useEffect(() => {
     let active = true;
@@ -275,6 +303,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
     if (!operationId || !prompt) return;
     const value = prompt.value.type === "select" ? answer || prompt.value.options[0]?.id || "" : answer;
     try {
+      if (endpoint.supported) await endpoint.save();
       await respondToModelAuth(operationId, prompt.id, value);
       setPrompt(undefined);
       setAnswer("");
@@ -290,11 +319,18 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   }
 
   const external = authExternalTarget(notification);
+  const displayedError = error ?? endpoint.error;
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={() => void cancel()} />
       {prompt ? (
         <form className="settings-auth-form" onSubmit={(event) => void respond(event)}>
+          {endpoint.supported ? (
+            <>
+              <label htmlFor="model-provider-base-url">Base URL</label>
+              <input id="model-provider-base-url" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading || endpoint.saving} />
+            </>
+          ) : null}
           <label htmlFor="model-auth-answer">{prompt.value.message}</label>
           {prompt.value.type === "select" ? (
             <select id="model-auth-answer" value={answer || prompt.value.options[0]?.id || ""} onChange={(event) => setAnswer(event.target.value)}>
@@ -303,7 +339,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
           ) : (
             <input id="model-auth-answer" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus />
           )}
-          <div className="settings-form-actions"><button className="settings-primary-button" type="submit" disabled={!answer && prompt.value.type !== "select"}>Continue</button></div>
+          <div className="settings-form-actions"><button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (endpoint.supported && !endpoint.baseUrl.trim()) || (!answer && prompt.value.type !== "select")}>Continue</button></div>
         </form>
       ) : (
         <div className="settings-waiting-card">
@@ -316,9 +352,44 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
         <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
         {external ? <button className="settings-provider-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />Open browser</button> : null}
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
     </section>
   );
+}
+
+function useProviderEndpoint(providerId: string) {
+  const supported = providerId === "openai";
+  const [baseUrl, setBaseUrl] = useState("");
+  const [loading, setLoading] = useState(supported);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (!supported) return;
+    let active = true;
+    void getOpenAIEndpointSettings().then((settings) => {
+      if (active) setBaseUrl(settings.baseUrl);
+    }).catch((cause) => {
+      if (active) setError(errorMessage(cause));
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [supported]);
+
+  async function save(): Promise<void> {
+    if (!supported) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      const settings = await updateOpenAIEndpointSettings(baseUrl.trim());
+      setBaseUrl(settings.baseUrl);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return { supported, baseUrl, setBaseUrl, loading, saving, error, save };
 }
 
 function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) {

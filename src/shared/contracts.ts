@@ -33,6 +33,10 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
+export interface ModelProviderEndpointSettings {
+  baseUrl: string;
+}
+
 export type ModelAuthPrompt =
   | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
   | { type: "select"; message: string; options: Array<{ id: string; label: string; description?: string }> };

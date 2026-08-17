@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -178,15 +178,31 @@ describe("renderer project API", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ model, reasoningLevel: "medium" }),
+      body: JSON.stringify({ model: { provider: model.provider, id: model.id }, reasoningLevel: "medium" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations/conversation-1/model", expect.objectContaining({
       method: "PUT",
-      body: JSON.stringify(model),
+      body: JSON.stringify({ provider: model.provider, id: model.id }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project-1/conversations/conversation-1/reasoning", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ level: "high" }),
+    }));
+  });
+
+  it("loads and updates the OpenAI endpoint", async () => {
+    installWindow();
+    const settings = { baseUrl: "https://api.openai.com/v1" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(settings))
+      .mockResolvedValueOnce(Response.json({ ...settings, baseUrl: "https://relay.example/v1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getOpenAIEndpointSettings()).resolves.toEqual(settings);
+    await expect(updateOpenAIEndpointSettings("https://relay.example/v1")).resolves.toEqual({ ...settings, baseUrl: "https://relay.example/v1" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/settings/models/providers/openai/endpoint", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ baseUrl: "https://relay.example/v1" }),
     }));
   });
 

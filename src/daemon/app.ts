@@ -17,6 +17,7 @@ import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { ApiSettingsStore } from "./api-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
+import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
 import { ConfiguredImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
@@ -221,6 +222,15 @@ const modelAuthResponseSchema = {
   },
 } as const;
 
+const modelEndpointSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["baseUrl"],
+    properties: { baseUrl: { type: "string", minLength: 1, maxLength: 2_000 } },
+  },
+} as const;
+
 const imageSettingsSchema = {
   body: {
     type: "object",
@@ -262,8 +272,19 @@ export function createApp(options: AppOptions = {}) {
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
+  const openAIEndpoint = new ModelEndpointSettingsStore(
+    dataDirectory,
+    "openai-endpoint.json",
+    "https://api.openai.com/v1",
+    "OpenAI",
+  );
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
-  const getModelRuntime = () => modelRuntimePromise ??= (options.createModelRuntime ?? (() => ModelRuntime.create()))();
+  const getModelRuntime = () => modelRuntimePromise ??= (async () => {
+    const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create()))();
+    const baseUrl = openAIEndpoint.override();
+    if (baseUrl) runtime.registerProvider("openai", { baseUrl });
+    return runtime;
+  })();
   const modelAuth = new ModelAuthManager(getModelRuntime);
   const agents = new AgentManager(events, {
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -298,7 +319,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load(), model3DSettings.load()]);
+    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -512,6 +533,25 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/settings/models/providers", async () => modelAuth.providers());
+
+  app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
+
+  app.put<{ Body: { baseUrl: string } }>(
+    "/settings/models/providers/openai/endpoint",
+    { schema: modelEndpointSchema },
+    async (request, reply) => {
+      try {
+        const runtime = await getModelRuntime();
+        const settings = await openAIEndpoint.update(request.body.baseUrl);
+        const baseUrl = openAIEndpoint.override();
+        if (baseUrl) runtime.registerProvider("openai", { baseUrl });
+        else runtime.unregisterProvider("openai");
+        return settings;
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
 
   app.post<{ Params: { providerId: string }; Body: { method: ModelAuthMethod } }>(
     "/settings/models/providers/:providerId/login",

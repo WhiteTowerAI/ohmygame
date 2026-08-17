@@ -14,6 +14,7 @@ type PiNotification = Parameters<PiInteraction["notify"]>[0];
 
 interface PendingPrompt {
   id: string;
+  secret: boolean;
   resolve: (value: string) => void;
   reject: (error: Error) => void;
 }
@@ -21,6 +22,7 @@ interface PendingPrompt {
 interface AuthOperation {
   id: string;
   providerId: string;
+  method: ModelAuthMethod;
   controller: AbortController;
   events: ModelAuthEvent[];
   subscribers: Set<(event: ModelAuthEvent) => void>;
@@ -73,6 +75,7 @@ export class ModelAuthManager {
     const operation: AuthOperation = {
       id: randomUUID(),
       providerId,
+      method,
       controller: new AbortController(),
       events: [],
       subscribers: new Set(),
@@ -110,9 +113,12 @@ export class ModelAuthManager {
   respond(operationId: string, promptId: string, value: string): void {
     const operation = this.#operation(operationId);
     if (!operation.pending || operation.pending.id !== promptId) throw new ModelAuthError("Authentication prompt is no longer active", 409);
+    if (operation.method === "api_key" && operation.pending.secret && !/^[\x21-\x7E]+$/.test(value.trim())) {
+      throw new ModelAuthError("API key must contain only printable ASCII characters", 400);
+    }
     const pending = operation.pending;
     operation.pending = undefined;
-    pending.resolve(value);
+    pending.resolve(operation.method === "api_key" ? value.trim() : value);
   }
 
   cancel(operationId: string): void {
@@ -140,7 +146,7 @@ export class ModelAuthManager {
     if (operation.pending) return Promise.reject(new Error("Authentication already has an active prompt"));
     const promptId = randomUUID();
     return new Promise<string>((resolve, reject) => {
-      operation.pending = { id: promptId, resolve, reject };
+      operation.pending = { id: promptId, secret: prompt.type === "secret", resolve, reject };
       this.#publish(operation, { type: "prompt", promptId, prompt: publicPrompt(prompt) });
       prompt.signal?.addEventListener("abort", () => {
         if (operation.pending?.id !== promptId) return;

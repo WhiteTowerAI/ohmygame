@@ -50,6 +50,20 @@ describe("model provider authentication", () => {
 
     expect(logout).toHaveBeenCalledWith("test-provider");
   });
+
+  it("rejects API keys that cannot be used in an authorization header", async () => {
+    const login = vi.fn(async (_providerId: string, _method: string, interaction: PiInteraction) => {
+      await interaction.prompt({ type: "secret", message: "API key" });
+      return { type: "api_key", key: "unused" };
+    });
+    const manager = new ModelAuthManager(async () => runtime({ login }));
+    const operationId = await manager.start("test-provider", "api_key");
+    await tick();
+    const prompt = manager.eventsSince(operationId, 0).find((event) => event.type === "prompt");
+    if (!prompt || prompt.type !== "prompt") throw new Error("Prompt was not emitted");
+
+    expect(() => manager.respond(operationId, prompt.promptId, "帮助我配置")).toThrow("printable ASCII");
+  });
 });
 
 type PiInteraction = Parameters<ModelRuntime["login"]>[2];

@@ -10,6 +10,7 @@ import {
   type ModelAuthEvent,
   type ModelAuthMethod,
   type Model3DGenerationSettings,
+  type ModelProviderEndpointSettings,
   type ModelProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
@@ -84,6 +85,17 @@ export async function listModels(): Promise<AgentModelCatalog> {
 
 export async function listModelProviders(): Promise<ModelProviderSummary[]> {
   return request("/settings/models/providers");
+}
+
+export async function getOpenAIEndpointSettings(): Promise<ModelProviderEndpointSettings> {
+  return request("/settings/models/providers/openai/endpoint");
+}
+
+export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<ModelProviderEndpointSettings> {
+  return request("/settings/models/providers/openai/endpoint", {
+    method: "PUT",
+    body: JSON.stringify({ baseUrl }),
+  });
 }
 
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
@@ -238,7 +250,7 @@ export async function createConversation(
 ): Promise<ConversationState> {
   return request(`/projects/${projectId}/conversations`, {
     method: "POST",
-    body: JSON.stringify({ ...(model ? { model } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
+    body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
 }
 
@@ -264,7 +276,7 @@ export async function setConversationModel(
 ): Promise<ConversationAgentSettings> {
   return request(`/projects/${projectId}/conversations/${conversationId}/model`, {
     method: "PUT",
-    body: JSON.stringify(model),
+    body: JSON.stringify(modelRef(model)),
   });
 }
 
@@ -515,6 +527,10 @@ function apiUrl(path: string): string {
 function runtimeHeaders(): HeadersInit {
   const runtime = desktopRuntime();
   return runtime ? { authorization: `Bearer ${runtime.token}` } : {};
+}
+
+function modelRef(model: AgentModelRef): AgentModelRef {
+  return { provider: model.provider, id: model.id };
 }
 
 function desktopRuntime(): DesktopRuntime | undefined {

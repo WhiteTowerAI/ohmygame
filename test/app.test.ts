@@ -377,6 +377,39 @@ describe("daemon", () => {
     expect(detail.json().conversation.model).toEqual({ provider: second.provider, id: second.id });
   });
 
+  it("applies an OpenAI-compatible endpoint through Pi", async () => {
+    const registerProvider = vi.fn();
+    const unregisterProvider = vi.fn();
+    const runtime = {
+      ...fakeModelRuntime([]),
+      registerProvider,
+      unregisterProvider,
+    } as unknown as ModelRuntime;
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-model-endpoint-")),
+      createModelRuntime: async () => runtime,
+    });
+    apps.push(app);
+
+    const initial = await app.inject({ method: "GET", url: "/settings/models/providers/openai/endpoint" });
+    const custom = await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/openai/endpoint",
+      payload: { baseUrl: "https://relay.example/v1" },
+    });
+    const official = await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/openai/endpoint",
+      payload: { baseUrl: "https://api.openai.com/v1" },
+    });
+
+    expect(initial.json()).toEqual({ baseUrl: "https://api.openai.com/v1" });
+    expect(custom.json()).toEqual({ baseUrl: "https://relay.example/v1" });
+    expect(official.json()).toEqual({ baseUrl: "https://api.openai.com/v1" });
+    expect(registerProvider).toHaveBeenCalledWith("openai", { baseUrl: "https://relay.example/v1" });
+    expect(unregisterProvider).toHaveBeenCalledWith("openai");
+  });
+
   it("validates request bodies before they reach a manager", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
