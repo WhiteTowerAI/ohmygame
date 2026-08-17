@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, session, shell, type BrowserWindow } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
+import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, waitForRenderer } from "./window.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,7 @@ try {
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
     runtimeBin: app.isPackaged ? path.join(process.resourcesPath, "runtime/node/bin") : undefined,
-    environment: app.isPackaged ? packagedEnvironment() : undefined,
+    environment: app.isPackaged ? await packagedEnvironment() : undefined,
   });
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
@@ -64,14 +65,20 @@ try {
   app.exit(1);
 }
 
-function packagedEnvironment(): NodeJS.ProcessEnv {
+async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
-  if (environment.PUBLISH_API_URL) return environment;
-  const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
-    publishApiUrl?: unknown;
-  };
-  if (typeof config.publishApiUrl === "string" && config.publishApiUrl) {
-    environment.PUBLISH_API_URL = config.publishApiUrl;
+  try {
+    await applySystemProxy(environment, (url) => session.defaultSession.resolveProxy(url));
+  } catch (error) {
+    console.warn("Could not resolve the system proxy", error);
+  }
+  if (!environment.PUBLISH_API_URL) {
+    const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
+      publishApiUrl?: unknown;
+    };
+    if (typeof config.publishApiUrl === "string" && config.publishApiUrl) {
+      environment.PUBLISH_API_URL = config.publishApiUrl;
+    }
   }
   return environment;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { proxyOptionsFromEnvironment } from "../src/daemon/proxy.js";
+import { applySystemProxy, proxyUrlFromElectron } from "../src/desktop/system-proxy.js";
 
 describe("proxyOptionsFromEnvironment", () => {
   it("does nothing without an HTTP proxy", () => {
@@ -27,5 +28,29 @@ describe("proxyOptionsFromEnvironment", () => {
       httpProxy: "http://upper-http.test",
       httpsProxy: "http://upper-https.test",
     });
+  });
+});
+
+describe("Electron system proxy", () => {
+  it("uses the first supported proxy", () => {
+    expect(proxyUrlFromElectron("SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:7890; DIRECT"))
+      .toBe("http://127.0.0.1:7890");
+    expect(proxyUrlFromElectron("HTTPS proxy.example:443; DIRECT"))
+      .toBe("https://proxy.example");
+  });
+
+  it("passes the system proxy to the daemon environment", async () => {
+    const environment: NodeJS.ProcessEnv = {};
+    await applySystemProxy(environment, async () => "PROXY 127.0.0.1:7890; DIRECT");
+    expect(environment).toMatchObject({
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+    });
+  });
+
+  it("preserves an explicit proxy environment", async () => {
+    const environment = { HTTPS_PROXY: "http://explicit.test:8080" };
+    await applySystemProxy(environment, async () => "PROXY 127.0.0.1:7890");
+    expect(environment).toEqual({ HTTPS_PROXY: "http://explicit.test:8080" });
   });
 });
