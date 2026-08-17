@@ -373,6 +373,15 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get<{ Params: { gameId: string } }>("/community/games/:gameId", async (request, reply) => {
+    try {
+      return await publisher.communityGame(request.params.gameId);
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });

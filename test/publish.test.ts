@@ -267,6 +267,26 @@ describe("remote publish", () => {
     expect(publishFetch).toHaveBeenCalledOnce();
   });
 
+  it("loads a remote Community game by id", async () => {
+    const game = communityGame("game 1");
+    const publishFetch = vi.fn(async () => Response.json(game));
+    const daemon = createApp({
+      dataDirectory: await temporary("open-game-daemon-"),
+      publishApiUrl: "https://publish.example",
+      publishFetch,
+    });
+    apps.push(daemon);
+
+    const response = await daemon.inject({ method: "GET", url: "/community/games/game%201" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(game);
+    expect(publishFetch).toHaveBeenCalledWith(
+      "https://publish.example/v1/community/games/game%201",
+      expect.anything(),
+    );
+  });
+
   it("rejects an artifact larger than the publish limit before upload", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);

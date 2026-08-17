@@ -39,6 +39,10 @@ export class RemotePublisher {
     return this.#request("/v1/community/games");
   }
 
+  async communityGame(gameId: string): Promise<CommunityGame> {
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}`);
+  }
+
   async #game(project: ProjectState, accessToken: string): Promise<PublishGame> {
     let game: PublishGame;
     const gameId = project.publication?.gameId ?? (await this.#createGame(project, accessToken)).id;

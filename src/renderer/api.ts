@@ -126,6 +126,10 @@ export async function listCommunityGames(): Promise<CommunityGame[]> {
   return request("/community/games");
 }
 
+export async function getCommunityGame(gameId: string): Promise<CommunityGame> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`);
+}
+
 export async function listTools(): Promise<ToolDefinition[]> {
   return request("/tools");
 }

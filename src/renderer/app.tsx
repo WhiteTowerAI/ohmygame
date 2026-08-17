@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Community } from "./community.js";
+import { Community, CommunityGamePlayer } from "./community.js";
 import { EmptyPage } from "./empty-page.js";
 import { Home } from "./home.js";
 import { ProjectShell } from "./project-shell.js";
-import { conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
+import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { ImagesPage } from "./tools.js";
 import type { PromptImage } from "../shared/contracts.js";
 
@@ -24,7 +24,8 @@ export function App() {
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
-  if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} />;
+  if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
+  if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
   if (route.page === "images") return <ImagesPage onNavigate={navigateToSidebarPage} />;
   if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
   return (
@@ -67,6 +68,16 @@ export function App() {
   function goHome(): void {
     window.history.pushState(null, "", "#/");
     setRoute({ page: "home" });
+  }
+
+  function openCommunityGame(gameId: string): void {
+    window.history.pushState(null, "", communityGameHash(gameId));
+    setRoute({ page: "community-game", gameId });
+  }
+
+  function goToCommunity(): void {
+    window.history.replaceState(null, "", sidebarHash("community"));
+    setRoute({ page: "community" });
   }
 
   function navigateToSidebarPage(page: SidebarPage): void {

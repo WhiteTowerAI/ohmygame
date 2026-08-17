@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationHash, parseAppRoute, projectHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -25,10 +25,17 @@ describe("renderer routes", () => {
     expect(conversationHash("project 1", "chat 1")).toBe("#/projects/project%201/conversations/chat%201");
   });
 
+  it("parses and formats Community game routes", () => {
+    expect(parseAppRoute("#/community/games/game%201")).toEqual({ page: "community-game", gameId: "game 1" });
+    expect(communityGameHash("game 1")).toBe("#/community/games/game%201");
+  });
+
   it("rejects malformed project routes", () => {
     expect(parseAppRoute("#/projects/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/one/more")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/one/conversations/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/%")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/community/games/")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/community/games/%")).toEqual({ page: "home" });
   });
 });

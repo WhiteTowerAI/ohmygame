@@ -3248,26 +3248,21 @@ textarea:focus-visible {
 
 .community-error { color: var(--danger); }
 
-.game-player {
-  position: fixed;
-  inset: 18px;
-  z-index: 5;
+.community-player-page {
   display: flex;
+  width: 100%;
+  height: 100dvh;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
   background: #090a0c;
-  box-shadow: 0 24px 80px rgb(0 0 0 / 60%);
 }
 
-.game-player header {
-  display: flex;
+.community-player-header {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) minmax(0, 2fr) minmax(112px, 1fr);
   flex: 0 0 50px;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--border);
@@ -3275,12 +3270,53 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
-.game-player header div {
-  display: flex;
-  gap: 7px;
+.community-player-header > strong {
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.game-player iframe {
+.community-player-header > .icon-button {
+  justify-self: end;
+}
+
+.community-player-back {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.community-player-back:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.desktop-macos .community-player-header {
+  padding-left: 88px;
+  app-region: drag;
+  user-select: none;
+}
+
+.desktop-macos .community-player-header button {
+  app-region: no-drag;
+}
+
+.community-player-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.community-player-stage iframe {
   flex: 1;
   width: 100%;
   min-height: 0;
@@ -3628,7 +3664,9 @@ textarea:focus-visible {
   body { overflow: auto; }
 
   .community-content { width: min(100% - 24px, 1120px); }
-  .game-player { inset: 8px; }
+  .community-player-header {
+    grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr) 32px;
+  }
 
   .home-shell {
     grid-template-columns: 1fr;
