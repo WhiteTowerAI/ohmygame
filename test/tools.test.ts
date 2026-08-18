@@ -265,18 +265,23 @@ describe("tool runner", () => {
     const app = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
     apps.push(app);
 
-    expect((await app.inject({ method: "GET", url: "/tool-settings" })).json()).toEqual({ enabledTools: [] });
+    expect((await app.inject({ method: "GET", url: "/tool-settings" })).json()).toEqual({ installedTools: [], enabledTools: [] });
     const update = await app.inject({
       method: "PUT",
       url: "/tool-settings",
-      payload: { enabledTools: ["generate-image", "image-to-3d"] },
+      payload: { installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] },
     });
     expect(update.statusCode).toBe(200);
-    expect(update.json()).toEqual({ enabledTools: ["generate-image", "image-to-3d"] });
+    expect(update.json()).toEqual({ installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] });
     expect((await app.inject({
       method: "PUT",
       url: "/tool-settings",
-      payload: { enabledTools: ["missing"] },
+      payload: { installedTools: ["missing"], enabledTools: [] },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "PUT",
+      url: "/tool-settings",
+      payload: { installedTools: [], enabledTools: ["generate-image"] },
     })).statusCode).toBe(400);
 
     await app.close();
@@ -284,7 +289,7 @@ describe("tool runner", () => {
     const restarted = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
     apps.push(restarted);
     expect((await restarted.inject({ method: "GET", url: "/tool-settings" })).json())
-      .toEqual({ enabledTools: ["generate-image", "image-to-3d"] });
+      .toEqual({ installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] });
   });
 });
 

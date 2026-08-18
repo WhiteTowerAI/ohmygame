@@ -269,6 +269,7 @@ export interface ImageTo3DToolDefinition extends BaseToolDefinition {
 export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition;
 
 export interface ToolSettings {
+  installedTools: ToolDefinition["id"][];
   enabledTools: ToolDefinition["id"][];
 }
 

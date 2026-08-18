@@ -9,11 +9,11 @@ import { ToolRunner } from "../src/daemon/tools.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
-    expect(activePiToolNames({ enabledTools: [] })).toEqual(["read", "write", "edit", "bash"]);
-    expect(activePiToolNames({ enabledTools: ["generate-image"] })).toEqual([
+    expect(activePiToolNames({ installedTools: [], enabledTools: [] })).toEqual(["read", "write", "edit", "bash"]);
+    expect(activePiToolNames({ installedTools: ["generate-image"], enabledTools: ["generate-image"] })).toEqual([
       "read", "write", "edit", "bash", "generate_image",
     ]);
-    expect(activePiToolNames({ enabledTools: ["image-to-3d"] })).toEqual([
+    expect(activePiToolNames({ installedTools: ["image-to-3d"], enabledTools: ["image-to-3d"] })).toEqual([
       "read", "write", "edit", "bash", "generate_3d_asset",
     ]);
   });

@@ -21,7 +21,7 @@ import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
 import { ConfiguredImageGenerator, type ImageGenerator } from "./openai-image.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { ToolSettingsStore } from "./tool-settings.js";
+import { InvalidToolSettingsError, ToolSettingsStore } from "./tool-settings.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -190,8 +190,13 @@ const toolSettingsSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    required: ["enabledTools"],
+    required: ["installedTools", "enabledTools"],
     properties: {
+      installedTools: {
+        type: "array",
+        uniqueItems: true,
+        items: { type: "string", enum: ["generate-image", "image-to-3d"] },
+      },
       enabledTools: {
         type: "array",
         uniqueItems: true,
@@ -344,8 +349,13 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/tool-settings", async () => toolSettings.get());
 
-  app.put<{ Body: ToolSettings }>("/tool-settings", { schema: toolSettingsSchema }, async (request) => {
-    return toolSettings.update(request.body.enabledTools);
+  app.put<{ Body: ToolSettings }>("/tool-settings", { schema: toolSettingsSchema }, async (request, reply) => {
+    try {
+      return await toolSettings.update(request.body);
+    } catch (cause) {
+      if (cause instanceof InvalidToolSettingsError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
   });
 
   app.post<{ Params: { toolId: string }; Body: RunToolRequest }>(

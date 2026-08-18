@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Community, CommunityGamePlayer } from "./community.js";
 import { EmptyPage } from "./empty-page.js";
 import { Home } from "./home.js";
+import { PluginsPage } from "./plugins.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { ImagesPage } from "./tools.js";
@@ -26,6 +27,7 @@ export function App() {
   }
   if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
+  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "images" || route.page === "3d") return <ImagesPage page={route.page} onNavigate={navigateToSidebarPage} />;
   if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
   return (

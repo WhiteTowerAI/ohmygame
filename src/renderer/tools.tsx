@@ -1,4 +1,4 @@
-import { Box, Download, FolderInput, Image, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, Upload, X } from "lucide-react";
+import { Box, Check, Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ImageSize, ProjectState, PromptImage, ToolDefinition, ToolRun } from "../shared/contracts.js";
 import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
@@ -16,6 +16,7 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [selectedTool, setSelectedTool] = useState<ToolDefinition>();
+  const [installedTools, setInstalledTools] = useState<ToolDefinition["id"][]>([]);
   const [enabledTools, setEnabledTools] = useState<ToolDefinition["id"][]>([]);
   const [updatingTool, setUpdatingTool] = useState<ToolDefinition["id"]>();
   const [settingsError, setSettingsError] = useState<string>();
@@ -27,6 +28,7 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
       await waitForRuntime();
       const [loadedTools, settings] = await Promise.all([listTools(), getToolSettings()]);
       setTools(loadedTools.filter((tool) => tool.category === page));
+      setInstalledTools(settings.installedTools);
       setEnabledTools(settings.enabledTools);
       setPhase("ready");
     } catch (cause) {
@@ -37,14 +39,16 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
 
   useEffect(() => { void load(); }, [page]);
 
-  async function toggleTool(tool: ToolDefinition) {
-    if (updatingTool) return;
+  async function installTool(tool: ToolDefinition) {
+    if (updatingTool || installedTools.includes(tool.id)) return;
     setUpdatingTool(tool.id);
     setSettingsError(undefined);
-    const enabled = enabledTools.includes(tool.id);
-    const next = enabled ? enabledTools.filter((id) => id !== tool.id) : [...enabledTools, tool.id];
     try {
-      const settings = await updateToolSettings({ enabledTools: next });
+      const settings = await updateToolSettings({
+        installedTools: [...installedTools, tool.id],
+        enabledTools: [...enabledTools, tool.id],
+      });
+      setInstalledTools(settings.installedTools);
       setEnabledTools(settings.enabledTools);
     } catch (cause) {
       setSettingsError(errorMessage(cause));
@@ -75,7 +79,7 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
         {phase === "ready" ? (
           <div className="tools-grid">
             {tools.map((tool) => {
-              const enabled = enabledTools.includes(tool.id);
+              const installed = installedTools.includes(tool.id);
               const updating = updatingTool === tool.id;
               return (
                 <article className="tool-card" key={tool.id}>
@@ -91,11 +95,11 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
                     <button
                       className="tool-agent-toggle"
                       type="button"
-                      disabled={Boolean(updatingTool)}
-                      onClick={() => void toggleTool(tool)}
+                      disabled={Boolean(updatingTool) || installed}
+                      onClick={() => void installTool(tool)}
                     >
-                      {updating ? <LoaderCircle className="spin" size={13} /> : enabled ? <Minus size={13} /> : <Plus size={13} />}
-                      {enabled ? "Remove from Agent" : "Add to Agent"}
+                      {updating ? <LoaderCircle className="spin" size={13} /> : installed ? <Check size={13} /> : null}
+                      {updating ? "Installing…" : installed ? "Installed" : "Install"}
                     </button>
                   </div>
                 </article>

@@ -414,8 +414,8 @@ describe("renderer tools API", () => {
 
   it("loads and updates agent tool settings", async () => {
     installWindow();
-    const disabled = { enabledTools: [] };
-    const enabled = { enabledTools: ["generate-image"] };
+    const disabled = { installedTools: [], enabledTools: [] };
+    const enabled = { installedTools: ["generate-image"], enabledTools: ["generate-image"] };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json(disabled))
       .mockResolvedValueOnce(Response.json(enabled));
