@@ -175,7 +175,7 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
   return (
     <section className="work-activity work-activity-active">
       <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
-        <LoaderCircle className={display.working ? undefined : "spin"} size={12} aria-hidden="true" />
+        {display.working ? null : <LoaderCircle className="spin" size={12} aria-hidden="true" />}
         <span>{display.working ? `Working for ${activeTurnDuration(display, now)}` : thinkingLabel(display.thinkingText)}</span>
       </div>
       {hasContent ? (

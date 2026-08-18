@@ -33,7 +33,7 @@ describe("AgentTimeline", () => {
     );
 
     expect(html).toContain("Working for");
-    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain(" spin");
+    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("lucide-loader-circle");
     expect(html).toContain("Thinking");
     expect(html).not.toContain("Read package.json");
     expect(html).not.toContain("tool-activity-group");
