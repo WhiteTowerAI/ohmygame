@@ -310,10 +310,11 @@ export async function sendPrompt(
 }
 
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
-  await request(`/projects/${projectId}/conversations/${conversationId}/pending-prompt`, {
-    method: "DELETE",
-    body: JSON.stringify({ turnId }),
-  });
+  await request(`/projects/${projectId}/conversations/${conversationId}/queue/${turnId}`, { method: "DELETE" });
+}
+
+export async function steerPendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/queue/${turnId}/steer`, { method: "POST" });
 }
 
 export async function cancelPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {

@@ -203,18 +203,21 @@ describe("AgentManager", () => {
     const firstRun = manager.prompt(project, conversation, "First").result;
     expect(manager.state(conversation).agent.status).toBe("running");
     const queued = manager.prompt(project, conversation, "Second");
+    await queued.result;
     expect(queued).toMatchObject({ queued: true, turnId: expect.any(String) });
-    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toMatchObject({ prompt: "Second" });
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([
+      expect.objectContaining({ prompt: "Second" }),
+    ]);
 
     prompt.resolve();
     await expect(firstRun).resolves.toBe("completed");
-    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledTimes(2));
-    expect(session.prompt).toHaveBeenNthCalledWith(2, "Second");
-    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toBeUndefined();
+    expect(session.prompt).toHaveBeenCalledOnce();
+    expect(session.followUp).toHaveBeenCalledWith("Second", undefined);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
     await manager.close();
   });
 
-  it("replaces and removes the single pending follow-up", async () => {
+  it("keeps and removes multiple pending follow-ups", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
     session.prompt.mockImplementation(() => prompt.promise);
@@ -226,19 +229,152 @@ describe("AgentManager", () => {
     const run = manager.prompt(project, conversation, "First").result;
     const stale = manager.prompt(project, conversation, "Second");
     const replacement = manager.prompt(project, conversation, "Replacement", [{ type: "workspace-file", path: "src/app.ts" }]);
-    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toMatchObject({
-      prompt: "Replacement",
-      references: [{ type: "workspace-file", path: "src/app.ts" }],
-    });
+    await Promise.all([stale.result, replacement.result]);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([
+      expect.objectContaining({ prompt: "Second" }),
+      expect.objectContaining({ prompt: "Replacement", references: [{ type: "workspace-file", path: "src/app.ts" }] }),
+    ]);
 
-    expect(manager.removePending(project.id, conversation.summary.id, stale.turnId)).toBe(false);
-    expect(manager.pendingPrompt(project.id, conversation.summary.id)?.turnId).toBe(replacement.turnId);
-    expect(manager.removePending(project.id, conversation.summary.id, replacement.turnId)).toBe(true);
-    expect(manager.pendingPrompt(project.id, conversation.summary.id)).toBeUndefined();
+    expect(await manager.removePending(project.id, conversation.summary.id, "stale-turn")).toBe(false);
+    expect(await manager.removePending(project.id, conversation.summary.id, replacement.turnId)).toBe(true);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([
+      expect.objectContaining({ turnId: stale.turnId, prompt: "Second" }),
+    ]);
     expect(events.since(project.id).at(-1)?.type).toBe("prompt.removed");
     prompt.resolve();
     await run;
     expect(session.prompt).toHaveBeenCalledOnce();
+    await manager.close();
+  });
+
+  it("steers and removes queued messages through Pi", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const second = manager.prompt(project, conversation, "Second");
+    const third = manager.prompt(project, conversation, "Third");
+    await Promise.all([second.result, third.result]);
+    expect(session.followUp.mock.calls.map(([message]) => message)).toEqual(["Second", "Third"]);
+
+    session.clearQueue.mockClear();
+    session.followUp.mockClear();
+    await manager.steerPending(project.id, conversation.summary.id, third.turnId);
+    expect(session.clearQueue).toHaveBeenCalledOnce();
+    expect(session.steer).toHaveBeenLastCalledWith("Third", undefined);
+    expect(session.followUp).toHaveBeenCalledWith("Second", undefined);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id).map(({ turnId }) => turnId)).toEqual([second.turnId]);
+
+    session.steer.mockClear();
+    await manager.removePending(project.id, conversation.summary.id, second.turnId);
+    expect(session.steer).toHaveBeenCalledWith("Third", undefined);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+
+    prompt.resolve();
+    await run;
+    await manager.close();
+  });
+
+  it("keeps local queue state unchanged when Pi cannot replay a removal", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const second = manager.prompt(project, conversation, "Second");
+    const third = manager.prompt(project, conversation, "Third");
+    await Promise.all([second.result, third.result]);
+    session.followUp.mockRejectedValueOnce(new Error("Queue unavailable"));
+
+    await expect(manager.removePending(project.id, conversation.summary.id, second.turnId)).rejects.toThrow("Queue unavailable");
+    expect(manager.pendingPrompts(project.id, conversation.summary.id).map(({ turnId }) => turnId)).toEqual([second.turnId, third.turnId]);
+
+    prompt.resolve();
+    await run;
+    await manager.close();
+  });
+
+  it("clears Pi messages left behind when a run ends early", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const queued = manager.prompt(project, conversation, "Second");
+    await queued.result;
+    prompt.resolve();
+    await run;
+
+    expect(session.clearQueue).toHaveBeenCalledOnce();
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+    await manager.close();
+  });
+
+  it("starts the queued UI turn when Pi begins an expanded user message", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const queued = manager.prompt(project, conversation, "Second");
+    await queued.result;
+    session.emit({ type: "message_start", message: { role: "user", content: "Expanded by Pi", timestamp: Date.now() } } as AgentSessionEvent);
+
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+    expect(manager.state(conversation).agent).toEqual({ status: "running", turnId: queued.turnId });
+    expect(events.since(project.id).slice(-2)).toEqual([
+      expect.objectContaining({ type: "prompt.removed", turnId: queued.turnId }),
+      expect.objectContaining({ type: "agent.started", turnId: queued.turnId, data: { prompt: "Second" } }),
+    ]);
+
+    prompt.resolve();
+    await run;
+    await manager.close();
+  });
+
+  it("cleans up a follow-up that races with run completion", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    const followUpRelease = deferred<void>();
+    const queuedInPi: string[] = [];
+    session.prompt.mockImplementation(() => prompt.promise);
+    session.followUp.mockImplementation(async (message) => {
+      await followUpRelease.promise;
+      queuedInPi.push(message);
+    });
+    session.clearQueue.mockImplementation(() => {
+      queuedInPi.length = 0;
+      return { steering: [], followUp: [] };
+    });
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    const queued = manager.prompt(project, conversation, "Second");
+    await vi.waitFor(() => expect(session.followUp).toHaveBeenCalledOnce());
+    prompt.resolve();
+    await Promise.resolve();
+    followUpRelease.resolve();
+    await Promise.all([run, queued.result]);
+
+    expect(session.clearQueue).toHaveBeenCalledOnce();
+    expect(queuedInPi).toEqual([]);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
     await manager.close();
   });
 
@@ -494,6 +630,9 @@ class FakeSession implements CodingSession {
   messages: unknown[] = [];
   thinkingLevel: AgentReasoningLevel = "medium";
   prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+  followUp = vi.fn<NonNullable<CodingSession["followUp"]>>(async () => {});
+  steer = vi.fn<NonNullable<CodingSession["steer"]>>(async () => {});
+  clearQueue = vi.fn<NonNullable<CodingSession["clearQueue"]>>(() => ({ steering: [], followUp: [] }));
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});

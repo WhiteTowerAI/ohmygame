@@ -1,15 +1,16 @@
-import { ArrowUp, Pencil, Square, X } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { useRef, useState } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PromptImage } from "../shared/contracts.js";
-import { composerImages, ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
+import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
+import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
 
 interface ComposerProps {
   conversationReady: boolean;
   running: boolean;
   stopping: boolean;
-  pendingPrompt?: PendingPrompt;
+  pendingPrompts: PendingPrompt[];
   notice?: string;
   models: AgentModel[];
   model?: AgentModelRef;
@@ -20,13 +21,14 @@ interface ComposerProps {
   onReasoningChange: (level: AgentReasoningLevel) => void;
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
+  onSteerPending: (turnId: string) => Promise<boolean>;
 }
 
 export function Composer({
   conversationReady,
   running,
   stopping,
-  pendingPrompt,
+  pendingPrompts,
   notice,
   models,
   model,
@@ -37,6 +39,7 @@ export function Composer({
   onReasoningChange,
   onStop,
   onRemovePending,
+  onSteerPending,
 }: ComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<ComposerImage[]>([]);
@@ -46,7 +49,8 @@ export function Composer({
   async function submit() {
     const value = prompt.trim();
     if (!conversationReady || (!value && images.length === 0) || stopping) return;
-    if (await onSubmit(value, promptImages(images))) {
+    const submitted = await onSubmit(value, promptImages(images));
+    if (submitted) {
       setPrompt("");
       setImages([]);
       setAttachmentError(undefined);
@@ -58,34 +62,12 @@ export function Composer({
 
   return (
     <div className="composer">
-      {pendingPrompt ? (
-        <div className="pending-prompt">
-          <div>
-            <span>Up next</span>
-            <p>{pendingPrompt.prompt || `${pendingPrompt.images.length} image${pendingPrompt.images.length === 1 ? "" : "s"}`}</p>
-          </div>
-          <div className="pending-prompt-actions">
-            <button
-              type="button"
-              onClick={() => { void (async () => {
-                if (!(await onRemovePending(pendingPrompt.turnId))) return;
-                setPrompt(pendingPrompt.prompt);
-                setImages(composerImages(pendingPrompt.images));
-                queueMicrotask(() => {
-                  textarea.current?.focus();
-                });
-              })(); }}
-              title="Edit follow-up"
-              aria-label="Edit follow-up"
-            >
-              <Pencil size={13} />
-            </button>
-            <button type="button" onClick={() => { void onRemovePending(pendingPrompt.turnId); }} title="Remove follow-up" aria-label="Remove follow-up">
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <MessageQueue
+        items={pendingPrompts}
+        disabled={!running || stopping}
+        onRemove={(turnId) => { void onRemovePending(turnId); }}
+        onSteer={(turnId) => { void onSteerPending(turnId); }}
+      />
       {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
       <PromptBox
         actions={(

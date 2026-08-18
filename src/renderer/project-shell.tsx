@@ -28,6 +28,7 @@ import {
   removePendingPrompt,
   renameConversation,
   sendPrompt,
+  steerPendingPrompt,
   setConversationModel,
   setConversationReasoning,
   startPreview,
@@ -147,7 +148,7 @@ export function ProjectShell({
           conversation: detail.conversation,
           items: detail.items,
           activeTurn: detail.activeTurn,
-          pendingPrompt: detail.pendingPrompt,
+          pendingPrompts: detail.pendingPrompts,
           cursor: detail.cursor,
         });
         return detail.cursor;
@@ -179,7 +180,7 @@ export function ProjectShell({
           conversation: detail.conversation,
           items: detail.items,
           activeTurn: detail.activeTurn,
-          pendingPrompt: detail.pendingPrompt,
+          pendingPrompts: detail.pendingPrompts,
           cursor: detail.cursor,
         });
         subscribe(detail.cursor, selected.id);
@@ -226,7 +227,7 @@ export function ProjectShell({
           conversation: detail.conversation,
           items: detail.items,
           activeTurn: detail.activeTurn,
-          pendingPrompt: detail.pendingPrompt,
+          pendingPrompts: detail.pendingPrompts,
           cursor: detail.cursor,
         });
         if (!disposed) subscribe(detail.cursor, requestedConversation.id);
@@ -324,6 +325,17 @@ export function ProjectShell({
     if (!project || !conversation) return false;
     try {
       await removePendingPrompt(project.id, conversation.id, turnId);
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function steerFollowUp(turnId: string): Promise<boolean> {
+    if (!project || !conversation) return false;
+    try {
+      await steerPendingPrompt(project.id, conversation.id, turnId);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -490,7 +502,7 @@ export function ProjectShell({
             conversationReady={Boolean(conversation) && !anotherConversationBusy && state.connection === "open"}
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
-            pendingPrompt={state.pendingPrompt}
+            pendingPrompts={state.pendingPrompts}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
             model={conversation?.model}
@@ -501,6 +513,7 @@ export function ProjectShell({
             onReasoningChange={(level) => void changeReasoning(level)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
+            onSteerPending={steerFollowUp}
           />
         </div>
       </section>

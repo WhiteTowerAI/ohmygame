@@ -18,6 +18,9 @@ import type { StoredConversation } from "./conversations.js";
 export interface CodingSession {
   readonly messages: readonly unknown[];
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
+  followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
+  steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
+  clearQueue?(): { steering: string[]; followUp: string[] };
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
@@ -150,17 +153,19 @@ interface ActiveTurn {
 }
 
 interface QueuedPrompt extends PendingPrompt {
-  project: ProjectState;
-  conversation: StoredConversation;
+  wirePrompt: string;
   queuedEventId: number;
 }
 
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
+  readonly #sessionLoads = new Map<string, { conversationId: string; promise: Promise<ManagedSession> }>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #conversationStates = new Map<string, ConversationState["agent"]>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
-  readonly #pendingPrompts = new Map<string, QueuedPrompt>();
+  readonly #pendingPrompts = new Map<string, QueuedPrompt[]>();
+  readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
+  readonly #queueMutations = new Map<string, Promise<void>>();
   #closing = false;
 
   constructor(
@@ -218,7 +223,7 @@ export class AgentManager {
     references: PromptReference[] = [],
     images: PromptImage[] = [],
     turnId = randomUUID(),
-  ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult> } {
+  ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
     if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const active = this.#activeTurns.get(project.id);
@@ -226,18 +231,33 @@ export class AgentManager {
       if (active.conversationId !== conversation.summary.id) throw new Error("Agent is already running in this project");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
       const key = conversationKey(project.id, conversation.summary.id);
-      const previous = this.#pendingPrompts.get(key);
-      if (previous?.images.length) this.events.expireThrough(project.id, previous.queuedEventId);
-      const event = this.events.publish(
-        project.id,
-        "prompt.queued",
-        { prompt, references, ...(images.length ? { images } : {}) },
-        { conversationId: conversation.summary.id, turnId },
-        images.length ? { prompt, references } : undefined,
-      );
-      const queued = { turnId, prompt, references, images, project, conversation, queuedEventId: event.id };
-      this.#pendingPrompts.set(key, queued);
-      return { turnId, queued: true };
+      const wirePrompt = promptWithReferences(prompt, references);
+      const result = this.#withQueueMutation(key, async () => {
+        const event = this.events.publish(
+          project.id,
+          "prompt.queued",
+          { prompt, references, ...(images.length ? { images } : {}) },
+          { conversationId: conversation.summary.id, turnId },
+          images.length ? { prompt, references } : undefined,
+        );
+        const queued = { turnId, prompt, references, images, wirePrompt, queuedEventId: event.id };
+        this.#pendingPrompts.set(key, [...(this.#pendingPrompts.get(key) ?? []), queued]);
+        try {
+          const managed = await this.#getSession(project, conversation);
+          const current = this.#activeTurns.get(project.id);
+          if (!current || current.conversationId !== conversation.summary.id || current.status !== "running") {
+            throw new Error("Agent run is no longer active");
+          }
+          if (!managed.session.followUp) throw new Error("The current agent session cannot queue follow-ups");
+          await managed.session.followUp(wirePrompt, images.length ? images.map(toPiImage) : undefined);
+        } catch (cause) {
+          const pending = this.#pendingPrompts.get(key) ?? [];
+          this.#pendingPrompts.set(key, pending.filter((item) => item.turnId !== turnId));
+          this.events.publish(project.id, "prompt.removed", {}, { conversationId: conversation.summary.id, turnId });
+          throw cause;
+        }
+      });
+      return { turnId, queued: true, result };
     }
 
     this.#pendingPrompts.delete(conversationKey(project.id, conversation.summary.id));
@@ -265,12 +285,20 @@ export class AgentManager {
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
-    const run = this.#runPrompt(project, conversation, promptWithReferences(prompt, references), images, active);
-    this.#runs.add(run);
-    void run.then(
-      (result) => this.#finishRun(project, active, run, result),
-      () => this.#finishRun(project, active, run),
+    const execution = this.#runPrompt(project, conversation, promptWithReferences(prompt, references), images, active);
+    let run: Promise<AgentRunResult>;
+    run = execution.then(
+      async (result) => {
+        await this.#finishRun(project, active, run, result);
+        return result;
+      },
+      async (cause) => {
+        await this.#finishRun(project, active, run);
+        throw cause;
+      },
     );
+    this.#runs.add(run);
+    void run.catch(() => {});
     return run;
   }
 
@@ -323,31 +351,113 @@ export class AgentManager {
     if (!active || active.conversationId !== conversationId || active.turnId !== turnId || active.status !== "running") return;
     active.status = "cancelling";
     this.#setState(projectId, conversationId, { status: "cancelling", turnId });
-    this.#clearPending(projectId, conversationId);
     const managed = this.#sessions.get(projectId);
-    if (managed?.conversationId === conversationId) await managed.session.abort();
+    if (managed?.conversationId === conversationId) {
+      const key = conversationKey(projectId, conversationId);
+      await this.#withQueueMutation(key, async () => {
+        managed.session.clearQueue?.();
+        this.#clearPending(projectId, conversationId);
+      });
+      await managed.session.abort();
+    } else {
+      this.#clearPending(projectId, conversationId);
+    }
   }
 
-  removePending(projectId: string, conversationId: string, turnId: string): boolean {
+  async removePending(projectId: string, conversationId: string, turnId: string): Promise<boolean> {
     const key = conversationKey(projectId, conversationId);
-    const pending = this.#pendingPrompts.get(key);
-    if (!pending || pending.turnId !== turnId) return false;
-    this.#clearPending(projectId, conversationId);
-    return true;
+    return this.#withQueueMutation(key, async () => {
+      const current = this.#pendingPrompts.get(key) ?? [];
+      const index = current.findIndex((item) => item.turnId === turnId);
+      if (index < 0) return false;
+      const removed = current[index];
+      const pending = current.filter((item) => item.turnId !== turnId);
+      const steering = this.#steeringPrompts.get(key) ?? [];
+      await this.#rebuildQueue(projectId, conversationId, steering, pending);
+      this.#pendingPrompts.set(key, pending);
+      if (removed.images.length) this.events.expireThrough(projectId, removed.queuedEventId);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId });
+      return true;
+    });
+  }
+
+  async steerPending(projectId: string, conversationId: string, turnId: string): Promise<boolean> {
+    const key = conversationKey(projectId, conversationId);
+    return this.#withQueueMutation(key, async () => {
+      const current = this.#pendingPrompts.get(key) ?? [];
+      const index = current.findIndex((item) => item.turnId === turnId);
+      if (index < 0) return false;
+      const steering = [
+        ...(this.#steeringPrompts.get(key) ?? []),
+        current[index],
+      ];
+      const pending = current.filter((item) => item.turnId !== turnId);
+      await this.#rebuildQueue(projectId, conversationId, steering, pending);
+      this.#steeringPrompts.set(key, steering);
+      this.#pendingPrompts.set(key, pending);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId });
+      return true;
+    });
+  }
+
+  async #rebuildQueue(
+    projectId: string,
+    conversationId: string,
+    steering: readonly QueuedPrompt[],
+    pending: readonly QueuedPrompt[],
+  ): Promise<void> {
+    const active = this.#activeTurns.get(projectId);
+    if (!active || active.conversationId !== conversationId || active.status !== "running") {
+      throw new Error("Agent run is not active");
+    }
+    const managed = this.#sessions.get(projectId);
+    if (!managed || managed.conversationId !== conversationId) throw new Error("Agent session is not active");
+    if (!managed.session.clearQueue || !managed.session.followUp || !managed.session.steer) {
+      throw new Error("The current agent session cannot modify its message queue");
+    }
+    const key = conversationKey(projectId, conversationId);
+    try {
+      await replayQueue(managed.session, steering, pending);
+    } catch (cause) {
+      try {
+        await replayQueue(managed.session, this.#steeringPrompts.get(key) ?? [], this.#pendingPrompts.get(key) ?? []);
+      } catch {
+        // Rollback is best effort because Pi has no transactional queue API.
+      }
+      throw cause;
+    }
+  }
+
+  #withQueueMutation<T>(key: string, mutate: () => Promise<T>): Promise<T> {
+    const previous = this.#queueMutations.get(key) ?? Promise.resolve();
+    const result = previous.then(mutate, mutate);
+    const settled = result.then(() => undefined, () => undefined);
+    this.#queueMutations.set(key, settled);
+    void settled.then(() => {
+      if (this.#queueMutations.get(key) === settled) this.#queueMutations.delete(key);
+    });
+    return result;
   }
 
   #clearPending(projectId: string, conversationId: string): void {
     const key = conversationKey(projectId, conversationId);
-    const pending = this.#pendingPrompts.get(key);
-    if (!pending) return;
+    const pending = this.#pendingPrompts.get(key) ?? [];
+    const steering = this.#steeringPrompts.get(key) ?? [];
     this.#pendingPrompts.delete(key);
-    if (pending.images.length) this.events.expireThrough(projectId, pending.queuedEventId);
-    this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: pending.turnId });
+    this.#steeringPrompts.delete(key);
+    for (const item of steering) {
+      if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
+    }
+    for (const item of pending) {
+      if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: item.turnId });
+    }
   }
 
-  pendingPrompt(projectId: string, conversationId: string): PendingPrompt | undefined {
-    const pending = this.#pendingPrompts.get(conversationKey(projectId, conversationId));
-    return pending ? { turnId: pending.turnId, prompt: pending.prompt, references: pending.references, images: pending.images } : undefined;
+  pendingPrompts(projectId: string, conversationId: string): PendingPrompt[] {
+    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, references, images }) => ({
+      turnId, prompt, references, images,
+    }));
   }
 
   activeItem(projectId: string, conversationId: string): Extract<AgentItem, { kind: "user" }> | undefined {
@@ -374,7 +484,8 @@ export class AgentManager {
     const active = this.#activeTurns.get(projectId);
     if (active?.conversationId === conversationId && active.turnId === turnId) return active.images;
     const pending = this.#pendingPrompts.get(conversationKey(projectId, conversationId));
-    return pending?.turnId === turnId ? pending.images : undefined;
+    const steering = this.#steeringPrompts.get(conversationKey(projectId, conversationId));
+    return [...(pending ?? []), ...(steering ?? [])].find((item) => item.turnId === turnId)?.images;
   }
 
   async close(): Promise<void> {
@@ -386,6 +497,7 @@ export class AgentManager {
     const sessions = [...this.#sessions.values()];
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
+    await Promise.allSettled([...this.#queueMutations.values()]);
     for (const managed of sessions) {
       managed.unsubscribe();
       managed.session.dispose();
@@ -393,32 +505,38 @@ export class AgentManager {
     this.#sessions.clear();
   }
 
-  #finishRun(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, result?: AgentRunResult): void {
+  async #finishRun(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, result?: AgentRunResult): Promise<void> {
     const projectId = project.id;
     this.#runs.delete(run);
-    if (this.#activeTurns.get(projectId) !== active) return;
-    this.#activeTurns.delete(projectId);
-    if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
     const key = conversationKey(projectId, active.conversationId);
-    const pending = this.#pendingPrompts.get(key);
-    if (!pending || this.#closing) {
+    await this.#withQueueMutation(key, async () => {
+      if (this.#activeTurns.get(projectId) !== active) return;
+      this.#activeTurns.delete(projectId);
+      if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
+      if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
+        this.#sessions.get(projectId)?.session.clearQueue?.();
+      }
+      this.#clearPending(projectId, active.conversationId);
       if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
-      return;
-    }
-    if (result !== "completed") {
-      this.#pendingPrompts.delete(key);
-      if (pending.images.length) this.events.expireThrough(projectId, pending.queuedEventId);
-      this.events.publish(projectId, "prompt.removed", {}, { conversationId: active.conversationId, turnId: pending.turnId });
-      return;
-    }
-    this.#pendingPrompts.delete(key);
-    if (pending.images.length) this.events.expireThrough(projectId, pending.queuedEventId);
-    this.#startPrompt(pending.project, pending.conversation, pending.prompt, pending.references, pending.images, pending.turnId);
+    });
   }
 
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
     const existing = this.#sessions.get(project.id);
     if (existing?.conversationId === conversation.summary.id) return existing;
+    const loading = this.#sessionLoads.get(project.id);
+    if (loading?.conversationId === conversation.summary.id) return loading.promise;
+    const promise = this.#loadSession(project, conversation);
+    this.#sessionLoads.set(project.id, { conversationId: conversation.summary.id, promise });
+    try {
+      return await promise;
+    } finally {
+      if (this.#sessionLoads.get(project.id)?.promise === promise) this.#sessionLoads.delete(project.id);
+    }
+  }
+
+  async #loadSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
+    const existing = this.#sessions.get(project.id);
     if (existing) {
       existing.unsubscribe();
       existing.session.dispose();
@@ -443,7 +561,33 @@ export class AgentManager {
   #forwardEvent(projectId: string, conversationId: string, event: AgentSessionEvent): void {
     const active = this.#activeTurns.get(projectId);
     if (!active || active.conversationId !== conversationId) return;
-    if (event.type === "message_start" && isAssistantMessage(event.message)) {
+    if (event.type === "message_start" && isUserMessage(event.message)) {
+      const key = conversationKey(projectId, conversationId);
+      const steering = this.#steeringPrompts.get(key) ?? [];
+      const pending = this.#pendingPrompts.get(key) ?? [];
+      const started = steering[0] ?? pending[0];
+      if (!started) return;
+      if (steering.length > 0) this.#steeringPrompts.set(key, steering.slice(1));
+      else this.#pendingPrompts.set(key, pending.slice(1));
+      if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
+      if (started.images.length) this.events.expireThrough(projectId, started.queuedEventId);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
+      active.turnId = started.turnId;
+      active.prompt = started.prompt;
+      active.images = started.images;
+      active.assistantItemId = undefined;
+      active.assistantSequence = 0;
+      this.#setState(projectId, conversationId, { status: "running", turnId: started.turnId });
+      const startedEvent = this.events.publish(
+        projectId,
+        "agent.started",
+        { prompt: started.prompt, ...(started.images.length ? { images: started.images } : {}) },
+        eventScope(active),
+        started.images.length ? { prompt: started.prompt } : undefined,
+      );
+      active.startedEventId = startedEvent.id;
+      active.startedAt = Date.parse(startedEvent.timestamp);
+    } else if (event.type === "message_start" && isAssistantMessage(event.message)) {
       active.assistantItemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
       this.events.publish(projectId, "assistant.started", { itemId: active.assistantItemId }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_start") {
@@ -599,6 +743,20 @@ function toPiImage(image: PromptImage): PiPromptImage {
   return { type: "image", mimeType: image.mediaType, data: image.data };
 }
 
+async function replayQueue(
+  session: CodingSession,
+  steering: readonly QueuedPrompt[],
+  pending: readonly QueuedPrompt[],
+): Promise<void> {
+  session.clearQueue!();
+  for (const item of steering) {
+    await session.steer!(item.wirePrompt, item.images.length ? item.images.map(toPiImage) : undefined);
+  }
+  for (const item of pending) {
+    await session.followUp!(item.wirePrompt, item.images.length ? item.images.map(toPiImage) : undefined);
+  }
+}
+
 function assistantStatus(stopReason: string): "complete" | "cancelled" | "error" {
   if (stopReason === "error") return "error";
   if (stopReason === "aborted") return "cancelled";
@@ -611,6 +769,10 @@ function isAssistantMessage(message: unknown): message is {
   errorMessage?: string;
 } {
   return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "assistant");
+}
+
+function isUserMessage(message: unknown): message is { role: "user"; content: unknown } {
+  return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "user");
 }
 
 const MAX_TOOL_OUTPUT = 12_000;

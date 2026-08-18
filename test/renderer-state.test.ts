@@ -83,9 +83,9 @@ describe("rendererReducer", () => {
       }),
     });
 
-    expect(state.pendingPrompt).toMatchObject({ prompt: "Update the layout", turnId: "turn-1" });
+    expect(state.pendingPrompts).toEqual([expect.objectContaining({ prompt: "Update the layout", turnId: "turn-1" })]);
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "prompt.removed", {}) });
-    expect(state.pendingPrompt).toBeUndefined();
+    expect(state.pendingPrompts).toEqual([]);
   });
 
   it("keeps model errors in the assistant timeline", () => {

@@ -190,6 +190,9 @@ describe("daemon", () => {
     const session: CodingSession = {
       messages: [],
       prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      followUp: async () => {},
+      steer: async () => {},
+      clearQueue: () => ({ steering: [], followUp: [] }),
       abort: async () => { finishPrompt(); },
       dispose: () => {},
       subscribe: () => () => {},
@@ -214,19 +217,55 @@ describe("daemon", () => {
 
     const stale = await app.inject({
       method: "DELETE",
-      url: `/projects/${project.id}/conversations/${conversation.id}/pending-prompt`,
-      payload: { turnId: "stale-turn" },
+      url: `/projects/${project.id}/conversations/${conversation.id}/queue/stale-turn`,
     });
     const current = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
     const removed = await app.inject({
       method: "DELETE",
-      url: `/projects/${project.id}/conversations/${conversation.id}/pending-prompt`,
-      payload: { turnId: pending.json().turnId },
+      url: `/projects/${project.id}/conversations/${conversation.id}/queue/${pending.json().turnId}`,
     });
 
     expect(stale.statusCode).toBe(409);
-    expect(current.json().pendingPrompt.turnId).toBe(pending.json().turnId);
+    expect(current.json().pendingPrompts).toEqual([
+      expect.objectContaining({ turnId: pending.json().turnId, prompt: "Second" }),
+    ]);
     expect(removed.statusCode).toBe(204);
+    finishPrompt();
+  });
+
+  it("removes and steers queued messages", async () => {
+    let finishPrompt!: () => void;
+    const followUp = vi.fn(async () => {});
+    const steer = vi.fn(async () => {});
+    const clearQueue = vi.fn(() => ({ steering: [], followUp: [] }));
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      followUp,
+      steer,
+      clearQueue,
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-queue-api-")),
+      createSession: async () => session,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "First" } });
+    const second = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Second" } })).json();
+    const third = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Third" } })).json();
+
+    const steered = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/queue/${third.turnId}/steer` });
+    const detail = (await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` })).json();
+
+    expect(steered.statusCode).toBe(204);
+    expect(detail.pendingPrompts).toEqual([expect.objectContaining({ turnId: second.turnId, prompt: "Second" })]);
+    expect(clearQueue).toHaveBeenCalledOnce();
+    expect(steer).toHaveBeenLastCalledWith("Third", undefined);
     finishPrompt();
   });
 
@@ -491,6 +530,7 @@ describe("daemon", () => {
         { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", timestamp: 1 },
       ],
       cursor: 0,
+      pendingPrompts: [],
     });
   });
 

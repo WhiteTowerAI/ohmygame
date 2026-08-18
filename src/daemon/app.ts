@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RemovePendingPromptRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -132,15 +132,6 @@ const setConversationReasoningSchema = {
   },
 } as const;
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
-
-const removePendingPromptSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["turnId"],
-    properties: { turnId: { type: "string", minLength: 1 } },
-  },
-} as const;
 
 const toolRunSchema = {
   body: {
@@ -689,7 +680,7 @@ export function createApp(options: AppOptions = {}) {
         ],
         cursor: !currentRun ? events.cursor() : restoreActiveItem ? currentRun.id : currentRun.id - 1,
         activeTurn: agents.activeTurn(project.id),
-        pendingPrompt: agents.pendingPrompt(project.id, conversation.summary.id),
+        pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
       };
     },
   );
@@ -796,6 +787,7 @@ export function createApp(options: AppOptions = {}) {
       let turn;
       try {
         turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? []);
+        if (turn.queued) await turn.result;
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -804,16 +796,37 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.delete<{ Params: { projectId: string; conversationId: string }; Body: RemovePendingPromptRequest }>(
-    "/projects/:projectId/conversations/:conversationId/pending-prompt",
-    { schema: removePendingPromptSchema },
+  app.delete<{ Params: { projectId: string; conversationId: string; turnId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/queue/:turnId",
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (!agents.removePending(project.id, conversation.summary.id, request.body.turnId)) {
-        return reply.code(409).send({ error: "Pending prompt has already changed" });
+      try {
+        if (!(await agents.removePending(project.id, conversation.summary.id, request.params.turnId))) {
+          return reply.code(409).send({ error: "Queued message has already started" });
+        }
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string; turnId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/queue/:turnId/steer",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        if (!(await agents.steerPending(project.id, conversation.summary.id, request.params.turnId))) {
+          return reply.code(409).send({ error: "Queued message has already started" });
+        }
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       return reply.code(204).send();
     },

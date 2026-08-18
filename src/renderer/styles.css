@@ -2649,7 +2649,7 @@ textarea:focus-visible {
 }
 
 .composer-image button,
-.pending-prompt button {
+.message-queue button {
   display: inline-grid;
   width: 20px;
   height: 20px;
@@ -2671,42 +2671,60 @@ textarea:focus-visible {
 }
 
 .composer-image button:hover,
-.pending-prompt button:hover { color: var(--text); }
+.message-queue button:hover:not(:disabled) { color: var(--text); }
 
-.pending-prompt {
-  display: flex;
+.message-queue {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  gap: 0;
+  margin: 0 12px;
+  padding: 5px;
+  max-height: 144px;
+  border: 0.75px solid #292b33;
+  border-radius: 12px 12px 0 0;
+  background: #1b1d23;
+  overflow-y: auto;
+}
+
+.message-queue-row {
+  position: relative;
+  display: grid;
   min-width: 0;
+  height: 27px;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 2px 8px;
-  padding: 7px 8px 7px 10px;
-  border-left: 2px solid var(--accent);
-  background: var(--surface-raised);
-}
-
-.pending-prompt div { min-width: 0; }
-
-.pending-prompt-actions {
-  display: flex;
-  flex: 0 0 auto;
-}
-
-.pending-prompt span {
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
-.pending-prompt p {
-  margin: 2px 0 0;
-  overflow: hidden;
+  column-gap: 4px;
   color: var(--text-muted);
-  font-size: 10px;
+}
+
+.message-queue-marker { color: var(--text-faint); }
+
+.message-queue-text {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.message-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-queue-actions button {
+  display: inline-flex;
+  width: auto;
+  height: 24px;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.message-queue-actions button:disabled { cursor: default; opacity: 0.45; }
 
 .icon-button {
   display: inline-grid;

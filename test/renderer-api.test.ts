@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -244,10 +244,21 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
       body: JSON.stringify({ prompt: "Review this", references: [{ type: "workspace-file", path: "src/app.ts" }] }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/pending-prompt", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/queue/turn-2", expect.objectContaining({
       method: "DELETE",
-      body: JSON.stringify({ turnId: "turn-2" }),
     }));
+  });
+
+  it("steers queued messages", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await steerPendingPrompt("project-1", "conversation-1", "turn-2");
+
+    expect(fetchMock.mock.calls.map(([url, options]) => [url, (options as RequestInit).method, (options as RequestInit).body])).toEqual([
+      ["/api/projects/project-1/conversations/conversation-1/queue/turn-2/steer", "POST", undefined],
+    ]);
   });
 
   it("renames a conversation", async () => {

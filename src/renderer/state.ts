@@ -10,7 +10,7 @@ export interface RendererState {
   project?: ProjectState;
   conversation?: ConversationState;
   activeTurn?: ActiveTurnState;
-  pendingPrompt?: PendingPrompt;
+  pendingPrompts: PendingPrompt[];
   items: TimelineItem[];
   agentThinking: boolean;
   retry?: { attempt: number; maxAttempts: number };
@@ -19,8 +19,8 @@ export interface RendererState {
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
-  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompt?: PendingPrompt; cursor: number }
+  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; cursor: number }
+  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; cursor: number }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
   | { type: "connection"; status: ConnectionStatus }
@@ -31,6 +31,7 @@ export const initialRendererState: RendererState = {
   phase: "loading",
   connection: "connecting",
   items: [],
+  pendingPrompts: [],
   agentThinking: false,
   lastEventId: 0,
 };
@@ -42,7 +43,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       phase: "ready",
       conversation: action.conversation,
       activeTurn: action.activeTurn,
-      pendingPrompt: action.pendingPrompt,
+      pendingPrompts: action.pendingPrompts ?? [],
       items: action.items,
       agentThinking: initialThinking(action.activeTurn, action.items),
       retry: undefined,
@@ -57,7 +58,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       project: action.project,
       conversation: action.conversation,
       activeTurn: action.activeTurn,
-      pendingPrompt: action.pendingPrompt,
+      pendingPrompts: action.pendingPrompts ?? [],
       items: action.items ?? state.items,
       agentThinking: initialThinking(action.activeTurn, action.items ?? state.items),
       lastEventId: action.cursor,
@@ -105,7 +106,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return {
         ...scoped,
         conversation: conversation ? { ...conversation, agent: { status: "running", turnId: event.turnId } } : conversation,
-        pendingPrompt: state.pendingPrompt?.turnId === event.turnId ? undefined : state.pendingPrompt,
+        pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
         agentThinking: true,
         retry: undefined,
         items: [
@@ -118,10 +119,13 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        pendingPrompt: { turnId: event.turnId, prompt: event.data.prompt, references: event.data.references, images: event.data.images ?? [] },
+        pendingPrompts: [
+          ...state.pendingPrompts,
+          { turnId: event.turnId, prompt: event.data.prompt, references: event.data.references, images: event.data.images ?? [] },
+        ],
       };
     case "prompt.removed":
-      return { ...scoped, pendingPrompt: undefined };
+      return { ...scoped, pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId) };
     case "agent.retrying": {
       if (!event.turnId) return scoped;
       const retry = { attempt: event.data.attempt, maxAttempts: event.data.maxAttempts };

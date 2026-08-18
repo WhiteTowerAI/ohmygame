@@ -188,7 +188,7 @@ export interface ConversationDetail {
   items: AgentItem[];
   cursor: number;
   activeTurn?: ActiveTurnState;
-  pendingPrompt?: PendingPrompt;
+  pendingPrompts: PendingPrompt[];
 }
 
 export interface CreateProjectRequest { name?: string }
@@ -212,10 +212,6 @@ export interface PromptRequest {
 export interface PromptResponse {
   turnId: string;
   queued: boolean;
-}
-
-export interface RemovePendingPromptRequest {
-  turnId: string;
 }
 
 export interface WorkspaceFile {
