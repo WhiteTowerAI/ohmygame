@@ -161,12 +161,12 @@ interface AgentManagerOptions {
 }
 
 interface ManagedSession {
-  conversationId: string;
   session: CodingSession;
   unsubscribe: () => void;
 }
 
 interface ActiveTurn {
+  projectId: string;
   conversationId: string;
   turnId: string;
   prompt: string;
@@ -190,7 +190,7 @@ interface QueuedPrompt extends PendingPrompt {
 
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
-  readonly #sessionLoads = new Map<string, { conversationId: string; promise: Promise<ManagedSession> }>();
+  readonly #sessionLoads = new Map<string, Promise<ManagedSession>>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #conversationStates = new Map<string, ConversationState["agent"]>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
@@ -219,9 +219,10 @@ export class AgentManager {
     model: RuntimeModel,
     persist: () => void,
   ): Promise<void> {
-    if (this.isProjectBusy(projectId)) throw new Error("Wait for the agent to finish before changing models");
-    const managed = this.#sessions.get(projectId);
-    if (!managed || managed.conversationId !== conversationId) {
+    const key = conversationKey(projectId, conversationId);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing models");
+    const managed = this.#sessions.get(key);
+    if (!managed) {
       persist();
       return;
     }
@@ -235,9 +236,10 @@ export class AgentManager {
     level: AgentReasoningLevel,
     persist: () => void,
   ): Promise<AgentReasoningLevel | undefined> {
-    if (this.isProjectBusy(projectId)) throw new Error("Wait for the agent to finish before changing reasoning");
-    const managed = this.#sessions.get(projectId);
-    if (!managed || managed.conversationId !== conversationId) {
+    const key = conversationKey(projectId, conversationId);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing reasoning");
+    const managed = this.#sessions.get(key);
+    if (!managed) {
       persist();
       return undefined;
     }
@@ -258,12 +260,11 @@ export class AgentManager {
   ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
     if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
-    if (this.#revisions.has(project.id)) throw new Error("A message edit is already starting in this project");
-    const active = this.#activeTurns.get(project.id);
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#revisions.has(key)) throw new Error("A message edit is already starting in this conversation");
+    const active = this.#activeTurns.get(key);
     if (active) {
-      if (active.conversationId !== conversation.summary.id) throw new Error("Agent is already running in this project");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
-      const key = conversationKey(project.id, conversation.summary.id);
       const wirePrompt = promptWithReferences(prompt, references);
       const result = this.#withQueueMutation(key, async () => {
         const event = this.events.publish(
@@ -277,8 +278,8 @@ export class AgentManager {
         this.#pendingPrompts.set(key, [...(this.#pendingPrompts.get(key) ?? []), queued]);
         try {
           const managed = await this.#getSession(project, conversation);
-          const current = this.#activeTurns.get(project.id);
-          if (!current || current.conversationId !== conversation.summary.id || current.status !== "running") {
+          const current = this.#activeTurns.get(key);
+          if (!current || current.status !== "running") {
             throw new Error("Agent run is no longer active");
           }
           if (!managed.session.followUp) throw new Error("The current agent session cannot queue follow-ups");
@@ -293,7 +294,7 @@ export class AgentManager {
       return { turnId, queued: true, result };
     }
 
-    this.#pendingPrompts.delete(conversationKey(project.id, conversation.summary.id));
+    this.#pendingPrompts.delete(key);
     return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId) };
   }
 
@@ -305,15 +306,15 @@ export class AgentManager {
   ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
     if (!prompt.trim()) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
-    if (this.#activeTurns.has(project.id) || this.#revisions.has(project.id)) {
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
       throw new Error("Wait for the agent to finish before editing a message");
     }
-    const key = conversationKey(project.id, conversation.summary.id);
     if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
       throw new Error("Remove queued messages before editing a message");
     }
 
-    this.#revisions.add(project.id);
+    this.#revisions.add(key);
     let navigated = false;
     try {
       const previous = lastUserPrompt(project.workspacePath, conversation.sessionPath);
@@ -331,10 +332,10 @@ export class AgentManager {
         result: this.#startPrompt(project, conversation, prompt, references, previous.images, turnId, "last-turn"),
       };
     } catch (cause) {
-      if (navigated && !this.#activeTurns.has(project.id)) this.forgetProject(project.id);
+      if (navigated && !this.#activeTurns.has(key)) this.#forgetConversation(key);
       throw cause;
     } finally {
-      this.#revisions.delete(project.id);
+      this.#revisions.delete(key);
     }
   }
 
@@ -349,6 +350,7 @@ export class AgentManager {
   ): Promise<AgentRunResult> {
 
     const active: ActiveTurn = {
+      projectId: project.id,
       conversationId: conversation.summary.id,
       turnId,
       prompt,
@@ -361,7 +363,7 @@ export class AgentManager {
       preparingToolItemIds: new Map(),
       toolItemIds: new Map(),
     };
-    this.#activeTurns.set(project.id, active);
+    this.#activeTurns.set(conversationKey(project.id, active.conversationId), active);
     this.#setState(project.id, active.conversationId, { status: "running", turnId });
     const started = this.events.publish(
       project.id,
@@ -434,13 +436,13 @@ export class AgentManager {
   }
 
   async cancel(projectId: string, conversationId: string, turnId: string): Promise<void> {
-    const active = this.#activeTurns.get(projectId);
-    if (!active || active.conversationId !== conversationId || active.turnId !== turnId || active.status !== "running") return;
+    const key = conversationKey(projectId, conversationId);
+    const active = this.#activeTurns.get(key);
+    if (!active || active.turnId !== turnId || active.status !== "running") return;
     active.status = "cancelling";
     this.#setState(projectId, conversationId, { status: "cancelling", turnId });
-    const managed = this.#sessions.get(projectId);
-    if (managed?.conversationId === conversationId) {
-      const key = conversationKey(projectId, conversationId);
+    const managed = this.#sessions.get(key);
+    if (managed) {
       await this.#withQueueMutation(key, async () => {
         managed.session.clearQueue?.();
         this.#clearPending(projectId, conversationId);
@@ -493,16 +495,16 @@ export class AgentManager {
     steering: readonly QueuedPrompt[],
     pending: readonly QueuedPrompt[],
   ): Promise<void> {
-    const active = this.#activeTurns.get(projectId);
-    if (!active || active.conversationId !== conversationId || active.status !== "running") {
+    const key = conversationKey(projectId, conversationId);
+    const active = this.#activeTurns.get(key);
+    if (!active || active.status !== "running") {
       throw new Error("Agent run is not active");
     }
-    const managed = this.#sessions.get(projectId);
-    if (!managed || managed.conversationId !== conversationId) throw new Error("Agent session is not active");
+    const managed = this.#sessions.get(key);
+    if (!managed) throw new Error("Agent session is not active");
     if (!managed.session.clearQueue || !managed.session.followUp || !managed.session.steer) {
       throw new Error("The current agent session cannot modify its message queue");
     }
-    const key = conversationKey(projectId, conversationId);
     try {
       await replayQueue(managed.session, steering, pending);
     } catch (cause) {
@@ -548,8 +550,8 @@ export class AgentManager {
   }
 
   activeItem(projectId: string, conversationId: string): Extract<AgentItem, { kind: "user" }> | undefined {
-    const active = this.#activeTurns.get(projectId);
-    if (!active || active.conversationId !== conversationId) return undefined;
+    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
+    if (!active) return undefined;
     return {
       id: `${active.turnId}:user`,
       turnId: active.turnId,
@@ -561,15 +563,15 @@ export class AgentManager {
   }
 
   activeStart(projectId: string, conversationId: string): { id: number; timestamp: string } | undefined {
-    const active = this.#activeTurns.get(projectId);
-    if (!active || active.conversationId !== conversationId || active.startedEventId === undefined || active.startedAt === undefined) return undefined;
+    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
+    if (!active || active.startedEventId === undefined || active.startedAt === undefined) return undefined;
     return { id: active.startedEventId, timestamp: new Date(active.startedAt).toISOString() };
   }
 
   eventImages(projectId: string, conversationId: string | undefined, turnId: string | undefined): PromptImage[] | undefined {
     if (!conversationId || !turnId) return undefined;
-    const active = this.#activeTurns.get(projectId);
-    if (active?.conversationId === conversationId && active.turnId === turnId) return active.images;
+    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
+    if (active?.turnId === turnId) return active.images;
     const pending = this.#pendingPrompts.get(conversationKey(projectId, conversationId));
     const steering = this.#steeringPrompts.get(conversationKey(projectId, conversationId));
     return [...(pending ?? []), ...(steering ?? [])].find((item) => item.turnId === turnId)?.images;
@@ -577,9 +579,9 @@ export class AgentManager {
 
   async close(): Promise<void> {
     this.#closing = true;
-    for (const [projectId, active] of this.#activeTurns) {
+    for (const active of this.#activeTurns.values()) {
       active.status = "cancelling";
-      this.#setState(projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
+      this.#setState(active.projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
     }
     const sessions = [...this.#sessions.values()];
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
@@ -597,11 +599,11 @@ export class AgentManager {
     this.#runs.delete(run);
     const key = conversationKey(projectId, active.conversationId);
     await this.#withQueueMutation(key, async () => {
-      if (this.#activeTurns.get(projectId) !== active) return;
-      this.#activeTurns.delete(projectId);
+      if (this.#activeTurns.get(key) !== active) return;
+      this.#activeTurns.delete(key);
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
       if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
-        this.#sessions.get(projectId)?.session.clearQueue?.();
+        this.#sessions.get(key)?.session.clearQueue?.();
       }
       this.#clearPending(projectId, active.conversationId);
       if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
@@ -609,26 +611,22 @@ export class AgentManager {
   }
 
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
-    const existing = this.#sessions.get(project.id);
-    if (existing?.conversationId === conversation.summary.id) return existing;
-    const loading = this.#sessionLoads.get(project.id);
-    if (loading?.conversationId === conversation.summary.id) return loading.promise;
+    const key = conversationKey(project.id, conversation.summary.id);
+    const existing = this.#sessions.get(key);
+    if (existing) return existing;
+    const loading = this.#sessionLoads.get(key);
+    if (loading) return loading;
     const promise = this.#loadSession(project, conversation);
-    this.#sessionLoads.set(project.id, { conversationId: conversation.summary.id, promise });
+    this.#sessionLoads.set(key, promise);
     try {
       return await promise;
     } finally {
-      if (this.#sessionLoads.get(project.id)?.promise === promise) this.#sessionLoads.delete(project.id);
+      if (this.#sessionLoads.get(key) === promise) this.#sessionLoads.delete(key);
     }
   }
 
   async #loadSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
-    const existing = this.#sessions.get(project.id);
-    if (existing) {
-      existing.unsubscribe();
-      existing.session.dispose();
-      this.#sessions.delete(project.id);
-    }
+    const key = conversationKey(project.id, conversation.summary.id);
 
     const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
       state.workspacePath,
@@ -640,14 +638,14 @@ export class AgentManager {
       throw new Error("Agent manager is closing");
     }
     const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
-    const managed = { conversationId: conversation.summary.id, session, unsubscribe };
-    this.#sessions.set(project.id, managed);
+    const managed = { session, unsubscribe };
+    this.#sessions.set(key, managed);
     return managed;
   }
 
   #forwardEvent(projectId: string, conversationId: string, event: AgentSessionEvent): void {
-    const active = this.#activeTurns.get(projectId);
-    if (!active || active.conversationId !== conversationId) return;
+    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
+    if (!active) return;
     if (event.type === "message_start" && isUserMessage(event.message)) {
       const key = conversationKey(projectId, conversationId);
       const steering = this.#steeringPrompts.get(key) ?? [];
@@ -827,24 +825,31 @@ export class AgentManager {
   }
 
   isProjectBusy(projectId: string): boolean {
-    return this.#activeTurns.has(projectId) || this.#revisions.has(projectId);
+    const prefix = `${projectId}:`;
+    return [...this.#activeTurns.keys(), ...this.#revisions].some((key) => key.startsWith(prefix));
   }
 
   forgetProject(projectId: string): void {
-    const managed = this.#sessions.get(projectId);
-    if (managed) {
-      managed.unsubscribe();
-      managed.session.dispose();
-      this.#sessions.delete(projectId);
+    const prefix = `${projectId}:`;
+    for (const key of this.#sessions.keys()) {
+      if (key.startsWith(prefix)) this.#forgetConversation(key);
     }
     for (const key of this.#conversationStates.keys()) {
       if (key.startsWith(`${projectId}:`)) this.#conversationStates.delete(key);
     }
   }
 
-  activeTurn(projectId: string): ActiveTurnState | undefined {
-    const active = this.#activeTurns.get(projectId);
+  activeTurn(projectId: string, conversationId: string): ActiveTurnState | undefined {
+    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     return active ? { conversationId: active.conversationId, turnId: active.turnId } : undefined;
+  }
+
+  #forgetConversation(key: string): void {
+    const managed = this.#sessions.get(key);
+    if (!managed) return;
+    managed.unsubscribe();
+    managed.session.dispose();
+    this.#sessions.delete(key);
   }
 }
 

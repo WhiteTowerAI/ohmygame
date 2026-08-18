@@ -75,16 +75,16 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("prompt.");
   let scoped = next;
 
-  if (event.type === "agent.started" && event.conversationId && event.turnId) {
-    scoped = { ...scoped, activeTurn: { conversationId: event.conversationId, turnId: event.turnId } };
+  if (event.type === "agent.started" && conversation && event.conversationId === conversation.id && event.turnId) {
+    scoped = { ...scoped, activeTurn: { conversationId: conversation.id, turnId: event.turnId } };
   } else if (
     (event.type === "agent.completed" || event.type === "agent.cancelled" || event.type === "agent.error") &&
-    state.activeTurn?.turnId === event.turnId
+    event.conversationId === conversation?.id && state.activeTurn?.turnId === event.turnId
   ) {
     scoped = { ...scoped, activeTurn: undefined };
   }
 
-  if (agentEvent && (!conversation || event.conversationId !== conversation.id)) return scoped;
+  if (agentEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
     case "preview.starting":

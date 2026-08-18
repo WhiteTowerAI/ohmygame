@@ -282,11 +282,11 @@ export function ProjectShell({
 
   useEffect(() => {
     const project = state.project;
-    const busy = sendingInitialPrompt || Boolean(state.activeTurn) ||
+    const busy = sendingInitialPrompt ||
       state.conversation?.agent.status === "running" || state.conversation?.agent.status === "cancelling";
     if (auth.state.status !== "signed-in" || state.phase !== "ready" || !project || publishing || busy) return;
     if (takePendingPublish(sessionStorage, project.id)) void publish();
-  }, [auth.state.status, state.phase, state.project?.id, state.activeTurn, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
+  }, [auth.state.status, state.phase, state.project?.id, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
@@ -294,13 +294,11 @@ export function ProjectShell({
 
   const project = state.project;
   const conversation = state.conversation;
-  const projectBusy = Boolean(state.activeTurn);
-  const agentBusy = sendingInitialPrompt || projectBusy || conversation?.agent.status === "running" || conversation?.agent.status === "cancelling";
-  const currentConversationBusy = state.activeTurn?.conversationId === conversation?.id;
-  const anotherConversationBusy = projectBusy && !currentConversationBusy;
+  const currentConversationBusy = Boolean(state.activeTurn);
+  const agentBusy = sendingInitialPrompt || currentConversationBusy || conversation?.agent.status === "running" || conversation?.agent.status === "cancelling";
 
   async function submitPrompt(nextPrompt: string, images: PromptImage[]): Promise<boolean> {
-    if (!project || !conversation || anotherConversationBusy) return false;
+    if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
@@ -514,7 +512,7 @@ export function ProjectShell({
 
           <Composer
             key={conversation?.id}
-            conversationReady={Boolean(conversation) && !anotherConversationBusy && state.connection === "open"}
+            conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompts={state.pendingPrompts}

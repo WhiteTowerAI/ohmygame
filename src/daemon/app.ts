@@ -688,7 +688,7 @@ export function createApp(options: AppOptions = {}) {
           ...(restoreActiveItem && activeItem ? [activeItem] : []),
         ],
         cursor: !currentRun ? events.cursor() : restoreActiveItem ? currentRun.id : currentRun.id - 1,
-        activeTurn: agents.activeTurn(project.id),
+        activeTurn: agents.activeTurn(project.id, conversation.summary.id),
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
       };
     },

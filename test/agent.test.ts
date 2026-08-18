@@ -384,20 +384,38 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("allows only one active turn across a project's conversations", async () => {
-    const session = new FakeSession();
-    const prompt = deferred<void>();
-    session.prompt.mockImplementation(() => prompt.promise);
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+  it("runs conversations in the same project independently", async () => {
+    const firstSession = new FakeSession();
+    const secondSession = new FakeSession();
+    const firstPrompt = deferred<void>();
+    const secondPrompt = deferred<void>();
+    firstSession.prompt.mockImplementation(() => firstPrompt.promise);
+    secondSession.prompt.mockImplementation(() => secondPrompt.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async (_project, conversation) => conversation.summary.id === "conversation-1" ? firstSession : secondSession,
+    });
     const project = createProject();
     const first = createConversation(project, "conversation-1");
     const second = createConversation(project, "conversation-2");
 
-    const run = manager.prompt(project, first, "First").result;
-    expect(() => manager.prompt(project, second, "Second")).toThrow("already running in this project");
+    const firstRun = manager.prompt(project, first, "First").result;
+    const secondRun = manager.prompt(project, second, "Second").result;
+    await vi.waitFor(() => {
+      expect(firstSession.prompt).toHaveBeenCalledWith("First");
+      expect(secondSession.prompt).toHaveBeenCalledWith("Second");
+    });
+    expect(manager.activeTurn(project.id, first.summary.id)).toMatchObject({ conversationId: first.summary.id });
+    expect(manager.activeTurn(project.id, second.summary.id)).toMatchObject({ conversationId: second.summary.id });
 
-    prompt.resolve();
-    await run;
+    firstPrompt.resolve();
+    await firstRun;
+    expect(manager.activeTurn(project.id, first.summary.id)).toBeUndefined();
+    expect(manager.activeTurn(project.id, second.summary.id)).toMatchObject({ conversationId: second.summary.id });
+    expect(manager.isProjectBusy(project.id)).toBe(true);
+
+    secondPrompt.resolve();
+    await secondRun;
+    expect(manager.isProjectBusy(project.id)).toBe(false);
     await manager.close();
   });
 
@@ -654,7 +672,7 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("disposes the cached session when switching conversations", async () => {
+  it("keeps a cached session for each conversation", async () => {
     const firstSession = new FakeSession();
     const secondSession = new FakeSession();
     const createSession = vi.fn()
@@ -667,9 +685,11 @@ describe("AgentManager", () => {
     await manager.prompt(project, createConversation(project, "conversation-2"), "Second").result;
 
     expect(createSession).toHaveBeenCalledTimes(2);
-    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    expect(firstSession.dispose).not.toHaveBeenCalled();
     expect(secondSession.dispose).not.toHaveBeenCalled();
     await manager.close();
+    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    expect(secondSession.dispose).toHaveBeenCalledOnce();
   });
 
   it("updates cached session tools without recreating the session", async () => {

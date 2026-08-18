@@ -230,7 +230,7 @@ describe("rendererReducer", () => {
     expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Done", status: "complete" });
   });
 
-  it("ignores agent events from another conversation", () => {
+  it("ignores agent state from another conversation", () => {
     const state = rendererReducer(initialized(), {
       type: "runtime-event",
       event: { ...runtimeEvent(1, "agent.started", { prompt: "Other" }), conversationId: "conversation-2" },
@@ -238,20 +238,20 @@ describe("rendererReducer", () => {
 
     expect(state.items).toEqual([]);
     expect(state.conversation?.agent.status).toBe("idle");
-    expect(state.activeTurn).toEqual({ conversationId: "conversation-2", turnId: "turn-1" });
+    expect(state.activeTurn).toBeUndefined();
     expect(state.lastEventId).toBe(1);
   });
 
-  it("clears another conversation's active turn when it ends", () => {
+  it("does not clear the current conversation for another conversation's event", () => {
     const state = rendererReducer({
       ...initialized(),
-      activeTurn: { conversationId: "conversation-2", turnId: "turn-1" },
+      activeTurn: { conversationId: "conversation-1", turnId: "turn-current" },
     }, {
       type: "runtime-event",
       event: { ...runtimeEvent(1, "agent.completed", {}), conversationId: "conversation-2" },
     });
 
-    expect(state.activeTurn).toBeUndefined();
+    expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-current" });
     expect(state.items).toEqual([]);
   });
 
