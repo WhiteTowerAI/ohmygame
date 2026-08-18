@@ -33,7 +33,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "I will " }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.delta", { itemId: "assistant-1", delta: "build it." }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.completed", { itemId: "assistant-1", status: "complete" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.completed", { itemId: "assistant-1", status: "complete", phase: "final_answer" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "edit", args: { path: "src/app.ts" } }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(7, "tool.updated", { itemId: "tool-1", toolCallId: "tool-1", output: "working" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(8, "tool.completed", { itemId: "tool-1", toolCallId: "tool-1", toolName: "edit", isError: false, output: "done" }) });
@@ -41,13 +41,13 @@ describe("rendererReducer", () => {
 
     expect(state.items).toEqual([
       { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Build a clock", timestamp: 0 },
-      { id: "assistant-1", turnId: "turn-1", kind: "assistant", text: "I will build it.", status: "complete", error: undefined, timestamp: 0 },
+      { id: "assistant-1", turnId: "turn-1", kind: "assistant", text: "I will build it.", status: "complete", phase: "final_answer", error: undefined, timestamp: 0 },
       { id: "tool-1", turnId: "turn-1", kind: "tool", toolCallId: "tool-1", toolName: "edit", status: "complete", args: { path: "src/app.ts" }, output: "done", truncated: undefined, timestamp: 0 },
     ]);
     expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
 
-  it("tracks Pi thinking without adding it to conversation history", () => {
+  it("streams Pi thinking into a timeline item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     expect(state.agentThinking).toBe(true);
@@ -55,11 +55,13 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "read" }) });
     expect(state.agentThinking).toBe(false);
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking", {}) });
-    expect(state.agentThinking).toBe(true);
-    expect(state.items.some((item) => item.kind === "assistant" && !item.text)).toBe(false);
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking.started", { itemId: "thinking-1" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.thinking.delta", { itemId: "thinking-1", delta: "Inspecting" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.thinking.completed", { itemId: "thinking-1", text: "Inspecting" }) });
+    expect(state.agentThinking).toBe(false);
+    expect(state.items.at(-1)).toMatchObject({ kind: "thinking", text: "Inspecting", status: "complete" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.completed", {}) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "agent.completed", {}) });
     expect(state.agentThinking).toBe(false);
   });
 

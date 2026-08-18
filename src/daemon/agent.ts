@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -69,20 +69,34 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     }
     if (message.role === "assistant") {
       turnId ??= entry.id;
-      const text = textContent(message.content);
-      if (text || message.stopReason === "error" || message.stopReason === "aborted") {
-        items.push({
-          id: `${entry.id}:assistant`,
-          turnId,
-          kind: "assistant",
-          text,
-          status: assistantStatus(message.stopReason),
-          timestamp,
-          ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
-        });
-      }
-      for (const content of message.content) {
-        if (content.type === "toolCall") {
+      let hasAssistantText = false;
+      for (const [index, content] of message.content.entries()) {
+        if (content.type === "thinking") {
+          const thinking = content.thinking.trim();
+          if (thinking) {
+            items.push({
+              id: `${entry.id}:thinking:${index}`,
+              turnId,
+              kind: "thinking",
+              text: thinking,
+              status: "complete",
+              timestamp,
+            });
+          }
+        } else if (content.type === "text" && content.text) {
+          hasAssistantText = true;
+          const phase = assistantBlockPhase(content);
+          items.push({
+            id: `${entry.id}:assistant:${index}`,
+            turnId,
+            kind: "assistant",
+            text: content.text,
+            status: assistantStatus(message.stopReason),
+            ...(phase ? { phase } : {}),
+            timestamp,
+            ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
+          });
+        } else if (content.type === "toolCall") {
           const tool: Extract<AgentItem, { kind: "tool" }> = {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
@@ -96,6 +110,17 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           tools.set(content.id, tool);
           items.push(tool);
         }
+      }
+      if (!hasAssistantText && (message.stopReason === "error" || message.stopReason === "aborted")) {
+        items.push({
+          id: `${entry.id}:assistant`,
+          turnId,
+          kind: "assistant",
+          text: "",
+          status: assistantStatus(message.stopReason),
+          timestamp,
+          ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
+        });
       }
       if (message.stopReason !== "toolUse") turnFinished = true;
       continue;
@@ -146,8 +171,11 @@ interface ActiveTurn {
   prompt: string;
   images: PromptImage[];
   status: Extract<AgentStatus, "running" | "cancelling">;
-  assistantItemId?: string;
+  assistantItemIds: Map<number, string>;
+  completedAssistantIndexes: Set<number>;
   assistantSequence: number;
+  thinkingItemId?: string;
+  thinkingSequence: number;
   startedEventId?: number;
   startedAt?: number;
 }
@@ -273,7 +301,17 @@ export class AgentManager {
     turnId: string,
   ): Promise<AgentRunResult> {
 
-    const active: ActiveTurn = { conversationId: conversation.summary.id, turnId, prompt, images, status: "running", assistantSequence: 0 };
+    const active: ActiveTurn = {
+      conversationId: conversation.summary.id,
+      turnId,
+      prompt,
+      images,
+      status: "running",
+      assistantItemIds: new Map(),
+      completedAssistantIndexes: new Set(),
+      assistantSequence: 0,
+      thinkingSequence: 0,
+    };
     this.#activeTurns.set(project.id, active);
     this.#setState(project.id, active.conversationId, { status: "running", turnId });
     const started = this.events.publish(
@@ -575,8 +613,11 @@ export class AgentManager {
       active.turnId = started.turnId;
       active.prompt = started.prompt;
       active.images = started.images;
-      active.assistantItemId = undefined;
+      active.assistantItemIds.clear();
+      active.completedAssistantIndexes.clear();
       active.assistantSequence = 0;
+      active.thinkingItemId = undefined;
+      active.thinkingSequence = 0;
       this.#setState(projectId, conversationId, { status: "running", turnId: started.turnId });
       const startedEvent = this.events.publish(
         projectId,
@@ -587,27 +628,72 @@ export class AgentManager {
       );
       active.startedEventId = startedEvent.id;
       active.startedAt = Date.parse(startedEvent.timestamp);
-    } else if (event.type === "message_start" && isAssistantMessage(event.message)) {
-      active.assistantItemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
-      this.events.publish(projectId, "assistant.started", { itemId: active.assistantItemId }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_start") {
+      const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
+      active.assistantItemIds.set(event.assistantMessageEvent.contentIndex, itemId);
+      active.completedAssistantIndexes.delete(event.assistantMessageEvent.contentIndex);
+      this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_start") {
-      this.events.publish(projectId, "assistant.thinking", {}, eventScope(active));
+      active.thinkingItemId = `${active.turnId}:thinking:${active.thinkingSequence++}`;
+      this.events.publish(projectId, "assistant.thinking.started", { itemId: active.thinkingItemId }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta") {
+      const itemId = active.thinkingItemId ?? `${active.turnId}:thinking:${active.thinkingSequence++}`;
+      if (!active.thinkingItemId) {
+        active.thinkingItemId = itemId;
+        this.events.publish(projectId, "assistant.thinking.started", { itemId }, eventScope(active));
+      }
+      this.events.publish(projectId, "assistant.thinking.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_end") {
+      if (active.thinkingItemId) {
+        this.events.publish(projectId, "assistant.thinking.completed", {
+          itemId: active.thinkingItemId,
+          text: event.assistantMessageEvent.content,
+        }, eventScope(active));
+        active.thinkingItemId = undefined;
+      }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      const itemId = active.assistantItemId ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
-      if (!active.assistantItemId) {
-        active.assistantItemId = itemId;
+      const contentIndex = event.assistantMessageEvent.contentIndex;
+      const itemId = active.assistantItemIds.get(contentIndex) ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
+      if (!active.assistantItemIds.has(contentIndex)) {
+        active.assistantItemIds.set(contentIndex, itemId);
         this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
       }
       this.events.publish(projectId, "assistant.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
+      const contentIndex = event.assistantMessageEvent.contentIndex;
+      const itemId = active.assistantItemIds.get(contentIndex);
+      if (itemId) {
+        const phase = assistantBlockPhase(event.assistantMessageEvent.partial.content[contentIndex]);
+        this.events.publish(projectId, "assistant.completed", {
+          itemId,
+          status: "complete",
+          ...(phase ? { phase } : {}),
+        }, eventScope(active));
+        active.completedAssistantIndexes.add(contentIndex);
+      }
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
-      const itemId = active.assistantItemId ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
-      if (!active.assistantItemId) this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
-      this.events.publish(projectId, "assistant.completed", {
-        itemId,
-        status: assistantStatus(event.message.stopReason),
-        ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
-      }, eventScope(active));
-      active.assistantItemId = undefined;
+      const status = assistantStatus(event.message.stopReason);
+      for (const [contentIndex, itemId] of active.assistantItemIds) {
+        if (status === "complete" && active.completedAssistantIndexes.has(contentIndex)) continue;
+        const phase = assistantBlockPhase(Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined);
+        this.events.publish(projectId, "assistant.completed", {
+          itemId,
+          status,
+          ...(phase ? { phase } : {}),
+          ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
+        }, eventScope(active));
+      }
+      if (active.assistantItemIds.size === 0 && status !== "complete") {
+        const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
+        this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
+        this.events.publish(projectId, "assistant.completed", {
+          itemId,
+          status,
+          ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
+        }, eventScope(active));
+      }
+      active.assistantItemIds.clear();
+      active.completedAssistantIndexes.clear();
     } else if (event.type === "auto_retry_start") {
       this.events.publish(projectId, "agent.retrying", {
         attempt: event.attempt,
@@ -724,6 +810,20 @@ function textContent(content: unknown): string {
     .join("");
 }
 
+function assistantBlockPhase(content: unknown): AgentMessagePhase | undefined {
+  if (!content || typeof content !== "object" || (content as { type?: unknown }).type !== "text") return undefined;
+  const direct = (content as { phase?: unknown }).phase;
+  if (direct === "commentary" || direct === "final_answer") return direct;
+  const signature = (content as { textSignature?: unknown }).textSignature;
+  if (typeof signature !== "string" || !signature.startsWith("{")) return undefined;
+  try {
+    const phase = (JSON.parse(signature) as { phase?: unknown }).phase;
+    return phase === "commentary" || phase === "final_answer" ? phase : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function imageContent(content: unknown): PromptImage[] {
   if (!Array.isArray(content)) return [];
   return content.flatMap((item) => {
@@ -765,6 +865,7 @@ function assistantStatus(stopReason: string): "complete" | "cancelled" | "error"
 
 function isAssistantMessage(message: unknown): message is {
   role: "assistant";
+  content: unknown;
   stopReason: string;
   errorMessage?: string;
 } {
@@ -857,6 +958,8 @@ export async function createPiSession(
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
       "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
+      "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
+      "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
     ],
   });
   await resourceLoader.reload();

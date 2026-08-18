@@ -144,6 +144,8 @@ export interface PublishProjectRequest {
   accessToken: string;
 }
 
+export type AgentMessagePhase = "commentary" | "final_answer";
+
 export type AgentItem = (
   | { id: string; turnId: string; kind: "user"; text: string; images?: PromptImage[] }
   | {
@@ -152,7 +154,15 @@ export type AgentItem = (
       kind: "assistant";
       text: string;
       status: "streaming" | "complete" | "cancelled" | "interrupted" | "error";
+      phase?: AgentMessagePhase;
       error?: string;
+    }
+  | {
+      id: string;
+      turnId: string;
+      kind: "thinking";
+      text: string;
+      status: "streaming" | "complete";
     }
   | {
       id: string;
@@ -302,9 +312,11 @@ export interface RuntimeEventData {
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
   "assistant.started": { itemId: string };
-  "assistant.thinking": Record<string, never>;
+  "assistant.thinking.started": { itemId: string };
+  "assistant.thinking.delta": { itemId: string; delta: string };
+  "assistant.thinking.completed": { itemId: string; text: string };
   "assistant.delta": { itemId: string; delta: string };
-  "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; error?: string };
+  "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean };
   "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean };
@@ -330,7 +342,9 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.compaction.started",
   "agent.compaction.completed",
   "assistant.started",
-  "assistant.thinking",
+  "assistant.thinking.started",
+  "assistant.thinking.delta",
+  "assistant.thinking.completed",
   "assistant.delta",
   "assistant.completed",
   "tool.started",

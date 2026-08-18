@@ -527,7 +527,7 @@ describe("daemon", () => {
       }),
       items: [
         { id: "user-1", turnId: "user-1", kind: "user", text: "Hello", timestamp: 0 },
-        { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", timestamp: 1 },
+        { id: "assistant-1:assistant:0", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", timestamp: 1 },
       ],
       cursor: 0,
       pendingPrompts: [],
@@ -569,7 +569,7 @@ describe("daemon", () => {
       conversation: { id: "session-1", agent: { status: "running", turnId: expect.any(String) } },
       items: [
         { id: "old-user", turnId: "old-user", kind: "user", text: "Current" },
-        { id: "old-assistant:assistant", turnId: "old-user", kind: "assistant", text: "Answer", status: "complete" },
+        { id: "old-assistant:assistant:0", turnId: "old-user", kind: "assistant", text: "Answer", status: "complete" },
       ],
       cursor: 0,
     });

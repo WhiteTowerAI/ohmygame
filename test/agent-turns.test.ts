@@ -3,81 +3,42 @@ import { projectAgentTurns } from "../src/renderer/agent-turns.js";
 import type { AgentItem } from "../src/shared/contracts.js";
 
 describe("projectAgentTurns", () => {
-  it("separates work from the final assistant response", () => {
-    const turns = projectAgentTurns([
+  it("preserves Pi message and tool order while a turn is active and after it completes", () => {
+    const items = [
       item({ id: "user", kind: "user", text: "Build it", timestamp: 1_000 }),
       item({ id: "note", kind: "assistant", text: "I will inspect the project.", status: "complete", timestamp: 2_000 }),
       tool("read", "read", 3_000, { path: "package.json" }),
       tool("write", "write", 4_000, { path: "src/main.ts" }),
       item({ id: "response", kind: "assistant", text: "Done.", status: "complete", timestamp: 6_000 }),
-    ]);
+    ];
 
-    expect(turns).toEqual([expect.objectContaining({
-      id: "turn-1",
-      active: false,
-      status: "complete",
-      startedAt: 1_000,
-      completedAt: 6_000,
-      work: expect.arrayContaining([expect.objectContaining({ id: "note" }), expect.objectContaining({ id: "read" })]),
-      response: expect.objectContaining({ id: "response", text: "Done." }),
-    })]);
+    const active = projectAgentTurns(items, "turn-1")[0];
+    const complete = projectAgentTurns(items)[0];
+
+    expect(active).toMatchObject({ id: "turn-1", active: true, user: expect.objectContaining({ id: "user" }) });
+    expect(complete).toMatchObject({ id: "turn-1", active: false, user: expect.objectContaining({ id: "user" }) });
+    expect(active?.items.map(({ id }) => id)).toEqual(["note", "read", "write", "response"]);
+    expect(complete?.items.map(({ id }) => id)).toEqual(["note", "read", "write", "response"]);
   });
 
-  it("keeps the streaming assistant message inside active work", () => {
+  it("keeps streaming and empty assistant messages in place", () => {
     const turns = projectAgentTurns([
       item({ id: "user", kind: "user", text: "Hello", timestamp: 1_000 }),
-      item({ id: "assistant", kind: "assistant", text: "Hi", status: "streaming", timestamp: 2_000 }),
+      item({ id: "first", kind: "assistant", text: "", status: "streaming", timestamp: 2_000 }),
+      item({ id: "second", kind: "assistant", text: "Hi", status: "streaming", timestamp: 3_000 }),
     ], "turn-1");
 
-    expect(turns[0]).toMatchObject({ active: true, status: "running", response: undefined });
-    expect(turns[0]?.work).toEqual([expect.objectContaining({ id: "assistant" })]);
+    expect(turns[0]?.items.map(({ id }) => id)).toEqual(["first", "second"]);
   });
 
-  it("does not treat an empty streaming assistant as visible work", () => {
-    const turns = projectAgentTurns([
-      item({ id: "user", kind: "user", text: "Hello", timestamp: 1_000 }),
-      item({ id: "assistant", kind: "assistant", text: "", status: "streaming", timestamp: 2_000 }),
-    ], "turn-1");
-
-    expect(turns[0]).toMatchObject({ active: true, work: [], response: undefined });
-  });
-
-  it("keeps earlier assistant text inside active work once a tool starts", () => {
+  it("hides successful compaction but preserves failed compaction", () => {
     const turns = projectAgentTurns([
       item({ id: "user", kind: "user", text: "Build", timestamp: 1_000 }),
-      item({ id: "assistant", kind: "assistant", text: "I will inspect it.", status: "complete", timestamp: 2_000 }),
-      tool("read", "read", 3_000, { path: "package.json" }),
-    ], "turn-1");
-
-    expect(turns[0]).toMatchObject({ active: true, response: undefined });
-    expect(turns[0]?.work).toEqual([
-      expect.objectContaining({ id: "assistant" }),
-      expect.objectContaining({ id: "read" }),
-    ]);
-  });
-
-  it("does not present intermediate text as the final response when work follows it", () => {
-    const turns = projectAgentTurns([
-      item({ id: "user", kind: "user", text: "Build", timestamp: 1_000 }),
-      item({ id: "assistant", kind: "assistant", text: "I will inspect it.", status: "complete", timestamp: 2_000 }),
-      tool("read", "read", 3_000, { path: "package.json" }),
+      item({ id: "complete", kind: "compaction", status: "complete", timestamp: 2_000 }),
+      item({ id: "error", kind: "compaction", status: "error", error: "Failed", timestamp: 3_000 }),
     ]);
 
-    expect(turns[0]).toMatchObject({ response: undefined });
-    expect(turns[0]?.work).toEqual([
-      expect.objectContaining({ id: "assistant" }),
-      expect.objectContaining({ id: "read" }),
-    ]);
-  });
-
-  it("hides successful compaction and preserves failed terminal status", () => {
-    const turns = projectAgentTurns([
-      item({ id: "user", kind: "user", text: "Build", timestamp: 1_000 }),
-      item({ id: "compact", kind: "compaction", status: "complete", timestamp: 2_000 }),
-      item({ id: "error", kind: "assistant", text: "", status: "error", error: "Failed", timestamp: 3_000 }),
-    ]);
-
-    expect(turns[0]).toMatchObject({ status: "error", work: [], response: expect.objectContaining({ id: "error" }) });
+    expect(turns[0]?.items).toEqual([expect.objectContaining({ id: "error" })]);
   });
 });
 

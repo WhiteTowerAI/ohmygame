@@ -25,9 +25,10 @@ describe("conversationItems", () => {
       sessionMessage("assistant-1", {
         role: "assistant",
         content: [
-          { type: "text", text: "I will build it. " },
+          { type: "thinking", thinking: "I should inspect the files first." },
+          { type: "text", text: "I will build it. ", textSignature: JSON.stringify({ v: 1, id: "commentary", phase: "commentary" }) },
           { type: "toolCall", id: "call-1", name: "write", arguments: { path: "secret", content: "private source" } },
-          { type: "text", text: "Starting now." },
+          { type: "text", text: "Starting now.", textSignature: JSON.stringify({ v: 1, id: "commentary-2", phase: "commentary" }) },
         ],
         stopReason: "toolUse",
       }),
@@ -41,12 +42,13 @@ describe("conversationItems", () => {
       }),
       sessionMessage("assistant-2", {
         role: "assistant",
-        content: [{ type: "text", text: "Done." }],
+        content: [{ type: "text", text: "Done.", phase: "final_answer" }],
         stopReason: "stop",
       }),
     ] as never)).toEqual([
       { id: "user-1", turnId: "user-1", kind: "user", text: "Build a game", timestamp: 1 },
-      { id: "assistant-1:assistant", turnId: "user-1", kind: "assistant", text: "I will build it. Starting now.", status: "complete", timestamp: 0 },
+      { id: "assistant-1:thinking:0", turnId: "user-1", kind: "thinking", text: "I should inspect the files first.", status: "complete", timestamp: 0 },
+      { id: "assistant-1:assistant:1", turnId: "user-1", kind: "assistant", text: "I will build it. ", status: "complete", phase: "commentary", timestamp: 0 },
       {
         id: "assistant-1:tool:call-1",
         turnId: "user-1",
@@ -58,7 +60,8 @@ describe("conversationItems", () => {
         output: "large private output",
         timestamp: 2,
       },
-      { id: "assistant-2:assistant", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete", timestamp: 0 },
+      { id: "assistant-1:assistant:3", turnId: "user-1", kind: "assistant", text: "Starting now.", status: "complete", phase: "commentary", timestamp: 0 },
+      { id: "assistant-2:assistant:0", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete", phase: "final_answer", timestamp: 0 },
     ]);
   });
 
@@ -471,8 +474,37 @@ describe("AgentManager", () => {
       session.emit({
         type: "message_update",
         message: {} as never,
-        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: {} as never },
+        assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Inspecting", partial: {} as never },
       });
+      session.emit({
+        type: "message_update",
+        message: {} as never,
+        assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: "Inspecting", partial: {} as never },
+      });
+      session.emit({
+        type: "message_update",
+        message: {} as never,
+        assistantMessageEvent: { type: "text_start", contentIndex: 1, partial: {} as never },
+      });
+      session.emit({
+        type: "message_update",
+        message: {} as never,
+        assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "Hello", partial: {} as never },
+      });
+      const completedContent = [
+        { type: "thinking", thinking: "Inspecting" },
+        textBlock("Hello", "commentary"),
+      ];
+      session.emit(messageUpdate({
+        type: "text_end",
+        contentIndex: 1,
+        content: "Hello",
+        partial: assistantPartial(completedContent),
+      }));
+      session.emit({
+        type: "message_end",
+        message: { ...assistantPartial(completedContent), stopReason: "toolUse" },
+      } as AgentSessionEvent);
       session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: "fetch failed" });
       session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts", oldText: "private", newText: "source" } });
       session.emit({ type: "tool_execution_update", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" }, partialResult: { content: [{ type: "text", text: "working" }] } });
@@ -487,9 +519,12 @@ describe("AgentManager", () => {
     const published = events.since(project.id);
     expect(published.map(({ type, data }) => ({ type, data }))).toEqual([
       { type: "agent.started", data: { prompt: "Build" } },
-      { type: "assistant.thinking", data: {} },
+      { type: "assistant.thinking.started", data: { itemId: expect.any(String) } },
+      { type: "assistant.thinking.delta", data: { itemId: expect.any(String), delta: "Inspecting" } },
+      { type: "assistant.thinking.completed", data: { itemId: expect.any(String), text: "Inspecting" } },
       { type: "assistant.started", data: { itemId: expect.any(String) } },
       { type: "assistant.delta", data: { itemId: expect.any(String), delta: "Hello" } },
+      { type: "assistant.completed", data: { itemId: expect.any(String), status: "complete", phase: "commentary" } },
       { type: "agent.retrying", data: { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" } },
       { type: "tool.started", data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" } } },
       { type: "tool.updated", data: { itemId: expect.any(String), toolCallId: "call-1", output: "working" } },
@@ -499,6 +534,57 @@ describe("AgentManager", () => {
     expect(published.every((event) => (
       event.conversationId === conversation.summary.id && typeof event.turnId === "string"
     ))).toBe(true);
+    await manager.close();
+  });
+
+  it("tracks multiple assistant text blocks by Pi content index", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 0, partial: assistantPartial([
+        textBlock("", "commentary"),
+      ]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "First", partial: assistantPartial([
+        textBlock("First", "commentary"),
+      ]) }));
+      session.emit(messageUpdate({ type: "text_end", contentIndex: 0, content: "First", partial: assistantPartial([
+        textBlock("First", "commentary"),
+      ]) }));
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 1, partial: assistantPartial([
+        textBlock("First", "commentary"),
+        textBlock("", "final_answer"),
+      ]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 1, delta: "Second", partial: assistantPartial([
+        textBlock("First", "commentary"),
+        textBlock("Second", "final_answer"),
+      ]) }));
+      session.emit(messageUpdate({ type: "text_end", contentIndex: 1, content: "Second", partial: assistantPartial([
+        textBlock("First", "commentary"),
+        textBlock("Second", "final_answer"),
+      ]) }));
+      session.emit({
+        type: "message_end",
+        message: assistantPartial([
+          textBlock("First", "commentary"),
+          textBlock("Second", "final_answer"),
+        ]),
+      } as AgentSessionEvent);
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Build").result;
+
+    const assistantEvents = events.since(project.id).filter((event) => event.type.startsWith("assistant."));
+    const startedIds = assistantEvents
+      .filter((event) => event.type === "assistant.started")
+      .map((event) => event.data.itemId);
+    expect(new Set(startedIds).size).toBe(2);
+    expect(assistantEvents.filter((event) => event.type === "assistant.completed").map((event) => event.data)).toEqual([
+      { itemId: startedIds[0], status: "complete", phase: "commentary" },
+      { itemId: startedIds[1], status: "complete", phase: "final_answer" },
+    ]);
     await manager.close();
   });
 
@@ -686,4 +772,28 @@ function deferred<T>() {
 
 function sessionMessage(id: string, message: object): object {
   return { type: "message", id, parentId: null, timestamp: new Date(0).toISOString(), message };
+}
+
+function messageUpdate(assistantMessageEvent: object): AgentSessionEvent {
+  return {
+    type: "message_update",
+    message: assistantPartial([]),
+    assistantMessageEvent,
+  } as AgentSessionEvent;
+}
+
+function assistantPartial(content: object[]) {
+  return {
+    role: "assistant" as const,
+    content,
+    stopReason: "stop" as const,
+  };
+}
+
+function textBlock(text: string, phase: "commentary" | "final_answer"): object {
+  return {
+    type: "text",
+    text,
+    textSignature: JSON.stringify({ v: 1, id: `${phase}-id`, phase }),
+  };
 }

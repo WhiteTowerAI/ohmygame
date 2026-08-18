@@ -180,8 +180,38 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           timestamp: eventTime(event),
         }),
       };
-    case "assistant.thinking":
-      return { ...scoped, agentThinking: true };
+    case "assistant.thinking.started":
+      if (!event.turnId) return scoped;
+      return {
+        ...scoped,
+        agentThinking: false,
+        items: upsertItem(state.items, {
+          id: event.data.itemId,
+          turnId: event.turnId,
+          kind: "thinking",
+          text: "",
+          status: "streaming",
+          timestamp: eventTime(event),
+        }),
+      };
+    case "assistant.thinking.delta":
+      return {
+        ...scoped,
+        agentThinking: false,
+        items: updateItem(state.items, event.data.itemId, (item) => item.kind === "thinking"
+          ? { ...item, text: item.text + event.data.delta }
+          : item),
+      };
+    case "assistant.thinking.completed":
+      return {
+        ...scoped,
+        items: state.items.flatMap((item) => {
+          if (item.id !== event.data.itemId || item.kind !== "thinking") return [item];
+          return event.data.text
+            ? [{ ...item, text: event.data.text, status: "complete" as const, timestamp: eventTime(event) }]
+            : [];
+        }),
+      };
     case "assistant.delta":
       if (!event.turnId) return scoped;
       return {
@@ -198,7 +228,13 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: state.items.flatMap((item) => {
           if (item.id !== event.data.itemId || item.kind !== "assistant") return [item];
           if (!item.text && event.data.status === "complete") return [];
-          return [{ ...item, status: event.data.status, error: event.data.error, timestamp: eventTime(event) }];
+          return [{
+            ...item,
+            status: event.data.status,
+            phase: event.data.phase,
+            error: event.data.error,
+            timestamp: eventTime(event),
+          }];
         }),
       };
     case "tool.started":
@@ -272,7 +308,11 @@ function finishAgent(
   timestamp?: number,
 ): RendererState {
   const finalizedItems = !turnId ? state.items : state.items.flatMap((item) => {
-    if (item.turnId !== turnId || item.kind !== "assistant" || item.status !== "streaming") return [item];
+    if (item.turnId !== turnId) return [item];
+    if (item.kind === "thinking" && item.status === "streaming") {
+      return item.text ? [{ ...item, status: "complete" as const }] : [];
+    }
+    if (item.kind !== "assistant" || item.status !== "streaming") return [item];
     if (status === "complete" && !item.text) return [];
     return [{ ...item, status, error, timestamp }];
   });
@@ -310,6 +350,7 @@ function initialThinking(activeTurn: ActiveTurnState | undefined, items: AgentIt
     item.kind === "tool" ||
     item.kind === "retry" ||
     item.kind === "compaction" ||
+    item.kind === "thinking" ||
     (item.kind === "assistant" && Boolean(item.text))
   ));
 }

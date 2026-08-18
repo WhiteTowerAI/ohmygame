@@ -1,4 +1,5 @@
 import {
+  BrainCircuit,
   Check,
   ChevronDown,
   Copy,
@@ -25,70 +26,138 @@ export function AgentTimeline({ items, activeTurnId, thinking = false }: { items
 }
 
 function Turn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
+  if (turn.active) return <ActiveTurn turn={turn} thinking={thinking} />;
+  const phaseAware = turn.items.some((item) => item.kind === "assistant" && item.phase !== undefined);
+  if (!phaseAware) return <ChronologicalTurn turn={turn} thinking={thinking} />;
+  const workItems = turn.items.filter(isWorkItem);
+  const messages = turn.items.filter((item) => !isWorkItem(item));
   return (
     <article className="agent-turn">
-      {turn.user ? (
-        <div className="user-input">
-          {turn.user.images?.length ? (
-            <div className="user-message-images">
-              {turn.user.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
-            </div>
-          ) : null}
-          {turn.user.text ? <div className="user-message">{turn.user.text}</div> : null}
-        </div>
+      <UserInput item={turn.user} />
+      {workItems.length > 0 || thinking ? (
+        <CompletedWork turn={turn} items={workItems} />
       ) : null}
-      {turn.active || turn.work.length > 0 ? <WorkSummary turn={turn} thinking={thinking} /> : null}
-      {turn.response ? <AssistantResponse item={turn.response} /> : null}
+      {messages.map((item) => <TimelineItem key={item.id} item={item} />)}
     </article>
   );
 }
 
-function WorkSummary({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const expandable = turn.work.length > 0;
+function ActiveTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
+  const phaseAware = turn.items.some((item) => item.kind === "assistant" && item.phase !== undefined);
+  const workStarted = turn.items.some((item) => item.kind !== "thinking" && isWorkItem(item));
+  const visibleItems = turn.items.filter((item) => item.kind !== "thinking");
 
-  useEffect(() => {
-    if (!turn.active) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [turn.active]);
+  if (!phaseAware) {
+    let activity: ReactNode = <ThinkingActivity />;
+    if (workStarted) activity = <ActiveWork turn={turn} items={turn.items} thinking={thinking} />;
+    else if (visibleItems.length > 0) activity = visibleItems.map((item) => <TimelineItem key={item.id} item={item} />);
+    return (
+      <article className="agent-turn">
+        <UserInput item={turn.user} />
+        {activity}
+      </article>
+    );
+  }
 
-  const elapsed = turn.startedAt === undefined
-    ? undefined
-    : Math.max(0, (turn.active ? now : turn.completedAt ?? turn.startedAt) - turn.startedAt);
-  const initialThinking = turn.active && turn.work.length === 0;
-  const current = turn.active
-    ? thinking && !initialThinking ? "Thinking" : activityLabel(turn.work.at(-1))
-    : undefined;
-
+  const workItems = turn.items.filter(isWorkItem);
+  const messages = turn.items.filter((item) => !isWorkItem(item));
   return (
-    <section className={`work-summary work-${turn.status}`}>
-      <button
-        type="button"
-        className="work-summary-toggle"
-        aria-expanded={expandable ? open : undefined}
-        disabled={!expandable}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {turn.active ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : null}
-        <span className="work-summary-title">{summaryTitle(turn, elapsed, initialThinking)}</span>
-        {current ? <span className="work-summary-current" title={current}>{current}</span> : null}
-        {expandable ? <ChevronDown className="work-summary-chevron" size={14} aria-hidden="true" /> : null}
-      </button>
-      {expandable && open ? (
-        <div className="work-details">
-          {turn.work.map((item) => <WorkItem key={item.id} item={item} />)}
-          {thinking && !initialThinking ? <ThinkingActivity /> : null}
+    <article className="agent-turn">
+      <UserInput item={turn.user} />
+      {workStarted ? <ActiveWork turn={turn} items={workItems} thinking={thinking} /> : null}
+      {messages.map((item) => <TimelineItem key={item.id} item={item} />)}
+      {!workStarted && messages.length === 0 ? <ThinkingActivity /> : null}
+    </article>
+  );
+}
+
+function ChronologicalTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
+  return (
+    <article className="agent-turn">
+      <UserInput item={turn.user} />
+      {turn.items.map((item) => <TimelineItem key={item.id} item={item} />)}
+      {thinking ? <ThinkingActivity /> : null}
+    </article>
+  );
+}
+
+function UserInput({ item }: { item: AgentTurn["user"] }) {
+  if (!item) return null;
+  return (
+    <div className="user-input">
+      {item.images?.length ? (
+        <div className="user-message-images">
+          {item.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
         </div>
       ) : null}
+      {item.text ? <div className="user-message">{item.text}</div> : null}
+    </div>
+  );
+}
+
+function ActiveWork({ turn, items, thinking }: { turn: AgentTurn; items: AgentItem[]; thinking: boolean }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <section className="work-activity work-activity-active">
+      <div className="work-summary work-summary-active">
+        <LoaderCircle className="spin" size={12} aria-hidden="true" />
+        <span>Working for {activeTurnDuration(turn, now)}</span>
+      </div>
+      <div className="active-work-items">
+        {items.map((item) => <TimelineItem key={item.id} item={item} />)}
+        {thinking ? <ThinkingActivity /> : null}
+      </div>
     </section>
   );
 }
 
+function CompletedWork({ turn, items }: { turn: AgentTurn; items: AgentItem[] }) {
+  return (
+    <details className="work-activity">
+      <summary className="work-summary">
+        <ChevronDown className="work-chevron" size={13} />
+        <span>Worked for {turnDuration(turn)}</span>
+      </summary>
+      <div className="work-items">
+        {items.map((item) => <TimelineItem key={item.id} item={item} />)}
+      </div>
+    </details>
+  );
+}
+
+function isWorkItem(item: AgentItem): boolean {
+  return item.kind === "thinking" || item.kind === "tool" || item.kind === "retry" || item.kind === "compaction" ||
+    (item.kind === "assistant" && item.phase === "commentary");
+}
+
+function turnDuration(turn: AgentTurn): string {
+  const timestamps = [turn.user?.timestamp, ...turn.items.map((item) => item.timestamp)]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (timestamps.length < 2) return "<1s";
+  const seconds = Math.max(1, Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 1_000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+function activeTurnDuration(turn: AgentTurn, now: number): string {
+  const startedAt = turn.user?.timestamp ?? turn.items.find((item) => item.timestamp !== undefined)?.timestamp ?? now;
+  return formatDuration(Math.max(0, now - startedAt));
+}
+
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.floor(milliseconds / 1_000);
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
 function ThinkingActivity() {
   return (
-    <div className="tool-activity tool-row thinking-activity" role="status">
+    <div className="tool-activity tool-row timeline-activity thinking-activity" role="status">
       <LoaderCircle className="spin" size={13} aria-hidden="true" />
       <span className="tool-label">Thinking</span>
       <span />
@@ -96,11 +165,12 @@ function ThinkingActivity() {
   );
 }
 
-function WorkItem({ item }: { item: AgentItem }) {
+function TimelineItem({ item }: { item: AgentItem }) {
+  if (item.kind === "thinking") return <ThinkingBlock item={item} />;
   if (item.kind === "tool") return <ToolActivity item={item} />;
   if (item.kind === "retry") {
     return (
-      <div className="work-event work-event-warning">
+      <div className="timeline-event timeline-event-warning">
         <LoaderCircle className="spin" size={13} />
         <span>Retrying {item.attempt}/{item.maxAttempts}: {item.error}</span>
       </div>
@@ -108,26 +178,34 @@ function WorkItem({ item }: { item: AgentItem }) {
   }
   if (item.kind === "compaction") {
     return (
-      <div className={`work-event${item.status === "error" ? " work-event-error" : ""}`}>
+      <div className={`timeline-event${item.status === "error" ? " timeline-event-error" : ""}`}>
         {item.status === "running" ? <LoaderCircle className="spin" size={13} /> : <X size={13} />}
         <span>{item.error ?? "Compacting context"}</span>
       </div>
     );
   }
-  if (item.kind === "assistant" && item.text) {
-    return <MarkdownContent className="work-note" text={item.text} />;
+  if (item.kind === "assistant") {
+    if (!item.text && item.status === "complete") return null;
+    return (
+      <div className={`assistant-message assistant-${item.status}${item.phase === "commentary" ? " commentary-message" : ""}`}>
+        {item.text ? <MarkdownContent text={item.text} /> : null}
+        {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
+        {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
+        {item.error ? <p className="message-error" role="alert">{item.error}</p> : null}
+      </div>
+    );
   }
   return null;
 }
 
-function AssistantResponse({ item }: { item: Extract<AgentItem, { kind: "assistant" }> }) {
-  if (!item.text && item.status === "complete") return null;
+function ThinkingBlock({ item }: { item: Extract<AgentItem, { kind: "thinking" }> }) {
   return (
-    <div className={`assistant-message assistant-${item.status}`}>
-      {item.text ? <MarkdownContent text={item.text} /> : null}
-      {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
-      {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
-      {item.error ? <p className="message-error" role="alert">{item.error}</p> : null}
+    <div className="tool-activity tool-row timeline-activity thinking-block">
+      <BrainCircuit size={13} aria-hidden="true" />
+      <span className="tool-label">Thinking</span>
+      <span className="tool-result">
+        {item.status === "streaming" ? <LoaderCircle className="spin" size={12} /> : null}
+      </span>
     </div>
   );
 }
@@ -173,72 +251,16 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
 
 function ToolActivity({ item }: { item: Extract<AgentItem, { kind: "tool" }> }) {
   const { icon: Icon, label } = toolPresentation(item.toolName, item.args);
-  const isFileTool = ["read", "write", "edit"].includes(item.toolName);
-  const showInput = !isFileTool;
-  const showOutput = item.status === "error" || !isFileTool;
-  const hasDetails = (showInput && item.args !== undefined) || (showOutput && Boolean(item.output));
-  const content = (
-    <>
+  return (
+    <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
       <span className="tool-result" aria-label={item.status}>
         {item.status === "running" ? <LoaderCircle className="spin" size={12} /> : null}
-        {item.status === "complete" ? <Check size={12} /> : null}
         {item.status === "error" ? <X size={12} /> : null}
       </span>
-    </>
+    </div>
   );
-
-  if (!hasDetails) return <div className={`tool-activity tool-row tool-${item.status}`}>{content}</div>;
-
-  return (
-    <details className={`tool-activity tool-${item.status}`} open={item.status === "error" ? true : undefined}>
-      <summary>
-        <ChevronDown className="tool-chevron" size={12} />
-        {content}
-      </summary>
-      <div className="tool-details">
-        {showInput && item.args !== undefined ? (
-          <div className="tool-detail-section">
-            <span>{item.toolName === "bash" ? "Command" : "Input"}</span>
-            <pre>{formatToolInput(item.toolName, item.args)}</pre>
-          </div>
-        ) : null}
-        {showOutput && item.output ? (
-          <div className="tool-detail-section">
-            <span>Output</span>
-            <pre>{item.output}</pre>
-          </div>
-        ) : null}
-        {item.truncated ? <span>Output truncated</span> : null}
-      </div>
-    </details>
-  );
-}
-
-function summaryTitle(turn: AgentTurn, elapsed: number | undefined, initialThinking: boolean): string {
-  const duration = elapsed === undefined ? "" : ` for ${formatDuration(elapsed)}`;
-  if (turn.status === "running") return `${initialThinking ? "Thinking" : "Working"}${duration}`;
-  if (turn.status === "cancelled") return `Stopped after ${formatDuration(elapsed ?? 0)}`;
-  if (turn.status === "interrupted") return `Interrupted after ${formatDuration(elapsed ?? 0)}`;
-  if (turn.status === "error") return `Failed after ${formatDuration(elapsed ?? 0)}`;
-  return `Worked${duration}`;
-}
-
-function formatDuration(milliseconds: number): string {
-  const seconds = Math.max(1, Math.floor(milliseconds / 1_000));
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
-}
-
-function activityLabel(item: AgentItem | undefined): string | undefined {
-  if (!item) return undefined;
-  if (item.kind === "tool") return toolPresentation(item.toolName, item.args).label;
-  if (item.kind === "retry") return `Retrying ${item.attempt}/${item.maxAttempts}`;
-  if (item.kind === "compaction") return "Compacting context";
-  if (item.kind === "assistant") return "Writing response";
-  return undefined;
 }
 
 function toolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {
@@ -263,21 +285,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function formatToolInput(toolName: string, value: unknown): string {
-  const values = record(value);
-  if (toolName === "bash" && typeof values?.command === "string") return values.command;
-  return formatValue(value);
 }
 
 function nodeText(node: ReactNode): string {
