@@ -43,30 +43,24 @@ function Turn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
 }
 
 function ActiveTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
-  const phaseAware = turn.items.some((item) => item.kind === "assistant" && item.phase !== undefined);
   const workStarted = turn.items.some((item) => item.kind !== "thinking" && isWorkItem(item));
+  const finalAnswers = turn.items.filter(isFinalAnswer);
+  const processItems = withoutInitialThinking(turn.items.filter((item) => !isFinalAnswer(item)));
   const visibleItems = turn.items.filter((item) => item.kind !== "thinking");
+  const finalAnswerStarted = finalAnswers.length > 0;
 
-  if (!phaseAware) {
-    let activity: ReactNode = <ThinkingActivity />;
-    if (workStarted) activity = <ActiveWork turn={turn} items={turn.items} thinking={thinking} />;
-    else if (visibleItems.length > 0) activity = visibleItems.map((item) => <TimelineItem key={item.id} item={item} />);
-    return (
-      <article className="agent-turn">
-        <UserInput item={turn.user} />
-        {activity}
-      </article>
-    );
-  }
-
-  const workItems = turn.items.filter(isWorkItem);
-  const messages = turn.items.filter((item) => !isWorkItem(item));
   return (
     <article className="agent-turn">
       <UserInput item={turn.user} />
-      {workStarted ? <ActiveWork turn={turn} items={workItems} thinking={thinking} /> : null}
-      {messages.map((item) => <TimelineItem key={item.id} item={item} />)}
-      {!workStarted && messages.length === 0 ? <ThinkingActivity /> : null}
+      {workStarted ? (
+        <ActiveWork turn={turn} items={processItems} thinking={thinking} />
+      ) : (
+        <>
+          {!finalAnswerStarted ? <ThinkingActivity /> : null}
+          {visibleItems.map((item) => <TimelineItem key={item.id} item={item} />)}
+        </>
+      )}
+      {workStarted ? finalAnswers.map((item) => <TimelineItem key={item.id} item={item} />) : null}
     </article>
   );
 }
@@ -133,6 +127,15 @@ function CompletedWork({ turn, items }: { turn: AgentTurn; items: AgentItem[] })
 function isWorkItem(item: AgentItem): boolean {
   return item.kind === "thinking" || item.kind === "tool" || item.kind === "retry" || item.kind === "compaction" ||
     (item.kind === "assistant" && item.phase === "commentary");
+}
+
+function isFinalAnswer(item: AgentItem): boolean {
+  return item.kind === "assistant" && item.phase === "final_answer";
+}
+
+function withoutInitialThinking(items: AgentItem[]): AgentItem[] {
+  const firstVisible = items.findIndex((item) => item.kind !== "thinking");
+  return firstVisible < 0 ? [] : items.slice(firstVisible);
 }
 
 function turnDuration(turn: AgentTurn): string {
@@ -250,17 +253,30 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
 }
 
 function ToolActivity({ item }: { item: Extract<AgentItem, { kind: "tool" }> }) {
-  const { icon: Icon, label } = toolPresentation(item.toolName, item.args);
+  const presentation = toolPresentation(item.toolName, item.args);
+  const Icon = presentation.icon;
+  const label = item.status === "preparing" ? preparingToolLabel(item.toolName) : presentation.label;
   return (
     <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
       <span className="tool-result" aria-label={item.status}>
-        {item.status === "running" ? <LoaderCircle className="spin" size={12} /> : null}
+        {item.status === "preparing" || item.status === "running" ? <LoaderCircle className="spin" size={12} /> : null}
         {item.status === "error" ? <X size={12} /> : null}
       </span>
     </div>
   );
+}
+
+function preparingToolLabel(toolName: string): string {
+  switch (toolName) {
+    case "bash": return "Preparing command";
+    case "read": return "Preparing read";
+    case "write": return "Preparing file";
+    case "edit": return "Preparing edit";
+    case "tool": return "Preparing";
+    default: return `Preparing ${toolName}`;
+  }
 }
 
 function toolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {

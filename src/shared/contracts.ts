@@ -170,7 +170,7 @@ export type AgentItem = (
       kind: "tool";
       toolCallId: string;
       toolName: string;
-      status: "running" | "complete" | "error";
+      status: "preparing" | "running" | "complete" | "error";
       args?: unknown;
       output?: string;
       truncated?: boolean;
@@ -317,6 +317,7 @@ export interface RuntimeEventData {
   "assistant.thinking.completed": { itemId: string; text: string };
   "assistant.delta": { itemId: string; delta: string };
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
+  "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean };
   "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean };
@@ -347,6 +348,7 @@ export const RUNTIME_EVENT_TYPES = [
   "assistant.thinking.completed",
   "assistant.delta",
   "assistant.completed",
+  "tool.preparing",
   "tool.started",
   "tool.updated",
   "tool.completed",

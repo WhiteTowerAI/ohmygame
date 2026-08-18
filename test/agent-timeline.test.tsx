@@ -38,9 +38,26 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(streaming).toContain("Hello");
+    expect(streaming.indexOf("Thinking")).toBeLessThan(streaming.indexOf("Hello"));
     expect(streaming).not.toContain("Working");
     expect(complete).toContain("Hello");
     expect(complete).not.toContain("Worked");
+  });
+
+  it("keeps the activity row above unclassified text until its phase is known", () => {
+    const streaming = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...assistant("commentary", "I will inspect it."), status: "streaming", phase: undefined },
+    ]} activeTurnId="turn-1" />);
+    const commentary = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("commentary", "I will inspect it.", "commentary"),
+    ]} activeTurnId="turn-1" />);
+
+    expect(streaming.indexOf("Thinking")).toBeLessThan(streaming.indexOf("I will inspect it."));
+    expect(streaming).not.toContain("Working for");
+    expect(commentary.indexOf("Working for")).toBeLessThan(commentary.indexOf("I will inspect it."));
+    expect(commentary).not.toContain("thinking-activity");
   });
 
   it("renders successful and failed tools as static rows without output", () => {
@@ -107,8 +124,23 @@ describe("AgentTimeline", () => {
       tool(),
     ]} activeTurnId="turn-1" />);
 
-    expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf("I will inspect it."));
+    expect(html).toContain("Working for");
+    expect(html).not.toContain("thinking-block");
     expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
+  });
+
+  it("keeps later Pi thinking blocks in their original position", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("commentary", "I will inspect it.", "commentary"),
+      tool(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      assistant("next", "I will update it.", "commentary"),
+    ]} activeTurnId="turn-1" />);
+
+    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
+    expect(html.indexOf("Reading package.json")).toBeLessThan(html.indexOf("Thinking"));
+    expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf("I will update it."));
   });
 
   it("groups Codex commentary and tools while keeping the final answer outside", () => {

@@ -2184,7 +2184,12 @@ textarea:focus-visible {
   list-style: none;
 }
 
-.work-summary-active { cursor: default; }
+.work-summary-active {
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  cursor: default;
+}
 
 .work-activity:not(.work-activity-active) .work-summary:hover {
   background: var(--surface-hover);
@@ -2208,7 +2213,7 @@ textarea:focus-visible {
 }
 
 .active-work-items {
-  padding: 2px 0;
+  padding: 12px 0 2px;
 }
 
 .work-items .commentary-message {

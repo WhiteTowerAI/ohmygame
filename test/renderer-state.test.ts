@@ -65,6 +65,21 @@ describe("rendererReducer", () => {
     expect(state.agentThinking).toBe(false);
   });
 
+  it("transitions a preparing tool into execution on the same item", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.preparing", {
+      itemId: "tool-1", toolCallId: "call-1", toolName: "write",
+    }) });
+    expect(state.items.at(-1)).toMatchObject({ kind: "tool", status: "preparing", toolName: "write" });
+
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "tool.started", {
+      itemId: "tool-1", toolCallId: "call-1", toolName: "write", args: { path: "src/app.ts" },
+    }) });
+    expect(state.items).toHaveLength(2);
+    expect(state.items.at(-1)).toMatchObject({ kind: "tool", status: "running", args: { path: "src/app.ts" } });
+  });
+
   it("updates preview state and ignores duplicate events", () => {
     let state = initialized();
     const ready = runtimeEvent(3, "preview.ready", { url: "http://127.0.0.1:5173" });

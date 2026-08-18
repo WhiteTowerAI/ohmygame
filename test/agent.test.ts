@@ -588,6 +588,43 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("shows tool preparation before execution without forwarding argument deltas", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      const partial = assistantPartial([{ type: "toolCall", id: "call-1", name: "write", arguments: {} }]);
+      session.emit(messageUpdate({ type: "toolcall_start", contentIndex: 0, partial }));
+      session.emit(messageUpdate({ type: "toolcall_delta", contentIndex: 0, delta: '{"content":"private"}', partial }));
+      session.emit(messageUpdate({
+        type: "toolcall_end",
+        contentIndex: 0,
+        toolCall: { type: "toolCall", id: "call-1", name: "write", arguments: { path: "src/app.ts", content: "private" } },
+        partial,
+      }));
+      session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "write", args: { path: "src/app.ts", content: "private" } });
+      session.emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "write", result: { content: [{ type: "text", text: "written" }] }, isError: false });
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Build").result;
+    expect(events.since(project.id).map(({ type, data }) => ({ type, data }))).toContainEqual({
+      type: "tool.preparing",
+      data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "write" },
+    });
+    expect(events.since(project.id).map(({ type }) => type)).toEqual([
+      "agent.started",
+      "tool.preparing",
+      "tool.preparing",
+      "tool.started",
+      "tool.completed",
+      "agent.completed",
+    ]);
+    expect(events.since(project.id).some((event) => JSON.stringify(event).includes("private"))).toBe(false);
+    await manager.close();
+  });
+
   it("forwards Pi compaction lifecycle", async () => {
     const session = new FakeSession();
     session.prompt.mockImplementation(async () => {

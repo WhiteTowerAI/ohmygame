@@ -176,6 +176,8 @@ interface ActiveTurn {
   assistantSequence: number;
   thinkingItemId?: string;
   thinkingSequence: number;
+  preparingToolItemIds: Map<number, string>;
+  toolItemIds: Map<string, string>;
   startedEventId?: number;
   startedAt?: number;
 }
@@ -311,6 +313,8 @@ export class AgentManager {
       completedAssistantIndexes: new Set(),
       assistantSequence: 0,
       thinkingSequence: 0,
+      preparingToolItemIds: new Map(),
+      toolItemIds: new Map(),
     };
     this.#activeTurns.set(project.id, active);
     this.#setState(project.id, active.conversationId, { status: "running", turnId });
@@ -618,6 +622,8 @@ export class AgentManager {
       active.assistantSequence = 0;
       active.thinkingItemId = undefined;
       active.thinkingSequence = 0;
+      active.preparingToolItemIds.clear();
+      active.toolItemIds.clear();
       this.#setState(projectId, conversationId, { status: "running", turnId: started.turnId });
       const startedEvent = this.events.publish(
         projectId,
@@ -671,6 +677,29 @@ export class AgentManager {
         }, eventScope(active));
         active.completedAssistantIndexes.add(contentIndex);
       }
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_start") {
+      const contentIndex = event.assistantMessageEvent.contentIndex;
+      const toolCall = partialToolCall(event.assistantMessageEvent.partial, contentIndex);
+      const itemId = `${active.turnId}:tool:${active.assistantSequence++}`;
+      const toolCallId = toolCall?.id || `${active.turnId}:preparing:${contentIndex}`;
+      active.preparingToolItemIds.set(contentIndex, itemId);
+      if (toolCall?.id) active.toolItemIds.set(toolCall.id, itemId);
+      this.events.publish(projectId, "tool.preparing", {
+        itemId,
+        toolCallId,
+        toolName: toolCall?.name || "tool",
+      }, eventScope(active));
+    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_end") {
+      const { contentIndex, toolCall } = event.assistantMessageEvent;
+      const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:tool:${active.assistantSequence++}`;
+      active.preparingToolItemIds.delete(contentIndex);
+      active.toolItemIds.set(toolCall.id, itemId);
+      this.events.publish(projectId, "tool.preparing", {
+        itemId,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        args: toolArguments(toolCall.name, toolCall.arguments),
+      }, eventScope(active));
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
       const status = assistantStatus(event.message.stopReason);
       for (const [contentIndex, itemId] of active.assistantItemIds) {
@@ -694,6 +723,7 @@ export class AgentManager {
       }
       active.assistantItemIds.clear();
       active.completedAssistantIndexes.clear();
+      active.preparingToolItemIds.clear();
     } else if (event.type === "auto_retry_start") {
       this.events.publish(projectId, "agent.retrying", {
         attempt: event.attempt,
@@ -710,7 +740,8 @@ export class AgentManager {
         ...(event.errorMessage ? { error: event.errorMessage } : {}),
       }, eventScope(active));
     } else if (event.type === "tool_execution_start") {
-      const itemId = `${active.turnId}:tool:${event.toolCallId}`;
+      const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
+      active.toolItemIds.set(event.toolCallId, itemId);
       this.events.publish(projectId, "tool.started", {
         itemId,
         toolCallId: event.toolCallId,
@@ -720,14 +751,14 @@ export class AgentManager {
     } else if (event.type === "tool_execution_update") {
       const result = toolOutput(event.partialResult);
       this.events.publish(projectId, "tool.updated", {
-        itemId: `${active.turnId}:tool:${event.toolCallId}`,
+        itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
         toolCallId: event.toolCallId,
         ...result,
       }, eventScope(active));
     } else if (event.type === "tool_execution_end") {
       const result = toolOutput(event.result);
       this.events.publish(projectId, "tool.completed", {
-        itemId: `${active.turnId}:tool:${event.toolCallId}`,
+        itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         isError: event.isError,
@@ -874,6 +905,20 @@ function isAssistantMessage(message: unknown): message is {
 
 function isUserMessage(message: unknown): message is { role: "user"; content: unknown } {
   return Boolean(message && typeof message === "object" && (message as { role?: unknown }).role === "user");
+}
+
+function partialToolCall(message: unknown, contentIndex: number): { id: string; name: string } | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return undefined;
+  const block = content[contentIndex];
+  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "toolCall") return undefined;
+  const id = (block as { id?: unknown }).id;
+  const name = (block as { name?: unknown }).name;
+  return {
+    id: typeof id === "string" ? id : "",
+    name: typeof name === "string" ? name : "",
+  };
 }
 
 const MAX_TOOL_OUTPUT = 12_000;

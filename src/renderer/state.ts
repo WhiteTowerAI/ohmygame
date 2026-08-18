@@ -237,6 +237,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           }];
         }),
       };
+    case "tool.preparing":
     case "tool.started":
       if (!event.turnId) return scoped;
       return {
@@ -249,7 +250,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           kind: "tool",
           toolCallId: event.data.toolCallId,
           toolName: event.data.toolName,
-          status: "running",
+          status: event.type === "tool.preparing" ? "preparing" : "running",
           args: event.data.args,
           timestamp: eventTime(event),
         }),
@@ -309,6 +310,9 @@ function finishAgent(
 ): RendererState {
   const finalizedItems = !turnId ? state.items : state.items.flatMap((item) => {
     if (item.turnId !== turnId) return [item];
+    if (item.kind === "tool" && item.status === "preparing") {
+      return status === "complete" ? [] : [{ ...item, status: "error" as const }];
+    }
     if (item.kind === "thinking" && item.status === "streaming") {
       return item.text ? [{ ...item, status: "complete" as const }] : [];
     }
