@@ -1,5 +1,4 @@
 import {
-  BrainCircuit,
   Check,
   ChevronDown,
   Copy,
@@ -18,6 +17,7 @@ import remarkGfm from "remark-gfm";
 import type { AgentItem } from "../shared/contracts.js";
 import { imageSource } from "./image-attachments.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
+import { projectWorkItems, toolGroupSummary, type ToolItem } from "./work-items.js";
 
 export function AgentTimeline({ items, activeTurnId, thinking = false }: { items: AgentItem[]; activeTurnId?: string; thinking?: boolean }) {
   return projectAgentTurns(items, activeTurnId).map((turn) => (
@@ -29,7 +29,7 @@ function Turn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
   if (turn.active) return <ActiveTurn turn={turn} thinking={thinking} />;
   const phaseAware = turn.items.some((item) => item.kind === "assistant" && item.phase !== undefined);
   if (!phaseAware) return <ChronologicalTurn turn={turn} thinking={thinking} />;
-  const workItems = turn.items.filter(isWorkItem);
+  const workItems = turn.items.filter((item) => item.kind !== "thinking" && isWorkItem(item));
   const messages = turn.items.filter((item) => !isWorkItem(item));
   return (
     <article className="agent-turn">
@@ -53,7 +53,7 @@ function ActiveTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) 
     <article className="agent-turn">
       <UserInput item={turn.user} />
       {workStarted ? (
-        <ActiveWork turn={turn} items={processItems} thinking={thinking} />
+        <ActiveWork turn={turn} items={processItems} live={!finalAnswerStarted} />
       ) : (
         <>
           {!finalAnswerStarted ? <ThinkingActivity /> : null}
@@ -89,7 +89,7 @@ function UserInput({ item }: { item: AgentTurn["user"] }) {
   );
 }
 
-function ActiveWork({ turn, items, thinking }: { turn: AgentTurn; items: AgentItem[]; thinking: boolean }) {
+function ActiveWork({ turn, items, live }: { turn: AgentTurn; items: AgentItem[]; live: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -103,8 +103,7 @@ function ActiveWork({ turn, items, thinking }: { turn: AgentTurn; items: AgentIt
         <span>Working for {activeTurnDuration(turn, now)}</span>
       </div>
       <div className="active-work-items">
-        {items.map((item) => <TimelineItem key={item.id} item={item} />)}
-        {thinking ? <ThinkingActivity /> : null}
+        <WorkItems items={items} active={live} />
       </div>
     </section>
   );
@@ -118,10 +117,42 @@ function CompletedWork({ turn, items }: { turn: AgentTurn; items: AgentItem[] })
         <span>Worked for {turnDuration(turn)}</span>
       </summary>
       <div className="work-items">
-        {items.map((item) => <TimelineItem key={item.id} item={item} />)}
+        <WorkItems items={items} />
       </div>
     </details>
   );
+}
+
+function WorkItems({ items, active = false }: { items: AgentItem[]; active?: boolean }) {
+  return projectWorkItems(items, active).map((item) => item.kind === "item"
+    ? <TimelineItem key={item.item.id} item={item.item} />
+    : <ToolActivityGroup key={item.id} tools={item.tools} active={item.active} thinking={item.thinking} />);
+}
+
+function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: boolean }) {
+  if (thinking) return <ThinkingActivity />;
+  if (active) return <ToolActivity item={active} />;
+  if (tools.length === 1) return <ToolActivity item={tools[0]} completed />;
+  const Icon = toolGroupIcon(tools);
+  return (
+    <details className="tool-activity-group">
+      <summary className="tool-group-summary">
+        <Icon size={13} aria-hidden="true" />
+        <span className="tool-label">{toolGroupSummary(tools)}</span>
+        <ChevronDown className="tool-group-chevron" size={13} aria-hidden="true" />
+      </summary>
+      <div className="tool-group-items">
+        {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed />)}
+      </div>
+    </details>
+  );
+}
+
+function toolGroupIcon(tools: ToolItem[]): LucideIcon {
+  if (tools.some((tool) => tool.toolName === "edit" || tool.toolName === "write")) return FilePenLine;
+  if (tools.some((tool) => tool.toolName === "grep" || tool.toolName === "find" || tool.toolName === "read" || tool.toolName === "ls")) return Search;
+  if (tools.some((tool) => tool.toolName === "bash")) return Terminal;
+  return Wrench;
 }
 
 function isWorkItem(item: AgentItem): boolean {
@@ -169,7 +200,7 @@ function ThinkingActivity() {
 }
 
 function TimelineItem({ item }: { item: AgentItem }) {
-  if (item.kind === "thinking") return <ThinkingBlock item={item} />;
+  if (item.kind === "thinking") return null;
   if (item.kind === "tool") return <ToolActivity item={item} />;
   if (item.kind === "retry") {
     return (
@@ -199,18 +230,6 @@ function TimelineItem({ item }: { item: AgentItem }) {
     );
   }
   return null;
-}
-
-function ThinkingBlock({ item }: { item: Extract<AgentItem, { kind: "thinking" }> }) {
-  return (
-    <div className="tool-activity tool-row timeline-activity thinking-block">
-      <BrainCircuit size={13} aria-hidden="true" />
-      <span className="tool-label">Thinking</span>
-      <span className="tool-result">
-        {item.status === "streaming" ? <LoaderCircle className="spin" size={12} /> : null}
-      </span>
-    </div>
-  );
 }
 
 function MarkdownContent({ text, className = "" }: { text: string; className?: string }) {
@@ -252,8 +271,8 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-function ToolActivity({ item }: { item: Extract<AgentItem, { kind: "tool" }> }) {
-  const presentation = toolPresentation(item.toolName, item.args);
+function ToolActivity({ item, completed = false }: { item: Extract<AgentItem, { kind: "tool" }>; completed?: boolean }) {
+  const presentation = completed ? completedToolPresentation(item.toolName, item.args) : toolPresentation(item.toolName, item.args);
   const Icon = presentation.icon;
   const label = item.status === "preparing" ? preparingToolLabel(item.toolName) : presentation.label;
   return (
@@ -282,12 +301,37 @@ function preparingToolLabel(toolName: string): string {
 function toolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {
   const values = record(args);
   switch (toolName) {
-    case "bash": return { icon: Terminal, label: text(values?.command) || "Running command" };
+    case "bash": return { icon: Terminal, label: `Running ${text(values?.command) || "command"}` };
     case "edit": return { icon: FilePenLine, label: withTarget("Editing", values) };
     case "write": return { icon: FileText, label: withTarget("Writing", values) };
     case "read": return { icon: Search, label: withTarget("Reading", values) };
+    case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
+    case "find": return { icon: Search, label: searchLabel("Finding", values) };
+    case "ls": return { icon: Search, label: withTarget("Listing", values) };
     default: return { icon: Wrench, label: toolName };
   }
+}
+
+function completedToolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {
+  const values = record(args);
+  switch (toolName) {
+    case "bash": return { icon: Terminal, label: `Ran ${text(values?.command) || "command"}` };
+    case "edit":
+    case "write": return { icon: FilePenLine, label: withTarget("Edited", values) };
+    case "read": return { icon: FileText, label: withTarget("Read", values) };
+    case "grep": return { icon: Search, label: searchLabel("Searched for", values) };
+    case "find": return { icon: Search, label: searchLabel("Searched for", values) };
+    case "ls": return { icon: FileText, label: withTarget("Listed", values) };
+    default: return { icon: Wrench, label: `Used ${toolName}` };
+  }
+}
+
+function searchLabel(action: string, values: Record<string, unknown> | undefined): string {
+  const query = text(values?.pattern) || text(values?.query);
+  const target = text(values?.path) || text(values?.file_path);
+  if (query && target) return `${action} ${query} in ${target}`;
+  if (query) return `${action} ${query}`;
+  return target ? `${action} files in ${target}` : `${action} files`;
 }
 
 function withTarget(action: string, values: Record<string, unknown> | undefined): string {

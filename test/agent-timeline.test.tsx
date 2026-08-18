@@ -22,7 +22,8 @@ describe("AgentTimeline", () => {
     );
 
     expect(html).toContain("Working for");
-    expect(html).toContain("Reading package.json");
+    expect(html).toContain("Read package.json");
+    expect(html).not.toContain("tool-activity-group");
     expect(html).not.toContain("thinking-activity");
     expect(html).not.toContain("<details class=\"work-activity\"");
   });
@@ -60,7 +61,7 @@ describe("AgentTimeline", () => {
     expect(commentary).not.toContain("thinking-activity");
   });
 
-  it("renders successful and failed tools as static rows without output", () => {
+  it("folds successful and failed tools into one compact group without output", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -76,9 +77,10 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("npm run build");
+    expect(html).toContain("Read a file, one action failed");
+    expect(html).toContain("Ran npm run build");
     expect(html).not.toContain("private build output");
-    expect(html).not.toContain("<details");
+    expect(html).toContain("tool-activity-group");
     expect(html).not.toContain("<button");
   });
 
@@ -100,20 +102,32 @@ describe("AgentTimeline", () => {
     expect(activeHtml).not.toContain("<details class=\"work-activity\"");
     expect(activeHtml).toContain("active-work-items");
     expect(activeHtml).not.toContain("class=\"work-items\"");
-    expect(activeHtml.indexOf("I will inspect it.")).toBeLessThan(activeHtml.indexOf("Reading package.json"));
-    expect(activeHtml.indexOf("Reading package.json")).toBeLessThan(activeHtml.indexOf("Done."));
+    expect(activeHtml.indexOf("I will inspect it.")).toBeLessThan(activeHtml.indexOf("Read package.json"));
+    expect(activeHtml.indexOf("Read package.json")).toBeLessThan(activeHtml.indexOf("Done."));
   });
 
-  it("renders Pi thinking as a compact non-expandable row", () => {
+  it("does not keep completed Pi thinking as a history row", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Inspect the project structure.", status: "complete" },
     ]} />);
 
-    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Thinking");
     expect(html).not.toContain("Inspect the project structure.");
-    expect(html).toContain("thinking-block");
     expect(html).not.toContain("<details");
+  });
+
+  it("does not create empty Worked activity for Thinking followed by a final answer", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      assistant("response", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Done.");
+    expect(html).not.toContain("Thinking");
+    expect(html).not.toContain("Worked for");
+    expect(html).not.toContain("work-items");
   });
 
   it("keeps active Thinking, commentary, and tools in source order", () => {
@@ -126,10 +140,10 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Working for");
     expect(html).not.toContain("thinking-block");
-    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
+    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Read package.json"));
   });
 
-  it("keeps later Pi thinking blocks in their original position", () => {
+  it("omits completed Thinking while preserving the surrounding event order", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
@@ -138,9 +152,38 @@ describe("AgentTimeline", () => {
       assistant("next", "I will update it.", "commentary"),
     ]} activeTurnId="turn-1" />);
 
-    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
-    expect(html.indexOf("Reading package.json")).toBeLessThan(html.indexOf("Thinking"));
-    expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf("I will update it."));
+    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Read package.json"));
+    expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("I will update it."));
+    expect(html).not.toContain("Thinking");
+  });
+
+  it("uses the current activity row for Thinking between tool calls", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("commentary", "I will inspect it.", "commentary"),
+      tool(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "streaming" },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Working for");
+    expect(html).toContain("Thinking");
+    expect(html.match(/Thinking/g)).toHaveLength(1);
+    expect(html).not.toContain("package.json");
+    expect(html).not.toContain("tool-activity-group");
+  });
+
+  it("drops Thinking from the final tool aggregation", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("commentary", "I will inspect it.", "commentary"),
+      tool(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      assistant("response", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Read package.json");
+    expect(html).not.toContain("tool-activity-group");
+    expect(html).not.toContain("Thinking");
   });
 
   it("groups Codex commentary and tools while keeping the final answer outside", () => {
@@ -152,10 +195,81 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html).toContain("Worked for");
-    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
-    expect(html.indexOf("Reading package.json")).toBeLessThan(html.indexOf("Done."));
+    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Read package.json"));
+    expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("Done."));
     expect(html.indexOf('class="work-items"')).toBeLessThan(html.indexOf("I will inspect it."));
     expect(html.indexOf("Done.")).toBeGreaterThan(html.indexOf("</details>"));
+  });
+
+  it("shows only the current tool while a consecutive tool group is running", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...tool(), id: "read", toolCallId: "read" },
+      {
+        id: "edit",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "edit",
+        toolName: "edit",
+        status: "running",
+        args: { path: "src/app.ts" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Editing src/app.ts");
+    expect(html).not.toContain("package.json");
+    expect(html).not.toContain("tool-activity-group");
+  });
+
+  it("aggregates a completed mixed tool group and keeps compact details", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      {
+        id: "edit",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "edit",
+        toolName: "edit",
+        status: "complete",
+        args: { path: "src/app.ts" },
+      },
+      {
+        id: "bash",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "bash",
+        toolName: "bash",
+        status: "complete",
+        args: { command: "npm run typecheck" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Edited a file, read a file, ran a command");
+    expect(html).toContain("Read package.json");
+    expect(html).toContain("Edited src/app.ts");
+    expect(html).toContain("Ran npm run typecheck");
+  });
+
+  it("keeps separate single tool rows around commentary", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      assistant("commentary", "Now I will edit it.", "commentary"),
+      {
+        id: "edit",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "edit",
+        toolName: "edit",
+        status: "complete",
+        args: { path: "src/app.ts" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).not.toContain("tool-activity-group");
+    expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("Now I will edit it."));
+    expect(html.indexOf("Now I will edit it.")).toBeLessThan(html.indexOf("Edited src/app.ts"));
   });
 
   it("renders images attached to the user message", () => {

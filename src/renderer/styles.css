@@ -2217,7 +2217,7 @@ textarea:focus-visible {
 }
 
 .work-items .commentary-message {
-  margin: 5px 7px 8px 25px;
+  margin: 5px 7px 8px 0;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.55;
@@ -2298,11 +2298,45 @@ textarea:focus-visible {
   color: var(--danger);
 }
 
-.thinking-activity {
-  color: var(--text-faint);
+.tool-activity-group {
+  margin: 0 0 4px;
 }
 
-.thinking-block {
+.tool-group-summary {
+  display: grid;
+  min-height: 28px;
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 7px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-group-summary:hover {
+  background: var(--surface-hover);
+}
+
+.tool-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-group-chevron {
+  color: var(--text-faint);
+  transition: transform 120ms ease;
+}
+
+.tool-activity-group[open] > .tool-group-summary .tool-group-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-group-items {
+  padding-left: 18px;
+}
+
+.thinking-activity {
   color: var(--text-faint);
 }
 
