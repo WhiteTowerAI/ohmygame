@@ -493,7 +493,6 @@ export function ProjectShell({
             <AgentTimeline
               items={state.items}
               activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
-              thinking={currentConversationBusy && state.agentThinking}
             />
           </div>
 

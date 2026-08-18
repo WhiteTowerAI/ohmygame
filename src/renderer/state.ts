@@ -12,8 +12,6 @@ export interface RendererState {
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
   items: TimelineItem[];
-  agentThinking: boolean;
-  retry?: { attempt: number; maxAttempts: number };
   lastEventId: number;
   notice?: string;
 }
@@ -32,7 +30,6 @@ export const initialRendererState: RendererState = {
   connection: "connecting",
   items: [],
   pendingPrompts: [],
-  agentThinking: false,
   lastEventId: 0,
 };
 
@@ -45,8 +42,6 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       activeTurn: action.activeTurn,
       pendingPrompts: action.pendingPrompts ?? [],
       items: action.items,
-      agentThinking: initialThinking(action.activeTurn, action.items),
-      retry: undefined,
       notice: undefined,
       lastEventId: action.cursor,
     };
@@ -60,7 +55,6 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       activeTurn: action.activeTurn,
       pendingPrompts: action.pendingPrompts ?? [],
       items: action.items ?? state.items,
-      agentThinking: initialThinking(action.activeTurn, action.items ?? state.items),
       lastEventId: action.cursor,
     };
   }
@@ -87,7 +81,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     (event.type === "agent.completed" || event.type === "agent.cancelled" || event.type === "agent.error") &&
     state.activeTurn?.turnId === event.turnId
   ) {
-    scoped = { ...scoped, activeTurn: undefined, agentThinking: false };
+    scoped = { ...scoped, activeTurn: undefined };
   }
 
   if (agentEvent && (!conversation || event.conversationId !== conversation.id)) return scoped;
@@ -107,8 +101,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         ...scoped,
         conversation: conversation ? { ...conversation, agent: { status: "running", turnId: event.turnId } } : conversation,
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
-        agentThinking: true,
-        retry: undefined,
         items: [
           ...state.items,
           { id: `${event.turnId}:user`, turnId: event.turnId, kind: "user", text: event.data.prompt, ...(event.data.images?.length ? { images: event.data.images } : {}), timestamp: eventTime(event) },
@@ -128,11 +120,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return { ...scoped, pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId) };
     case "agent.retrying": {
       if (!event.turnId) return scoped;
-      const retry = { attempt: event.data.attempt, maxAttempts: event.data.maxAttempts };
       return {
         ...scoped,
-        agentThinking: false,
-        retry,
         items: upsertItem(state.items, {
           id: `${event.turnId}:retry:${event.data.attempt}`,
           turnId: event.turnId,
@@ -146,7 +135,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        agentThinking: false,
         items: upsertItem(state.items, {
           id: `${event.turnId}:compaction`,
           turnId: event.turnId,
@@ -184,7 +172,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        agentThinking: false,
         items: upsertItem(state.items, {
           id: event.data.itemId,
           turnId: event.turnId,
@@ -197,7 +184,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     case "assistant.thinking.delta":
       return {
         ...scoped,
-        agentThinking: false,
         items: updateItem(state.items, event.data.itemId, (item) => item.kind === "thinking"
           ? { ...item, text: item.text + event.data.delta }
           : item),
@@ -216,10 +202,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        agentThinking: false,
-        retry: undefined,
         items: updateItem(state.items, event.data.itemId, (item) => item.kind === "assistant"
-          ? { ...item, text: item.text + event.data.delta }
+          ? { ...item, text: item.text + event.data.delta, timestamp: eventTime(event) }
           : item),
       };
     case "assistant.completed":
@@ -242,8 +226,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        agentThinking: false,
-        retry: undefined,
         items: upsertItem(state.items, {
           id: event.data.itemId,
           turnId: event.turnId,
@@ -335,28 +317,15 @@ function finishAgent(
       timestamp,
     },
   ];
-  if (!state.conversation) return { ...state, items, agentThinking: false, retry: undefined };
+  if (!state.conversation) return { ...state, items };
   return {
     ...state,
     items,
-    agentThinking: false,
-    retry: undefined,
     conversation: {
       ...state.conversation,
       agent: status === "error" ? { status: "error", error } : { status: "idle" },
     },
   };
-}
-
-function initialThinking(activeTurn: ActiveTurnState | undefined, items: AgentItem[]): boolean {
-  if (!activeTurn) return false;
-  return !items.some((item) => item.turnId === activeTurn.turnId && (
-    item.kind === "tool" ||
-    item.kind === "retry" ||
-    item.kind === "compaction" ||
-    item.kind === "thinking" ||
-    (item.kind === "assistant" && Boolean(item.text))
-  ));
 }
 
 function eventTime(event: RuntimeEvent): number | undefined {

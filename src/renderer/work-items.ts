@@ -6,7 +6,7 @@ type ActivityItem = ToolItem | ThinkingItem;
 
 export type WorkDisplayItem =
   | { kind: "item"; item: AgentItem }
-  | { kind: "tool-group"; id: string; tools: ToolItem[]; active?: ToolItem; thinking?: boolean };
+  | { kind: "tool-group"; id: string; tools: ToolItem[]; active?: ToolItem; thinking?: ThinkingItem };
 
 export function projectWorkItems(items: AgentItem[], active = false): WorkDisplayItem[] {
   const projected: WorkDisplayItem[] = [];
@@ -19,7 +19,7 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
     const activeTool = current && latest?.kind === "tool" && (latest.status === "preparing" || latest.status === "running")
       ? latest
       : undefined;
-    const thinking = current && latest?.kind === "thinking";
+    const thinking = current && latest?.kind === "thinking" && latest.status === "streaming" ? latest : undefined;
     if (tools.length > 0 || thinking) {
       projected.push({ kind: "tool-group", id: activity[0].id, tools, active: activeTool, thinking });
     }

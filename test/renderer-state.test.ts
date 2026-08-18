@@ -50,19 +50,27 @@ describe("rendererReducer", () => {
   it("streams Pi thinking into a timeline item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    expect(state.agentThinking).toBe(true);
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "read" }) });
-    expect(state.agentThinking).toBe(false);
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking.started", { itemId: "thinking-1" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.thinking.delta", { itemId: "thinking-1", delta: "Inspecting" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.thinking.completed", { itemId: "thinking-1", text: "Inspecting" }) });
-    expect(state.agentThinking).toBe(false);
     expect(state.items.at(-1)).toMatchObject({ kind: "thinking", text: "Inspecting", status: "complete" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "agent.completed", {}) });
-    expect(state.agentThinking).toBe(false);
+  });
+
+  it("records the latest assistant delta time", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
+    state = rendererReducer(state, {
+      type: "runtime-event",
+      event: { ...runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "Working" }), timestamp: new Date(3_000).toISOString() },
+    });
+
+    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Working", timestamp: 3_000 });
   });
 
   it("transitions a preparing tool into execution on the same item", () => {
@@ -138,7 +146,7 @@ describe("rendererReducer", () => {
     });
   });
 
-  it("shows retry progress and clears the active retry when output resumes", () => {
+  it("stores retry progress as a timeline item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     state = rendererReducer(state, {
@@ -146,12 +154,11 @@ describe("rendererReducer", () => {
       event: runtimeEvent(2, "agent.retrying", { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" }),
     });
 
-    expect(state.retry).toEqual({ attempt: 1, maxAttempts: 3 });
     expect(state.items.at(-1)).toMatchObject({ kind: "retry", attempt: 1, maxAttempts: 3, error: "fetch failed" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.started", { itemId: "assistant-1" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.delta", { itemId: "assistant-1", delta: "Recovered" }) });
-    expect(state.retry).toBeUndefined();
+    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Recovered" });
   });
 
   it("tracks context compaction", () => {
@@ -214,18 +221,16 @@ describe("rendererReducer", () => {
     expect(state.lastEventId).toBe(1);
   });
 
-  it("clears transient thinking when another conversation's turn ends", () => {
+  it("clears another conversation's active turn when it ends", () => {
     const state = rendererReducer({
       ...initialized(),
       activeTurn: { conversationId: "conversation-2", turnId: "turn-1" },
-      agentThinking: true,
     }, {
       type: "runtime-event",
       event: { ...runtimeEvent(1, "agent.completed", {}), conversationId: "conversation-2" },
     });
 
     expect(state.activeTurn).toBeUndefined();
-    expect(state.agentThinking).toBe(false);
     expect(state.items).toEqual([]);
   });
 

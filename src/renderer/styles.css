@@ -2189,6 +2189,13 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   cursor: default;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.work-summary-thinking {
+  border-bottom-color: transparent;
+  color: var(--text-faint);
 }
 
 .work-activity:not(.work-activity-active) .work-summary:hover {
@@ -2213,11 +2220,18 @@ textarea:focus-visible {
 }
 
 .active-work-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 12px 0 2px;
 }
 
+.active-work-items > * {
+  margin: 0;
+}
+
 .work-items .commentary-message {
-  margin: 5px 7px 8px 0;
+  margin: 5px 0 8px;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.55;
@@ -2269,17 +2283,22 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.timeline-activity { margin-bottom: 4px; }
+.timeline-activity { margin-bottom: 8px; }
 
-.timeline-activity + .assistant-message { margin-top: 14px; }
+.timeline-activity + .assistant-message { margin-top: 0; }
 
 .tool-row {
   display: grid;
   min-height: 28px;
-  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
   align-items: center;
   gap: 7px;
-  padding: 0 7px;
+  padding: 0;
+}
+
+.tool-row > svg:first-child,
+.tool-group-summary > svg:first-child {
+  justify-self: center;
 }
 
 .tool-label {
@@ -2299,16 +2318,16 @@ textarea:focus-visible {
 }
 
 .tool-activity-group {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
 }
 
 .tool-group-summary {
   display: grid;
   min-height: 28px;
-  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
   align-items: center;
   gap: 7px;
-  padding: 0 7px;
+  padding: 0;
   border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;

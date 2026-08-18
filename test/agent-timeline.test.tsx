@@ -4,16 +4,27 @@ import { AgentTimeline } from "../src/renderer/agent-timeline.js";
 import type { AgentItem } from "../src/shared/contracts.js";
 
 describe("AgentTimeline", () => {
-  it("shows Thinking outside before work begins", () => {
+  it("shows initial Thinking in the stable activity header", () => {
     const html = renderToStaticMarkup(
-      <AgentTimeline items={[user()]} activeTurnId="turn-1" thinking />,
+      <AgentTimeline items={[user()]} activeTurnId="turn-1" />,
     );
 
     expect(html).toContain("Thinking");
-    expect(html).toContain("thinking-activity");
+    expect(html).toContain("work-summary-thinking");
+    expect(html).toContain("work-activity-active");
     expect(html).not.toContain("Working for");
     expect(html).not.toContain("Worked");
     expect(html).not.toContain("<details");
+  });
+
+  it("shows Pi's streamed reasoning summary before work begins", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "**Planning Vite app creation**", status: "streaming" },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Planning Vite app creation");
+    expect(html).not.toContain("**");
   });
 
   it("replaces initial Thinking with elapsed work when work begins", () => {
@@ -22,13 +33,20 @@ describe("AgentTimeline", () => {
     );
 
     expect(html).toContain("Working for");
-    expect(html).toContain("Read package.json");
+    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain(" spin");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Read package.json");
     expect(html).not.toContain("tool-activity-group");
-    expect(html).not.toContain("thinking-activity");
     expect(html).not.toContain("<details class=\"work-activity\"");
   });
 
-  it("keeps a direct answer outside Working while streaming and after completion", () => {
+  it("spins only the initial Thinking header", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("lucide-loader-circle spin");
+  });
+
+  it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { ...assistant("response", "Hello"), status: "streaming", phase: undefined },
@@ -39,13 +57,46 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(streaming).toContain("Hello");
-    expect(streaming.indexOf("Thinking")).toBeLessThan(streaming.indexOf("Hello"));
-    expect(streaming).not.toContain("Working");
+    expect(streaming).not.toContain("Thinking");
+    expect(streaming).toContain("Working for");
     expect(complete).toContain("Hello");
     expect(complete).not.toContain("Worked");
   });
 
-  it("keeps the activity row above unclassified text until its phase is known", () => {
+  it("shows Thinking while the next model step is pending after commentary", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      assistant("commentary", "I will write the game files.", "commentary"),
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("I will write the game files.");
+    expect(html).toContain("Thinking");
+    expect(html.indexOf("I will write the game files.")).toBeLessThan(html.lastIndexOf("Thinking"));
+    expect(html.indexOf("Thinking")).toBeLessThan(html.indexOf('</div></section>'));
+  });
+
+  it("does not add Thinking while commentary is still streaming", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      { ...assistant("commentary", "I will write the game files."), status: "streaming", phase: undefined },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("I will write the game files.");
+    expect(html).not.toContain("thinking-activity");
+  });
+
+  it("shows Thinking after stalled text", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...assistant("commentary", "I will write the game files."), status: "streaming", phase: undefined, timestamp: 1 },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html.indexOf("I will write the game files.")).toBeLessThan(html.indexOf("Thinking"));
+  });
+
+  it("keeps unclassified text in the stable Working container until its phase is known", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { ...assistant("commentary", "I will inspect it."), status: "streaming", phase: undefined },
@@ -55,13 +106,13 @@ describe("AgentTimeline", () => {
       assistant("commentary", "I will inspect it.", "commentary"),
     ]} activeTurnId="turn-1" />);
 
-    expect(streaming.indexOf("Thinking")).toBeLessThan(streaming.indexOf("I will inspect it."));
-    expect(streaming).not.toContain("Working for");
+    expect(streaming).not.toContain("Thinking");
+    expect(streaming).toContain("Working for");
     expect(commentary.indexOf("Working for")).toBeLessThan(commentary.indexOf("I will inspect it."));
-    expect(commentary).not.toContain("thinking-activity");
+    expect(commentary).toContain("Thinking");
   });
 
-  it("folds successful and failed tools into one compact group without output", () => {
+  it("replaces the latest completed tool group while waiting for the next step", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -77,33 +128,11 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Read a file, one action failed");
-    expect(html).toContain("Ran npm run build");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Read a file, one action failed");
+    expect(html).not.toContain("Ran npm run build");
     expect(html).not.toContain("private build output");
-    expect(html).toContain("tool-activity-group");
     expect(html).not.toContain("<button");
-  });
-
-  it("renders assistant text and tools in Pi event order without regrouping", () => {
-    const items = [
-      user(),
-      assistant("note", "I will inspect it."),
-      tool(),
-      assistant("response", "Done."),
-    ];
-    const html = renderToStaticMarkup(<AgentTimeline items={items} />);
-
-    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Reading package.json"));
-    expect(html.indexOf("Reading package.json")).toBeLessThan(html.indexOf("Done."));
-    expect(html).not.toContain("Working");
-    expect(html).not.toContain("Worked");
-    const activeHtml = renderToStaticMarkup(<AgentTimeline items={items} activeTurnId="turn-1" />);
-    expect(activeHtml).toContain("Working for");
-    expect(activeHtml).not.toContain("<details class=\"work-activity\"");
-    expect(activeHtml).toContain("active-work-items");
-    expect(activeHtml).not.toContain("class=\"work-items\"");
-    expect(activeHtml.indexOf("I will inspect it.")).toBeLessThan(activeHtml.indexOf("Read package.json"));
-    expect(activeHtml.indexOf("Read package.json")).toBeLessThan(activeHtml.indexOf("Done."));
   });
 
   it("does not keep completed Pi thinking as a history row", () => {
@@ -130,7 +159,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("work-items");
   });
 
-  it("keeps active Thinking, commentary, and tools in source order", () => {
+  it("replaces the latest tool with Thinking after earlier commentary", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
@@ -140,7 +169,9 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Working for");
     expect(html).not.toContain("thinking-block");
-    expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Read package.json"));
+    expect(html).toContain("I will inspect it.");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Read package.json");
   });
 
   it("omits completed Thinking while preserving the surrounding event order", () => {
@@ -154,7 +185,7 @@ describe("AgentTimeline", () => {
 
     expect(html.indexOf("I will inspect it.")).toBeLessThan(html.indexOf("Read package.json"));
     expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("I will update it."));
-    expect(html).not.toContain("Thinking");
+    expect(html).toContain("Thinking");
   });
 
   it("uses the current activity row for Thinking between tool calls", () => {
@@ -162,14 +193,25 @@ describe("AgentTimeline", () => {
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "streaming" },
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Planning the next edit", status: "streaming" },
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Working for");
-    expect(html).toContain("Thinking");
-    expect(html.match(/Thinking/g)).toHaveLength(1);
+    expect(html).toContain("Planning the next edit");
     expect(html).not.toContain("package.json");
     expect(html).not.toContain("tool-activity-group");
+  });
+
+  it("replaces a completed Thinking summary with the generic status", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Planning the next edit", status: "complete" },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Planning the next edit");
+    expect(html).not.toContain("Read package.json");
   });
 
   it("drops Thinking from the final tool aggregation", () => {
@@ -221,7 +263,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("tool-activity-group");
   });
 
-  it("aggregates a completed mixed tool group and keeps compact details", () => {
+  it("uses one Thinking row after a completed mixed tool group", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -245,13 +287,14 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Edited a file, read a file, ran a command");
-    expect(html).toContain("Read package.json");
-    expect(html).toContain("Edited src/app.ts");
-    expect(html).toContain("Ran npm run typecheck");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Edited a file, read a file, ran a command");
+    expect(html).not.toContain("Read package.json");
+    expect(html).not.toContain("Edited src/app.ts");
+    expect(html).not.toContain("Ran npm run typecheck");
   });
 
-  it("keeps separate single tool rows around commentary", () => {
+  it("keeps earlier tools and replaces only the current trailing tool", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -269,7 +312,8 @@ describe("AgentTimeline", () => {
 
     expect(html).not.toContain("tool-activity-group");
     expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("Now I will edit it."));
-    expect(html.indexOf("Now I will edit it.")).toBeLessThan(html.indexOf("Edited src/app.ts"));
+    expect(html).not.toContain("Edited src/app.ts");
+    expect(html.indexOf("Now I will edit it.")).toBeLessThan(html.indexOf("Thinking"));
   });
 
   it("renders images attached to the user message", () => {

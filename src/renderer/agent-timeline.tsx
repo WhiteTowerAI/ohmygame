@@ -17,60 +17,30 @@ import remarkGfm from "remark-gfm";
 import type { AgentItem } from "../shared/contracts.js";
 import { imageSource } from "./image-attachments.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
-import { projectWorkItems, toolGroupSummary, type ToolItem } from "./work-items.js";
+import { toolGroupSummary, type ToolItem } from "./work-items.js";
+import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 
-export function AgentTimeline({ items, activeTurnId, thinking = false }: { items: AgentItem[]; activeTurnId?: string; thinking?: boolean }) {
+export function AgentTimeline({ items, activeTurnId }: { items: AgentItem[]; activeTurnId?: string }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!activeTurnId) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeTurnId]);
+
   return projectAgentTurns(items, activeTurnId).map((turn) => (
-    <Turn key={turn.id} turn={turn} thinking={turn.active && thinking} />
+    <Turn key={turn.id} display={projectTurnDisplay(turn, now)} now={now} />
   ));
 }
 
-function Turn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
-  if (turn.active) return <ActiveTurn turn={turn} thinking={thinking} />;
-  const phaseAware = turn.items.some((item) => item.kind === "assistant" && item.phase !== undefined);
-  if (!phaseAware) return <ChronologicalTurn turn={turn} thinking={thinking} />;
-  const workItems = turn.items.filter((item) => item.kind !== "thinking" && isWorkItem(item));
-  const messages = turn.items.filter((item) => !isWorkItem(item));
+function Turn({ display, now }: { display: TurnDisplay; now: number }) {
   return (
     <article className="agent-turn">
-      <UserInput item={turn.user} />
-      {workItems.length > 0 || thinking ? (
-        <CompletedWork turn={turn} items={workItems} />
-      ) : null}
-      {messages.map((item) => <TimelineItem key={item.id} item={item} />)}
-    </article>
-  );
-}
-
-function ActiveTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
-  const workStarted = turn.items.some((item) => item.kind !== "thinking" && isWorkItem(item));
-  const finalAnswers = turn.items.filter(isFinalAnswer);
-  const processItems = withoutInitialThinking(turn.items.filter((item) => !isFinalAnswer(item)));
-  const visibleItems = turn.items.filter((item) => item.kind !== "thinking");
-  const finalAnswerStarted = finalAnswers.length > 0;
-
-  return (
-    <article className="agent-turn">
-      <UserInput item={turn.user} />
-      {workStarted ? (
-        <ActiveWork turn={turn} items={processItems} live={!finalAnswerStarted} />
-      ) : (
-        <>
-          {!finalAnswerStarted ? <ThinkingActivity /> : null}
-          {visibleItems.map((item) => <TimelineItem key={item.id} item={item} />)}
-        </>
-      )}
-      {workStarted ? finalAnswers.map((item) => <TimelineItem key={item.id} item={item} />) : null}
-    </article>
-  );
-}
-
-function ChronologicalTurn({ turn, thinking }: { turn: AgentTurn; thinking: boolean }) {
-  return (
-    <article className="agent-turn">
-      <UserInput item={turn.user} />
-      {turn.items.map((item) => <TimelineItem key={item.id} item={item} />)}
-      {thinking ? <ThinkingActivity /> : null}
+      <UserInput item={display.user} />
+      {display.active ? <ActiveWork display={display} now={now} /> : null}
+      {!display.active && display.work.length > 0 ? <CompletedWork display={display} /> : null}
+      {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
+      {display.finalMessages.map((item) => <TimelineItem key={item.id} item={item} />)}
     </article>
   );
 }
@@ -89,48 +59,46 @@ function UserInput({ item }: { item: AgentTurn["user"] }) {
   );
 }
 
-function ActiveWork({ turn, items, live }: { turn: AgentTurn; items: AgentItem[]; live: boolean }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
+function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
+  const hasContent = display.work.length > 0 || display.waiting;
   return (
     <section className="work-activity work-activity-active">
-      <div className="work-summary work-summary-active">
-        <LoaderCircle className="spin" size={12} aria-hidden="true" />
-        <span>Working for {activeTurnDuration(turn, now)}</span>
+      <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
+        <LoaderCircle className={display.working ? undefined : "spin"} size={12} aria-hidden="true" />
+        <span>{display.working ? `Working for ${activeTurnDuration(display, now)}` : thinkingLabel(display.thinkingText)}</span>
       </div>
-      <div className="active-work-items">
-        <WorkItems items={items} active={live} />
-      </div>
+      {hasContent ? (
+        <div className="active-work-items">
+          <WorkItems items={display.work} />
+          {display.waiting ? <ThinkingActivity /> : null}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function CompletedWork({ turn, items }: { turn: AgentTurn; items: AgentItem[] }) {
+function CompletedWork({ display }: { display: TurnDisplay }) {
   return (
     <details className="work-activity">
       <summary className="work-summary">
         <ChevronDown className="work-chevron" size={13} />
-        <span>Worked for {turnDuration(turn)}</span>
+        <span>Worked for {turnDuration(display)}</span>
       </summary>
       <div className="work-items">
-        <WorkItems items={items} />
+        <WorkItems items={display.work} />
       </div>
     </details>
   );
 }
 
-function WorkItems({ items, active = false }: { items: AgentItem[]; active?: boolean }) {
-  return projectWorkItems(items, active).map((item) => item.kind === "item"
+function WorkItems({ items }: { items: TurnDisplay["work"] }) {
+  return items.map((item) => item.kind === "item"
     ? <TimelineItem key={item.item.id} item={item.item} />
     : <ToolActivityGroup key={item.id} tools={item.tools} active={item.active} thinking={item.thinking} />);
 }
 
-function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: boolean }) {
-  if (thinking) return <ThinkingActivity />;
+function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: Extract<AgentItem, { kind: "thinking" }> }) {
+  if (thinking) return <ThinkingActivity text={thinking.text} />;
   if (active) return <ToolActivity item={active} />;
   if (tools.length === 1) return <ToolActivity item={tools[0]} completed />;
   const Icon = toolGroupIcon(tools);
@@ -155,22 +123,13 @@ function toolGroupIcon(tools: ToolItem[]): LucideIcon {
   return Wrench;
 }
 
-function isWorkItem(item: AgentItem): boolean {
-  return item.kind === "thinking" || item.kind === "tool" || item.kind === "retry" || item.kind === "compaction" ||
-    (item.kind === "assistant" && item.phase === "commentary");
-}
-
-function isFinalAnswer(item: AgentItem): boolean {
-  return item.kind === "assistant" && item.phase === "final_answer";
-}
-
-function withoutInitialThinking(items: AgentItem[]): AgentItem[] {
-  const firstVisible = items.findIndex((item) => item.kind !== "thinking");
-  return firstVisible < 0 ? [] : items.slice(firstVisible);
-}
-
-function turnDuration(turn: AgentTurn): string {
-  const timestamps = [turn.user?.timestamp, ...turn.items.map((item) => item.timestamp)]
+function turnDuration(display: TurnDisplay): string {
+  const timestamps = [
+    display.user?.timestamp,
+    ...display.work.flatMap((item) => item.kind === "item" ? [item.item.timestamp] : item.tools.map((tool) => tool.timestamp)),
+    ...display.messages.map((item) => item.timestamp),
+    ...display.finalMessages.map((item) => item.timestamp),
+  ]
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (timestamps.length < 2) return "<1s";
   const seconds = Math.max(1, Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 1_000));
@@ -178,8 +137,8 @@ function turnDuration(turn: AgentTurn): string {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
-function activeTurnDuration(turn: AgentTurn, now: number): string {
-  const startedAt = turn.user?.timestamp ?? turn.items.find((item) => item.timestamp !== undefined)?.timestamp ?? now;
+function activeTurnDuration(display: TurnDisplay, now: number): string {
+  const startedAt = display.user?.timestamp ?? now;
   return formatDuration(Math.max(0, now - startedAt));
 }
 
@@ -189,14 +148,22 @@ function formatDuration(milliseconds: number): string {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
-function ThinkingActivity() {
+function ThinkingActivity({ text }: { text?: string } = {}) {
   return (
     <div className="tool-activity tool-row timeline-activity thinking-activity" role="status">
       <LoaderCircle className="spin" size={13} aria-hidden="true" />
-      <span className="tool-label">Thinking</span>
+      <span className="tool-label">{thinkingLabel(text)}</span>
       <span />
     </div>
   );
+}
+
+function thinkingLabel(text?: string): string {
+  let label = text?.trim();
+  if (!label) return "Thinking";
+  if (label.startsWith("**")) label = label.slice(2);
+  if (label.endsWith("**")) label = label.slice(0, -2);
+  return label.trim() || "Thinking";
 }
 
 function TimelineItem({ item }: { item: AgentItem }) {
