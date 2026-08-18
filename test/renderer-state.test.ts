@@ -3,6 +3,27 @@ import type { ConversationState, ProjectState, RuntimeEvent, RuntimeEventData, R
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("replaces the final turn when the latest prompt is revised", () => {
+    const state = {
+      ...initialized(),
+      lastEventId: 1,
+      items: [
+        { id: "user-1", turnId: "turn-1", kind: "user" as const, text: "First" },
+        { id: "answer-1", turnId: "turn-1", kind: "assistant" as const, text: "One", status: "complete" as const },
+        { id: "user-2", turnId: "turn-2", kind: "user" as const, text: "Second" },
+        { id: "answer-2", turnId: "turn-2", kind: "assistant" as const, text: "Two", status: "complete" as const },
+      ],
+    };
+    const event = { ...runtimeEvent(2, "agent.started", { prompt: "Revised", revision: "last-turn" }), turnId: "turn-3" };
+
+    const next = rendererReducer(state, { type: "runtime-event", event });
+
+    expect(next.items.map((item) => [item.turnId, item.kind, "text" in item ? item.text : undefined])).toEqual([
+      ["turn-1", "user", "First"],
+      ["turn-1", "assistant", "One"],
+      ["turn-3", "user", "Revised"],
+    ]);
+  });
   it("initializes with restored conversation history", () => {
     const items = [
       { id: "user", turnId: "turn-1", kind: "user" as const, text: "Hi" },

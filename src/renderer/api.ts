@@ -309,6 +309,17 @@ export async function sendPrompt(
   });
 }
 
+export async function reviseLastPrompt(
+  projectId: string,
+  conversationId: string,
+  prompt: string,
+): Promise<PromptResponse> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/revise-last`, {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/queue/${turnId}`, { method: "DELETE" });
 }

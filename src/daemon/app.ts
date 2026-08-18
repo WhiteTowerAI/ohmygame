@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -100,6 +100,15 @@ const promptSchema = {
         },
       },
     },
+  },
+} as const;
+
+const reviseLastPromptSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["prompt"],
+    properties: { prompt: { type: "string", minLength: 1 } },
   },
 } as const;
 
@@ -793,6 +802,29 @@ export function createApp(options: AppOptions = {}) {
       }
       conversations.setInitialTitle(project.id, conversation.summary.id, request.body.prompt);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: ReviseLastPromptRequest }>(
+    "/projects/:projectId/conversations/:conversationId/revise-last",
+    { schema: reviseLastPromptSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      if (!request.body.prompt.trim()) return reply.code(400).send({ error: "Prompt is required" });
+      try {
+        const turn = await agents.reviseLast(project, conversation, request.body.prompt, async (reference) => ({
+          type: reference.type,
+          path: await validateWorkspaceFile(project.workspacePath, reference.path),
+        }));
+        await projects.touch(project.id);
+        return reply.code(202).send({ turnId: turn.turnId, queued: false });
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
     },
   );
 

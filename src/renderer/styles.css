@@ -2121,6 +2121,7 @@ textarea:focus-visible {
 
 .user-input {
   display: flex;
+  width: 100%;
   max-width: 100%;
   margin: 6px 0 20px auto;
   align-items: flex-end;
@@ -2129,6 +2130,7 @@ textarea:focus-visible {
 }
 
 .user-message {
+  align-self: flex-end;
   width: fit-content;
   max-width: 86%;
   padding: 10px 12px;
@@ -2141,9 +2143,107 @@ textarea:focus-visible {
   white-space: pre-wrap;
 }
 
+.user-message-actions {
+  display: flex;
+  align-self: flex-end;
+  gap: 4px;
+  margin-top: -4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.user-message:hover + .user-message-actions,
+.user-message-actions:hover,
+.user-message-actions:focus-within {
+  opacity: 1;
+}
+
+.user-message-actions button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.user-message-actions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.user-message-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.user-message-editor {
+  display: flex;
+  width: min(380px, 100%);
+  align-self: flex-end;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: #23252b;
+}
+
+.user-message-editor textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #e7e9ec;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.user-message-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.user-message-editor-actions button {
+  min-width: 54px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.user-message-editor-actions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.user-message-editor-actions button.primary {
+  background: var(--accent);
+  color: #101713;
+}
+
+.user-message-editor-actions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .user-message-images {
   display: flex;
   max-width: 100%;
+  align-self: flex-end;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;

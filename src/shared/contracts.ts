@@ -219,6 +219,8 @@ export interface PromptRequest {
   images?: PromptImage[];
 }
 
+export interface ReviseLastPromptRequest { prompt: string }
+
 export interface PromptResponse {
   turnId: string;
   queued: boolean;
@@ -307,7 +309,7 @@ export interface RuntimeEventData {
   "preview.ready": { url: string };
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
-  "agent.started": { prompt: string; images?: PromptImage[] };
+  "agent.started": { prompt: string; images?: PromptImage[]; revision?: "last-turn" };
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };

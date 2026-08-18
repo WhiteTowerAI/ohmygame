@@ -132,7 +132,6 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Read a file, one action failed");
     expect(html).not.toContain("Ran npm run build");
     expect(html).not.toContain("private build output");
-    expect(html).not.toContain("<button");
   });
 
   it("does not keep completed Pi thinking as a history row", () => {
@@ -324,7 +323,20 @@ describe("AgentTimeline", () => {
     expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
     expect(html).toContain("Attached image 1");
     expect(html).toContain('class="user-input"><div class="user-message-images"');
-    expect(html).toContain('</div><div class="user-message">Build</div></div>');
+    expect(html).toContain('</div><div class="user-message">Build</div>');
+  });
+
+  it("offers edit only on the latest user message", () => {
+    const html = renderToStaticMarkup(<AgentTimeline
+      items={[
+        user(),
+        { ...user(), id: "user-2", turnId: "turn-2", text: "Second" },
+      ]}
+      onRevise={async () => true}
+    />);
+
+    expect(html.match(/aria-label="Copy message"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Edit message"/g)).toHaveLength(1);
   });
 });
 

@@ -1,4 +1,7 @@
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
@@ -747,6 +750,56 @@ describe("AgentManager", () => {
     expect(session.setActiveToolsByName).toHaveBeenLastCalledWith(["read", "generate_image"]);
     await manager.close();
   });
+
+  it("revises the latest persisted user turn through Pi tree navigation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "open-game-revise-"));
+    const workspacePath = path.join(root, "workspace");
+    await mkdir(workspacePath);
+    const stored = SessionManager.create(workspacePath, path.join(root, "session"));
+    const userId = stored.appendMessage({
+      role: "user",
+      content: [
+        { type: "text", text: "Original\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>" },
+        { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+      ],
+      timestamp: Date.now(),
+    });
+    stored.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "Done" }],
+      stopReason: "stop",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      api: "openai-responses",
+      provider: "openai",
+      model: "test",
+      timestamp: Date.now(),
+    });
+    const project = { ...createProject(), workspacePath };
+    const conversation = { ...createConversation(project), sessionPath: stored.getSessionFile()! };
+    const session = new FakeSession();
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+
+    const validation = deferred<{ type: "workspace-file"; path: string }>();
+    const revisionPromise = manager.reviseLast(project, conversation, "Revised", () => validation.promise);
+    await vi.waitFor(() => expect(manager.isProjectBusy(project.id)).toBe(true));
+    await expect(manager.setModel(project.id, conversation.summary.id, { provider: "test", id: "test" } as never, vi.fn()))
+      .rejects.toThrow("Wait for the agent to finish");
+    validation.resolve({ type: "workspace-file", path: "index.html" });
+    const revision = await revisionPromise;
+    await revision.result;
+
+    expect(session.navigateTree).toHaveBeenCalledWith(userId, { summarize: false });
+    expect(session.prompt).toHaveBeenCalledWith(
+      "Revised\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>",
+      { images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
+    );
+    expect(events.since(project.id).find((event) => event.type === "agent.started")?.data).toMatchObject({
+      prompt: "Revised",
+      revision: "last-turn",
+    });
+    await manager.close();
+  });
 });
 
 class FakeSession implements CodingSession {
@@ -756,6 +809,7 @@ class FakeSession implements CodingSession {
   followUp = vi.fn<NonNullable<CodingSession["followUp"]>>(async () => {});
   steer = vi.fn<NonNullable<CodingSession["steer"]>>(async () => {});
   clearQueue = vi.fn<NonNullable<CodingSession["clearQueue"]>>(() => ({ steering: [], followUp: [] }));
+  navigateTree = vi.fn<NonNullable<CodingSession["navigateTree"]>>(async () => ({ cancelled: false }));
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});

@@ -27,6 +27,7 @@ import {
   publishProject,
   removePendingPrompt,
   renameConversation,
+  reviseLastPrompt,
   sendPrompt,
   steerPendingPrompt,
   setConversationModel,
@@ -311,6 +312,19 @@ export function ProjectShell({
     }
   }
 
+  async function revisePrompt(nextPrompt: string): Promise<boolean> {
+    if (!project || !conversation || agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open") return false;
+    followTimeline.current = true;
+    dispatch({ type: "notice", message: undefined });
+    try {
+      await reviseLastPrompt(project.id, conversation.id, nextPrompt);
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
   async function stopAgent() {
     const turnId = conversation?.agent.turnId ?? (currentConversationBusy ? state.activeTurn?.turnId : undefined);
     if (!project || !conversation || !turnId || !currentConversationBusy) return;
@@ -493,6 +507,8 @@ export function ProjectShell({
             <AgentTimeline
               items={state.items}
               activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
+              revisionDisabled={agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open"}
+              onRevise={revisePrompt}
             />
           </div>
 

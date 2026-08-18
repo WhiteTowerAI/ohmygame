@@ -5,13 +5,14 @@ import {
   FilePenLine,
   FileText,
   LoaderCircle,
+  Pencil,
   Search,
   Terminal,
   Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { isValidElement, useEffect, useState, type ReactNode } from "react";
+import { isValidElement, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentItem } from "../shared/contracts.js";
@@ -20,23 +21,95 @@ import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 
-export function AgentTimeline({ items, activeTurnId }: { items: AgentItem[]; activeTurnId?: string }) {
+interface AgentTimelineProps {
+  items: AgentItem[];
+  activeTurnId?: string;
+  revisionDisabled?: boolean;
+  onRevise?: (prompt: string) => Promise<boolean>;
+}
+
+export function AgentTimeline({ items, activeTurnId, revisionDisabled, onRevise }: AgentTimelineProps) {
   const [now, setNow] = useState(Date.now());
+  const [editingItemId, setEditingItemId] = useState<string>();
+  const [draft, setDraft] = useState("");
+  const [copiedItemId, setCopiedItemId] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     if (!activeTurnId) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [activeTurnId]);
 
-  return projectAgentTurns(items, activeTurnId).map((turn) => (
-    <Turn key={turn.id} display={projectTurnDisplay(turn, now)} now={now} />
+  const turns = projectAgentTurns(items, activeTurnId);
+  const latestUserId = [...turns].reverse().find((turn) => turn.user)?.user?.id;
+  useEffect(() => {
+    if (editingItemId && editingItemId !== latestUserId) setEditingItemId(undefined);
+  }, [editingItemId, latestUserId]);
+
+  async function copy(item: NonNullable<AgentTurn["user"]>) {
+    if (!item.text) return;
+    try {
+      await navigator.clipboard.writeText(item.text);
+    } catch {
+      return;
+    }
+    setCopiedItemId(item.id);
+    window.setTimeout(() => setCopiedItemId((current) => current === item.id ? undefined : current), 1_500);
+  }
+
+  function edit(item: NonNullable<AgentTurn["user"]>) {
+    setEditingItemId(item.id);
+    setDraft(item.text);
+  }
+
+  async function submitRevision() {
+    if (!onRevise || submitting || revisionDisabled || !draft.trim()) return;
+    setSubmitting(true);
+    try {
+      if (await onRevise(draft)) setEditingItemId(undefined);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return turns.map((turn) => (
+    <Turn
+      key={turn.id}
+      display={projectTurnDisplay(turn, now)}
+      now={now}
+      userControls={{
+        editing: turn.user?.id === editingItemId && editingItemId === latestUserId,
+        draft,
+        copied: turn.user?.id === copiedItemId,
+        canEdit: Boolean(onRevise && turn.user?.text && turn.user.id === latestUserId),
+        disabled: Boolean(revisionDisabled || submitting),
+        onCopy: copy,
+        onEdit: edit,
+        onDraftChange: setDraft,
+        onCancel: () => setEditingItemId(undefined),
+        onSubmit: submitRevision,
+      }}
+    />
   ));
 }
 
-function Turn({ display, now }: { display: TurnDisplay; now: number }) {
+interface UserControls {
+  editing: boolean;
+  copied: boolean;
+  canEdit: boolean;
+  disabled: boolean;
+  draft: string;
+  onCopy: (item: NonNullable<AgentTurn["user"]>) => void;
+  onEdit: (item: NonNullable<AgentTurn["user"]>) => void;
+  onDraftChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}
+
+function Turn({ display, now, userControls }: { display: TurnDisplay; now: number; userControls: UserControls }) {
   return (
     <article className="agent-turn">
-      <UserInput item={display.user} />
+      <UserInput item={display.user} controls={userControls} />
       {display.active ? <ActiveWork display={display} now={now} /> : null}
       {!display.active && display.work.length > 0 ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
@@ -45,8 +118,13 @@ function Turn({ display, now }: { display: TurnDisplay; now: number }) {
   );
 }
 
-function UserInput({ item }: { item: AgentTurn["user"] }) {
+function UserInput({ item, controls }: { item: AgentTurn["user"]; controls: UserControls }) {
   if (!item) return null;
+  function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    controls.onSubmit();
+  }
   return (
     <div className="user-input">
       {item.images?.length ? (
@@ -54,7 +132,40 @@ function UserInput({ item }: { item: AgentTurn["user"] }) {
           {item.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
         </div>
       ) : null}
-      {item.text ? <div className="user-message">{item.text}</div> : null}
+      {controls.editing ? (
+        <div className="user-message-editor">
+          <textarea
+            autoFocus
+            value={controls.draft}
+            onChange={(event) => controls.onDraftChange(event.target.value)}
+            onFocus={(event) => {
+              const end = event.currentTarget.value.length;
+              event.currentTarget.setSelectionRange(end, end);
+            }}
+            onKeyDown={keyDown}
+            disabled={controls.disabled}
+            aria-label="Edit message"
+          />
+          <div className="user-message-editor-actions">
+            <button type="button" onClick={controls.onCancel} disabled={controls.disabled}>Cancel</button>
+            <button className="primary" type="button" onClick={controls.onSubmit} disabled={controls.disabled || !controls.draft.trim()}>Send</button>
+          </div>
+        </div>
+      ) : item.text ? (
+        <>
+          <div className="user-message">{item.text}</div>
+          <div className="user-message-actions">
+            <button type="button" aria-label="Copy message" title="Copy" onClick={() => controls.onCopy(item)}>
+              {controls.copied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+            {controls.canEdit ? (
+              <button type="button" aria-label="Edit message" title="Edit" onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
+                <Pencil size={13} />
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

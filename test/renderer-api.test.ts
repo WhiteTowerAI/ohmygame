@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -218,6 +218,19 @@ describe("renderer project API", () => {
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json" },
     }));
+  });
+
+  it("revises the latest user message", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ queued: false, turnId: "turn-2" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await reviseLastPrompt("project-1", "conversation-1", "Build a platformer");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/conversations/conversation-1/revise-last",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Build a platformer" }) }),
+    );
   });
 
   it("sends image attachments with a prompt", async () => {

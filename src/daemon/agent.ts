@@ -21,6 +21,7 @@ export interface CodingSession {
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   clearQueue?(): { steering: string[]; followUp: string[] };
+  navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
@@ -196,6 +197,7 @@ export class AgentManager {
   readonly #pendingPrompts = new Map<string, QueuedPrompt[]>();
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
+  readonly #revisions = new Set<string>();
   #closing = false;
 
   constructor(
@@ -217,7 +219,7 @@ export class AgentManager {
     model: RuntimeModel,
     persist: () => void,
   ): Promise<void> {
-    if (this.#activeTurns.has(projectId)) throw new Error("Wait for the agent to finish before changing models");
+    if (this.isProjectBusy(projectId)) throw new Error("Wait for the agent to finish before changing models");
     const managed = this.#sessions.get(projectId);
     if (!managed || managed.conversationId !== conversationId) {
       persist();
@@ -233,7 +235,7 @@ export class AgentManager {
     level: AgentReasoningLevel,
     persist: () => void,
   ): Promise<AgentReasoningLevel | undefined> {
-    if (this.#activeTurns.has(projectId)) throw new Error("Wait for the agent to finish before changing reasoning");
+    if (this.isProjectBusy(projectId)) throw new Error("Wait for the agent to finish before changing reasoning");
     const managed = this.#sessions.get(projectId);
     if (!managed || managed.conversationId !== conversationId) {
       persist();
@@ -256,6 +258,7 @@ export class AgentManager {
   ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
     if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
+    if (this.#revisions.has(project.id)) throw new Error("A message edit is already starting in this project");
     const active = this.#activeTurns.get(project.id);
     if (active) {
       if (active.conversationId !== conversation.summary.id) throw new Error("Agent is already running in this project");
@@ -294,6 +297,47 @@ export class AgentManager {
     return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId) };
   }
 
+  async reviseLast(
+    project: ProjectState,
+    conversation: StoredConversation,
+    prompt: string,
+    validateReference: (reference: PromptReference) => Promise<PromptReference>,
+  ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+    if (!prompt.trim()) throw new Error("Prompt must not be empty");
+    if (this.#closing) throw new Error("Agent manager is closing");
+    if (this.#activeTurns.has(project.id) || this.#revisions.has(project.id)) {
+      throw new Error("Wait for the agent to finish before editing a message");
+    }
+    const key = conversationKey(project.id, conversation.summary.id);
+    if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
+      throw new Error("Remove queued messages before editing a message");
+    }
+
+    this.#revisions.add(project.id);
+    let navigated = false;
+    try {
+      const previous = lastUserPrompt(project.workspacePath, conversation.sessionPath);
+      if (!previous) throw new Error("There is no user message to edit");
+      const references = await Promise.all(previous.references.map(validateReference));
+      const managed = await this.#getSession(project, conversation);
+      if (!managed.session.navigateTree) throw new Error("The current agent session cannot edit messages");
+      const navigation = await managed.session.navigateTree(previous.id, { summarize: false });
+      if (navigation.cancelled) throw new Error("Message edit was cancelled");
+      navigated = true;
+
+      const turnId = randomUUID();
+      return {
+        turnId,
+        result: this.#startPrompt(project, conversation, prompt, references, previous.images, turnId, "last-turn"),
+      };
+    } catch (cause) {
+      if (navigated && !this.#activeTurns.has(project.id)) this.forgetProject(project.id);
+      throw cause;
+    } finally {
+      this.#revisions.delete(project.id);
+    }
+  }
+
   #startPrompt(
     project: ProjectState,
     conversation: StoredConversation,
@@ -301,6 +345,7 @@ export class AgentManager {
     references: PromptReference[],
     images: PromptImage[],
     turnId: string,
+    revision?: "last-turn",
   ): Promise<AgentRunResult> {
 
     const active: ActiveTurn = {
@@ -321,9 +366,9 @@ export class AgentManager {
     const started = this.events.publish(
       project.id,
       "agent.started",
-      { prompt, ...(images.length ? { images } : {}) },
+      { prompt, ...(images.length ? { images } : {}), ...(revision ? { revision } : {}) },
       eventScope(active),
-      images.length ? { prompt } : undefined,
+      images.length ? { prompt, ...(revision ? { revision } : {}) } : undefined,
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
@@ -782,7 +827,7 @@ export class AgentManager {
   }
 
   isProjectBusy(projectId: string): boolean {
-    return this.#activeTurns.has(projectId);
+    return this.#activeTurns.has(projectId) || this.#revisions.has(projectId);
   }
 
   forgetProject(projectId: string): void {
@@ -810,10 +855,42 @@ function promptWithReferences(prompt: string, references: PromptReference[]): st
   return `${prompt}\n\n${REFERENCE_MARKER}\n${JSON.stringify(references.map(({ path }) => path))}\n</workspace-file-references>`;
 }
 
-function parseUserPrompt(value: string): { text: string } {
+function parseUserPrompt(value: string): { text: string; references: PromptReference[] } {
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = value.lastIndexOf(marker);
-  return { text: index < 0 ? value : value.slice(0, index) };
+  if (index < 0) return { text: value, references: [] };
+  const closing = "\n</workspace-file-references>";
+  const encoded = value.slice(index + marker.length, value.endsWith(closing) ? -closing.length : undefined);
+  try {
+    const paths: unknown = JSON.parse(encoded);
+    return {
+      text: value.slice(0, index),
+      references: Array.isArray(paths)
+        ? paths.filter((item): item is string => typeof item === "string").map((path) => ({ type: "workspace-file", path }))
+        : [],
+    };
+  } catch {
+    return { text: value.slice(0, index), references: [] };
+  }
+}
+
+function lastUserPrompt(workspacePath: string, sessionPath: string): {
+  id: string;
+  references: PromptReference[];
+  images: PromptImage[];
+} | undefined {
+  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
+  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.type !== "message" || entry.message.role !== "user") continue;
+    return {
+      id: entry.id,
+      references: parseUserPrompt(textContent(entry.message.content)).references,
+      images: imageContent(entry.message.content),
+    };
+  }
+  return undefined;
 }
 
 function conversationKey(projectId: string, conversationId: string): string {

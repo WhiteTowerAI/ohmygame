@@ -97,12 +97,15 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return project ? { ...scoped, project: { ...project, preview: { status: "stopped" } } } : scoped;
     case "agent.started": {
       if (!event.turnId) return scoped;
+      const replacedTurnId = event.data.revision === "last-turn"
+        ? [...state.items].reverse().find((item) => item.kind === "user")?.turnId
+        : undefined;
       return {
         ...scoped,
         conversation: conversation ? { ...conversation, agent: { status: "running", turnId: event.turnId } } : conversation,
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
         items: [
-          ...state.items,
+          ...state.items.filter((item) => item.turnId !== replacedTurnId),
           { id: `${event.turnId}:user`, turnId: event.turnId, kind: "user", text: event.data.prompt, ...(event.data.images?.length ? { images: event.data.images } : {}), timestamp: eventTime(event) },
         ],
       };
