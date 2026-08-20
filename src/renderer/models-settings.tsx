@@ -218,6 +218,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
     }
   }
   const displayedError = error ?? endpoint.error;
+  const managedByOpenGameAccount = provider.id === "opengame";
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={onBack} />
@@ -232,7 +233,13 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
         </form>
       ) : null}
       <div className="settings-form-actions">
-        {provider.credentialType ? <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button> : <span className="settings-managed-label">Managed outside OpenGame</span>}
+        {managedByOpenGameAccount ? (
+          <span className="settings-managed-label">Managed by your OpenGame account</span>
+        ) : provider.credentialType ? (
+          <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
+        ) : (
+          <span className="settings-managed-label">Managed outside OpenGame</span>
+        )}
       </div>
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
       {notice ? <p className="settings-success" role="status">{notice}</p> : null}

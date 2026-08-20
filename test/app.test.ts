@@ -449,6 +449,51 @@ describe("daemon", () => {
     expect(unregisterProvider).toHaveBeenCalledWith("openai");
   });
 
+  it("connects and disconnects the OpenGame Portal provider", async () => {
+    const runtime = {
+      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
+      getModels: vi.fn(() => [{
+        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
+        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
+      }]),
+      registerProvider: vi.fn(),
+      unregisterProvider: vi.fn(),
+      setRuntimeApiKey: vi.fn(async () => undefined),
+      removeRuntimeApiKey: vi.fn(async () => undefined),
+    } as unknown as ModelRuntime;
+    const portalFetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://portal.open-game.ai/v1", api_key: "sk-portal" } }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }] }));
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-")),
+      createModelRuntime: async () => runtime,
+      portalFetch,
+    });
+    apps.push(app);
+
+    const connected = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
+    const disconnected = await app.inject({ method: "DELETE", url: "/portal/connection" });
+
+    expect(connected.json()).toEqual({ status: "connected", modelCount: 1 });
+    expect(disconnected.statusCode).toBe(204);
+    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
+    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
+  });
+
+  it("reports Portal connection failures as gateway errors", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-error-")),
+      createModelRuntime: async () => fakeModelRuntime([]),
+      portalFetch: vi.fn(async () => Response.json({ error: "unavailable" }, { status: 503 })),
+    });
+    apps.push(app);
+
+    const response = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({ error: "Portal request failed (503)" });
+  });
+
   it("validates request bodies before they reach a manager", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);

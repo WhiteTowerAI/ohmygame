@@ -14,6 +14,8 @@ import { ConversationManager } from "./conversations.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
+import { PortalClient } from "./portal-client.js";
+import { PortalConnection } from "./portal-connection.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { ApiSettingsStore } from "./api-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -31,6 +33,8 @@ export interface AppOptions {
   allowedOrigins?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
+  portalUrl?: string;
+  portalFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageApiKey?: string;
@@ -236,6 +240,15 @@ const modelEndpointSchema = {
   },
 } as const;
 
+const portalConnectionSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["accessToken"],
+    properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+  },
+} as const;
+
 const imageSettingsSchema = {
   body: {
     type: "object",
@@ -291,13 +304,18 @@ export function createApp(options: AppOptions = {}) {
     return runtime;
   })();
   const modelAuth = new ModelAuthManager(getModelRuntime);
+  const portal = new PortalConnection(
+    getModelRuntime,
+    new PortalClient(options.portalUrl ?? process.env.OPEN_GAME_PORTAL_URL ?? "https://portal.open-game.ai", options.portalFetch),
+  );
   const agents = new AgentManager(events, {
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
       const selected = conversations.model(project, conversation);
-      const model = selected && modelRuntime.hasConfiguredAuth(selected.provider)
-        ? modelRuntime.getModel(selected.provider, selected.id)
-        : undefined;
+      const model = selected ? modelRuntime.getModel(selected.provider, selected.id) : undefined;
+      if (selected && (!model || !modelRuntime.hasConfiguredAuth(selected.provider))) {
+        throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
+      }
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
@@ -540,6 +558,23 @@ export function createApp(options: AppOptions = {}) {
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
       defaultReasoningLevel: parseReasoningLevel(piSettings.getDefaultThinkingLevel()) ?? "medium",
     };
+  });
+
+  app.get("/portal/connection", async () => portal.get());
+
+  app.put<{ Body: { accessToken: string } }>(
+    "/portal/connection",
+    { schema: portalConnectionSchema },
+    async (request, reply) => {
+      const state = await portal.connect(request.body.accessToken);
+      if (state.status === "error") return reply.code(502).send({ error: state.error });
+      return state;
+    },
+  );
+
+  app.delete("/portal/connection", async (_request, reply) => {
+    await portal.disconnect();
+    return reply.code(204).send();
   });
 
   app.get("/settings/models/providers", async () => modelAuth.providers());

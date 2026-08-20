@@ -51,8 +51,11 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
   useEffect(() => { void loadProjects(); }, []);
   useEffect(() => {
-    if (!model && modelCatalog.defaultModel) setModel(modelCatalog.defaultModel);
-  }, [model, modelCatalog.defaultModel]);
+    if (modelCatalog.models.some((candidate) => sameModel(candidate, model))) return;
+    const fallback = modelCatalog.models.find((candidate) => sameModel(candidate, modelCatalog.defaultModel))
+      ?? modelCatalog.models[0];
+    if (!fallback || !sameModel(fallback, model)) setModel(fallback);
+  }, [model, modelCatalog.models, modelCatalog.defaultModel]);
   useEffect(() => {
     const selected = modelCatalog.models.find((candidate) => sameModel(candidate, model));
     if (!selected) return;

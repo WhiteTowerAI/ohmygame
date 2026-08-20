@@ -1,6 +1,7 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
+import { connectPortal, disconnectPortal } from "./api.js";
 
 export type AuthState =
   | { status: "loading" }
@@ -23,6 +24,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const supabase = createSupabaseClient();
+const PORTAL_RETRY_INITIAL_MS = 5_000;
+const PORTAL_RETRY_MAX_MS = 60_000;
 
 interface AuthClient {
   auth: Pick<ReturnType<typeof createClient>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
@@ -35,18 +38,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pendingProvider, setPendingProvider] = useState<SignInProvider>();
   const [oauthBrowserOpen, setOAuthBrowserOpen] = useState(false);
   const pendingAccessToken = useRef<((token: string | undefined) => void) | undefined>(undefined);
+  const portalUserId = useRef<string | undefined>(undefined);
+  const connectingPortalUserId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!supabase) return;
+    const client = supabase;
     let active = true;
-    void restoreAuthState(supabase).then((restored) => {
-      if (active) setState(restored);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryUserId: string | undefined;
+    let retryDelay = PORTAL_RETRY_INITIAL_MS;
+
+    function scheduleRetry(userId: string): void {
+      if (!active || retryUserId !== userId) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      const delay = retryDelay;
+      retryDelay = Math.min(retryDelay * 2, PORTAL_RETRY_MAX_MS);
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        void getAccessToken(client).then((token) => {
+          if (!active || retryUserId !== userId) return;
+          if (token) connect(userId, token);
+          else scheduleRetry(userId);
+        }).catch(() => scheduleRetry(userId));
+      }, delay);
+    }
+
+    function connect(userId: string, accessToken: string): void {
+      if (userId === portalUserId.current || userId === connectingPortalUserId.current) return;
+      portalUserId.current = undefined;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (retryUserId !== userId) retryDelay = PORTAL_RETRY_INITIAL_MS;
+      retryUserId = userId;
+      connectingPortalUserId.current = userId;
+      void connectPortal(accessToken).then(() => {
+        if (active && connectingPortalUserId.current === userId) {
+          portalUserId.current = userId;
+          retryDelay = PORTAL_RETRY_INITIAL_MS;
+        }
+      }).catch(() => {
+        if (connectingPortalUserId.current === userId) scheduleRetry(userId);
+      }).finally(() => {
+        if (connectingPortalUserId.current === userId) connectingPortalUserId.current = undefined;
+      });
+    }
+    void restoreAuthState(client).then((restored) => {
+      if (!active) return;
+      setState(restored);
+      if (restored.status === "signed-in") {
+        void getAccessToken(client).then(async (token) => {
+          if (token) connect(restored.user.id, token);
+        }).catch(() => undefined);
+      } else {
+        void disconnectPortal().catch(() => undefined);
+      }
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) setState(authState(session?.user));
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setState(authState(session?.user));
+      const userId = session?.user.id;
+      if (userId) {
+        connect(userId, session.access_token);
+      } else {
+        if (retryTimer) clearTimeout(retryTimer);
+        retryUserId = undefined;
+        retryDelay = PORTAL_RETRY_INITIAL_MS;
+        portalUserId.current = undefined;
+        connectingPortalUserId.current = undefined;
+        void disconnectPortal().catch(() => undefined);
+      }
     });
     return () => {
       active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryUserId = undefined;
       data.subscription.unsubscribe();
     };
   }, []);

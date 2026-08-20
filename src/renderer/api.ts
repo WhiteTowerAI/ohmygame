@@ -83,6 +83,20 @@ export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
 }
 
+export async function connectPortal(accessToken: string): Promise<void> {
+  await request("/portal/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
+  notifyAgentModelsChanged();
+}
+
+export async function disconnectPortal(): Promise<void> {
+  await request("/portal/connection", { method: "DELETE" });
+  notifyAgentModelsChanged();
+}
+
+export function notifyAgentModelsChanged(): void {
+  window.dispatchEvent(new Event("open-game-models-changed"));
+}
+
 export async function listModelProviders(): Promise<ModelProviderSummary[]> {
   return request("/settings/models/providers");
 }
