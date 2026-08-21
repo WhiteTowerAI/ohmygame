@@ -22,8 +22,7 @@ export class PortalClient {
     const baseUrl = string(data.base_url);
     const apiKey = string(data.api_key);
     if (!baseUrl || !apiKey) throw new Error("Portal returned an invalid credential");
-    if (new URL(baseUrl).origin !== this.origin) throw new Error("Portal returned an untrusted API URL");
-    return { baseUrl: baseUrl.replace(/\/$/, ""), apiKey };
+    return { baseUrl: normalizeApiUrl(baseUrl), apiKey };
   }
 
   async modelIds(credential: PortalCredential, signal?: AbortSignal): Promise<string[]> {
@@ -51,6 +50,14 @@ function normalizeOrigin(value: string): string {
     throw new Error("Portal URL must use HTTPS");
   }
   return url.origin;
+}
+
+function normalizeApiUrl(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+    throw new Error("Portal API URL must use HTTPS");
+  }
+  return url.href.replace(/\/$/, "");
 }
 
 async function json(response: Response): Promise<Record<string, unknown>> {
