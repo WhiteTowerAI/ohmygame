@@ -28,7 +28,7 @@ export function App() {
   if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} />;
-  if (route.page === "images" || route.page === "3d") return <ImagesPage page={route.page} onNavigate={navigateToSidebarPage} />;
+  if (route.page === "images" || route.page === "3d" || route.page === "video") return <ImagesPage page={route.page} onNavigate={navigateToSidebarPage} />;
   if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
   return (
     <ProjectShell

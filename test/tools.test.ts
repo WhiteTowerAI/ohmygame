@@ -34,6 +34,17 @@ describe("tool runner", () => {
       category: "3d",
       inputKind: "image",
       outputKind: "model",
+    }, {
+      id: "generate-video",
+      name: "Video Generator",
+      description: "Generate a project-ready video from a text prompt or reference image.",
+      category: "video",
+      inputKind: "image-prompt",
+      outputKind: "video",
+      defaultDuration: 6,
+      aspectRatios: ["16:9", "9:16", "1:1"],
+      resolutions: ["720p", "1080p"],
+      durations: [6, 10],
     }]);
   });
 

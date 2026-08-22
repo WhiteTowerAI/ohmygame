@@ -9,6 +9,7 @@ import { getWorkspaceMedia } from "./workspace.js";
 const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
   "generate-image": "generate_image",
   "image-to-3d": "generate_3d_asset",
+  "generate-video": "generate_video",
 };
 
 export function activePiToolNames(settings: ToolSettings): string[] {
@@ -73,6 +74,39 @@ export function createAgentTools(
       return {
         content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
         details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
+      };
+    },
+  }), defineTool({
+    name: PI_TOOL_NAMES["generate-video"],
+    label: "Generate Video",
+    description: "Generate a video from a text prompt, optionally animating a PNG or JPEG from the current project.",
+    parameters: Type.Object({
+      prompt: Type.String({ description: "Describe the motion and camera movement" }),
+      imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG or JPEG image in the current project workspace" })),
+      duration: Type.Optional(Type.Integer({ minimum: 1, maximum: 15, description: "Video duration in seconds" })),
+      aspectRatio: Type.Optional(Type.Union([Type.Literal("16:9"), Type.Literal("9:16"), Type.Literal("1:1")], { description: "Video aspect ratio" })),
+      resolution: Type.Optional(Type.Union([Type.Literal("720p"), Type.Literal("1080p")], { description: "Video resolution" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = input.imagePath ? await getWorkspaceMedia(project.workspacePath, input.imagePath) : undefined;
+      if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg") throw new Error("Video generation requires a PNG or JPEG image");
+      const run = await tools.run("generate-video", {
+        prompt: input.prompt,
+        duration: input.duration,
+        aspectRatio: input.aspectRatio,
+        resolution: input.resolution,
+        ...(source ? { image: { mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") } } : {}),
+      }, signal);
+      const output = run.files[0];
+      if (!output) throw new Error("Video generator returned no output");
+      const file = await tools.file(run.id, output.name);
+      if (!file) throw new Error("Generated video could not be read");
+      signal?.throwIfAborted();
+      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes);
+      return {
+        content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
+        details: { artifact: { type: "video", path: relativePath, mediaType: output.mediaType } },
       };
     },
   })];

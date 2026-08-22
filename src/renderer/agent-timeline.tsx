@@ -392,6 +392,8 @@ function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact:
   if (!url) return null;
   return artifact.type === "model"
     ? <ModelPreview source={url} label="Generated 3D model" minHeight={320} />
+    : artifact.type === "video"
+      ? <video className="tool-artifact-video" src={url} controls preload="metadata" />
     : <img className="tool-artifact-image" src={url} alt="Generated image" />;
 }
 

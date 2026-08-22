@@ -36,7 +36,7 @@ export interface ModelProviderSummary {
 
 export type ProviderKind = "pi" | "portal" | "custom";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
-export type ProviderCapability = "language" | "image" | "3d";
+export type ProviderCapability = "language" | "image" | "3d" | "video";
 
 export interface ProviderSummary extends ModelProviderSummary {
   kind: ProviderKind;
@@ -269,10 +269,10 @@ export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 
 interface BaseToolDefinition {
-  id: "generate-image" | "image-to-3d";
+  id: "generate-image" | "image-to-3d" | "generate-video";
   name: string;
   description: string;
-  category: "images" | "3d";
+  category: "images" | "3d" | "video";
 }
 
 export interface ImageToolDefinition extends BaseToolDefinition {
@@ -291,7 +291,24 @@ export interface ImageTo3DToolDefinition extends BaseToolDefinition {
   outputKind: "model";
 }
 
-export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition;
+export interface VideoToolDefinition extends BaseToolDefinition {
+  id: "generate-video";
+  category: "video";
+  inputKind: "image-prompt";
+  outputKind: "video";
+  defaultDuration: number;
+  aspectRatios: readonly VideoAspectRatio[];
+  resolutions: readonly VideoResolution[];
+  durations: readonly number[];
+}
+
+export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1"] as const;
+export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
+export const VIDEO_RESOLUTIONS = ["720p", "1080p"] as const;
+export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
+export const VIDEO_DURATIONS = [6, 10] as const;
+
+export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition | VideoToolDefinition;
 
 export interface ToolSettings {
   installedTools: ToolDefinition["id"][];
@@ -307,7 +324,15 @@ export interface RunImageTo3DToolRequest {
   image: PromptImage;
 }
 
-export type RunToolRequest = RunImageToolRequest | RunImageTo3DToolRequest;
+export interface RunVideoToolRequest {
+  prompt: string;
+  image?: PromptImage;
+  duration?: number;
+  aspectRatio?: VideoAspectRatio;
+  resolution?: VideoResolution;
+}
+
+export type RunToolRequest = RunImageToolRequest | RunImageTo3DToolRequest | RunVideoToolRequest;
 
 export interface ToolRunFile {
   name: string;
@@ -323,7 +348,8 @@ export interface ToolRun {
 
 export type ToolArtifact =
   | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
-  | { type: "model"; path: string; mediaType: "model/gltf-binary" };
+  | { type: "model"; path: string; mediaType: "model/gltf-binary" }
+  | { type: "video"; path: string; mediaType: "video/mp4" | "video/webm" };
 
 export interface AddToolResultRequest {
   runId: string;

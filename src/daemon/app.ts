@@ -26,6 +26,7 @@ import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { InvalidToolSettingsError, ToolSettingsStore } from "./tool-settings.js";
+import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -41,6 +42,7 @@ export interface AppOptions {
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
+  videoGenerator?: VideoGenerator;
   meshyApiKey?: string;
   meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
@@ -149,7 +151,7 @@ const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 
 const toolRunSchema = {
   body: {
-    oneOf: [
+    anyOf: [
       {
         type: "object",
         additionalProperties: false,
@@ -164,6 +166,27 @@ const toolRunSchema = {
         additionalProperties: false,
         required: ["image"],
         properties: {
+          image: {
+            type: "object",
+            additionalProperties: false,
+            required: ["mediaType", "data"],
+            properties: {
+              mediaType: { enum: ["image/png", "image/jpeg"] },
+              data: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        not: { required: ["size"] },
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+          duration: { type: "integer", minimum: 1, maximum: 15 },
+          aspectRatio: { type: "string", enum: ["16:9", "9:16", "1:1"] },
+          resolution: { type: "string", enum: ["720p", "1080p"] },
           image: {
             type: "object",
             additionalProperties: false,
@@ -200,12 +223,12 @@ const toolSettingsSchema = {
       installedTools: {
         type: "array",
         uniqueItems: true,
-        items: { type: "string", enum: ["generate-image", "image-to-3d"] },
+        items: { type: "string", enum: ["generate-image", "image-to-3d", "generate-video"] },
       },
       enabledTools: {
         type: "array",
         uniqueItems: true,
-        items: { type: "string", enum: ["generate-image", "image-to-3d"] },
+        items: { type: "string", enum: ["generate-image", "image-to-3d", "generate-video"] },
       },
     },
   },
@@ -324,6 +347,7 @@ export function createApp(options: AppOptions = {}) {
     dataDirectory,
     options.imageGenerator ?? providerImages,
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
+    options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   const agents = new AgentManager(events, {
@@ -427,8 +451,9 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const file = await tools.file(request.body.runId, request.body.fileName);
       if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      const prefix = path.extname(request.body.fileName).toLowerCase() === ".glb" ? "model" : "image";
-      const fileName = `${prefix}-${request.body.runId}${path.extname(request.body.fileName).toLowerCase()}`;
+      const extension = path.extname(request.body.fileName).toLowerCase();
+      const prefix = extension === ".glb" ? "model" : extension === ".mp4" || extension === ".webm" ? "video" : "image";
+      const fileName = `${prefix}-${request.body.runId}${extension}`;
       return reply.code(201).send({
         path: await projects.addGeneratedAsset(project.id, fileName, file.bytes),
       });
@@ -622,7 +647,7 @@ export function createApp(options: AppOptions = {}) {
         configured: portalStatus === "connected",
         kind: "portal" as const,
         status: portalStatus,
-        capabilities: ["language", "image"] as const,
+        capabilities: ["language", "image", "video"] as const,
         methods: [],
         ...(portalState.error ? { error: portalState.error } : {}),
       },

@@ -1,4 +1,4 @@
-import { Box, Image as ImageIcon, LoaderCircle, RefreshCw } from "lucide-react";
+import { Box, Image as ImageIcon, LoaderCircle, RefreshCw, Video } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { ToolDefinition } from "../shared/contracts.js";
 import { getToolSettings, listTools, updateToolSettings, waitForRuntime } from "./api.js";
@@ -117,19 +117,21 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
 function PluginIcon({ tool }: { tool: ToolDefinition }): ReactNode {
   return (
     <span className={`plugin-row-icon plugin-row-icon-${tool.category}`} aria-hidden="true">
-      {tool.outputKind === "model" ? <Box size={17} /> : <ImageIcon size={17} />}
+      {tool.outputKind === "model" ? <Box size={17} /> : tool.outputKind === "video" ? <Video size={17} /> : <ImageIcon size={17} />}
     </span>
   );
 }
 
 function pluginName(tool: ToolDefinition): string {
-  return tool.id === "generate-image" ? "Image Generation" : "3D Generation";
+  if (tool.id === "generate-image") return "Image Generation";
+  if (tool.id === "image-to-3d") return "3D Generation";
+  return "Video Generation";
 }
 
 function pluginDescription(tool: ToolDefinition): string {
-  return tool.id === "generate-image"
-    ? "Create and edit images for your game."
-    : "Turn reference images into 3D assets.";
+  if (tool.id === "generate-image") return "Create and edit images for your game.";
+  if (tool.id === "image-to-3d") return "Turn reference images into 3D assets.";
+  return "Animate reference images into videos.";
 }
 
 function errorMessage(cause: unknown): string {

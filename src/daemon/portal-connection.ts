@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
 import { PortalClient } from "./portal-client.js";
+import type { VideoSource } from "./minimax-video.js";
 
 const PROVIDER_ID = "opengame";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -89,6 +90,10 @@ export class PortalConnection {
   imageSource(): { baseUrl: string; apiKey: string; modelIds: readonly string[] } | undefined {
     if (this.state.status !== "connected" || !this.portalCredential) return undefined;
     return { ...this.portalCredential, modelIds: [...this.portalModelIds] };
+  }
+
+  videoSource(): VideoSource | undefined {
+    return this.imageSource();
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

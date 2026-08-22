@@ -1,13 +1,13 @@
-import { Box, Check, Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, Upload, X } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { ImageModel, ImageSize, ProjectState, PromptImage, ToolDefinition, ToolRun } from "../shared/contracts.js";
+import { Box, Check, Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, Upload, Video, X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import { VIDEO_ASPECT_RATIOS, VIDEO_DURATIONS, VIDEO_RESOLUTIONS, type ImageModel, type ImageSize, type ProjectState, type PromptImage, type ToolDefinition, type ToolRun, type VideoAspectRatio, type VideoResolution } from "../shared/contracts.js";
 import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, getToolSettings, listImageModels, listProjects, listTools, runTool, updateImageGenerationSettings, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 
 interface ImagesPageProps {
-  page: "images" | "3d";
+  page: "images" | "3d" | "video";
   onNavigate: (page: SidebarPage) => void;
 }
 
@@ -63,8 +63,8 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
       <section className="tools-content">
         <header className="tools-heading">
           <div>
-            <h1>{page === "3d" ? "3D" : "Images"}</h1>
-            <p>{page === "3d" ? "Turn a reference image into a project-ready 3D asset." : "Generate an image before adding it to a project."}</p>
+            <h1>{page === "3d" ? "3D" : page === "video" ? "Video" : "Images"}</h1>
+            <p>{page === "3d" ? "Turn a reference image into a project-ready 3D asset." : page === "video" ? "Animate a reference image into a project-ready video." : "Generate an image before adding it to a project."}</p>
           </div>
           {phase === "error" ? (
             <button className="tools-retry" type="button" onClick={() => void load()}>
@@ -84,7 +84,7 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
               return (
                 <article className="tool-card" key={tool.id}>
                   <div className="tool-card-summary">
-                    <span className="tool-card-icon">{tool.outputKind === "model" ? <Box size={24} /> : <Image size={24} />}</span>
+                    <span className="tool-card-icon">{tool.outputKind === "model" ? <Box size={24} /> : tool.outputKind === "video" ? <Video size={24} /> : <Image size={24} />}</span>
                     <span className="tool-card-copy">
                       <strong>{tool.name}</strong>
                       <span>{tool.description}</span>
@@ -122,6 +122,10 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
   const [size, setSize] = useState<ImageSize>(tool.inputKind === "prompt" ? tool.defaultSize : "1024x1024");
   const [sourceImage, setSourceImage] = useState<PromptImage>();
   const [sourceName, setSourceName] = useState<string>();
+  const [videoMode, setVideoMode] = useState<"text" | "image">("image");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("16:9");
+  const [videoResolution, setVideoResolution] = useState<VideoResolution>("720p");
+  const [videoDuration, setVideoDuration] = useState(6);
   const [generating, setGenerating] = useState(false);
   const [run, setRun] = useState<ToolRun>();
   const [previewUrl, setPreviewUrl] = useState<string>();
@@ -140,7 +144,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    if (tool.inputKind === "prompt") promptRef.current?.focus();
+    if (tool.inputKind === "prompt" || tool.inputKind === "image-prompt") promptRef.current?.focus();
     return () => previousFocus?.focus();
   }, []);
 
@@ -223,7 +227,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
   async function generate(event?: FormEvent) {
     event?.preventDefault();
     const nextPrompt = prompt.trim();
-    if (busy || (tool.inputKind === "prompt" ? !nextPrompt : !sourceImage)) return;
+    if (busy || (tool.inputKind === "prompt" ? !nextPrompt : tool.inputKind === "image-prompt" ? !nextPrompt || (videoMode === "image" && !sourceImage) : !sourceImage)) return;
     setGenerating(true);
     setError(undefined);
     setAddError(undefined);
@@ -234,8 +238,10 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
         await updateImageGenerationSettings({ model: { provider: selectedImageModel.provider, id: selectedImageModel.id } });
       }
       const nextRun = tool.inputKind === "prompt"
-        ? await runTool(tool.id, { prompt: nextPrompt, size })
-        : await runTool(tool.id, { image: sourceImage! });
+          ? await runTool(tool.id, { prompt: nextPrompt, size })
+          : tool.inputKind === "image-prompt"
+          ? await runTool(tool.id, { prompt: nextPrompt, duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution, ...(videoMode === "image" ? { image: sourceImage! } : {}) })
+          : await runTool(tool.id, { image: sourceImage! });
       if (!mountedRef.current) return;
       const file = nextRun.files[0];
       if (!file) throw new Error("The tool did not return a result");
@@ -272,7 +278,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
       <section ref={dialogRef} className="tool-dialog" role="dialog" aria-modal="true" aria-labelledby="tool-dialog-title" tabIndex={-1}>
         <header className="tool-dialog-header">
           <div>
-            <span className="tool-dialog-icon">{tool.outputKind === "model" ? <Box size={18} /> : <Image size={18} />}</span>
+            <span className="tool-dialog-icon">{tool.outputKind === "model" ? <Box size={18} /> : tool.outputKind === "video" ? <Video size={18} /> : <Image size={18} />}</span>
             <div>
               <h2 id="tool-dialog-title">{tool.name}</h2>
               <p>{tool.description}</p>
@@ -287,7 +293,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
           {previewUrl ? (
             <>
               <div className="tool-result-preview">
-                {tool.outputKind === "model" ? <ModelPreview source={previewUrl} label="Generated 3D model" minHeight={360} /> : <img src={previewUrl} alt={prompt} />}
+                {tool.outputKind === "model" ? <ModelPreview source={previewUrl} label="Generated 3D model" minHeight={360} /> : tool.outputKind === "video" ? <video className="tool-result-video" src={previewUrl} controls preload="metadata" /> : <img src={previewUrl} alt={prompt} />}
               </div>
               <div className="tool-project-target">
                 <label htmlFor="tool-project">Project</label>
@@ -356,6 +362,25 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
                     </div>
                   </fieldset>
                 </>
+              ) : tool.inputKind === "image-prompt" ? (
+                <VideoInput
+                  prompt={prompt}
+                  image={sourceImage}
+                  name={sourceName}
+                  mode={videoMode}
+                  disabled={generating}
+                  promptRef={promptRef}
+                  onModeChange={(mode) => { setVideoMode(mode); setSourceImage(undefined); setSourceName(undefined); setError(undefined); }}
+                  aspectRatio={videoAspectRatio}
+                  resolution={videoResolution}
+                  duration={videoDuration}
+                  onAspectRatioChange={setVideoAspectRatio}
+                  onResolutionChange={setVideoResolution}
+                  onDurationChange={setVideoDuration}
+                  onPromptChange={setPrompt}
+                  onChange={(image, name) => { setSourceImage(image); setSourceName(name); setError(undefined); }}
+                  onError={setError}
+                />
               ) : (
                 <ImageTo3DInput image={sourceImage} name={sourceName} disabled={generating} onChange={(image, name) => {
                   setSourceImage(image);
@@ -380,7 +405,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
               </a>
             </>
           ) : (
-            <button className="tool-primary-button" type="submit" form="tool-form" disabled={(tool.inputKind === "prompt" ? !prompt.trim() || !imageModel : !sourceImage) || generating}>
+            <button className="tool-primary-button" type="submit" form="tool-form" disabled={(tool.inputKind === "prompt" ? !prompt.trim() || !imageModel : tool.inputKind === "image-prompt" ? !prompt.trim() || (videoMode === "image" && !sourceImage) : !sourceImage) || generating}>
               {generating ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
               {generating ? "Generating..." : "Generate"}
             </button>
@@ -388,6 +413,60 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
         </footer>
       </section>
     </div>
+  );
+}
+
+function VideoInput({ prompt, image, name, mode, aspectRatio, resolution, duration, disabled, promptRef, onModeChange, onAspectRatioChange, onResolutionChange, onDurationChange, onPromptChange, onChange, onError }: {
+  prompt: string;
+  image?: PromptImage;
+  name?: string;
+  mode: "text" | "image";
+  aspectRatio: VideoAspectRatio;
+  resolution: VideoResolution;
+  duration: number;
+  disabled: boolean;
+  promptRef: RefObject<HTMLTextAreaElement | null>;
+  onModeChange: (mode: "text" | "image") => void;
+  onAspectRatioChange: (value: VideoAspectRatio) => void;
+  onResolutionChange: (value: VideoResolution) => void;
+  onDurationChange: (value: number) => void;
+  onPromptChange: (value: string) => void;
+  onChange: (image: PromptImage, name: string) => void;
+  onError: (message?: string) => void;
+}) {
+  return (
+    <>
+      <fieldset disabled={disabled}>
+        <legend>Mode</legend>
+        <div className="tool-size-options">
+          <button type="button" className={mode === "text" ? "tool-size-active" : undefined} aria-pressed={mode === "text"} onClick={() => onModeChange("text")}>Text to Video</button>
+          <button type="button" className={mode === "image" ? "tool-size-active" : undefined} aria-pressed={mode === "image"} onClick={() => onModeChange("image")}>Image to Video</button>
+        </div>
+      </fieldset>
+      <label htmlFor="tool-video-prompt">Motion prompt</label>
+      <textarea id="tool-video-prompt" ref={promptRef} rows={5} value={prompt} disabled={disabled} onChange={(event) => onPromptChange(event.target.value)} placeholder="Describe the motion and camera movement" />
+      <div className="tool-video-options">
+        <div className="tool-video-field">
+          <label htmlFor="tool-video-aspect-ratio">Aspect ratio</label>
+          <select id="tool-video-aspect-ratio" value={aspectRatio} disabled={disabled} onChange={(event) => onAspectRatioChange(event.target.value as VideoAspectRatio)}>
+            {VIDEO_ASPECT_RATIOS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+        <div className="tool-video-field">
+          <label htmlFor="tool-video-resolution">Resolution</label>
+          <select id="tool-video-resolution" value={resolution} disabled={disabled} onChange={(event) => onResolutionChange(event.target.value as VideoResolution)}>
+            {VIDEO_RESOLUTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+        <div className="tool-video-field">
+          <label htmlFor="tool-video-duration">Duration</label>
+          <select id="tool-video-duration" value={duration} disabled={disabled} onChange={(event) => onDurationChange(Number(event.target.value))}>
+            {VIDEO_DURATIONS.map((option) => <option key={option} value={option}>{option}s</option>)}
+          </select>
+        </div>
+      </div>
+      {mode === "image" ? <ImageTo3DInput image={image} name={name} disabled={disabled} onChange={onChange} onError={onError} /> : null}
+    </>
   );
 }
 

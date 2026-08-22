@@ -1069,6 +1069,9 @@ function toolArtifact(result: unknown): ToolArtifact | undefined {
   if (value.type === "model" && value.mediaType === "model/gltf-binary") {
     return { type: "model", path: value.path, mediaType: value.mediaType };
   }
+  if (value.type === "video" && (value.mediaType === "video/mp4" || value.mediaType === "video/webm")) {
+    return { type: "video", path: value.path, mediaType: value.mediaType };
+  }
   return undefined;
 }
 

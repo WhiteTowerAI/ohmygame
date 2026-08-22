@@ -1482,6 +1482,23 @@ button.home-nav-item:hover {
   font-size: 12px;
 }
 
+.tool-video-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.tool-video-field {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.tool-video-options select {
+  min-width: 0;
+}
+
 .tools-error,
 .tool-dialog-error {
   color: var(--danger);
@@ -2611,6 +2628,23 @@ textarea:focus-visible {
   margin: 0 0 12px;
   object-fit: contain;
   border-radius: 8px;
+}
+
+.tool-artifact-video {
+  display: block;
+  width: min(100%, 560px);
+  max-height: 420px;
+  margin: 0 0 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tool-result-video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .timeline-activity + .assistant-message { margin-top: 0; }

@@ -6,6 +6,7 @@ import { activePiToolNames, createAgentTools } from "../src/daemon/agent-tools.j
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import type { VideoGenerator } from "../src/daemon/minimax-video.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
@@ -15,6 +16,9 @@ describe("agent tools", () => {
     ]);
     expect(activePiToolNames({ installedTools: ["image-to-3d"], enabledTools: ["image-to-3d"] })).toEqual([
       "read", "write", "edit", "bash", "generate_3d_asset",
+    ]);
+    expect(activePiToolNames({ installedTools: ["generate-video"], enabledTools: ["generate-video"] })).toEqual([
+      "read", "write", "edit", "bash", "generate_video",
     ]);
   });
 
@@ -70,5 +74,34 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated glb");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
+  });
+
+  it("generates a video from a project image", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    await projects.addGeneratedAsset(project.id, "source.png", Buffer.from("source image"));
+    const videoGenerator: VideoGenerator = {
+      generate: async (input) => {
+        expect(input.prompt).toBe("Slow camera move");
+        expect(input.duration).toBe(8);
+        expect(input.image).toBeDefined();
+        expect(input.image?.mediaType).toBe("image/png");
+        return { bytes: Buffer.from("generated mp4"), mediaType: "video/mp4" };
+      },
+    };
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, videoGenerator);
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
+    if (!tool) throw new Error("Expected video tool");
+
+    const result = await tool.execute("call-1", { prompt: "Slow camera move", imagePath: "assets/generated/source.png", duration: 8 }, undefined, undefined, {} as never);
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    const relativePath = text.replace("Generated video saved to ", "");
+
+    expect(relativePath).toMatch(/^assets\/generated\/video-[0-9a-f-]+\.mp4$/);
+    expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
+    expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
   });
 });
