@@ -57,18 +57,37 @@ export class OpenAIImageGenerator implements ImageGenerator {
     }
 
     const body = await response.json().catch(() => ({})) as {
-      data?: Array<{ b64_json?: unknown }>;
+      data?: Array<{ b64_json?: unknown; url?: unknown }>;
       error?: { code?: unknown; message?: unknown };
     };
     if (!response.ok) throw openAIError(response.status, body.error);
-    const encoded = body.data?.[0]?.b64_json;
-    if (typeof encoded !== "string" || !encoded) {
-      throw new ImageGenerationError("OpenAI returned no generated image");
+    const result = body.data?.[0];
+    const encoded = result?.b64_json;
+    if (typeof encoded === "string" && encoded) {
+      return {
+        bytes: Buffer.from(encoded, "base64"),
+        mediaType: "image/webp",
+        requestId: response.headers.get("x-request-id") ?? undefined,
+      };
     }
+    if (typeof result?.url === "string" && result.url) return this.downloadImage(result.url, signal, response.headers.get("x-request-id"));
+    throw new ImageGenerationError("OpenAI returned no generated image");
+  }
+
+  private async downloadImage(url: string, signal: AbortSignal | undefined, requestId: string | null): Promise<GeneratedImage> {
+    let imageResponse: Response;
+    try {
+      const timeout = AbortSignal.timeout(30_000);
+      imageResponse = await this.request(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    } catch (cause) {
+      if (signal?.aborted) throw signal.reason ?? cause;
+      throw new ImageGenerationError("Could not download the generated image");
+    }
+    if (!imageResponse.ok) throw new ImageGenerationError("Could not download the generated image");
     return {
-      bytes: Buffer.from(encoded, "base64"),
+      bytes: Buffer.from(await imageResponse.arrayBuffer()),
       mediaType: "image/webp",
-      requestId: response.headers.get("x-request-id") ?? undefined,
+      requestId: requestId ?? undefined,
     };
   }
 }

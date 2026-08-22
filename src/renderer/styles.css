@@ -2504,6 +2504,10 @@ textarea:focus-visible {
   padding-left: 0;
 }
 
+.work-summary-active:not(.work-summary-thinking) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .work-summary-thinking {
   border-bottom-color: transparent;
   color: var(--text-faint);
