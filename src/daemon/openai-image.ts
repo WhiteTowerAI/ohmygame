@@ -10,11 +10,6 @@ export interface ImageGenerator {
   generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 
-export interface ImageGeneratorConfig {
-  apiKey?: string;
-  apiUrl: string;
-}
-
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class ImageGenerationError extends Error {
@@ -30,7 +25,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
     private readonly request: Fetch = fetch,
   ) {}
 
-  async generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage> {
+  async generate(input: { prompt: string; size: ImageSize; model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
     if (!this.apiKey) throw new ImageGenerationError("Image generation is not configured", 503);
     const endpoint = imageEndpoint(this.baseUrl);
     const timeout = AbortSignal.timeout(130_000);
@@ -44,7 +39,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-image-2",
+          model: input.model ?? "gpt-image-2",
           prompt: input.prompt,
           size: input.size,
           quality: "medium",
@@ -75,18 +70,6 @@ export class OpenAIImageGenerator implements ImageGenerator {
       mediaType: "image/webp",
       requestId: response.headers.get("x-request-id") ?? undefined,
     };
-  }
-}
-
-export class ConfiguredImageGenerator implements ImageGenerator {
-  constructor(
-    private readonly configuration: () => ImageGeneratorConfig,
-    private readonly request: Fetch = fetch,
-  ) {}
-
-  generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage> {
-    const configuration = this.configuration();
-    return new OpenAIImageGenerator(configuration.apiKey, configuration.apiUrl, this.request).generate(input, signal);
   }
 }
 

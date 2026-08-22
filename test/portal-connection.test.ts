@@ -55,6 +55,11 @@ describe("PortalConnection", () => {
     const connection = new PortalConnection(async () => runtime, client);
 
     await expect(connection.connect("supabase-token")).resolves.toEqual({ status: "connected", modelCount: 1 });
+    expect(connection.imageSource()).toEqual({
+      baseUrl: "https://portal.open-game.ai/v1",
+      apiKey: "sk-portal",
+      modelIds: ["known-model"],
+    });
     expect(runtime.registerProvider).toHaveBeenCalledWith("opengame", expect.objectContaining({
       baseUrl: "https://portal.open-game.ai/v1",
       api: "openai-completions",
@@ -62,6 +67,7 @@ describe("PortalConnection", () => {
     expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
 
     await connection.disconnect();
+    expect(connection.imageSource()).toBeUndefined();
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
     expect(runtime.unregisterProvider).toHaveBeenCalledWith("opengame");
   });

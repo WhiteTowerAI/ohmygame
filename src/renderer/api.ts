@@ -7,6 +7,7 @@ import {
   type AgentReasoningLevel,
   type ConversationAgentSettings,
   type ImageGenerationSettings,
+  type ImageModel,
   type ModelAuthEvent,
   type ModelAuthMethod,
   type Model3DGenerationSettings,
@@ -146,6 +147,10 @@ export function subscribeToModelAuth(
 
 export async function getImageGenerationSettings(): Promise<ImageGenerationSettings> {
   return request("/settings/image-generation");
+}
+
+export async function listImageModels(): Promise<ImageModel[]> {
+  return request("/image-models");
 }
 
 export async function updateImageGenerationSettings(input: UpdateImageGenerationSettings): Promise<ImageGenerationSettings> {

@@ -1,7 +1,7 @@
 import { Box, Check, Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { ImageSize, ProjectState, PromptImage, ToolDefinition, ToolRun } from "../shared/contracts.js";
-import { addToolResultToProject, getToolRunFile, getToolSettings, listProjects, listTools, runTool, updateToolSettings, waitForRuntime } from "./api.js";
+import type { ImageModel, ImageSize, ProjectState, PromptImage, ToolDefinition, ToolRun } from "../shared/contracts.js";
+import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, getToolSettings, listImageModels, listProjects, listTools, runTool, updateImageGenerationSettings, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
@@ -116,6 +116,9 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
 
 function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
+  const [imageModels, setImageModels] = useState<ImageModel[]>([]);
+  const [imageModel, setImageModel] = useState<string>("");
+  const [imageModelError, setImageModelError] = useState<string>();
   const [size, setSize] = useState<ImageSize>(tool.inputKind === "prompt" ? tool.defaultSize : "1024x1024");
   const [sourceImage, setSourceImage] = useState<PromptImage>();
   const [sourceName, setSourceName] = useState<string>();
@@ -133,6 +136,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
   const mountedRef = useRef(true);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const busy = generating || adding;
+  const selectedImageModel = imageModels.find((model) => imageModelKey(model) === imageModel);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -172,6 +176,25 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
 
   useEffect(() => () => { mountedRef.current = false; }, []);
 
+  useEffect(() => {
+    if (tool.id !== "generate-image") return;
+    void Promise.all([listImageModels(), getImageGenerationSettings()]).then(([models, settings]) => {
+      if (!mountedRef.current) return;
+      setImageModels(models);
+      const selected = settings.model && models.some((model) => model.provider === settings.model?.provider && model.id === settings.model?.id)
+        ? settings.model
+        : models[0];
+      setImageModel(selected ? imageModelKey(selected) : "");
+    }).catch((cause) => {
+      if (mountedRef.current) setImageModelError(errorMessage(cause));
+    });
+  }, [tool.id]);
+
+  useEffect(() => {
+    if (!selectedImageModel || selectedImageModel.sizes.includes(size)) return;
+    setSize(selectedImageModel.sizes[0] ?? "1024x1024");
+  }, [selectedImageModel, size]);
+
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
@@ -206,6 +229,10 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
     setAddError(undefined);
     setAddedPath(undefined);
     try {
+      if (tool.inputKind === "prompt") {
+        if (!selectedImageModel) throw new Error("Connect an image model before generating");
+        await updateImageGenerationSettings({ model: { provider: selectedImageModel.provider, id: selectedImageModel.id } });
+      }
       const nextRun = tool.inputKind === "prompt"
         ? await runTool(tool.id, { prompt: nextPrompt, size })
         : await runTool(tool.id, { image: sourceImage! });
@@ -294,6 +321,14 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
             <form id="tool-form" className="tool-form" onSubmit={generate}>
               {tool.inputKind === "prompt" ? (
                 <>
+                  <label htmlFor="tool-image-model">Model</label>
+                  {imageModels.length > 0 ? <select id="tool-image-model" value={imageModel} disabled={generating} onChange={(event) => {
+                    setImageModel(event.target.value);
+                    setImageModelError(undefined);
+                  }}>
+                    {imageModels.map((model) => <option key={imageModelKey(model)} value={imageModelKey(model)}>{model.providerName} · {model.name}</option>)}
+                  </select> : <span className="tool-project-state">No image model is connected</span>}
+                  {imageModelError ? <p className="tool-dialog-error" role="alert">{imageModelError}</p> : null}
                   <label htmlFor="tool-prompt">Prompt</label>
                   <textarea
                     id="tool-prompt"
@@ -307,7 +342,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
                   <fieldset disabled={generating}>
                     <legend>Size</legend>
                     <div className="tool-size-options">
-                      {tool.sizes.map((option) => (
+                      {(selectedImageModel?.sizes ?? tool.sizes).map((option) => (
                         <button
                           className={option === size ? "tool-size-active" : undefined}
                           type="button"
@@ -345,7 +380,7 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
               </a>
             </>
           ) : (
-            <button className="tool-primary-button" type="submit" form="tool-form" disabled={(tool.inputKind === "prompt" ? !prompt.trim() : !sourceImage) || generating}>
+            <button className="tool-primary-button" type="submit" form="tool-form" disabled={(tool.inputKind === "prompt" ? !prompt.trim() || !imageModel : !sourceImage) || generating}>
               {generating ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
               {generating ? "Generating..." : "Generate"}
             </button>
@@ -396,6 +431,10 @@ function sizeLabel(size: ImageSize): string {
   if (size === "1536x1024") return "Landscape";
   if (size === "1024x1536") return "Portrait";
   return "Square";
+}
+
+function imageModelKey(model: Pick<ImageModel, "provider" | "id">): string {
+  return JSON.stringify([model.provider, model.id]);
 }
 
 function errorMessage(error: unknown): string {

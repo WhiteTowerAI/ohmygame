@@ -1,7 +1,6 @@
 import { ArrowLeft, ExternalLink, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
-  ImageGenerationSettings,
   Model3DGenerationSettings,
   ModelAuthEvent,
   ModelAuthMethod,
@@ -15,13 +14,11 @@ import {
   connectPortal,
   disconnectModelProvider,
   getOpenAIEndpointSettings,
-  getImageGenerationSettings,
   getModel3DGenerationSettings,
   listProviders,
   respondToModelAuth,
   startModelProviderLogin,
   subscribeToModelAuth,
-  updateImageGenerationSettings,
   updateModel3DGenerationSettings,
   updateOpenAIEndpointSettings,
 } from "./api.js";
@@ -34,32 +31,21 @@ export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onVie
   if (view.page === "providers") {
     return <ProviderList onProvider={(provider) => onViewChange({ page: "provider", provider })} />;
   }
-  if (view.provider.kind === "tool") return <ToolProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
+  if (view.provider.kind === "custom") return <CustomProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
   if (view.provider.kind === "portal") return <PortalProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
-function ToolProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
-  const [settings, setSettings] = useState<ImageGenerationSettings>();
-  const [apiUrl, setApiUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
+function CustomProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
   const [model3DSettings, setModel3DSettings] = useState<Model3DGenerationSettings>();
   const [model3DApiUrl, setModel3DApiUrl] = useState("");
   const [model3DApiKey, setModel3DApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
   const [savingModel3D, setSavingModel3D] = useState(false);
   const [notice, setNotice] = useState<string>();
 
-  const imageProvider = provider.id === "image-generation";
   useEffect(() => {
     let active = true;
-    const load = imageProvider
-      ? getImageGenerationSettings().then((loaded) => {
-          if (!active) return;
-          setSettings(loaded);
-          setApiUrl(loaded.apiUrl);
-        })
-      : getModel3DGenerationSettings().then((loaded) => {
+    const load = getModel3DGenerationSettings().then((loaded) => {
           if (!active) return;
           setModel3DSettings(loaded);
           setModel3DApiUrl(loaded.apiUrl);
@@ -68,25 +54,7 @@ function ToolProviderSettings({ provider, onBack }: { provider: ProviderSummary;
       if (active) setNotice(errorMessage(cause));
     });
     return () => { active = false; };
-  }, [imageProvider]);
-
-  async function save(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    if (!apiUrl.trim() || saving) return;
-    setSaving(true);
-    setNotice(undefined);
-    try {
-      const updated = await updateImageGenerationSettings({ apiUrl: apiUrl.trim(), ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) });
-      setSettings(updated);
-      setApiUrl(updated.apiUrl);
-      setApiKey("");
-      setNotice("Image generation settings saved.");
-    } catch (cause) {
-      setNotice(errorMessage(cause));
-    } finally {
-      setSaving(false);
-    }
-  }
+  }, []);
 
   async function saveModel3D(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -112,15 +80,7 @@ function ToolProviderSettings({ provider, onBack }: { provider: ProviderSummary;
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={onBack} />
-      {imageProvider ? <form className="settings-image-form" onSubmit={(event) => void save(event)}>
-        <label htmlFor="image-api-url">API endpoint</label>
-        <input id="image-api-url" value={apiUrl} onChange={(event) => setApiUrl(event.target.value)} placeholder="https://api.openai.com/v1" />
-        <label htmlFor="image-api-key">API key</label>
-        <input id="image-api-key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings?.hasApiKey ? "API key is configured" : "Enter image API key"} />
-        <div className="settings-form-actions">
-          <button className="settings-primary-button" type="submit" disabled={saving || !apiUrl.trim()}>{saving ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
-        </div>
-      </form> : <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
+      <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
         <label htmlFor="model-3d-api-url">API endpoint</label>
         <input id="model-3d-api-url" value={model3DApiUrl} onChange={(event) => setModel3DApiUrl(event.target.value)} placeholder="https://api.meshy.ai" />
         <label htmlFor="model-3d-api-key">API key</label>
@@ -128,7 +88,7 @@ function ToolProviderSettings({ provider, onBack }: { provider: ProviderSummary;
         <div className="settings-form-actions">
           <button className="settings-primary-button" type="submit" disabled={savingModel3D || !model3DApiUrl.trim()}>{savingModel3D ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
         </div>
-      </form>}
+      </form>
       {notice ? <p className={notice.endsWith("saved.") ? "settings-success" : "settings-error"} role="status">{notice}</p> : null}
     </section>
   );
@@ -160,7 +120,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
           <div className="settings-provider-row" key={provider.id}>
             <span className="settings-provider-copy">
               <strong>{provider.name}</strong>
-              <span className={provider.status === "connected" ? "settings-connected" : ""}>{providerStatus(provider)}</span>
+              <span>{providerCapabilities(provider)} · <em className={provider.status === "connected" ? "settings-connected" : ""}>{providerStatus(provider)}</em></span>
             </span>
             <button type="button" onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
           </div>
@@ -448,6 +408,10 @@ function providerStatus(provider: ProviderSummary): string {
   if (provider.status === "connecting") return "Checking…";
   if (provider.status === "error") return "Connection failed";
   return provider.kind === "pi" ? providerDescription(provider) : "Not configured";
+}
+
+function providerCapabilities(provider: ProviderSummary): string {
+  return provider.capabilities.map((capability) => capability === "3d" ? "3D" : `${capability[0]?.toUpperCase()}${capability.slice(1)}`).join(" · ");
 }
 
 function providerAction(provider: ProviderSummary): string {

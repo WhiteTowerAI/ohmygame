@@ -34,12 +34,14 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
-export type ProviderKind = "pi" | "portal" | "tool";
+export type ProviderKind = "pi" | "portal" | "custom";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
+export type ProviderCapability = "language" | "image" | "3d";
 
 export interface ProviderSummary extends ModelProviderSummary {
   kind: ProviderKind;
   status: ProviderStatus;
+  capabilities: ProviderCapability[];
   error?: string;
 }
 
@@ -69,13 +71,22 @@ export type ModelAuthEvent = {
 );
 
 export interface ImageGenerationSettings {
-  apiUrl: string;
-  hasApiKey: boolean;
+  model?: ImageModelRef;
+}
+
+export interface ImageModelRef {
+  provider: string;
+  id: string;
+}
+
+export interface ImageModel extends ImageModelRef {
+  name: string;
+  providerName: string;
+  sizes: readonly ImageSize[];
 }
 
 export interface UpdateImageGenerationSettings {
-  apiUrl: string;
-  apiKey?: string;
+  model: ImageModelRef;
 }
 
 export interface Model3DGenerationSettings {

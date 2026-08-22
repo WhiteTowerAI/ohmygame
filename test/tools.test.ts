@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
@@ -165,7 +166,7 @@ describe("tool runner", () => {
   });
 
   it("validates requests and reports missing configuration", async () => {
-    const app = createApp({ dataDirectory: await temporaryData(), imageApiKey: "" });
+    const app = createApp({ dataDirectory: await temporaryData() });
     apps.push(app);
 
     expect((await app.inject({ method: "POST", url: "/tools/missing/runs", payload: { prompt: "image" } })).statusCode).toBe(404);
@@ -196,20 +197,23 @@ describe("tool runner", () => {
     })).statusCode).toBe(404);
   });
 
-  it("applies saved image settings without restarting", async () => {
-    const app = createApp({ dataDirectory: await temporaryData(), imageApiKey: "" });
+  it("stores the selected image model without storing provider credentials", async () => {
+    const app = createApp({
+      dataDirectory: await temporaryData(),
+      createModelRuntime: async () => imageRuntime(),
+      imageFetch: async () => Response.json({ data: [{ id: "gpt-image-2" }] }),
+    });
     apps.push(app);
 
     const before = await app.inject({ method: "GET", url: "/settings/image-generation" });
     const saved = await app.inject({
       method: "PUT",
       url: "/settings/image-generation",
-      payload: { apiUrl: "https://images.example/v1", apiKey: "secret" },
+      payload: { model: { provider: "openai", id: "gpt-image-2" } },
     });
 
-    expect(before.json()).toEqual({ apiUrl: "https://api.openai.com/v1", hasApiKey: false });
-    expect(saved.json()).toEqual({ apiUrl: "https://images.example/v1", hasApiKey: true });
-    expect(saved.body).not.toContain("secret");
+    expect(before.json()).toEqual({});
+    expect(saved.json()).toEqual({ model: { provider: "openai", id: "gpt-image-2" } });
   });
 
   it("persists Meshy settings without exposing the key", async () => {
@@ -299,4 +303,12 @@ function temporaryData(): Promise<string> {
 
 function fakeGenerator(): ImageGenerator {
   return { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) };
+}
+
+function imageRuntime(): ModelRuntime {
+  return {
+    getProvider: (provider: string) => provider === "openai" ? { name: "OpenAI", baseUrl: "https://api.openai.com/v1" } : undefined,
+    hasConfiguredAuth: (provider: string) => provider === "openai",
+    getAuth: async () => ({ auth: { apiKey: "secret" }, source: "test" }),
+  } as unknown as ModelRuntime;
 }

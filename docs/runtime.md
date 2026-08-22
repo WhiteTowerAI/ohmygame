@@ -126,19 +126,16 @@ tools/runs/<run-id>/
 └── output.webp
 ```
 
-Image generation calls OpenAI's native Images API with the fixed
-`gpt-image-2` model. At startup, the daemon loads an optional repository-root
-`.env.local`; existing process environment values take precedence. The file is
-ignored by Git and `.env.example` documents the current settings.
-`IMAGE_API_KEY` is read only by the daemon. `IMAGE_API_URL` optionally points
-to the `/v1` root of an OpenAI-compatible service and defaults to OpenAI's
-official API. Tool runs are not Pi tools and are not added to project
-workspaces until the user chooses Add to Project. Enabled tools are also
-available to Pi through the existing custom-tool integration.
+Image generation uses the selected `provider + model` through the provider's
+OpenAI-compatible Images API. The available models are the intersection of the
+provider's `/v1/models` response and OpenGame's supported image model
+definitions. Provider credentials stay in the daemon. Tool runs are not added
+to project workspaces until the user chooses Add to Project. Enabled tools are
+also available to Pi through the existing custom-tool integration.
 
 Image to 3D uses Meshy's native API. Set `MESHY_API_KEY`; `MESHY_API_URL`
 defaults to `https://api.meshy.ai`. Provider URLs are used only during the run.
-The same values can be saved from Settings → Models → 3D generation and take
+The same values can be saved from Settings → Providers → Meshy and take
 effect without restarting the daemon. Saved settings take precedence over the
 environment fallback.
 The completed `model.glb` is downloaded into the local tool-run directory, so

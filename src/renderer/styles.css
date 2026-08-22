@@ -582,6 +582,10 @@ body {
   font-size: 11px;
 }
 
+.settings-provider-copy em {
+  font-style: normal;
+}
+
 .settings-provider-copy .settings-connected,
 .settings-success {
   color: var(--accent);
@@ -1674,6 +1678,19 @@ button.home-nav-item:hover {
   font-weight: 600;
 }
 
+.tool-form select {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: 0;
+  background: #1c1e24;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
 .tool-form textarea {
   display: block;
   width: 100%;
@@ -1690,7 +1707,8 @@ button.home-nav-item:hover {
   line-height: 1.55;
 }
 
-.tool-form textarea:focus {
+.tool-form textarea:focus,
+.tool-form select:focus {
   border-color: var(--border-strong);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }

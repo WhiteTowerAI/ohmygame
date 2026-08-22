@@ -20,18 +20,10 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
-The daemon also exposes a standalone GPT Image 2 tool. Copy `.env.example` to
-an ignored `.env.local` and set `IMAGE_API_KEY` to enable image generation:
-
-```dotenv
-IMAGE_API_KEY=your-api-key
-IMAGE_API_URL=https://api.openai.com/v1
-```
-
-Existing shell environment variables take precedence over `.env.local`. The
-key remains in the daemon and is never exposed to the renderer, Pi, or project
-workspaces. Set `IMAGE_API_URL` to the `/v1` root of an OpenAI-compatible
-service when using a non-OpenAI API key.
+The daemon also exposes an image generation tool. Connect OpenGame Portal or
+OpenAI under Providers, then choose an available image model in the Images
+tool. Provider credentials remain in the daemon and are never exposed to the
+renderer or project workspaces.
 
 Product sign-in uses Supabase Auth with Google and GitHub. To enable it in the
 web renderer, enable both providers in Supabase, add the renderer URL to the

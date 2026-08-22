@@ -16,6 +16,8 @@ export class PortalConnection {
   private operation: Promise<unknown> = Promise.resolve();
   private runtimeInstance?: ModelRuntime;
   private registered = false;
+  private portalCredential?: { baseUrl: string; apiKey: string };
+  private portalModelIds: string[] = [];
   private state: PortalConnectionState = { status: "disconnected" };
 
   constructor(
@@ -29,6 +31,8 @@ export class PortalConnection {
 
   connect(accessToken: string): Promise<PortalConnectionState> {
     this.controller?.abort();
+    this.portalCredential = undefined;
+    this.portalModelIds = [];
     const controller = new AbortController();
     this.controller = controller;
     this.state = { status: "connecting" };
@@ -42,6 +46,8 @@ export class PortalConnection {
         const ids = await this.client.modelIds(credential, controller.signal);
         const models = portalModels(runtime.getModels(), ids);
         if (controller.signal.aborted) return this.state;
+        this.portalCredential = credential;
+        this.portalModelIds = ids;
         if (models.length > 0) {
           runtime.registerProvider(PROVIDER_ID, {
             name: "OpenGame Portal",
@@ -61,6 +67,8 @@ export class PortalConnection {
       } catch (cause) {
         if (this.registered) await this.remove();
         if (controller.signal.aborted) return this.state;
+        this.portalCredential = undefined;
+        this.portalModelIds = [];
         return this.state = { status: "error", error: cause instanceof Error ? cause.message : String(cause) };
       }
     });
@@ -70,10 +78,17 @@ export class PortalConnection {
     this.controller?.abort();
     this.controller = undefined;
     this.state = { status: "disconnected" };
+    this.portalCredential = undefined;
+    this.portalModelIds = [];
     return this.enqueue(async () => {
       await this.remove();
       return this.state;
     });
+  }
+
+  imageSource(): { baseUrl: string; apiKey: string; modelIds: readonly string[] } | undefined {
+    if (this.state.status !== "connected" || !this.portalCredential) return undefined;
+    return { ...this.portalCredential, modelIds: [...this.portalModelIds] };
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

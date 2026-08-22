@@ -1,42 +1,39 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ApiSettingsStore } from "../src/daemon/api-settings.js";
+import { ImageSettingsStore } from "../src/daemon/image-settings.js";
 
 describe("image settings", () => {
-  it("uses environment fallback without exposing the key", async () => {
-    const store = new ApiSettingsStore(await temporaryData(), "image-settings.json", "https://api.openai.com/v1", "Image", {
-      apiUrl: "https://images.example/v1/",
-      apiKey: "environment-secret",
-    });
-    await store.load();
-
-    expect(store.get()).toEqual({ apiUrl: "https://images.example/v1", hasApiKey: true });
-    expect(store.resolve()).toEqual({ apiUrl: "https://images.example/v1", apiKey: "environment-secret" });
-  });
-
-  it("persists user settings privately and preserves a saved key on endpoint updates", async () => {
+  it("persists the selected provider and model privately", async () => {
     const dataDirectory = await temporaryData();
-    const store = new ApiSettingsStore(dataDirectory, "image-settings.json", "https://api.openai.com/v1", "Image", { apiKey: "fallback" });
+    const store = new ImageSettingsStore(dataDirectory);
     await store.load();
 
-    await store.update({ apiUrl: "https://relay.example/v1", apiKey: "saved-secret" });
-    await store.update({ apiUrl: "https://second.example/v1" });
+    await expect(store.update({ provider: "opengame", id: "gpt-image-2" })).resolves.toEqual({
+      model: { provider: "opengame", id: "gpt-image-2" },
+    });
 
-    expect(store.resolve()).toEqual({ apiUrl: "https://second.example/v1", apiKey: "saved-secret" });
     const file = path.join(dataDirectory, "image-settings.json");
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
-      version: 1,
-      apiUrl: "https://second.example/v1",
-      apiKey: "saved-secret",
+      version: 2,
+      model: { provider: "opengame", id: "gpt-image-2" },
     });
   });
 
-  it("rejects invalid endpoints", async () => {
-    const store = new ApiSettingsStore(await temporaryData(), "image-settings.json", "https://api.openai.com/v1", "Image");
-    await expect(store.update({ apiUrl: "file:///tmp/image" })).rejects.toThrow("not valid");
+  it("ignores the previous standalone API configuration", async () => {
+    const dataDirectory = await temporaryData();
+    await writeFile(path.join(dataDirectory, "image-settings.json"), JSON.stringify({
+      version: 1,
+      apiUrl: "https://images.example/v1",
+      apiKey: "legacy-secret",
+    }));
+    const store = new ImageSettingsStore(dataDirectory);
+
+    await store.load();
+
+    expect(store.get()).toEqual({});
   });
 });
 

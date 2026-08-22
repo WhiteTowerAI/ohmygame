@@ -18,10 +18,12 @@ import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
 import { isRunnableWorkspace, ProjectManager } from "./projects.js";
 import { ApiSettingsStore } from "./api-settings.js";
+import { ImageSettingsStore } from "./image-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
-import { ConfiguredImageGenerator, type ImageGenerator } from "./openai-image.js";
+import type { ImageGenerator } from "./openai-image.js";
+import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { InvalidToolSettingsError, ToolSettingsStore } from "./tool-settings.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -37,8 +39,7 @@ export interface AppOptions {
   portalFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
-  imageApiKey?: string;
-  imageApiUrl?: string;
+  imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
   meshyApiKey?: string;
   meshyApiUrl?: string;
@@ -253,6 +254,25 @@ const imageSettingsSchema = {
   body: {
     type: "object",
     additionalProperties: false,
+    required: ["model"],
+    properties: {
+      model: {
+        type: "object",
+        additionalProperties: false,
+        required: ["provider", "id"],
+        properties: {
+          provider: { type: "string", minLength: 1, maxLength: 100 },
+          id: { type: "string", minLength: 1, maxLength: 200 },
+        },
+      },
+    },
+  },
+} as const;
+
+const apiSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
     required: ["apiUrl"],
     properties: {
       apiUrl: { type: "string", minLength: 1, maxLength: 2_000 },
@@ -276,20 +296,11 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
-  const imageSettings = new ApiSettingsStore(dataDirectory, "image-settings.json", "https://api.openai.com/v1", "Image", {
-    apiKey: options.imageApiKey ?? process.env.IMAGE_API_KEY,
-    apiUrl: options.imageApiUrl ?? process.env.IMAGE_API_URL,
-  });
+  const imageSettings = new ImageSettingsStore(dataDirectory);
   const model3DSettings = new ApiSettingsStore(dataDirectory, "model-3d-settings.json", "https://api.meshy.ai", "3D", {
     apiKey: options.meshyApiKey ?? process.env.MESHY_API_KEY,
     apiUrl: options.meshyApiUrl ?? process.env.MESHY_API_URL,
   });
-  const tools = new ToolRunner(
-    dataDirectory,
-    options.imageGenerator ?? new ConfiguredImageGenerator(() => imageSettings.resolve()),
-    options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
-  );
-  const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
     "openai-endpoint.json",
@@ -308,6 +319,13 @@ export function createApp(options: AppOptions = {}) {
     getModelRuntime,
     new PortalClient(options.portalUrl ?? process.env.OPEN_GAME_PORTAL_URL ?? "https://portal.open-game.ai", options.portalFetch),
   );
+  const providerImages = new ProviderImages(getModelRuntime, portal, () => imageSettings.get().model, options.imageFetch);
+  const tools = new ToolRunner(
+    dataDirectory,
+    options.imageGenerator ?? providerImages,
+    options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
+  );
+  const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   const agents = new AgentManager(events, {
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
@@ -582,7 +600,6 @@ export function createApp(options: AppOptions = {}) {
   app.get("/settings/providers", async () => {
     const piProviders = await modelAuth.providers();
     const portalState = portal.get();
-    const image = await imageSettings.get();
     const model3d = await model3DSettings.get();
     const portalStatus = portalState.status === "connected"
       ? "connected"
@@ -593,30 +610,29 @@ export function createApp(options: AppOptions = {}) {
     return [
       ...piProviders
         .filter((provider) => provider.id !== "opengame")
-        .map((provider) => ({ ...provider, kind: "pi" as const, status: provider.configured ? "connected" as const : "not_configured" as const })),
+        .map((provider) => ({
+          ...provider,
+          kind: "pi" as const,
+          status: provider.configured ? "connected" as const : "not_configured" as const,
+          capabilities: provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
+        })),
       {
         id: "opengame",
         name: "OpenGame Portal",
         configured: portalStatus === "connected",
         kind: "portal" as const,
         status: portalStatus,
+        capabilities: ["language", "image"] as const,
         methods: [],
         ...(portalState.error ? { error: portalState.error } : {}),
-      },
-      {
-        id: "image-generation",
-        name: "Image generation",
-        configured: image.hasApiKey,
-        kind: "tool" as const,
-        status: toolStatus(image.hasApiKey),
-        methods: [{ type: "api_key" as const, label: "API key" }],
       },
       {
         id: "meshy",
         name: "Meshy",
         configured: model3d.hasApiKey,
-        kind: "tool" as const,
+        kind: "custom" as const,
         status: toolStatus(model3d.hasApiKey),
+        capabilities: ["3d"] as const,
         methods: [{ type: "api_key" as const, label: "API key" }],
       },
     ].sort((left, right) => left.name.localeCompare(right.name));
@@ -690,12 +706,19 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/settings/image-generation", async () => imageSettings.get());
 
+  app.get("/image-models", async () => providerImages.models());
+
   app.put<{ Body: UpdateImageGenerationSettings }>(
     "/settings/image-generation",
     { schema: imageSettingsSchema },
     async (request, reply) => {
       try {
-        return await imageSettings.update(request.body);
+        const models = await providerImages.models();
+        const requested = request.body.model;
+        if (!models.some((model) => model.provider === requested.provider && model.id === requested.id)) {
+          return reply.code(400).send({ error: "Image model is not available" });
+        }
+        return await imageSettings.update(requested);
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -706,7 +729,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{ Body: UpdateModel3DGenerationSettings }>(
     "/settings/model-3d-generation",
-    { schema: imageSettingsSchema },
+    { schema: apiSettingsSchema },
     async (request, reply) => {
       try {
         return await model3DSettings.update(request.body);
