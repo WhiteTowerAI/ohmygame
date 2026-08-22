@@ -41,17 +41,18 @@ export class PortalConnection {
         const credential = await this.client.credential(accessToken, controller.signal);
         const ids = await this.client.modelIds(credential, controller.signal);
         const models = portalModels(runtime.getModels(), ids);
-        if (models.length === 0) throw new Error("Portal has no supported agent models");
         if (controller.signal.aborted) return this.state;
-        runtime.registerProvider(PROVIDER_ID, {
-          name: "OpenGame Portal",
-          baseUrl: credential.baseUrl,
-          api: "openai-completions",
-          authHeader: true,
-          models,
-        });
-        this.registered = true;
-        await runtime.setRuntimeApiKey(PROVIDER_ID, credential.apiKey);
+        if (models.length > 0) {
+          runtime.registerProvider(PROVIDER_ID, {
+            name: "OpenGame Portal",
+            baseUrl: credential.baseUrl,
+            api: "openai-completions",
+            authHeader: true,
+            models,
+          });
+          this.registered = true;
+          await runtime.setRuntimeApiKey(PROVIDER_ID, credential.apiKey);
+        }
         if (controller.signal.aborted) {
           await this.remove();
           return this.state;

@@ -386,6 +386,12 @@ body {
   line-height: 30px;
 }
 
+.settings-panel-intro {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .settings-field-group {
   display: grid;
   gap: 10px;
@@ -3072,6 +3078,32 @@ textarea:focus-visible {
   cursor: pointer;
   font: inherit;
   font-size: 10px;
+}
+
+.model-selector-current,
+.model-selector-model-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  text-align: left;
+}
+
+.model-selector-current strong,
+.model-selector-model-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-selector-current small,
+.model-selector-model-copy small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-selector-trigger span {

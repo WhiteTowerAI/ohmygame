@@ -10,6 +10,7 @@ export interface AgentModelRef {
 
 export interface AgentModel extends AgentModelRef {
   name: string;
+  providerName: string;
   reasoningLevels: AgentReasoningLevel[];
 }
 
@@ -31,6 +32,15 @@ export interface ModelProviderSummary {
   source?: string;
   credentialType?: ModelAuthMethod;
   methods: Array<{ type: ModelAuthMethod; label: string }>;
+}
+
+export type ProviderKind = "pi" | "portal" | "tool";
+export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
+
+export interface ProviderSummary extends ModelProviderSummary {
+  kind: ProviderKind;
+  status: ProviderStatus;
+  error?: string;
 }
 
 export interface ModelProviderEndpointSettings {

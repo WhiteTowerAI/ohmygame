@@ -3,11 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
 
-type SettingsSection = "account" | "models" | "about";
+type SettingsSection = "account" | "providers" | "about";
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<SettingsSection>("account");
-  const [modelsView, setModelsView] = useState<ModelsView>({ page: "overview" });
+  const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -49,7 +49,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   function chooseSection(next: SettingsSection): void {
     setSection(next);
-    if (next === "models") setModelsView({ page: "overview" });
+    if (next === "providers") setModelsView({ page: "providers" });
   }
 
   return (
@@ -64,12 +64,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="settings-body">
           <nav className="settings-nav" aria-label="Settings sections">
             <NavItem active={section === "account"} label="Account" onClick={() => chooseSection("account")} />
-            <NavItem active={section === "models"} label="Models" onClick={() => chooseSection("models")} />
+            <NavItem active={section === "providers"} label="Providers" onClick={() => chooseSection("providers")} />
             <NavItem active={section === "about"} label="About" onClick={() => chooseSection("about")} />
           </nav>
           <div className="settings-content">
             {section === "account" ? <AccountSettings onOpenSignIn={onClose} /> : null}
-            {section === "models" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
+            {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
             {section === "about" ? <AboutSettings /> : null}
           </div>
         </div>

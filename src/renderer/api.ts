@@ -11,7 +11,7 @@ import {
   type ModelAuthMethod,
   type Model3DGenerationSettings,
   type ModelProviderEndpointSettings,
-  type ModelProviderSummary,
+  type ProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
   type ConversationDetail,
@@ -97,8 +97,8 @@ export function notifyAgentModelsChanged(): void {
   window.dispatchEvent(new Event("open-game-models-changed"));
 }
 
-export async function listModelProviders(): Promise<ModelProviderSummary[]> {
-  return request("/settings/models/providers");
+export async function listProviders(): Promise<ProviderSummary[]> {
+  return request("/settings/providers");
 }
 
 export async function getOpenAIEndpointSettings(): Promise<ModelProviderEndpointSettings> {

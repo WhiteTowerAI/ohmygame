@@ -8,14 +8,16 @@ import type {
   ModelAuthNotification,
   ModelAuthPrompt,
   ModelProviderSummary,
+  ProviderSummary,
 } from "../shared/contracts.js";
 import {
   cancelModelAuth,
+  connectPortal,
   disconnectModelProvider,
   getOpenAIEndpointSettings,
   getImageGenerationSettings,
   getModel3DGenerationSettings,
-  listModelProviders,
+  listProviders,
   respondToModelAuth,
   startModelProviderLogin,
   subscribeToModelAuth,
@@ -23,21 +25,21 @@ import {
   updateModel3DGenerationSettings,
   updateOpenAIEndpointSettings,
 } from "./api.js";
+import { useAuth } from "./auth.js";
 import { notifyAgentModelsChanged } from "./model-selector.js";
 
-export type ModelsView = { page: "overview" } | { page: "providers" } | { page: "provider"; provider: ModelProviderSummary };
+export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   if (view.page === "providers") {
-    return <ProviderList onBack={() => onViewChange({ page: "overview" })} onProvider={(provider) => onViewChange({ page: "provider", provider })} />;
+    return <ProviderList onProvider={(provider) => onViewChange({ page: "provider", provider })} />;
   }
-  if (view.page === "provider") {
-    return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
-  }
-  return <ModelsOverview onProviders={() => onViewChange({ page: "providers" })} />;
+  if (view.provider.kind === "tool") return <ToolProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
+  if (view.provider.kind === "portal") return <PortalProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
+  return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
-function ModelsOverview({ onProviders }: { onProviders: () => void }) {
+function ToolProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
   const [settings, setSettings] = useState<ImageGenerationSettings>();
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -48,19 +50,25 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
   const [savingModel3D, setSavingModel3D] = useState(false);
   const [notice, setNotice] = useState<string>();
 
+  const imageProvider = provider.id === "image-generation";
   useEffect(() => {
     let active = true;
-    void Promise.all([getImageGenerationSettings(), getModel3DGenerationSettings()]).then(([loaded, loadedModel3D]) => {
-      if (!active) return;
-      setSettings(loaded);
-      setApiUrl(loaded.apiUrl);
-      setModel3DSettings(loadedModel3D);
-      setModel3DApiUrl(loadedModel3D.apiUrl);
-    }).catch((cause) => {
+    const load = imageProvider
+      ? getImageGenerationSettings().then((loaded) => {
+          if (!active) return;
+          setSettings(loaded);
+          setApiUrl(loaded.apiUrl);
+        })
+      : getModel3DGenerationSettings().then((loaded) => {
+          if (!active) return;
+          setModel3DSettings(loaded);
+          setModel3DApiUrl(loaded.apiUrl);
+        });
+    void load.catch((cause) => {
       if (active) setNotice(errorMessage(cause));
     });
     return () => { active = false; };
-  }, []);
+  }, [imageProvider]);
 
   async function save(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -103,15 +111,8 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
 
   return (
     <section className="settings-panel">
-      <h3>Models</h3>
-      <div className="settings-field-group">
-        <label>Language models</label>
-        <button className="settings-provider-access" type="button" onClick={onProviders}>
-          <span>Provider access</span><span>Configure</span>
-        </button>
-      </div>
-      <form className="settings-image-form" onSubmit={(event) => void save(event)}>
-        <h4>Image generation</h4>
+      <SettingsBack title={provider.name} onBack={onBack} />
+      {imageProvider ? <form className="settings-image-form" onSubmit={(event) => void save(event)}>
         <label htmlFor="image-api-url">API endpoint</label>
         <input id="image-api-url" value={apiUrl} onChange={(event) => setApiUrl(event.target.value)} placeholder="https://api.openai.com/v1" />
         <label htmlFor="image-api-key">API key</label>
@@ -119,9 +120,7 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
         <div className="settings-form-actions">
           <button className="settings-primary-button" type="submit" disabled={saving || !apiUrl.trim()}>{saving ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
         </div>
-      </form>
-      <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
-        <h4>3D generation</h4>
+      </form> : <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
         <label htmlFor="model-3d-api-url">API endpoint</label>
         <input id="model-3d-api-url" value={model3DApiUrl} onChange={(event) => setModel3DApiUrl(event.target.value)} placeholder="https://api.meshy.ai" />
         <label htmlFor="model-3d-api-key">API key</label>
@@ -129,19 +128,19 @@ function ModelsOverview({ onProviders }: { onProviders: () => void }) {
         <div className="settings-form-actions">
           <button className="settings-primary-button" type="submit" disabled={savingModel3D || !model3DApiUrl.trim()}>{savingModel3D ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
         </div>
-      </form>
+      </form>}
       {notice ? <p className={notice.endsWith("saved.") ? "settings-success" : "settings-error"} role="status">{notice}</p> : null}
     </section>
   );
 }
 
-function ProviderList({ onBack, onProvider }: { onBack: () => void; onProvider: (provider: ModelProviderSummary) => void }) {
-  const [providers, setProviders] = useState<ModelProviderSummary[]>([]);
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
-    void listModelProviders().then((loaded) => {
+    void listProviders().then((loaded) => {
       if (active) setProviders(loaded);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
@@ -152,7 +151,8 @@ function ProviderList({ onBack, onProvider }: { onBack: () => void; onProvider: 
   }, []);
   return (
     <section className="settings-panel">
-      <SettingsBack title="Language models" onBack={onBack} />
+      <h3>Providers</h3>
+      <p className="settings-panel-intro">Connect services and manage their credentials.</p>
       <div className="settings-provider-list">
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
@@ -160,13 +160,45 @@ function ProviderList({ onBack, onProvider }: { onBack: () => void; onProvider: 
           <div className="settings-provider-row" key={provider.id}>
             <span className="settings-provider-copy">
               <strong>{provider.name}</strong>
-              <span className={provider.configured ? "settings-connected" : ""}>{provider.configured ? "Connected" : providerDescription(provider)}</span>
+              <span className={provider.status === "connected" ? "settings-connected" : ""}>{providerStatus(provider)}</span>
             </span>
-            <button type="button" onClick={() => onProvider(provider)}>{provider.configured ? "Manage" : provider.methods.length === 1 && provider.methods[0]?.type === "oauth" ? "Sign in" : "Configure"}</button>
+            <button type="button" onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
           </div>
         ))}
       </div>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+function PortalProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
+  const auth = useAuth();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string>();
+
+  async function retry(): Promise<void> {
+    setRetrying(true);
+    setRetryError(undefined);
+    try {
+      const accessToken = await auth.requestAccessToken();
+      if (!accessToken) return;
+      await connectPortal(accessToken);
+      onBack();
+    } catch (cause) {
+      setRetryError(errorMessage(cause));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  return (
+    <section className="settings-panel">
+      <SettingsBack title={provider.name} onBack={onBack} />
+      <div className="settings-auth-status"><span className="settings-status-dot" /><span><strong>{providerStatus(provider)}</strong>{provider.error ? <small>{provider.error}</small> : null}</span></div>
+      <div className="settings-form-actions">
+        {provider.status === "connected" ? <button className="settings-secondary-button" type="button" onClick={() => void openExternal("https://portal.open-game.ai")}>Manage</button> : provider.status === "error" ? <button className="settings-primary-button" type="button" onClick={() => void retry()} disabled={retrying}>{retrying ? "Retrying…" : "Retry"}</button> : <button className="settings-primary-button" type="button" onClick={auth.openSignIn}>{providerAction(provider)}</button>}
+      </div>
+      {retryError ? <p className="settings-error" role="status">{retryError}</p> : null}
     </section>
   );
 }
@@ -409,6 +441,21 @@ function providerDescription(provider: ModelProviderSummary): string {
   if (oauth && apiKey) return "Browser sign-in or API key";
   if (oauth) return "Browser sign-in";
   return "API key";
+}
+
+function providerStatus(provider: ProviderSummary): string {
+  if (provider.status === "connected") return "Connected";
+  if (provider.status === "connecting") return "Checking…";
+  if (provider.status === "error") return "Connection failed";
+  return provider.kind === "pi" ? providerDescription(provider) : "Not configured";
+}
+
+function providerAction(provider: ProviderSummary): string {
+  if (provider.status === "connected") return "Manage";
+  if (provider.status === "connecting") return "Checking…";
+  if (provider.kind === "portal") return provider.status === "error" ? "Retry" : "Sign in";
+  if (provider.kind === "pi" && provider.methods.length === 1 && provider.methods[0]?.type === "oauth") return "Sign in";
+  return "Configure";
 }
 
 function notificationText(notification: ModelAuthNotification | undefined): string {

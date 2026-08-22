@@ -66,7 +66,7 @@ describe("PortalConnection", () => {
     expect(runtime.unregisterProvider).toHaveBeenCalledWith("opengame");
   });
 
-  it("rejects a connection when Portal has no supported agent models", async () => {
+  it("connects without registering a Pi provider when Portal has no supported agent models", async () => {
     const runtime = runtimeMock();
     const client = {
       credential: vi.fn(async () => ({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "sk-portal" })),
@@ -74,10 +74,7 @@ describe("PortalConnection", () => {
     } as unknown as PortalClient;
     const connection = new PortalConnection(async () => runtime, client);
 
-    await expect(connection.connect("supabase-token")).resolves.toEqual({
-      status: "error",
-      error: "Portal has no supported agent models",
-    });
+    await expect(connection.connect("supabase-token")).resolves.toEqual({ status: "connected", modelCount: 0 });
     expect(runtime.registerProvider).not.toHaveBeenCalled();
     expect(runtime.setRuntimeApiKey).not.toHaveBeenCalled();
   });

@@ -543,7 +543,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/models", async () => {
-    const models = await (await getModelRuntime()).getAvailable();
+    const runtime = await getModelRuntime();
+    const models = await runtime.getAvailable();
     const piSettings = SettingsManager.create(dataDirectory, getAgentDir());
     const defaultProvider = piSettings.getDefaultProvider();
     const defaultId = piSettings.getDefaultModel();
@@ -551,6 +552,7 @@ export function createApp(options: AppOptions = {}) {
     return {
       models: models.map((model) => ({
         provider: model.provider,
+        providerName: runtime.getProvider(model.provider)?.name ?? model.provider,
         id: model.id,
         name: model.name,
         reasoningLevels: supportedReasoningLevels(model),
@@ -577,7 +579,48 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.get("/settings/models/providers", async () => modelAuth.providers());
+  app.get("/settings/providers", async () => {
+    const piProviders = await modelAuth.providers();
+    const portalState = portal.get();
+    const image = await imageSettings.get();
+    const model3d = await model3DSettings.get();
+    const portalStatus = portalState.status === "connected"
+      ? "connected"
+      : portalState.status === "connecting"
+        ? "connecting"
+        : portalState.status === "error" ? "error" : "not_configured";
+    const toolStatus = (configured: boolean) => configured ? "connected" as const : "not_configured" as const;
+    return [
+      ...piProviders
+        .filter((provider) => provider.id !== "opengame")
+        .map((provider) => ({ ...provider, kind: "pi" as const, status: provider.configured ? "connected" as const : "not_configured" as const })),
+      {
+        id: "opengame",
+        name: "OpenGame Portal",
+        configured: portalStatus === "connected",
+        kind: "portal" as const,
+        status: portalStatus,
+        methods: [],
+        ...(portalState.error ? { error: portalState.error } : {}),
+      },
+      {
+        id: "image-generation",
+        name: "Image generation",
+        configured: image.hasApiKey,
+        kind: "tool" as const,
+        status: toolStatus(image.hasApiKey),
+        methods: [{ type: "api_key" as const, label: "API key" }],
+      },
+      {
+        id: "meshy",
+        name: "Meshy",
+        configured: model3d.hasApiKey,
+        kind: "tool" as const,
+        status: toolStatus(model3d.hasApiKey),
+        methods: [{ type: "api_key" as const, label: "API key" }],
+      },
+    ].sort((left, right) => left.name.localeCompare(right.name));
+  });
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 

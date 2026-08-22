@@ -402,8 +402,8 @@ describe("daemon", () => {
 
     expect(models.json()).toEqual({
       models: [
-        { provider: first.provider, id: first.id, name: first.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
-        { provider: second.provider, id: second.id, name: second.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
+        { provider: first.provider, providerName: first.provider, id: first.id, name: first.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
+        { provider: second.provider, providerName: second.provider, id: second.id, name: second.name, reasoningLevels: ["off", "minimal", "low", "medium", "high"] },
       ],
       defaultReasoningLevel: "medium",
     });
@@ -629,6 +629,7 @@ function sessionEntry(id: string, parentId: string | null, timestamp: string, me
 function fakeModelRuntime(models: Array<{ provider: string; id: string; name: string }>): ModelRuntime {
   return {
     getAvailable: async (provider?: string) => models.filter((model) => !provider || model.provider === provider),
+    getProvider: (provider: string) => ({ name: provider }),
     getModel: (provider: string, id: string) => models.find((model) => model.provider === provider && model.id === id),
     hasConfiguredAuth: () => true,
   } as unknown as ModelRuntime;

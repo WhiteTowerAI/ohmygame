@@ -70,7 +70,10 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
         }}
         title="Model"
       >
-        <span>{current?.name ?? (value ? value.id : "Default model")}</span>
+        <span className="model-selector-current">
+          <strong>{current?.name ?? (value ? value.id : "Default model")}</strong>
+          {current ? <small>{current.providerName}</small> : null}
+        </span>
         <ChevronDown aria-hidden="true" size={12} />
       </button>
 
@@ -106,7 +109,10 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
                     }}
                     title={`${model.provider}/${model.id}`}
                   >
-                    <span>{model.name}</span>
+                    <span className="model-selector-model-copy">
+                      <strong>{model.name}</strong>
+                      <small>{model.providerName}</small>
+                    </span>
                     {selected ? <Check aria-hidden="true" size={13} /> : null}
                   </button>
                 );

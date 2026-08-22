@@ -162,7 +162,7 @@ describe("renderer project API", () => {
 
   it("lists models and selects one for a conversation", async () => {
     installWindow();
-    const model = { provider: "openai-codex", id: "gpt-5.5", name: "GPT-5.5", reasoningLevels: ["low", "medium", "high"] as const };
+    const model = { provider: "openai-codex", providerName: "OpenAI Codex", id: "gpt-5.5", name: "GPT-5.5", reasoningLevels: ["low", "medium", "high"] as const };
     const settings = { model, reasoningLevel: "medium" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" }))
