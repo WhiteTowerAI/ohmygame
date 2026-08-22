@@ -255,6 +255,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           status: event.data.isError ? "error" : "complete",
           output: event.data.output ?? item.output,
           truncated: event.data.truncated ?? item.truncated,
+          artifact: event.data.artifact ?? item.artifact,
           timestamp: eventTime(event),
         } : item),
       };

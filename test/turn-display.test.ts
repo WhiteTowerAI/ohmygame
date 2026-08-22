@@ -105,6 +105,15 @@ describe("projectTurnDisplay", () => {
     expect(display.finalMessages[0].text).toBe("Done.");
   });
 
+  it("projects generated images after work as artifacts", () => {
+    const display = projectTurnDisplay(turn([
+      tool("complete", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } }),
+      answer("Done."),
+    ], false));
+
+    expect(display.artifacts).toEqual([{ type: "image", path: "assets/generated/image.png", mediaType: "image/png" }]);
+  });
+
   it("keeps a final answer in the stable container until the turn ends", () => {
     const display = projectTurnDisplay(turn([answer("Done.")], true));
 
@@ -136,7 +145,7 @@ function answer(text: string): AgentItem {
   return { id: "answer", turnId: "turn-1", kind: "assistant", text, status: "complete", phase: "final_answer", timestamp: 4 };
 }
 
-function tool(status: "running" | "complete"): AgentItem {
+function tool(status: "running" | "complete", extra: Partial<Extract<AgentItem, { kind: "tool" }>> = {}): AgentItem {
   return {
     id: "tool",
     turnId: "turn-1",
@@ -146,5 +155,6 @@ function tool(status: "running" | "complete"): AgentItem {
     status,
     args: { path: "package.json" },
     timestamp: 3,
+    ...extra,
   };
 }

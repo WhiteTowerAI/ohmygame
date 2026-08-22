@@ -41,6 +41,7 @@ describe("agent tools", () => {
 
     expect(tool.name).toBe("generate_image");
     expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
+    expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
   });
 

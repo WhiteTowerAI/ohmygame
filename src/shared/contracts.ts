@@ -198,6 +198,7 @@ export type AgentItem = (
       args?: unknown;
       output?: string;
       truncated?: boolean;
+      artifact?: ToolArtifact;
     }
   | {
       id: string;
@@ -320,6 +321,12 @@ export interface ToolRun {
   files: ToolRunFile[];
 }
 
+export interface ToolArtifact {
+  type: "image";
+  path: string;
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+}
+
 export interface AddToolResultRequest {
   runId: string;
   fileName: string;
@@ -346,8 +353,8 @@ export interface RuntimeEventData {
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
   "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
-  "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean };
-  "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean };
+  "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean; artifact?: ToolArtifact };
+  "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean; artifact?: ToolArtifact };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };

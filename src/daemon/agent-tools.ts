@@ -40,11 +40,12 @@ export function createAgentTools(
       const file = await tools.file(run.id, output.name);
       if (!file) throw new Error("Generated image could not be read");
       signal?.throwIfAborted();
-      const fileName = `image-${run.id}.webp`;
+      const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
+      const fileName = `image-${run.id}.${extension}`;
       const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes);
       return {
         content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
-        details: { path: relativePath },
+        details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
       };
     },
   }), defineTool({

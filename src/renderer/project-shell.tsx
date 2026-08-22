@@ -504,6 +504,7 @@ export function ProjectShell({
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <AgentTimeline
               items={state.items}
+              projectId={projectId}
               activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
               revisionDisabled={agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open"}
               onRevise={revisePrompt}

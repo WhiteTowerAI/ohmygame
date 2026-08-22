@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -134,6 +134,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         const result = toolOutput(message);
         if (result.output) tool.output = result.output;
         if (result.truncated) tool.truncated = true;
+        if (result.artifact) tool.artifact = result.artifact;
       }
     }
   }
@@ -1041,17 +1042,29 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact } {
+  const artifact = toolArtifact(result);
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
     : stringify(result);
-  if (!value) return {};
-  if (value.length <= MAX_TOOL_OUTPUT) return { output: value };
+  if (!value) return artifact ? { artifact } : {};
+  if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...(artifact ? { artifact } : {}) };
   const half = MAX_TOOL_OUTPUT / 2;
   return {
     output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
     truncated: true,
+    ...(artifact ? { artifact } : {}),
   };
+}
+
+function toolArtifact(result: unknown): ToolArtifact | undefined {
+  const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
+  const artifact = details && typeof details === "object" && "artifact" in details ? (details as { artifact?: unknown }).artifact : undefined;
+  if (!artifact || typeof artifact !== "object") return undefined;
+  const value = artifact as Partial<ToolArtifact>;
+  if (value.type !== "image" || typeof value.path !== "string" || !value.path ||
+    (value.mediaType !== "image/png" && value.mediaType !== "image/jpeg" && value.mediaType !== "image/webp")) return undefined;
+  return { type: "image", path: value.path, mediaType: value.mediaType };
 }
 
 function stringify(value: unknown): string {

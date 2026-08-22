@@ -2600,6 +2600,19 @@ textarea:focus-visible {
 
 .timeline-activity { margin-bottom: 8px; }
 
+.tool-artifacts {
+  margin: 12px 0 16px;
+}
+
+.tool-artifact-image {
+  display: block;
+  width: min(100%, 360px);
+  max-height: 360px;
+  margin: 0 0 12px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
 .timeline-activity + .assistant-message { margin-top: 0; }
 
 .tool-row {

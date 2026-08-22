@@ -1,4 +1,4 @@
-import type { AgentItem } from "../shared/contracts.js";
+import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
 import type { AgentTurn } from "./agent-turns.js";
 import { projectWorkItems, type WorkDisplayItem } from "./work-items.js";
 
@@ -7,6 +7,7 @@ type AssistantItem = Extract<AgentItem, { kind: "assistant" }>;
 export interface TurnDisplay {
   user?: Extract<AgentItem, { kind: "user" }>;
   work: WorkDisplayItem[];
+  artifacts: ToolArtifact[];
   messages: AgentItem[];
   finalMessages: AssistantItem[];
   active: boolean;
@@ -26,6 +27,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
     return {
       user: turn.user,
       work: projectWorkItems(workItems),
+      artifacts: collectArtifacts(processItems),
       messages: processItems.filter((item) => !isWorkItem(item)),
       finalMessages,
       active: false,
@@ -44,6 +46,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
   return {
     user: turn.user,
     work,
+    artifacts: collectArtifacts(processItems),
     messages: [],
     finalMessages,
     active: true,
@@ -51,6 +54,15 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
     waiting,
     thinkingText: thinking?.text,
   };
+}
+
+function collectArtifacts(items: AgentItem[]): ToolArtifact[] {
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    if (item.kind !== "tool" || !item.artifact || seen.has(item.artifact.path)) return [];
+    seen.add(item.artifact.path);
+    return [item.artifact];
+  });
 }
 
 function hasVisibleAssistantText(items: AgentItem[]): boolean {

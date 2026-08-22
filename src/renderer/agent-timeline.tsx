@@ -15,7 +15,8 @@ import {
 import { isValidElement, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentItem } from "../shared/contracts.js";
+import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
+import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
@@ -23,12 +24,13 @@ import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 
 interface AgentTimelineProps {
   items: AgentItem[];
+  projectId?: string;
   activeTurnId?: string;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
 }
 
-export function AgentTimeline({ items, activeTurnId, revisionDisabled, onRevise }: AgentTimelineProps) {
+export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise }: AgentTimelineProps) {
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -75,6 +77,7 @@ export function AgentTimeline({ items, activeTurnId, revisionDisabled, onRevise 
   return turns.map((turn) => (
     <Turn
       key={turn.id}
+      projectId={projectId}
       display={projectTurnDisplay(turn, now)}
       now={now}
       userControls={{
@@ -106,7 +109,7 @@ interface UserControls {
   onSubmit: () => void;
 }
 
-function Turn({ display, now, userControls }: { display: TurnDisplay; now: number; userControls: UserControls }) {
+function Turn({ display, projectId, now, userControls }: { display: TurnDisplay; projectId: string; now: number; userControls: UserControls }) {
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
@@ -114,6 +117,7 @@ function Turn({ display, now, userControls }: { display: TurnDisplay; now: numbe
       {!display.active && display.work.length > 0 ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.map((item) => <TimelineItem key={item.id} item={item} />)}
+      {display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
     </article>
   );
 }
@@ -353,7 +357,7 @@ function ToolActivity({ item, completed = false }: { item: Extract<AgentItem, { 
   const presentation = completed ? completedToolPresentation(item.toolName, item.args) : toolPresentation(item.toolName, item.args);
   const Icon = presentation.icon;
   const label = item.status === "preparing" ? preparingToolLabel(item.toolName) : presentation.label;
-  return (
+  return (<>
     <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
@@ -362,7 +366,29 @@ function ToolActivity({ item, completed = false }: { item: Extract<AgentItem, { 
         {item.status === "error" ? <X size={12} /> : null}
       </span>
     </div>
-  );
+  </>);
+}
+
+function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: ToolArtifact[] }) {
+  return <div className="tool-artifacts">{artifacts.map((artifact) => <ArtifactPreview key={artifact.path} projectId={projectId} artifact={artifact} />)}</div>;
+}
+
+function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact: ToolArtifact }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | undefined;
+    void getWorkspaceAsset(projectId, artifact.path).then((blob) => {
+      if (disposed) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [artifact.path, projectId]);
+  return url ? <img className="tool-artifact-image" src={url} alt="Generated image" /> : null;
 }
 
 function preparingToolLabel(toolName: string): string {
