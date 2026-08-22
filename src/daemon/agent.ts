@@ -1062,9 +1062,14 @@ function toolArtifact(result: unknown): ToolArtifact | undefined {
   const artifact = details && typeof details === "object" && "artifact" in details ? (details as { artifact?: unknown }).artifact : undefined;
   if (!artifact || typeof artifact !== "object") return undefined;
   const value = artifact as Partial<ToolArtifact>;
-  if (value.type !== "image" || typeof value.path !== "string" || !value.path ||
-    (value.mediaType !== "image/png" && value.mediaType !== "image/jpeg" && value.mediaType !== "image/webp")) return undefined;
-  return { type: "image", path: value.path, mediaType: value.mediaType };
+  if (typeof value.path !== "string" || !value.path) return undefined;
+  if (value.type === "image" && (value.mediaType === "image/png" || value.mediaType === "image/jpeg" || value.mediaType === "image/webp")) {
+    return { type: "image", path: value.path, mediaType: value.mediaType };
+  }
+  if (value.type === "model" && value.mediaType === "model/gltf-binary") {
+    return { type: "model", path: value.path, mediaType: value.mediaType };
+  }
+  return undefined;
 }
 
 function stringify(value: unknown): string {

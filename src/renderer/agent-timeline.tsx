@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm";
 import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
+import { ModelPreview } from "./model-preview.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
@@ -388,7 +389,10 @@ function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact:
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [artifact.path, projectId]);
-  return url ? <img className="tool-artifact-image" src={url} alt="Generated image" /> : null;
+  if (!url) return null;
+  return artifact.type === "model"
+    ? <ModelPreview source={url} label="Generated 3D model" minHeight={320} />
+    : <img className="tool-artifact-image" src={url} alt="Generated image" />;
 }
 
 function preparingToolLabel(toolName: string): string {

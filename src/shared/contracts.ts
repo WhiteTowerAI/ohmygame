@@ -321,11 +321,9 @@ export interface ToolRun {
   files: ToolRunFile[];
 }
 
-export interface ToolArtifact {
-  type: "image";
-  path: string;
-  mediaType: "image/png" | "image/jpeg" | "image/webp";
-}
+export type ToolArtifact =
+  | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
+  | { type: "model"; path: string; mediaType: "model/gltf-binary" };
 
 export interface AddToolResultRequest {
   runId: string;

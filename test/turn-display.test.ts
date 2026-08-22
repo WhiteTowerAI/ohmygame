@@ -114,6 +114,15 @@ describe("projectTurnDisplay", () => {
     expect(display.artifacts).toEqual([{ type: "image", path: "assets/generated/image.png", mediaType: "image/png" }]);
   });
 
+  it("projects generated models after work as artifacts", () => {
+    const display = projectTurnDisplay(turn([
+      tool("complete", { artifact: { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } }),
+      answer("Done."),
+    ], false));
+
+    expect(display.artifacts).toEqual([{ type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" }]);
+  });
+
   it("keeps a final answer in the stable container until the turn ends", () => {
     const display = projectTurnDisplay(turn([answer("Done.")], true));
 

@@ -69,5 +69,6 @@ describe("agent tools", () => {
 
     expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated glb");
+    expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
   });
 });

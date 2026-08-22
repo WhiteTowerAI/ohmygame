@@ -72,7 +72,7 @@ export function createAgentTools(
       const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes);
       return {
         content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
-        details: { path: relativePath },
+        details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
       };
     },
   })];
