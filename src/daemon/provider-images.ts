@@ -1,13 +1,9 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ImageModel, ImageModelRef, ImageSize } from "../shared/contracts.js";
 import { imageModelDefinition, imageModelsForProvider } from "./image-models.js";
-import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type ImageGenerator } from "./openai-image.js";
+import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
+import { ImageGenerationError, type GeneratedImage, type ImageGenerator } from "./openai-image.js";
 import type { PortalConnection } from "./portal-connection.js";
-
-interface ImageSource {
-  baseUrl: string;
-  apiKey: string;
-}
 
 export class ProviderImages implements ImageGenerator {
   constructor(
@@ -50,8 +46,8 @@ export class ProviderImages implements ImageGenerator {
       if (!ids.includes(selected.id)) source = undefined;
     }
     if (!source) throw new ImageGenerationError("Image generation is not configured", 503);
-    return new OpenAIImageGenerator(source.apiKey, source.baseUrl, this.request)
-      .generate({ ...input, model: selected.id }, signal);
+    const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
+    return adapter.generate(source, selected.id, input, signal);
   }
 }
 

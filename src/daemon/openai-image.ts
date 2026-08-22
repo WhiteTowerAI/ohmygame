@@ -1,8 +1,10 @@
 import type { ImageSize } from "../shared/contracts.js";
 
+export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
+
 export interface GeneratedImage {
   bytes: Buffer;
-  mediaType: "image/webp";
+  mediaType: GeneratedImageMediaType;
   requestId?: string;
 }
 
@@ -86,10 +88,15 @@ export class OpenAIImageGenerator implements ImageGenerator {
     if (!imageResponse.ok) throw new ImageGenerationError("Could not download the generated image");
     return {
       bytes: Buffer.from(await imageResponse.arrayBuffer()),
-      mediaType: "image/webp",
+      mediaType: contentType(imageResponse.headers.get("content-type")) ?? "image/webp",
       requestId: requestId ?? undefined,
     };
   }
+}
+
+function contentType(value: string | null): GeneratedImageMediaType | undefined {
+  const type = value?.split(";", 1)[0]?.trim();
+  return type === "image/png" || type === "image/jpeg" || type === "image/webp" ? type : undefined;
 }
 
 function imageEndpoint(baseUrl: string): string {

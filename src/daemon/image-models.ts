@@ -1,10 +1,17 @@
 import type { ImageModel } from "../shared/contracts.js";
 
 const DEFINITIONS: Record<string, Omit<ImageModel, "provider" | "providerName">> = {
+  "gemini-2.5-flash-image": {
+    id: "gemini-2.5-flash-image",
+    name: "Nano Banana",
+    sizes: ["1024x1024", "1536x1024", "1024x1536"],
+    protocol: "gemini-generate-content",
+  },
   "gpt-image-2": {
     id: "gpt-image-2",
     name: "GPT Image 2",
     sizes: ["1024x1024", "1536x1024", "1024x1536"],
+    protocol: "openai-images",
   },
 };
 

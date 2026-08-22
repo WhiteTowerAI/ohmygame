@@ -4,7 +4,7 @@ import { ProviderImages } from "../src/daemon/provider-images.js";
 import type { PortalConnection } from "../src/daemon/portal-connection.js";
 
 describe("ProviderImages", () => {
-  it("lists the same supported image model separately for Portal and OpenAI", async () => {
+  it("lists supported image models for each connected provider", async () => {
     const images = new ProviderImages(
       async () => runtime(),
       portal(),
@@ -14,6 +14,7 @@ describe("ProviderImages", () => {
 
     await expect(images.models()).resolves.toEqual([
       expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gpt-image-2" }),
+      expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gemini-2.5-flash-image", name: "Nano Banana" }),
       expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2" }),
     ]);
   });
@@ -83,7 +84,7 @@ function portal(): PortalConnection {
     imageSource: () => ({
       baseUrl: "https://portal.open-game.ai/v1",
       apiKey: "sk-portal",
-      modelIds: ["gpt-image-2", "text-only"],
+      modelIds: ["gpt-image-2", "gemini-2.5-flash-image", "text-only"],
     }),
   } as unknown as PortalConnection;
 }

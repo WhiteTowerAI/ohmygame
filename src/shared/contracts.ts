@@ -83,7 +83,10 @@ export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
   sizes: readonly ImageSize[];
+  protocol: ImageProtocol;
 }
+
+export type ImageProtocol = "openai-images" | "gemini-generate-content";
 
 export interface UpdateImageGenerationSettings {
   model: ImageModelRef;

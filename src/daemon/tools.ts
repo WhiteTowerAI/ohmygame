@@ -87,11 +87,11 @@ export class ToolRunner {
         id,
         toolId: generateImage.id,
         createdAt: new Date().toISOString(),
-        files: [{ name: "output.webp", mediaType: generated.mediaType }],
+        files: [{ name: imageFileName(generated.mediaType), mediaType: generated.mediaType }],
         requestId: generated.requestId,
       };
       await mkdir(temporary, { recursive: true });
-      await writeFile(path.join(temporary, "output.webp"), generated.bytes);
+      await writeFile(path.join(temporary, imageFileName(generated.mediaType)), generated.bytes);
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -134,7 +134,7 @@ export class ToolRunner {
   }
 
   async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string } | undefined> {
-    if (!isRunId(runId) || !["output.webp", "model.glb"].includes(fileName)) return undefined;
+    if (!isRunId(runId) || !["output.png", "output.jpg", "output.webp", "model.glb"].includes(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
       const run = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8")) as StoredToolRun;
@@ -165,4 +165,8 @@ function isImageSize(value: unknown): value is ImageSize {
 
 function isRunId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function imageFileName(mediaType: string): string {
+  return mediaType === "image/png" ? "output.png" : mediaType === "image/jpeg" ? "output.jpg" : "output.webp";
 }
