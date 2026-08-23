@@ -1,4 +1,4 @@
-import type { ActiveTurnState, AgentItem, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, RuntimeEvent } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, QuestionnaireRequest, RuntimeEvent } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -11,14 +11,15 @@ export interface RendererState {
   conversation?: ConversationState;
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
+  questionnaire?: QuestionnaireRequest;
   items: TimelineItem[];
   lastEventId: number;
   notice?: string;
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; cursor: number }
-  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; cursor: number }
+  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
+  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
   | { type: "connection"; status: ConnectionStatus }
@@ -41,6 +42,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       conversation: action.conversation,
       activeTurn: action.activeTurn,
       pendingPrompts: action.pendingPrompts ?? [],
+      questionnaire: action.questionnaire,
       items: action.items,
       notice: undefined,
       lastEventId: action.cursor,
@@ -54,6 +56,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       conversation: action.conversation,
       activeTurn: action.activeTurn,
       pendingPrompts: action.pendingPrompts ?? [],
+      questionnaire: action.questionnaire,
       items: action.items ?? state.items,
       lastEventId: action.cursor,
     };
@@ -72,7 +75,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.");
+  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type.startsWith("questionnaire.");
   let scoped = next;
 
   if (event.type === "agent.started" && conversation && event.conversationId === conversation.id && event.turnId) {
@@ -232,6 +235,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         : state.items.filter((item) => item.id !== event.data.itemId);
       return {
         ...scoped,
+        conversation: conversation ? { ...conversation, plan: { explanation: event.data.explanation, steps: event.data.steps } } : conversation,
         items: upsertItem(withoutPlaceholder, {
           id: planItemId,
           turnId: event.turnId,
@@ -240,6 +244,19 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           timestamp: eventTime(event),
         }),
       };
+    case "plan.mode.changed":
+      return {
+        ...scoped,
+        conversation: conversation ? {
+          ...conversation,
+          planMode: event.data.mode,
+          plan: event.data.plan,
+        } : conversation,
+      };
+    case "questionnaire.requested":
+      return { ...scoped, questionnaire: event.data };
+    case "questionnaire.resolved":
+      return scoped.questionnaire?.id === event.data.requestId ? { ...scoped, questionnaire: undefined } : scoped;
     case "tool.preparing":
     case "tool.started":
       if (!event.turnId) return scoped;
@@ -344,6 +361,7 @@ function finishAgent(
   return {
     ...state,
     items,
+    questionnaire: undefined,
     conversation: {
       ...state.conversation,
       agent: status === "error" ? { status: "error", error } : { status: "idle" },

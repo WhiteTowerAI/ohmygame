@@ -240,6 +240,36 @@ describe("conversationItems", () => {
 });
 
 describe("AgentManager", () => {
+  it("pauses a planning turn for a questionnaire and resumes it with structured answers", async () => {
+    const session = new FakeSession();
+    const prompt = deferred<void>();
+    session.prompt.mockImplementation(() => prompt.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "Plan this", [], [], "planning").result!;
+    await vi.waitFor(() => expect(manager.state(conversation).agent.status).toBe("running"));
+    const pending = manager.askQuestionnaire(project.id, conversation.summary.id, {
+      questions: [{
+        id: "scope",
+        prompt: "What should be built first?",
+        options: [{ value: "game", label: "A game", recommended: true }, { value: "tool", label: "A tool" }],
+      }],
+    });
+    const request = manager.questionnaire(project.id, conversation.summary.id);
+    expect(request?.questions[0]?.options[0]?.recommended).toBe(true);
+    expect(events.since(project.id).at(-1)?.type).toBe("questionnaire.requested");
+
+    manager.answerQuestionnaire(project.id, conversation.summary.id, request!.id, [{ questionId: "scope", value: "game" }]);
+    await expect(pending).resolves.toMatchObject({ cancelled: false, answers: [{ value: "game", custom: false }] });
+    expect(manager.questionnaire(project.id, conversation.summary.id)).toBeUndefined();
+    prompt.resolve();
+    await expect(run).resolves.toBe("completed");
+    await manager.close();
+  });
+
   it("sends images through Pi prompt options", async () => {
     const session = new FakeSession();
     const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
@@ -785,6 +815,78 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("plans with read-only tools and waits for approval before executing", async () => {
+    const session = new FakeSession();
+    const planning = deferred<void>();
+    session.prompt.mockImplementationOnce(() => planning.promise).mockResolvedValue(undefined);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, {
+      createSession: async () => session,
+      activeToolNames: (mode) => mode === "planning" ? ["read", "update_plan"] : ["read", "write", "edit", "bash", "update_plan"],
+    });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "Plan a refactor", [], [], "planning").result;
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    session.emit({
+      type: "tool_execution_end",
+      toolCallId: "plan-1",
+      toolName: "update_plan",
+      isError: false,
+      result: { details: { plan: { steps: [{ step: "Inspect files", status: "in_progress" }] } } },
+    });
+    planning.resolve();
+    await run;
+
+    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(1, ["read", "update_plan"]);
+    expect(manager.planState(conversation)).toEqual({
+      mode: "awaiting_approval",
+      plan: { steps: [{ step: "Inspect files", status: "in_progress" }] },
+    });
+    await expect(manager.reviseLast(project, conversation, "Rewrite history", async (reference) => reference))
+      .rejects.toThrow("Finish or cancel the current plan");
+
+    await (await manager.approvePlan(project, conversation)).result;
+    expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(2, ["read", "write", "edit", "bash", "update_plan"]);
+    expect(manager.planState(conversation)).toEqual({ mode: "normal" });
+    expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
+    await manager.close();
+  });
+
+  it("loads the session before persisting a cancelled plan", async () => {
+    const session = new FakeSession();
+    const createSession = vi.fn(async () => session);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+    manager.restorePlanState(conversation, {
+      mode: "awaiting_approval",
+      plan: { steps: [{ step: "Inspect files", status: "pending" }] },
+    });
+
+    await manager.cancelPlan(project, conversation);
+
+    expect(createSession).toHaveBeenCalledOnce();
+    expect(session.appendCustomEntry).toHaveBeenCalledWith("open-game-plan", { mode: "normal" });
+    await manager.close();
+  });
+
+  it("forgets in-memory plan state with its project", async () => {
+    const manager = new AgentManager(new RuntimeEventBus());
+    const project = createProject();
+    const conversation = createConversation(project);
+    manager.restorePlanState(conversation, {
+      mode: "awaiting_approval",
+      plan: { steps: [{ step: "Inspect files", status: "pending" }] },
+    });
+
+    manager.forgetProject(project.id);
+
+    expect(manager.planState(conversation)).toEqual({ mode: "normal" });
+    await manager.close();
+  });
+
   it("uses Pi to change the model of a cached session", async () => {
     const session = new FakeSession();
     const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
@@ -906,6 +1008,15 @@ class FakeSession implements CodingSession {
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});
   setThinkingLevel = vi.fn<NonNullable<CodingSession["setThinkingLevel"]>>((level) => { this.thinkingLevel = level; });
   setActiveToolsByName = vi.fn<(toolNames: string[]) => void>();
+  appendCustomEntry = vi.fn((customType: string, data: unknown) => {
+    this.#entries.push({ type: "custom", customType, data });
+    return `entry-${this.#entries.length}`;
+  });
+  sessionManager = {
+    appendCustomEntry: this.appendCustomEntry,
+    getBranch: () => this.#entries as never,
+  };
+  #entries: Array<{ type: "custom"; customType: string; data: unknown }> = [];
   #listener?: (event: AgentSessionEvent) => void;
 
   subscribe(listener: (event: AgentSessionEvent) => void): () => void {

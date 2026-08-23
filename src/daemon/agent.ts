@@ -11,12 +11,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanState, ProjectState, PromptImage, PromptReference, ToolArtifact } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
+  readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch">;
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
@@ -52,6 +53,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   const items: AgentItem[] = [];
   const tools = new Map<string, Extract<AgentItem, { kind: "tool" }>>();
   const planCalls = new Set<string>();
+  const hiddenCalls = new Set<string>();
   let turnId: string | undefined;
   let turnFinished = true;
   let lastTimestamp: number | undefined;
@@ -103,6 +105,10 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             planCalls.add(content.id);
             continue;
           }
+          if (content.name === "questionnaire") {
+            hiddenCalls.add(content.id);
+            continue;
+          }
           const tool: Extract<AgentItem, { kind: "tool" }> = {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
@@ -132,6 +138,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       continue;
     }
     if (message.role === "toolResult") {
+      if (hiddenCalls.has(message.toolCallId)) continue;
       if (planCalls.has(message.toolCallId)) {
         if (message.isError) continue;
         const plan = toolPlan(message);
@@ -173,7 +180,7 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
-  activeToolNames?: () => string[];
+  activeToolNames?: (mode: PlanMode) => string[];
   onRunCompleted?: (project: ProjectState) => void;
 }
 
@@ -183,11 +190,15 @@ interface ManagedSession {
 }
 
 interface ActiveTurn {
+  project: ProjectState;
   projectId: string;
   conversationId: string;
   turnId: string;
   prompt: string;
   images: PromptImage[];
+  mode: PlanMode;
+  plan?: PlanState;
+  conversation: StoredConversation;
   status: Extract<AgentStatus, "running" | "cancelling">;
   assistantItemIds: Map<number, string>;
   completedAssistantIndexes: Set<number>;
@@ -205,16 +216,25 @@ interface QueuedPrompt extends PendingPrompt {
   queuedEventId: number;
 }
 
+interface PendingQuestionnaire {
+  request: QuestionnaireRequest;
+  resolve: (result: QuestionnaireResult) => void;
+  reject: (cause: Error) => void;
+  removeAbortListener?: () => void;
+}
+
 export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
   readonly #sessionLoads = new Map<string, Promise<ManagedSession>>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #conversationStates = new Map<string, ConversationState["agent"]>();
+  readonly #planStates = new Map<string, PlanSessionState>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
   readonly #pendingPrompts = new Map<string, QueuedPrompt[]>();
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
+  readonly #questionnaires = new Map<string, PendingQuestionnaire>();
   #closing = false;
 
   constructor(
@@ -222,11 +242,55 @@ export class AgentManager {
     private readonly options: AgentManagerOptions = {},
   ) {}
 
-  state(conversation: StoredConversation, model?: AgentModelRef): ConversationState {
+  state(conversation: StoredConversation, model?: AgentModelRef, planState: PlanSessionState = { mode: "normal" }): ConversationState {
     return {
       ...conversation.summary,
       agent: this.#conversationStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" },
       ...(model ? { model } : {}),
+      planMode: planState.mode,
+      ...(planState.plan ? { plan: planState.plan } : {}),
+    };
+  }
+
+  restorePlanState(conversation: StoredConversation, state: PlanSessionState): void {
+    const key = conversationKey(conversation.summary.projectId, conversation.summary.id);
+    if (!this.#planStates.has(key)) this.#planStates.set(key, state);
+  }
+
+  planState(conversation: StoredConversation): PlanSessionState {
+    return this.#planStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { mode: "normal" };
+  }
+
+  async cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
+    await this.#getSession(project, conversation);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
+    this.#setPlanState(project, conversation, { mode: "normal" });
+  }
+
+  async refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
+    await this.#getSession(project, conversation);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
+    const state = this.planState(conversation);
+    if (state.mode !== "awaiting_approval" || !state.plan) throw new Error("There is no plan waiting for refinement");
+    this.#setPlanState(project, conversation, { mode: "planning", plan: state.plan });
+  }
+
+  async approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
+    await this.#getSession(project, conversation);
+    if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
+    const state = this.planState(conversation);
+    if (state.mode !== "awaiting_approval" || !state.plan) throw new Error("There is no plan waiting for approval");
+    const turnId = randomUUID();
+    this.#setPlanState(project, conversation, { mode: "executing", plan: state.plan });
+    return {
+      turnId,
+      result: this.#startPrompt(project, conversation, "Execute the approved plan", [], [], turnId, undefined, "executing", state.plan),
     };
   }
 
@@ -273,14 +337,19 @@ export class AgentManager {
     prompt: string,
     references: PromptReference[] = [],
     images: PromptImage[] = [],
+    mode: "normal" | "planning" | "executing" = "normal",
     turnId = randomUUID(),
   ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
     if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#revisions.has(key)) throw new Error("A message edit is already starting in this conversation");
+    const planState = this.planState(conversation);
+    if (mode === "normal" && planState.mode !== "normal") throw new Error("Finish or cancel the current plan before continuing");
+    if (mode === "planning" && planState.mode === "executing") throw new Error("The plan is already executing");
     const active = this.#activeTurns.get(key);
     if (active) {
+      if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
       const wirePrompt = promptWithReferences(prompt, references);
       const result = this.#withQueueMutation(key, async () => {
@@ -312,7 +381,8 @@ export class AgentManager {
     }
 
     this.#pendingPrompts.delete(key);
-    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId) };
+    if (mode === "planning") this.#setPlanState(project, conversation, { mode: "planning", ...(planState.plan ? { plan: planState.plan } : {}) }, false);
+    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan) };
   }
 
   async reviseLast(
@@ -324,6 +394,7 @@ export class AgentManager {
     if (!prompt.trim()) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
+    if (this.planState(conversation).mode !== "normal") throw new Error("Finish or cancel the current plan before editing a message");
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
       throw new Error("Wait for the agent to finish before editing a message");
     }
@@ -364,14 +435,20 @@ export class AgentManager {
     images: PromptImage[],
     turnId: string,
     revision?: "last-turn",
+    mode: PlanMode = "normal",
+    plan?: PlanState,
   ): Promise<AgentRunResult> {
 
     const active: ActiveTurn = {
+      project,
       projectId: project.id,
       conversationId: conversation.summary.id,
       turnId,
       prompt,
       images,
+      mode,
+      conversation,
+      plan,
       status: "running",
       assistantItemIds: new Map(),
       completedAssistantIndexes: new Set(),
@@ -391,7 +468,12 @@ export class AgentManager {
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
-    const execution = this.#runPrompt(project, conversation, promptWithReferences(prompt, references), images, active);
+    const wirePrompt = mode === "planning"
+      ? planningPrompt(promptWithReferences(prompt, references))
+      : mode === "executing"
+        ? executionPrompt(promptWithReferences(prompt, references), active.plan)
+        : promptWithReferences(prompt, references);
+    const execution = this.#runPrompt(project, conversation, wirePrompt, images, active);
     let run: Promise<AgentRunResult>;
     run = execution.then(
       async (result) => {
@@ -417,12 +499,18 @@ export class AgentManager {
   ): Promise<AgentRunResult> {
     try {
       const managed = await this.#getSession(project, conversation);
+      if (active.mode === "planning" || active.mode === "executing") {
+        appendPlanState(managed.session.sessionManager, {
+          mode: active.mode,
+          ...(active.plan ? { plan: active.plan } : {}),
+        });
+      }
       if (isCancelling(active)) {
         this.#markCancelled(project.id, active);
         return "cancelled";
       }
 
-      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.() ?? BASE_TOOL_NAMES);
+      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(active.mode) ?? BASE_TOOL_NAMES);
       if (images.length) {
         await managed.session.prompt(prompt, { images: images.map(toPiImage) });
       } else {
@@ -566,6 +654,85 @@ export class AgentManager {
     }));
   }
 
+  questionnaire(projectId: string, conversationId: string): QuestionnaireRequest | undefined {
+    return this.#questionnaires.get(conversationKey(projectId, conversationId))?.request;
+  }
+
+  askQuestionnaire(
+    projectId: string,
+    conversationId: string,
+    input: {
+      questions: Array<{
+        id: string;
+        prompt: string;
+        options: Array<{ value: string; label: string; description?: string; recommended?: boolean }>;
+        allowOther?: boolean;
+      }>;
+    },
+    signal?: AbortSignal,
+  ): Promise<QuestionnaireResult> {
+    const key = conversationKey(projectId, conversationId);
+    const active = this.#activeTurns.get(key);
+    if (!active || active.mode !== "planning") throw new Error("Questions can only be asked during an active plan");
+    if (this.#questionnaires.has(key)) throw new Error("A questionnaire is already waiting for an answer");
+    validateQuestionnaire(input.questions);
+    const request: QuestionnaireRequest = {
+      id: randomUUID(),
+      questions: input.questions.map((question) => ({
+        id: question.id,
+        prompt: question.prompt.trim(),
+        options: question.options.map((option) => ({
+          value: option.value,
+          label: option.label.trim(),
+          ...(option.description?.trim() ? { description: option.description.trim() } : {}),
+          ...(option.recommended ? { recommended: true } : {}),
+        })),
+        allowOther: question.allowOther !== false,
+      })),
+    };
+    return new Promise<QuestionnaireResult>((resolve, reject) => {
+      const pending: PendingQuestionnaire = { request, resolve, reject };
+      if (signal) {
+        const abort = () => {
+          if (this.#questionnaires.get(key) !== pending) return;
+          this.#questionnaires.delete(key);
+          this.events.publish(projectId, "questionnaire.resolved", { requestId: request.id }, eventScope(active));
+          reject(new Error("Questionnaire cancelled"));
+        };
+        signal.addEventListener("abort", abort, { once: true });
+        pending.removeAbortListener = () => signal.removeEventListener("abort", abort);
+      }
+      this.#questionnaires.set(key, pending);
+      this.events.publish(projectId, "questionnaire.requested", request, eventScope(active));
+    });
+  }
+
+  answerQuestionnaire(
+    projectId: string,
+    conversationId: string,
+    requestId: string,
+    answers: Array<{ questionId: string; value: string }> = [],
+    cancelled = false,
+  ): void {
+    const key = conversationKey(projectId, conversationId);
+    const pending = this.#questionnaires.get(key);
+    if (!pending || pending.request.id !== requestId) throw new Error("Questionnaire is no longer active");
+    const result: QuestionnaireResult = {
+      cancelled,
+      answers: cancelled ? [] : questionnaireAnswers(pending.request, answers),
+    };
+    this.#questionnaires.delete(key);
+    pending.removeAbortListener?.();
+    const active = this.#activeTurns.get(key);
+    this.events.publish(
+      projectId,
+      "questionnaire.resolved",
+      { requestId },
+      { conversationId, ...(active ? { turnId: active.turnId } : {}) },
+    );
+    pending.resolve(result);
+  }
+
   activeItem(projectId: string, conversationId: string): Extract<AgentItem, { kind: "user" }> | undefined {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return undefined;
@@ -600,6 +767,11 @@ export class AgentManager {
       active.status = "cancelling";
       this.#setState(active.projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
     }
+    for (const pending of this.#questionnaires.values()) {
+      pending.removeAbortListener?.();
+      pending.reject(new Error("Agent manager is closing"));
+    }
+    this.#questionnaires.clear();
     const sessions = [...this.#sessions.values()];
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
@@ -618,13 +790,35 @@ export class AgentManager {
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
       this.#activeTurns.delete(key);
+      const questionnaire = this.#questionnaires.get(key);
+      if (questionnaire) {
+        questionnaire.removeAbortListener?.();
+        questionnaire.reject(new Error("Planning ended before the questionnaire was answered"));
+        this.#questionnaires.delete(key);
+      }
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
       if ((this.#pendingPrompts.get(key)?.length ?? 0) > 0 || (this.#steeringPrompts.get(key)?.length ?? 0) > 0) {
         this.#sessions.get(key)?.session.clearQueue?.();
       }
       this.#clearPending(projectId, active.conversationId);
+      if (active.mode === "planning") {
+        this.#setPlanState(project, active.conversation, result === "completed" && active.plan
+          ? { mode: "awaiting_approval", plan: active.plan }
+          : { mode: "normal" });
+      } else if (active.mode === "executing") {
+        this.#setPlanState(project, active.conversation, result === "completed"
+          ? { mode: "normal" }
+          : { mode: "awaiting_approval", ...(active.plan ? { plan: active.plan } : {}) });
+      }
       if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
     });
+  }
+
+  #setPlanState(project: ProjectState, conversation: StoredConversation, state: PlanSessionState, persist = true): void {
+    const key = conversationKey(project.id, conversation.summary.id);
+    this.#planStates.set(key, state);
+    if (persist) appendPlanState(this.#sessions.get(key)?.session.sessionManager, state);
+    this.events.publish(project.id, "plan.mode.changed", state, { conversationId: conversation.summary.id });
   }
 
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
@@ -657,6 +851,13 @@ export class AgentManager {
     const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
     const managed = { session, unsubscribe };
     this.#sessions.set(key, managed);
+    const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "open-game-plan");
+    if (!this.#planStates.has(key) && entry?.type === "custom" && entry.data && typeof entry.data === "object") {
+      const state = entry.data as Partial<PlanSessionState>;
+      if (state.mode === "normal" || state.mode === "planning" || state.mode === "awaiting_approval" || state.mode === "executing") {
+        this.#planStates.set(key, { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) });
+      }
+    }
     return managed;
   }
 
@@ -738,7 +939,7 @@ export class AgentManager {
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_start") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
       const toolCall = partialToolCall(event.assistantMessageEvent.partial, contentIndex);
-      if (toolCall?.name === "update_plan") return;
+      if (toolCall?.name === "update_plan" || toolCall?.name === "questionnaire") return;
       const itemId = `${active.turnId}:tool:${active.assistantSequence++}`;
       const toolCallId = toolCall?.id || `${active.turnId}:preparing:${contentIndex}`;
       active.preparingToolItemIds.set(contentIndex, itemId);
@@ -750,6 +951,10 @@ export class AgentManager {
       }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_end") {
       const { contentIndex, toolCall } = event.assistantMessageEvent;
+      if (toolCall.name === "questionnaire") {
+        active.preparingToolItemIds.delete(contentIndex);
+        return;
+      }
       if (toolCall.name === "update_plan") {
         const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:plan`;
         active.preparingToolItemIds.delete(contentIndex);
@@ -808,7 +1013,7 @@ export class AgentManager {
         ...(event.errorMessage ? { error: event.errorMessage } : {}),
       }, eventScope(active));
     } else if (event.type === "tool_execution_start") {
-      if (event.toolName === "update_plan") return;
+      if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
       active.toolItemIds.set(event.toolCallId, itemId);
       this.events.publish(projectId, "tool.started", {
@@ -818,7 +1023,7 @@ export class AgentManager {
         args: toolArguments(event.toolName, event.args),
       }, eventScope(active));
     } else if (event.type === "tool_execution_update") {
-      if (event.toolName === "update_plan") return;
+      if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const result = toolOutput(event.partialResult);
       this.events.publish(projectId, "tool.updated", {
         itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
@@ -826,9 +1031,14 @@ export class AgentManager {
         ...result,
       }, eventScope(active));
     } else if (event.type === "tool_execution_end") {
+      if (event.toolName === "questionnaire") return;
       if (event.toolName === "update_plan") {
         const plan = toolPlan(event.result);
         if (!event.isError && plan) {
+          active.plan = plan;
+          if (active.mode === "planning" || active.mode === "executing") {
+            this.#setPlanState(active.project, active.conversation, { mode: active.mode, plan });
+          }
           this.events.publish(projectId, "plan.updated", {
             ...plan,
             itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:plan`,
@@ -879,7 +1089,10 @@ export class AgentManager {
       if (key.startsWith(prefix)) this.#forgetConversation(key);
     }
     for (const key of this.#conversationStates.keys()) {
-      if (key.startsWith(`${projectId}:`)) this.#conversationStates.delete(key);
+      if (key.startsWith(prefix)) this.#conversationStates.delete(key);
+    }
+    for (const key of this.#planStates.keys()) {
+      if (key.startsWith(prefix)) this.#planStates.delete(key);
     }
   }
 
@@ -1153,6 +1366,69 @@ function stringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function planningPrompt(prompt: string): string {
+  return `[PLAN MODE]
+Explore the project and produce a concrete implementation plan. You may only read files and update the structured plan.
+Ask up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.
+Plan steps must describe implementation work only. Do not add approval, confirmation, or waiting for the user as a plan step.
+Do not modify files, run commands, or begin implementation. End after the plan is ready for user approval.
+
+${prompt}`;
+}
+
+function validateQuestionnaire(questions: Array<{
+  id: string;
+  prompt: string;
+  options: Array<{ value: string; label: string; recommended?: boolean }>;
+}>): void {
+  if (new Set(questions.map((question) => question.id)).size !== questions.length) {
+    throw new Error("Question identifiers must be unique");
+  }
+  for (const question of questions) {
+    if (!question.id.trim() || !question.prompt.trim()) throw new Error("Questions must have an id and prompt");
+    if (new Set(question.options.map((option) => option.value)).size !== question.options.length) {
+      throw new Error("Question option values must be unique");
+    }
+    if (question.options.filter((option) => option.recommended).length > 1) {
+      throw new Error("A question can have at most one recommended option");
+    }
+  }
+}
+
+function questionnaireAnswers(
+  request: QuestionnaireRequest,
+  answers: Array<{ questionId: string; value: string }>,
+): QuestionnaireAnswer[] {
+  const byQuestion = new Map(answers.map((answer) => [answer.questionId, answer.value.trim()]));
+  if (byQuestion.size !== request.questions.length || answers.length !== request.questions.length) {
+    throw new Error("Every question requires one answer");
+  }
+  return request.questions.map((question) => {
+    const value = byQuestion.get(question.id);
+    if (!value) throw new Error("Question answers cannot be blank");
+    const option = question.options.find((candidate) => candidate.value === value);
+    if (!option && !question.allowOther) throw new Error("Custom answers are not allowed for this question");
+    return {
+      questionId: question.id,
+      value,
+      label: option?.label ?? value,
+      custom: !option,
+    };
+  });
+}
+
+function executionPrompt(prompt: string, plan?: PlanState): string {
+  const steps = plan?.steps.map((item, index) => `${index + 1}. [${item.status}] ${item.step}`).join("\n") ?? "";
+  return `${prompt}\n\nApproved plan:\n${steps}\n\nExecute the plan and keep update_plan current as steps complete.`;
+}
+
+function appendPlanState(sessionManager: CodingSession["sessionManager"], state: PlanSessionState): void {
+  if (!sessionManager) return;
+  const previous = sessionManager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === "open-game-plan");
+  if (previous?.type === "custom" && JSON.stringify(previous.data) === JSON.stringify(state)) return;
+  sessionManager.appendCustomEntry("open-game-plan", state);
 }
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];

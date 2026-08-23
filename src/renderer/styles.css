@@ -2673,7 +2673,7 @@ textarea:focus-visible {
   transition: transform 120ms ease;
 }
 
-.plan-status[open] .plan-status-chevron { transform: rotate(180deg); }
+.plan-status details[open] .plan-status-chevron { transform: rotate(180deg); }
 
 .plan-status-details {
   max-height: 200px;
@@ -2995,6 +2995,340 @@ textarea:focus-visible {
 .timeline-skeleton span:nth-child(2) { width: 48%; }
 .timeline-skeleton span:nth-child(3) { width: 62%; }
 
+.questionnaire-card {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 0 18px 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.questionnaire-card > header,
+.questionnaire-card > footer,
+.questionnaire-navigation,
+.questionnaire-option-copy strong {
+  display: flex;
+  align-items: center;
+}
+
+.inline-answer {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 550;
+  text-align: left;
+}
+
+.inline-answer-icon {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 68%, transparent);
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.inline-answer-editing { cursor: text; }
+
+.inline-answer-input {
+  min-width: 0;
+  height: 25px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.inline-answer-input::placeholder { color: var(--text-faint); }
+
+.inline-answer-submit {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.inline-answer-submit:hover:not(:disabled) { background: var(--surface-hover); }
+
+.questionnaire-card > header {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.questionnaire-card > header > strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
+.questionnaire-navigation {
+  flex: 0 0 auto;
+  gap: 3px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.questionnaire-navigation button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.questionnaire-navigation button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.questionnaire-navigation button:disabled { opacity: .35; }
+
+.questionnaire-options {
+  display: grid;
+  gap: 4px;
+}
+
+.questionnaire-options > button {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.questionnaire-options > button:hover:not(:disabled),
+.questionnaire-options > .questionnaire-option-selected {
+  border-color: color-mix(in srgb, var(--border) 64%, transparent);
+  background: color-mix(in srgb, var(--surface-hover) 82%, var(--surface-raised));
+}
+
+.questionnaire-option-number {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 68%, transparent);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.questionnaire-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.questionnaire-option-copy strong {
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.questionnaire-option-copy small {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.questionnaire-option-copy > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.agent-body > .questionnaire-card {
+  margin-bottom: 18px;
+}
+
+.questionnaire-card > footer {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.questionnaire-skip {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.questionnaire-footer-row .inline-answer,
+.plan-approval-footer .inline-answer,
+.plan-approval-card > .inline-answer {
+  min-width: 0;
+  flex: 1;
+}
+
+.questionnaire-card button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.plan-review {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 0 18px 18px;
+  background: var(--surface);
+}
+
+.plan-approval-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.plan-approval-card > header,
+.plan-approval-approve,
+.plan-approval-footer {
+  display: flex;
+  align-items: center;
+}
+
+.plan-approval-card > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plan-approval-card > header strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.plan-approval-card > header button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.plan-approval-card > header button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.plan-approval-approve {
+  min-height: 44px;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-hover) 82%, var(--surface-raised));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.plan-approval-approve:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--border-strong) 68%, transparent);
+  background: var(--surface-hover);
+}
+
+.plan-approval-approve > span {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 68%, transparent);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.plan-approval-approve strong {
+  min-width: 0;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.plan-approval-footer {
+  min-height: 34px;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-approval-skip {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.plan-approval-card button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
 .composer {
   flex: 0 0 auto;
   padding: 10px 18px 18px;
@@ -3008,6 +3342,7 @@ textarea:focus-visible {
 }
 
 .prompt-box {
+  position: relative;
   display: grid;
   gap: 8px;
   min-width: 0;
@@ -3017,6 +3352,84 @@ textarea:focus-visible {
   background: var(--surface-raised);
   text-align: left;
 }
+
+.composer-command-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 32%);
+}
+
+.composer-command-menu button {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  grid-template-columns: 18px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--surface-hover);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.composer-command-menu small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-plan-mode,
+.composer-plan-mode button {
+  display: flex;
+  align-items: center;
+}
+
+.composer-plan-mode {
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.composer-plan-mode button {
+  min-height: 28px;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.composer-plan-mode button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.composer-plan-mode button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.composer-plan-close { display: none; }
+.composer-plan-mode button:hover:not(:disabled) .composer-plan-icon { display: none; }
+.composer-plan-mode button:hover:not(:disabled) .composer-plan-close { display: block; }
 
 .prompt-box-home {
   min-height: 124px;

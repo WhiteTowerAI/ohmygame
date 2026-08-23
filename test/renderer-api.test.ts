@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, approvePlan, cancelPlan, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, refinePlan, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -218,6 +218,26 @@ describe("renderer project API", () => {
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json" },
     }));
+  });
+
+  it("sends planning prompts and plan decisions", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => init?.method === "DELETE"
+      ? new Response(null, { status: 204 })
+      : Response.json({ queued: false, turnId: "turn-plan" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendPrompt("project-1", "conversation-1", "Plan this", [], [], "planning");
+    await approvePlan("project-1", "conversation-1");
+    await refinePlan("project-1", "conversation-1");
+    await cancelPlan("project-1", "conversation-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+      body: JSON.stringify({ prompt: "Plan this", mode: "planning" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/plan/approve", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations/conversation-1/plan/refine", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project-1/conversations/conversation-1/plan", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("revises the latest user message", async () => {

@@ -96,6 +96,17 @@ describe("ConversationManager", () => {
     await expect(new ConversationManager().get(project, "missing")).resolves.toBeUndefined();
   });
 
+  it("persists plan state and recovers interrupted modes for approval", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const created = await conversations.create(project);
+    const plan = { steps: [{ step: "Inspect files", status: "in_progress" as const }] };
+
+    conversations.open(project, created).appendCustomEntry("open-game-plan", { mode: "planning", plan });
+
+    expect(conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
+  });
+
   it("normalizes deterministic fallback titles", () => {
     expect(defaultConversationTitle("   ")).toBe("New conversation");
     expect(defaultConversationTitle("hello\n    world")).toBe("hello world");

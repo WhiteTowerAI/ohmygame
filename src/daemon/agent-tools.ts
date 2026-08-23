@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlanState, ProjectState, ToolDefinition, ToolSettings } from "../shared/contracts.js";
+import type { PlanState, ProjectState, QuestionnaireResult, ToolDefinition, ToolSettings } from "../shared/contracts.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -16,12 +16,57 @@ export function activePiToolNames(settings: ToolSettings): string[] {
   return ["read", "write", "edit", "bash", "update_plan", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])];
 }
 
+export function planningPiToolNames(): string[] {
+  return ["read", "grep", "find", "ls", "questionnaire", "update_plan"];
+}
+
+export type AskQuestionnaire = (
+  input: {
+    questions: Array<{
+      id: string;
+      prompt: string;
+      options: Array<{ value: string; label: string; description?: string; recommended?: boolean }>;
+      allowOther?: boolean;
+    }>;
+  },
+  signal?: AbortSignal,
+) => Promise<QuestionnaireResult>;
+
 export function createAgentTools(
   project: ProjectState,
   tools: ToolRunner,
   projects: ProjectManager,
+  askQuestionnaire?: AskQuestionnaire,
 ): PiToolDefinition[] {
   return [defineTool({
+    name: "questionnaire",
+    label: "Ask Questions",
+    description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",
+    parameters: Type.Object({
+      questions: Type.Array(Type.Object({
+        id: Type.String({ minLength: 1, maxLength: 80, description: "Unique question identifier" }),
+        prompt: Type.String({ minLength: 1, maxLength: 500, description: "Question shown to the user" }),
+        options: Type.Array(Type.Object({
+          value: Type.String({ minLength: 1, maxLength: 200, description: "Value returned for this option" }),
+          label: Type.String({ minLength: 1, maxLength: 120, description: "Short option label" }),
+          description: Type.Optional(Type.String({ maxLength: 300, description: "Optional explanation" })),
+          recommended: Type.Optional(Type.Boolean({ description: "Whether this is the recommended option" })),
+        }), { minItems: 2, maxItems: 4 }),
+        allowOther: Type.Optional(Type.Boolean({ description: "Allow a custom answer; defaults to true" })),
+      }), { minItems: 1, maxItems: 3 }),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      if (!askQuestionnaire) throw new Error("Questionnaire is not available");
+      const result = await askQuestionnaire(input, signal);
+      if (result.cancelled) {
+        return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
+      }
+      return {
+        content: [{ type: "text", text: result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
+        details: result,
+      };
+    },
+  }), defineTool({
     name: "update_plan",
     label: "Update Plan",
     description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",

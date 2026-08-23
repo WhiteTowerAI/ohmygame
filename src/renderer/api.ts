@@ -2,6 +2,7 @@ import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
   type AddToolResultRequest,
+  type AnswerQuestionnaireRequest,
   type AgentModelCatalog,
   type AgentModelRef,
   type AgentReasoningLevel,
@@ -321,10 +322,34 @@ export async function sendPrompt(
   prompt: string,
   references: PromptReference[] = [],
   images: PromptImage[] = [],
+  mode: "normal" | "planning" = "normal",
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
+  });
+}
+
+export async function approvePlan(projectId: string, conversationId: string): Promise<PromptResponse> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/plan/approve`, { method: "POST" });
+}
+
+export async function cancelPlan(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/plan`, { method: "DELETE" });
+}
+
+export async function refinePlan(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/plan/refine`, { method: "POST" });
+}
+
+export async function answerQuestionnaire(
+  projectId: string,
+  conversationId: string,
+  response: AnswerQuestionnaireRequest,
+): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/questionnaire`, {
+    method: "POST",
+    body: JSON.stringify(response),
   });
 }
 

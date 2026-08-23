@@ -3,6 +3,17 @@ import type { ConversationState, ProjectState, RuntimeEvent, RuntimeEventData, R
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("tracks plan mode independently from the active turn", () => {
+    const state = rendererReducer(initialized(), { type: "runtime-event", event: runtimeEvent(1, "plan.mode.changed", {
+      mode: "awaiting_approval",
+      plan: { steps: [{ step: "Inspect", status: "pending" }] },
+    }) });
+
+    expect(state.conversation).toMatchObject({
+      planMode: "awaiting_approval",
+      plan: { steps: [{ step: "Inspect", status: "pending" }] },
+    });
+  });
   it("upserts the latest structured plan and removes its tool placeholder", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
@@ -322,6 +333,7 @@ function conversation(): ConversationState {
     updatedAt: new Date(0).toISOString(),
     messageCount: 0,
     agent: { status: "idle" },
+    planMode: "normal",
   };
 }
 

@@ -3,13 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, type RuntimeModel, type SessionFactory } from "./agent.js";
-import { activePiToolNames, createAgentTools } from "./agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager } from "./conversations.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
@@ -81,6 +81,7 @@ const promptSchema = {
     required: ["prompt"],
     properties: {
       prompt: { type: "string" },
+      mode: { enum: ["normal", "planning"] },
       references: {
         type: "array",
         maxItems: 20,
@@ -116,6 +117,31 @@ const reviseLastPromptSchema = {
     additionalProperties: false,
     required: ["prompt"],
     properties: { prompt: { type: "string", minLength: 1 } },
+  },
+} as const;
+
+const answerQuestionnaireSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["requestId"],
+    properties: {
+      requestId: { type: "string", minLength: 1 },
+      cancelled: { type: "boolean" },
+      answers: {
+        type: "array",
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["questionId", "value"],
+          properties: {
+            questionId: { type: "string", minLength: 1, maxLength: 80 },
+            value: { type: "string", minLength: 1, maxLength: 2_000 },
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -350,7 +376,8 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
-  const agents = new AgentManager(events, {
+  let agents: AgentManager;
+  agents = new AgentManager(events, {
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
       const selected = conversations.model(project, conversation);
@@ -361,12 +388,12 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
-        createAgentTools(project, tools, projects),
+        createAgentTools(project, tools, projects, (input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, input, signal)),
         modelRuntime,
         model,
       );
     }),
-    activeToolNames: () => activePiToolNames(toolSettings.get()),
+    activeToolNames: (mode) => mode === "planning" ? planningPiToolNames() : activePiToolNames(toolSettings.get()),
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
       void isRunnableWorkspace(project.workspacePath).then((runnable) => {
@@ -782,7 +809,7 @@ export function createApp(options: AppOptions = {}) {
       }
       const conversation = await conversations.create(project, model, request.body?.reasoningLevel);
       return reply.code(201).send({
-        ...agents.state(conversation, model),
+        ...agents.state(conversation, model, { mode: "normal" }),
         ...(selectedModel ? {
           reasoningLevel: effectiveReasoningLevel(selectedModel, request.body?.reasoningLevel, defaultReasoningLevel(project.workspacePath)),
         } : {}),
@@ -798,9 +825,12 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const modelRef = conversations.model(project, conversation);
+      const planState = conversations.planState(project, conversation);
+      agents.restorePlanState(conversation, planState);
+      const activePlanState = agents.planState(conversation);
       const model = modelRef ? (await getModelRuntime()).getModel(modelRef.provider, modelRef.id) : undefined;
       const state = {
-        ...agents.state(conversation, modelRef),
+        ...agents.state(conversation, modelRef, activePlanState),
         ...(model ? {
           reasoningLevel: effectiveReasoningLevel(
             model,
@@ -826,6 +856,7 @@ export function createApp(options: AppOptions = {}) {
         cursor: !currentRun ? events.cursor() : restoreActiveItem ? currentRun.id : currentRun.id - 1,
         activeTurn: agents.activeTurn(project.id, conversation.summary.id),
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
+        questionnaire: agents.questionnaire(project.id, conversation.summary.id),
       };
     },
   );
@@ -931,13 +962,87 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
-        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? []);
+        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? [], request.body.mode ?? "normal");
         if (turn.queued) await turn.result;
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       conversations.setInitialTitle(project.id, conversation.summary.id, request.body.prompt);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/plan/approve",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      try {
+        const turn = await agents.approvePlan(project, conversation);
+        return reply.code(202).send({ turnId: turn.turnId, queued: false });
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/plan",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      try {
+        await agents.cancelPlan(project, conversation);
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/plan/refine",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      try {
+        await agents.refinePlan(project, conversation);
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: AnswerQuestionnaireRequest }>(
+    "/projects/:projectId/conversations/:conversationId/questionnaire",
+    { schema: answerQuestionnaireSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        agents.answerQuestionnaire(
+          project.id,
+          conversation.summary.id,
+          request.body.requestId,
+          request.body.answers,
+          request.body.cancelled,
+        );
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
     },
   );
 

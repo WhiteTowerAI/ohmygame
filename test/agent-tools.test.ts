@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { activePiToolNames, createAgentTools } from "../src/daemon/agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames } from "../src/daemon/agent-tools.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -10,6 +10,7 @@ import type { VideoGenerator } from "../src/daemon/minimax-video.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
+    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
     expect(activePiToolNames({ installedTools: [], enabledTools: [] })).toEqual(["read", "write", "edit", "bash", "update_plan"]);
     expect(activePiToolNames({ installedTools: ["generate-image"], enabledTools: ["generate-image"] })).toEqual([
       "read", "write", "edit", "bash", "update_plan", "generate_image",

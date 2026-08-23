@@ -16,7 +16,7 @@ export interface TurnDisplay {
   thinkingText?: string;
 }
 
-export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDisplay {
+export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingForInput = false): TurnDisplay {
   const finalStarted = turn.items.some(isFinalAnswer);
   const finalMessages = turn.active ? [] : turn.items.filter(isFinalAnswer);
   const processItems = turn.active ? turn.items : turn.items.filter((item) => !isFinalAnswer(item));
@@ -40,7 +40,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
   const visibleItems = withoutInitialThinking(activityItems);
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
-  const waiting = live && working && shouldShowWaiting(visibleItems, now);
+  const waiting = !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
   const work = projectWorkItems(waiting ? withoutCurrentActivity(visibleItems) : visibleItems, live);
   const thinking = processItems.findLast(isStreamingThinking);
 

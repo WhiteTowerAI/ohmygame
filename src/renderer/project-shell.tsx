@@ -19,7 +19,10 @@ import {
 } from "react";
 import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage } from "../shared/contracts.js";
 import {
+  approvePlan,
+  answerQuestionnaire,
   cancelPrompt,
+  cancelPlan,
   createConversation,
   getConversation,
   getProject,
@@ -28,6 +31,7 @@ import {
   removePendingPrompt,
   renameConversation,
   reviseLastPrompt,
+  refinePlan,
   sendPrompt,
   steerPendingPrompt,
   setConversationModel,
@@ -40,6 +44,8 @@ import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { Composer } from "./composer.js";
+import { QuestionnaireCard } from "./questionnaire-card.js";
+import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
@@ -150,6 +156,7 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompts: detail.pendingPrompts,
+          questionnaire: detail.questionnaire,
           cursor: detail.cursor,
         });
         return detail.cursor;
@@ -182,6 +189,7 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompts: detail.pendingPrompts,
+          questionnaire: detail.questionnaire,
           cursor: detail.cursor,
         });
         subscribe(detail.cursor, selected.id);
@@ -229,6 +237,7 @@ export function ProjectShell({
           items: detail.items,
           activeTurn: detail.activeTurn,
           pendingPrompts: detail.pendingPrompts,
+          questionnaire: detail.questionnaire,
           cursor: detail.cursor,
         });
         if (!disposed) subscribe(detail.cursor, requestedConversation.id);
@@ -299,14 +308,63 @@ export function ProjectShell({
   const activePlanItem = state.activeTurn
     ? state.items.findLast((item) => item.kind === "plan" && item.turnId === state.activeTurn?.turnId)
     : undefined;
-  const activePlan = activePlanItem?.kind === "plan" ? activePlanItem.plan : undefined;
+  const activePlan = activePlanItem?.kind === "plan"
+    ? activePlanItem.plan
+    : conversation?.planMode !== "normal" ? conversation?.plan : undefined;
 
-  async function submitPrompt(nextPrompt: string, images: PromptImage[]): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, images: PromptImage[], mode: "normal" | "planning"): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, nextPrompt, [], images);
+      await sendPrompt(project.id, conversation.id, nextPrompt, [], images, mode);
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function executePlan(): Promise<boolean> {
+    if (!project || !conversation) return false;
+    try {
+      await approvePlan(project.id, conversation.id);
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function discardPlan(): Promise<boolean> {
+    if (!project || !conversation) return false;
+    try {
+      await cancelPlan(project.id, conversation.id);
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function refineCurrentPlan(feedback: string): Promise<boolean> {
+    if (!project || !conversation || !feedback.trim()) return false;
+    try {
+      await refinePlan(project.id, conversation.id);
+      return submitPrompt(feedback.trim(), [], "planning");
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function respondToQuestionnaire(answers: Array<{ questionId: string; value: string }>, cancelled = false): Promise<boolean> {
+    if (!project || !conversation || !state.questionnaire) return false;
+    try {
+      await answerQuestionnaire(project.id, conversation.id, {
+        requestId: state.questionnaire.id,
+        ...(cancelled ? { cancelled: true } : { answers }),
+      });
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -510,18 +568,39 @@ export function ProjectShell({
               items={state.items}
               projectId={projectId}
               activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
-              revisionDisabled={agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open"}
+              revisionDisabled={agentBusy || conversation?.planMode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
+              waitingForInput={Boolean(state.questionnaire)}
               onRevise={revisePrompt}
             />
           </div>
 
-          <Composer
+          {state.questionnaire ? (
+            <QuestionnaireCard
+              request={state.questionnaire}
+              onSubmit={(answers) => respondToQuestionnaire(answers)}
+              onSkip={() => respondToQuestionnaire([], true)}
+            />
+          ) : null}
+
+          {conversation?.planMode === "awaiting_approval" ? (
+            <div className="plan-review">
+              <PlanApprovalCard
+                disabled={agentBusy || state.connection !== "open"}
+                onApprove={executePlan}
+                onRefine={refineCurrentPlan}
+                onCancel={discardPlan}
+              />
+            </div>
+          ) : null}
+
+          {!state.questionnaire && conversation?.planMode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompts={state.pendingPrompts}
             plan={activePlan}
+            planMode={conversation?.planMode ?? "normal"}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
             model={conversation?.model}
@@ -532,12 +611,13 @@ export function ProjectShell({
               ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
             ]}
             onSubmit={submitPrompt}
+            onCancelPlan={discardPlan}
             onModelChange={(model) => void changeModel(model)}
             onReasoningChange={(level) => void changeReasoning(level)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
             onSteerPending={steerFollowUp}
-          />
+          /> : null}
         </div>
       </section>
 

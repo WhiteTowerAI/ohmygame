@@ -17,7 +17,7 @@ export class RuntimeEventBus {
     projectId: string,
     type: T,
     data: RuntimeEventData[T],
-    scope: { conversationId: string; turnId: string } | undefined = undefined,
+    scope: { conversationId: string; turnId?: string } | undefined = undefined,
     replayData?: RuntimeEventData[T],
   ): RuntimeEvent<T> {
     const event = {

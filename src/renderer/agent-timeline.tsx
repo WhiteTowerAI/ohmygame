@@ -29,9 +29,10 @@ interface AgentTimelineProps {
   activeTurnId?: string;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
+  waitingForInput?: boolean;
 }
 
-export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise }: AgentTimelineProps) {
+export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise, waitingForInput = false }: AgentTimelineProps) {
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -45,7 +46,7 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
   }, [activeTurnId]);
 
   const turns = projectAgentTurns(items, activeTurnId);
-  const displays = turns.map((turn) => projectTurnDisplay(turn, now));
+  const displays = turns.map((turn) => projectTurnDisplay(turn, now, waitingForInput));
   const latestUserId = [...turns].reverse().find((turn) => turn.user)?.user?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)

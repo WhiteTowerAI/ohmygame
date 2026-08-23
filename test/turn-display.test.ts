@@ -82,6 +82,15 @@ describe("projectTurnDisplay", () => {
     expect(display.waiting).toBe(true);
   });
 
+  it("does not show Thinking while waiting for questionnaire input", () => {
+    const display = projectTurnDisplay(turn([
+      commentary("I need a decision before continuing."),
+    ], true), Date.now(), true);
+
+    expect(display.working).toBe(true);
+    expect(display.waiting).toBe(false);
+  });
+
   it("projects a running tool as the current activity", () => {
     const display = projectTurnDisplay(turn([
       commentary("I will update the file."),

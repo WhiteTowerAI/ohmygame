@@ -1,10 +1,11 @@
 import path from "node:path";
 import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
+const PLAN_STATE_ENTRY = "open-game-plan";
 
 export interface StoredConversation {
   summary: ConversationSummary;
@@ -109,6 +110,19 @@ export class ConversationManager {
 
   setReasoningLevel(project: ProjectState, stored: StoredConversation, level: AgentReasoningLevel): void {
     this.open(project, stored).appendThinkingLevelChange(level);
+  }
+
+  planState(project: ProjectState, stored: StoredConversation): PlanSessionState {
+    const entry = this.open(project, stored).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === PLAN_STATE_ENTRY);
+    if (entry?.type !== "custom" || !entry.data || typeof entry.data !== "object") return { mode: "normal" };
+    const state = entry.data as Partial<PlanSessionState>;
+    if (state.mode !== "normal" && state.mode !== "planning" && state.mode !== "awaiting_approval" && state.mode !== "executing") {
+      return { mode: "normal" };
+    }
+    if (state.mode === "planning" || state.mode === "executing") {
+      return state.plan ? { mode: "awaiting_approval", plan: state.plan } : { mode: "normal" };
+    }
+    return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
   async #sessions(project: ProjectState): Promise<SessionInfo[]> {

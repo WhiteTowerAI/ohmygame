@@ -131,6 +131,8 @@ export interface ConversationState extends ConversationSummary {
   agent: { status: AgentStatus; turnId?: string; error?: string };
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  planMode: PlanMode;
+  plan?: PlanState;
 }
 
 export interface ActiveTurnState {
@@ -242,6 +244,51 @@ export interface ConversationDetail {
   cursor: number;
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
+  questionnaire?: QuestionnaireRequest;
+}
+
+export type PlanMode = "normal" | "planning" | "awaiting_approval" | "executing";
+
+export interface PlanSessionState {
+  mode: PlanMode;
+  plan?: PlanState;
+}
+
+export interface QuestionnaireOption {
+  value: string;
+  label: string;
+  description?: string;
+  recommended?: boolean;
+}
+
+export interface QuestionnaireQuestion {
+  id: string;
+  prompt: string;
+  options: QuestionnaireOption[];
+  allowOther: boolean;
+}
+
+export interface QuestionnaireRequest {
+  id: string;
+  questions: QuestionnaireQuestion[];
+}
+
+export interface QuestionnaireAnswer {
+  questionId: string;
+  value: string;
+  label: string;
+  custom: boolean;
+}
+
+export interface QuestionnaireResult {
+  answers: QuestionnaireAnswer[];
+  cancelled: boolean;
+}
+
+export interface AnswerQuestionnaireRequest {
+  requestId: string;
+  answers?: Array<{ questionId: string; value: string }>;
+  cancelled?: boolean;
 }
 
 export interface CreateProjectRequest { name?: string }
@@ -260,6 +307,7 @@ export interface PromptRequest {
   prompt: string;
   references?: PromptReference[];
   images?: PromptImage[];
+  mode?: "normal" | "planning";
 }
 
 export interface ReviseLastPromptRequest { prompt: string }
@@ -384,6 +432,7 @@ export interface RuntimeEventData {
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
   "agent.started": { prompt: string; images?: PromptImage[]; revision?: "last-turn" };
+  "plan.mode.changed": PlanSessionState;
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
   "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
@@ -394,6 +443,8 @@ export interface RuntimeEventData {
   "assistant.delta": { itemId: string; delta: string };
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
   "plan.updated": PlanState & { itemId: string };
+  "questionnaire.requested": QuestionnaireRequest;
+  "questionnaire.resolved": { requestId: string };
   "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean; artifact?: ToolArtifact };
@@ -425,7 +476,10 @@ export const RUNTIME_EVENT_TYPES = [
   "assistant.thinking.completed",
   "assistant.delta",
   "assistant.completed",
+  "plan.mode.changed",
   "plan.updated",
+  "questionnaire.requested",
+  "questionnaire.resolved",
   "tool.preparing",
   "tool.started",
   "tool.updated",

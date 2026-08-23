@@ -11,6 +11,7 @@ interface PromptBoxProps {
   placeholder: string;
   variant: "home" | "project";
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  overlay?: ReactNode;
   content?: ReactNode;
   leading?: ReactNode;
   actions: ReactNode;
@@ -26,6 +27,7 @@ export function PromptBox({
   placeholder,
   variant,
   textareaRef,
+  overlay,
   content,
   leading,
   actions,
@@ -41,6 +43,7 @@ export function PromptBox({
 
   return (
     <form className={`prompt-box prompt-box-${variant}`} onSubmit={submit}>
+      {overlay}
       {content}
       <textarea
         ref={textareaRef}
