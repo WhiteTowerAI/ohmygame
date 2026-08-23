@@ -36,6 +36,7 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
   const [copiedItemId, setCopiedItemId] = useState<string>();
+  const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     if (!activeTurnId) return;
@@ -44,7 +45,12 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
   }, [activeTurnId]);
 
   const turns = projectAgentTurns(items, activeTurnId);
+  const displays = turns.map((turn) => projectTurnDisplay(turn, now));
   const latestUserId = [...turns].reverse().find((turn) => turn.user)?.user?.id;
+  const latestAssistantId = displays
+    .flatMap((display) => display.finalMessages)
+    .findLast((item) => item.status === "complete" && Boolean(item.text.trim()))
+    ?.id;
   useEffect(() => {
     if (editingItemId && editingItemId !== latestUserId) setEditingItemId(undefined);
   }, [editingItemId, latestUserId]);
@@ -58,6 +64,17 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
     }
     setCopiedItemId(item.id);
     window.setTimeout(() => setCopiedItemId((current) => current === item.id ? undefined : current), 1_500);
+  }
+
+  async function copyAssistant(id: string, text: string) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return;
+    }
+    setCopiedAssistantId(id);
+    window.setTimeout(() => setCopiedAssistantId((current) => current === id ? undefined : current), 1_500);
   }
 
   function edit(item: NonNullable<AgentTurn["user"]>) {
@@ -75,12 +92,17 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
     }
   }
 
-  return turns.map((turn) => (
+  return turns.map((turn, index) => (
     <Turn
       key={turn.id}
       projectId={projectId}
-      display={projectTurnDisplay(turn, now)}
+      display={displays[index]}
       now={now}
+      assistantControls={{
+        copiedItemId: copiedAssistantId,
+        latestItemId: latestAssistantId,
+        onCopy: copyAssistant,
+      }}
       userControls={{
         editing: turn.user?.id === editingItemId && editingItemId === latestUserId,
         draft,
@@ -110,17 +132,59 @@ interface UserControls {
   onSubmit: () => void;
 }
 
-function Turn({ display, projectId, now, userControls }: { display: TurnDisplay; projectId: string; now: number; userControls: UserControls }) {
+interface AssistantControls {
+  copiedItemId?: string;
+  latestItemId?: string;
+  onCopy: (id: string, text: string) => void;
+}
+
+function Turn({ display, projectId, now, userControls, assistantControls }: { display: TurnDisplay; projectId: string; now: number; userControls: UserControls; assistantControls: AssistantControls }) {
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
       {display.active ? <ActiveWork display={display} now={now} /> : null}
       {!display.active && display.work.length > 0 ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
-      {display.finalMessages.map((item) => <TimelineItem key={item.id} item={item} />)}
-      {display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
+      {display.finalMessages.length > 0
+        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} />
+        : display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
     </article>
   );
+}
+
+function FinalResponse({ projectId, items, artifacts, controls }: {
+  projectId: string;
+  items: Extract<AgentItem, { kind: "assistant" }>[];
+  artifacts: ToolArtifact[];
+  controls: AssistantControls;
+}) {
+  const copyable = items.filter((item) => item.status === "complete" && Boolean(item.text.trim()));
+  const responseId = copyable.at(-1)?.id;
+  const text = copyable.map((item) => item.text).join("\n\n");
+  const timestamp = copyable.at(-1)?.timestamp;
+  return (
+    <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
+      {items.map((item) => <TimelineItem key={item.id} item={item} />)}
+      {artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={artifacts} /> : null}
+      {responseId ? (
+        <div className="assistant-response-footer">
+          <button type="button" aria-label="Copy response" title="Copy" onClick={() => controls.onCopy(responseId, text)}>
+            {responseId === controls.copiedItemId ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+          {timestamp ? <time dateTime={new Date(timestamp).toISOString()}>{formatResponseTime(timestamp)}</time> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatResponseTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
 }
 
 function UserInput({ item, controls }: { item: AgentTurn["user"]; controls: UserControls }) {

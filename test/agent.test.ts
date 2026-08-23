@@ -22,6 +22,31 @@ describe("lastAssistantError", () => {
 });
 
 describe("conversationItems", () => {
+  it("infers commentary and final answer phases from Pi stop reasons", () => {
+    expect(conversationItems([
+      sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
+      sessionMessage("commentary", {
+        role: "assistant",
+        content: [{ type: "text", text: "I will inspect it." }, { type: "toolCall", id: "call", name: "read", arguments: { path: "package.json" } }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("final", {
+        role: "assistant",
+        content: [{ type: "text", text: "Done." }],
+        stopReason: "stop",
+      }),
+      sessionMessage("truncated", {
+        role: "assistant",
+        content: [{ type: "text", text: "Partial answer" }],
+        stopReason: "length",
+      }),
+    ] as never).filter((item) => item.kind === "assistant")).toMatchObject([
+      { text: "I will inspect it.", phase: "commentary" },
+      { text: "Done.", phase: "final_answer" },
+      { text: "Partial answer", phase: "final_answer" },
+    ]);
+  });
+
   it("restores user, assistant, and tool activity without internal content", () => {
     expect(conversationItems([
       sessionMessage("user-1", { role: "user", content: [{ type: "text", text: "Build a game" }], timestamp: 1 }),
@@ -514,7 +539,7 @@ describe("AgentManager", () => {
       });
       const completedContent = [
         { type: "thinking", thinking: "Inspecting" },
-        textBlock("Hello", "commentary"),
+        { type: "text", text: "Hello" },
       ];
       session.emit(messageUpdate({
         type: "text_end",

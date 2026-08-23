@@ -338,6 +338,63 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Copy message"/g)).toHaveLength(2);
     expect(html.match(/aria-label="Edit message"/g)).toHaveLength(1);
   });
+
+  it("offers copy on final responses and keeps only the latest action visible", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("final-1", "First answer", "final_answer"),
+      { ...user(), id: "user-2", turnId: "turn-2", text: "Second" },
+      { ...assistant("final-2", "Second answer", "final_answer"), turnId: "turn-2" },
+    ]} />);
+
+    expect(html.match(/aria-label="Copy response"/g)).toHaveLength(2);
+    expect(html.match(/assistant-response-latest/g)).toHaveLength(1);
+    expect(html).toContain('class="assistant-response assistant-response-latest"');
+  });
+
+  it("does not offer response copy while a final answer is streaming", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...assistant("final", "Still writing", "final_answer"), status: "streaming" },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).not.toContain('aria-label="Copy response"');
+  });
+
+  it("renders one copy action for multiple final text blocks in one turn", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("final-1", "First block", "final_answer"),
+      assistant("final-2", "Second block", "final_answer"),
+    ]} />);
+
+    expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
+  });
+
+  it("places one response footer after generated artifacts", () => {
+    const html = renderToStaticMarkup(<AgentTimeline projectId="project-1" items={[
+      user(),
+      {
+        ...tool(),
+        artifact: { type: "image", path: "generated/image.png", mediaType: "image/png" },
+      },
+      assistant("final", "Here is the image.", "final_answer"),
+    ]} />);
+
+    expect(html.match(/assistant-response-footer/g)).toHaveLength(1);
+    expect(html.match(/aria-label="Copy response"/g)).toHaveLength(1);
+    expect(html.indexOf("tool-artifacts")).toBeLessThan(html.indexOf("assistant-response-footer"));
+  });
+
+  it("renders one response timestamp in the footer", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...assistant("final", "Done", "final_answer"), timestamp: Date.UTC(2026, 7, 23, 8, 5) },
+    ]} />);
+
+    expect(html.match(/<time /g)).toHaveLength(1);
+    expect(html).toContain('dateTime="2026-08-23T08:05:00.000Z"');
+  });
 });
 
 function user(): AgentItem {

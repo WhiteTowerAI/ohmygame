@@ -2493,6 +2493,60 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.assistant-response {
+  margin: 0 0 18px;
+}
+
+.assistant-response .assistant-message {
+  margin-bottom: 0;
+}
+
+.assistant-response-footer {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.assistant-response-footer button,
+.assistant-response-footer time {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.assistant-response-latest .assistant-response-footer button,
+.assistant-response:hover .assistant-response-footer button,
+.assistant-response:focus-within .assistant-response-footer button,
+.assistant-response:hover .assistant-response-footer time,
+.assistant-response:focus-within .assistant-response-footer time {
+  opacity: 1;
+}
+
+.assistant-response-footer button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.assistant-response-footer button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.assistant-response-footer time {
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
 .work-activity {
   margin: 0 0 14px;
   color: var(--text-muted);

@@ -572,7 +572,7 @@ describe("daemon", () => {
       }),
       items: [
         { id: "user-1", turnId: "user-1", kind: "user", text: "Hello", timestamp: 0 },
-        { id: "assistant-1:assistant:0", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", timestamp: 1 },
+        { id: "assistant-1:assistant:0", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", phase: "final_answer", timestamp: 1 },
       ],
       cursor: 0,
       pendingPrompts: [],

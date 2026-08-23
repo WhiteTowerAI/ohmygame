@@ -86,7 +86,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           }
         } else if (content.type === "text" && content.text) {
           hasAssistantText = true;
-          const phase = assistantBlockPhase(content);
+          const phase = assistantMessagePhase(content, message.stopReason);
           items.push({
             id: `${entry.id}:assistant:${index}`,
             turnId,
@@ -714,12 +714,10 @@ export class AgentManager {
       const itemId = active.assistantItemIds.get(contentIndex);
       if (itemId) {
         const phase = assistantBlockPhase(event.assistantMessageEvent.partial.content[contentIndex]);
-        this.events.publish(projectId, "assistant.completed", {
-          itemId,
-          status: "complete",
-          ...(phase ? { phase } : {}),
-        }, eventScope(active));
-        active.completedAssistantIndexes.add(contentIndex);
+        if (phase) {
+          this.events.publish(projectId, "assistant.completed", { itemId, status: "complete", phase }, eventScope(active));
+          active.completedAssistantIndexes.add(contentIndex);
+        }
       }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_start") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
@@ -748,7 +746,10 @@ export class AgentManager {
       const status = assistantStatus(event.message.stopReason);
       for (const [contentIndex, itemId] of active.assistantItemIds) {
         if (status === "complete" && active.completedAssistantIndexes.has(contentIndex)) continue;
-        const phase = assistantBlockPhase(Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined);
+        const phase = assistantMessagePhase(
+          Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined,
+          event.message.stopReason,
+        );
         this.events.publish(projectId, "assistant.completed", {
           itemId,
           status,
@@ -936,6 +937,13 @@ function assistantBlockPhase(content: unknown): AgentMessagePhase | undefined {
   } catch {
     return undefined;
   }
+}
+
+function assistantMessagePhase(content: unknown, stopReason: string): AgentMessagePhase | undefined {
+  const explicit = assistantBlockPhase(content);
+  if (explicit) return explicit;
+  if (stopReason === "toolUse") return "commentary";
+  return stopReason === "stop" || stopReason === "length" ? "final_answer" : undefined;
 }
 
 function imageContent(content: unknown): PromptImage[] {
