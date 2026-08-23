@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesPlanCommand } from "../src/renderer/composer.js";
+import { matchesPlanCommand } from "../src/renderer/plan-mode-control.js";
 
 describe("composer plan command", () => {
   it("matches only prefixes of the plan command", () => {

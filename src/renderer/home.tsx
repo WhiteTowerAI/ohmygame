@@ -1,11 +1,12 @@
 import { ArrowUp, Image, LoaderCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { createConversation, createProject, deleteProject, duplicateProject, getProjectCover, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
+import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import type { SidebarPage } from "./routes.js";
 import { useAuth } from "./auth.js";
@@ -13,7 +14,7 @@ import { UserAvatar } from "./user-avatar.js";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[]) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode) => void;
   onOpen: (projectId: string) => void;
 }
 
@@ -24,6 +25,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
+  const [planning, setPlanning] = useState(false);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string>();
@@ -34,6 +36,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
   const menuRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
 
   async function loadProjects() {
@@ -78,6 +81,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }, []);
 
   async function submitPrompt() {
+    if (matchesPlanCommand(prompt)) {
+      togglePlanning();
+      return;
+    }
     const nextPrompt = prompt.trim();
     if ((!nextPrompt && images.length === 0) || creating) return;
     setCreating(true);
@@ -85,11 +92,17 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     try {
       const project = await createProject();
       const conversation = await createConversation(project.id, model, reasoningLevel);
-      onCreate(project.id, conversation.id, nextPrompt, promptImages(images));
+      onCreate(project.id, conversation.id, nextPrompt, promptImages(images), planning ? "planning" : "normal");
     } catch (error) {
       setCreateError(errorMessage(error));
       setCreating(false);
     }
+  }
+
+  function togglePlanning() {
+    setPlanning((value) => !value);
+    setPrompt("");
+    promptRef.current?.focus();
   }
 
   async function rename(project: ProjectState) {
@@ -154,10 +167,17 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             )}
             content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
             disabled={creating}
-            leading={<ImagePickerButton disabled={creating} onImages={(next) => { setCreateError(undefined); setImages((items) => [...items, ...next]); }} onError={setCreateError} />}
+            leading={(
+              <>
+                <ImagePickerButton disabled={creating} onImages={(next) => { setCreateError(undefined); setImages((items) => [...items, ...next]); }} onError={setCreateError} />
+                {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
+              </>
+            )}
             onChange={setPrompt}
             onSubmit={() => void submitPrompt()}
-            placeholder="Ask your agent to build anything"
+            overlay={matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={togglePlanning} /> : null}
+            placeholder={planning ? "Describe what to plan" : "Ask your agent to build anything"}
+            textareaRef={promptRef}
             value={prompt}
             variant="home"
           />

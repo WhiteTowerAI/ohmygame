@@ -248,6 +248,7 @@ export interface ConversationDetail {
 }
 
 export type PlanMode = "normal" | "planning" | "awaiting_approval" | "executing";
+export type PromptMode = Extract<PlanMode, "normal" | "planning">;
 
 export interface PlanSessionState {
   mode: PlanMode;
@@ -307,7 +308,7 @@ export interface PromptRequest {
   prompt: string;
   references?: PromptReference[];
   images?: PromptImage[];
-  mode?: "normal" | "planning";
+  mode?: PromptMode;
 }
 
 export interface ReviseLastPromptRequest { prompt: string }

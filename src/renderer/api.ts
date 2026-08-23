@@ -30,6 +30,7 @@ import {
   type UpdateImageGenerationSettings,
   type UpdateModel3DGenerationSettings,
   type PromptImage,
+  type PromptMode,
   type PromptReference,
   type PromptResponse,
   type WorkspaceFile,
@@ -322,7 +323,7 @@ export async function sendPrompt(
   prompt: string,
   references: PromptReference[] = [],
   images: PromptImage[] = [],
-  mode: "normal" | "planning" = "normal",
+  mode: PromptMode = "normal",
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",

@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage, PromptMode } from "../shared/contracts.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -54,7 +54,7 @@ import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from
 interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
-  initialPrompt?: { prompt: string; images: PromptImage[] };
+  initialPrompt?: { prompt: string; images: PromptImage[]; mode: PromptMode };
   onInitialPromptHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
   onHome: () => void;
@@ -258,7 +258,7 @@ export function ProjectShell({
     ) return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images).catch((error) => {
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
       onInitialPromptHandled?.();
@@ -312,7 +312,7 @@ export function ProjectShell({
     ? activePlanItem.plan
     : conversation?.planMode !== "normal" ? conversation?.plan : undefined;
 
-  async function submitPrompt(nextPrompt: string, images: PromptImage[], mode: "normal" | "planning"): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, images: PromptImage[], mode: PromptMode): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });

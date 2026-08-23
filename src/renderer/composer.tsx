@@ -1,11 +1,12 @@
-import { ArrowUp, CircleX, Lightbulb, Square } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PlanMode, PlanState, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PlanMode, PlanState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
+import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 
 interface ComposerProps {
@@ -21,7 +22,7 @@ interface ComposerProps {
   reasoningLevel?: AgentReasoningLevel;
   modelChanging: boolean;
   promptHistory: string[];
-  onSubmit: (prompt: string, images: PromptImage[], mode: "normal" | "planning") => Promise<boolean>;
+  onSubmit: (prompt: string, images: PromptImage[], mode: PromptMode) => Promise<boolean>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -160,13 +161,7 @@ export function Composer({
               onError={setAttachmentError}
             />
             {planning ? (
-              <div className="composer-plan-mode" aria-label="Plan mode active">
-                <button type="button" disabled={running || stopping} onClick={() => { void togglePlanning(); }} title="Exit plan mode" aria-label="Exit plan mode">
-                  <Lightbulb className="composer-plan-icon" size={15} aria-hidden="true" />
-                  <CircleX className="composer-plan-close" size={15} aria-hidden="true" />
-                  <span>Plan</span>
-                </button>
-              </div>
+              <PlanModeIndicator disabled={running || stopping} onExit={() => { void togglePlanning(); }} />
             ) : null}
           </>
         )}
@@ -175,13 +170,7 @@ export function Composer({
         onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={submitOrRunCommand}
         overlay={showPlanCommand ? (
-          <div className="composer-command-menu" role="listbox" aria-label="Composer commands">
-            <button type="button" role="option" aria-selected="true" onClick={() => { void togglePlanning(); }}>
-              <Lightbulb size={15} aria-hidden="true" />
-              <span>Plan mode</span>
-              <small>{planning ? "Turn plan mode off" : "Turn plan mode on"}</small>
-            </button>
-          </div>
+          <PlanCommandMenu planning={planning} onToggle={() => { void togglePlanning(); }} />
         ) : null}
         placeholder={awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
         textareaRef={textarea}
@@ -190,9 +179,4 @@ export function Composer({
       />
     </div>
   );
-}
-
-export function matchesPlanCommand(value: string): boolean {
-  const command = value.trim().toLowerCase();
-  return command.startsWith("/") && !command.includes(" ") && "/plan".startsWith(command);
 }

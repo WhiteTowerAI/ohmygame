@@ -6,11 +6,11 @@ import { PluginsPage } from "./plugins.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { ImagesPage } from "./tools.js";
-import type { PromptImage } from "../shared/contracts.js";
+import type { PromptImage, PromptMode } from "../shared/contracts.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[] }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[]; mode: PromptMode }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -42,8 +42,8 @@ export function App() {
     />
   );
 
-  function openCreatedProject(projectId: string, conversationId: string, prompt: string, images: PromptImage[]): void {
-    setInitialPrompt({ conversationId, prompt, images });
+  function openCreatedProject(projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode): void {
+    setInitialPrompt({ conversationId, prompt, images, mode });
     navigateToConversation(projectId, conversationId);
   }
 
