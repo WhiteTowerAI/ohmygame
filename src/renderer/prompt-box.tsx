@@ -1,9 +1,12 @@
 import { useEffect, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { promptHistoryDirection } from "./prompt-history.js";
 
 interface PromptBoxProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onHistoryPrevious?: () => void;
+  onHistoryNext?: () => void;
   disabled?: boolean;
   placeholder: string;
   variant: "home" | "project";
@@ -17,6 +20,8 @@ export function PromptBox({
   value,
   onChange,
   onSubmit,
+  onHistoryPrevious,
+  onHistoryNext,
   disabled,
   placeholder,
   variant,
@@ -45,6 +50,22 @@ export function PromptBox({
         onInput={(event) => resizeTextarea(event.currentTarget)}
         onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          const historyDirection = promptHistoryDirection(
+            event.key,
+            event.currentTarget.selectionStart,
+            event.currentTarget.selectionEnd,
+            value.length,
+          );
+          if (historyDirection === "previous" && onHistoryPrevious) {
+            event.preventDefault();
+            onHistoryPrevious();
+            return;
+          }
+          if (historyDirection === "next" && onHistoryNext) {
+            event.preventDefault();
+            onHistoryNext();
+            return;
+          }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             submit();

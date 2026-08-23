@@ -5,6 +5,7 @@ import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerIma
 import { ModelSelector } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
+import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 
 interface ComposerProps {
   conversationReady: boolean;
@@ -16,6 +17,7 @@ interface ComposerProps {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   modelChanging: boolean;
+  promptHistory: string[];
   onSubmit: (prompt: string, images: PromptImage[]) => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -34,6 +36,7 @@ export function Composer({
   model,
   reasoningLevel,
   modelChanging,
+  promptHistory,
   onSubmit,
   onModelChange,
   onReasoningChange,
@@ -44,6 +47,7 @@ export function Composer({
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
+  const [history, setHistory] = useState(() => createPromptHistory(promptHistory));
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   async function submit() {
@@ -51,11 +55,30 @@ export function Composer({
     if (!conversationReady || (!value && images.length === 0) || stopping) return;
     const submitted = await onSubmit(value, promptImages(images));
     if (submitted) {
+      setHistory((current) => recordPrompt(current, value));
       setPrompt("");
       setImages([]);
       setAttachmentError(undefined);
       textarea.current?.focus();
     }
+  }
+
+  function browseHistory(direction: "previous" | "next") {
+    const result = direction === "previous" ? previousPrompt(history, prompt) : nextPrompt(history);
+    if (!result) return;
+    setHistory(result.history);
+    setPrompt(result.prompt);
+    requestAnimationFrame(() => {
+      const end = result.prompt.length;
+      textarea.current?.setSelectionRange(end, end);
+    });
+  }
+
+  function changePrompt(value: string) {
+    setPrompt(value);
+    setHistory((current) => current.index === current.entries.length
+      ? current
+      : { ...current, index: current.entries.length, draft: value });
   }
 
   const showStop = running && !prompt.trim() && images.length === 0;
@@ -100,7 +123,9 @@ export function Composer({
             onError={setAttachmentError}
           />
         )}
-        onChange={setPrompt}
+        onChange={changePrompt}
+        onHistoryNext={() => browseHistory("next")}
+        onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={() => void submit()}
         placeholder={running ? "Add a follow-up" : "Ask for a change"}
         textareaRef={textarea}

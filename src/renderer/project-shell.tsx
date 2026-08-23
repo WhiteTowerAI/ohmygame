@@ -522,6 +522,10 @@ export function ProjectShell({
             model={conversation?.model}
             reasoningLevel={conversation?.reasoningLevel}
             modelChanging={modelChanging}
+            promptHistory={[
+              ...state.items.flatMap((item) => item.kind === "user" && item.text.trim() ? [item.text] : []),
+              ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
+            ]}
             onSubmit={submitPrompt}
             onModelChange={(model) => void changeModel(model)}
             onReasoningChange={(level) => void changeReasoning(level)}
