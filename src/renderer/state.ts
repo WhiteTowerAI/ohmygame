@@ -72,7 +72,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("prompt.");
+  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.");
   let scoped = next;
 
   if (event.type === "agent.started" && conversation && event.conversationId === conversation.id && event.turnId) {
@@ -224,6 +224,22 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           }];
         }),
       };
+    case "plan.updated":
+      if (!event.turnId) return scoped;
+      const planItemId = `${event.turnId}:plan`;
+      const withoutPlaceholder = event.data.itemId === planItemId
+        ? state.items
+        : state.items.filter((item) => item.id !== event.data.itemId);
+      return {
+        ...scoped,
+        items: upsertItem(withoutPlaceholder, {
+          id: planItemId,
+          turnId: event.turnId,
+          kind: "plan",
+          plan: { explanation: event.data.explanation, steps: event.data.steps },
+          timestamp: eventTime(event),
+        }),
+      };
     case "tool.preparing":
     case "tool.started":
       if (!event.turnId) return scoped;
@@ -248,6 +264,9 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           : item),
       };
     case "tool.completed":
+      if (event.data.toolName === "update_plan") {
+        return { ...scoped, items: state.items.filter((item) => item.id !== event.data.itemId) };
+      }
       return {
         ...scoped,
         items: updateItem(state.items, event.data.itemId, (item) => item.kind === "tool" ? {

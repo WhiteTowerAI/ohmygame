@@ -4,6 +4,16 @@ import { AgentTimeline } from "../src/renderer/agent-timeline.js";
 import type { AgentItem } from "../src/shared/contracts.js";
 
 describe("AgentTimeline", () => {
+  it("does not render structured plans in conversation history", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "turn-1:plan", turnId: "turn-1", kind: "plan", plan: { steps: [{ step: "Inspect files", status: "completed" }] } },
+    ]} />);
+
+    expect(html).not.toContain("Inspect files");
+    expect(html).not.toContain("Worked for");
+  });
+
   it("shows initial Thinking in the stable activity header", () => {
     const html = renderToStaticMarkup(
       <AgentTimeline items={[user()]} activeTurnId="turn-1" />,

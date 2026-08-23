@@ -296,6 +296,10 @@ export function ProjectShell({
   const conversation = state.conversation;
   const currentConversationBusy = Boolean(state.activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || conversation?.agent.status === "running" || conversation?.agent.status === "cancelling";
+  const activePlanItem = state.activeTurn
+    ? state.items.findLast((item) => item.kind === "plan" && item.turnId === state.activeTurn?.turnId)
+    : undefined;
+  const activePlan = activePlanItem?.kind === "plan" ? activePlanItem.plan : undefined;
 
   async function submitPrompt(nextPrompt: string, images: PromptImage[]): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -517,6 +521,7 @@ export function ProjectShell({
             running={currentConversationBusy}
             stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompts={state.pendingPrompts}
+            plan={activePlan}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
             model={conversation?.model}

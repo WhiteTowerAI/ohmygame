@@ -10,15 +10,15 @@ import type { VideoGenerator } from "../src/daemon/minimax-video.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
-    expect(activePiToolNames({ installedTools: [], enabledTools: [] })).toEqual(["read", "write", "edit", "bash"]);
+    expect(activePiToolNames({ installedTools: [], enabledTools: [] })).toEqual(["read", "write", "edit", "bash", "update_plan"]);
     expect(activePiToolNames({ installedTools: ["generate-image"], enabledTools: ["generate-image"] })).toEqual([
-      "read", "write", "edit", "bash", "generate_image",
+      "read", "write", "edit", "bash", "update_plan", "generate_image",
     ]);
     expect(activePiToolNames({ installedTools: ["image-to-3d"], enabledTools: ["image-to-3d"] })).toEqual([
-      "read", "write", "edit", "bash", "generate_3d_asset",
+      "read", "write", "edit", "bash", "update_plan", "generate_3d_asset",
     ]);
     expect(activePiToolNames({ installedTools: ["generate-video"], enabledTools: ["generate-video"] })).toEqual([
-      "read", "write", "edit", "bash", "generate_video",
+      "read", "write", "edit", "bash", "update_plan", "generate_video",
     ]);
   });
 
@@ -36,7 +36,7 @@ describe("agent tools", () => {
     };
     const runner = new ToolRunner(dataDirectory, imageGenerator);
     await runner.load();
-    const tool = createAgentTools(project, runner, projects)[0];
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_image");
     if (!tool) throw new Error("Expected image tool");
 
     const result = await tool.execute("call-1", { prompt: "A forest", size: "1536x1024" }, controller.signal, undefined, {} as never);
@@ -47,6 +47,41 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
+  });
+
+  it("publishes a validated structured plan", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "update_plan");
+    if (!tool) throw new Error("Expected plan tool");
+
+    const result = await tool.execute("call-plan", {
+      explanation: " Starting implementation ",
+      plan: [
+        { step: " Inspect files ", status: "completed" },
+        { step: "Implement change", status: "in_progress" },
+      ],
+    }, undefined, undefined, {} as never);
+
+    expect(result.details).toEqual({ plan: {
+      explanation: "Starting implementation",
+      steps: [
+        { step: "Inspect files", status: "completed" },
+        { step: "Implement change", status: "in_progress" },
+      ],
+    } });
+    expect(result.content).toEqual([{ type: "text", text: "Plan updated: 1/2 steps completed." }]);
+
+    await expect(tool.execute("call-invalid", {
+      plan: [
+        { step: "First", status: "in_progress" },
+        { step: "Second", status: "in_progress" },
+      ],
+    }, undefined, undefined, {} as never)).rejects.toThrow("at most one in_progress");
   });
 
   it("generates a 3D model from a project image", async () => {

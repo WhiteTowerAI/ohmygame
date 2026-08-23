@@ -20,15 +20,16 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
   const finalStarted = turn.items.some(isFinalAnswer);
   const finalMessages = turn.active ? [] : turn.items.filter(isFinalAnswer);
   const processItems = turn.active ? turn.items : turn.items.filter((item) => !isFinalAnswer(item));
-  const workStarted = processItems.some((item) => item.kind !== "thinking" && isWorkItem(item));
+  const activityItems = processItems.filter((item) => item.kind !== "plan");
+  const workStarted = activityItems.some((item) => item.kind !== "thinking" && isWorkItem(item));
 
   if (!turn.active) {
-    const workItems = processItems.filter((item) => item.kind !== "thinking" && isWorkItem(item));
+    const workItems = activityItems.filter((item) => item.kind !== "thinking" && isWorkItem(item));
     return {
       user: turn.user,
       work: projectWorkItems(workItems),
       artifacts: collectArtifacts(processItems),
-      messages: processItems.filter((item) => !isWorkItem(item)),
+      messages: activityItems.filter((item) => !isWorkItem(item)),
       finalMessages,
       active: false,
       working: false,
@@ -36,7 +37,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now()): TurnDispl
     };
   }
 
-  const visibleItems = withoutInitialThinking(processItems);
+  const visibleItems = withoutInitialThinking(activityItems);
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
   const waiting = live && working && shouldShowWaiting(visibleItems, now);

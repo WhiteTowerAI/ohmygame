@@ -1,10 +1,11 @@
 import { ArrowUp, Square } from "lucide-react";
 import { useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PromptImage } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PlanState, PromptImage } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
+import { PlanStatus } from "./plan-status.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 
 interface ComposerProps {
@@ -12,6 +13,7 @@ interface ComposerProps {
   running: boolean;
   stopping: boolean;
   pendingPrompts: PendingPrompt[];
+  plan?: PlanState;
   notice?: string;
   models: AgentModel[];
   model?: AgentModelRef;
@@ -31,6 +33,7 @@ export function Composer({
   running,
   stopping,
   pendingPrompts,
+  plan,
   notice,
   models,
   model,
@@ -85,6 +88,7 @@ export function Composer({
 
   return (
     <div className="composer">
+      <PlanStatus plan={plan} />
       <MessageQueue
         items={pendingPrompts}
         disabled={!running || stopping}

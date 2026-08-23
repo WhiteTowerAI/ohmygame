@@ -170,6 +170,18 @@ export interface PublishProjectRequest {
 
 export type AgentMessagePhase = "commentary" | "final_answer";
 
+export type PlanStepStatus = "pending" | "in_progress" | "completed";
+
+export interface PlanStep {
+  step: string;
+  status: PlanStepStatus;
+}
+
+export interface PlanState {
+  explanation?: string;
+  steps: PlanStep[];
+}
+
 export type AgentItem = (
   | { id: string; turnId: string; kind: "user"; text: string; images?: PromptImage[] }
   | {
@@ -187,6 +199,12 @@ export type AgentItem = (
       kind: "thinking";
       text: string;
       status: "streaming" | "complete";
+    }
+  | {
+      id: string;
+      turnId: string;
+      kind: "plan";
+      plan: PlanState;
     }
   | {
       id: string;
@@ -375,6 +393,7 @@ export interface RuntimeEventData {
   "assistant.thinking.completed": { itemId: string; text: string };
   "assistant.delta": { itemId: string; delta: string };
   "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
+  "plan.updated": PlanState & { itemId: string };
   "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
   "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean; artifact?: ToolArtifact };
@@ -406,6 +425,7 @@ export const RUNTIME_EVENT_TYPES = [
   "assistant.thinking.completed",
   "assistant.delta",
   "assistant.completed",
+  "plan.updated",
   "tool.preparing",
   "tool.started",
   "tool.updated",

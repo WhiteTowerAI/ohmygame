@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, ProjectState, PromptImage, PromptReference, ToolArtifact } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanState, ProjectState, PromptImage, PromptReference, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -51,6 +51,7 @@ export function loadConversation(workspacePath: string, sessionPath: string, bef
 export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): AgentItem[] {
   const items: AgentItem[] = [];
   const tools = new Map<string, Extract<AgentItem, { kind: "tool" }>>();
+  const planCalls = new Set<string>();
   let turnId: string | undefined;
   let turnFinished = true;
   let lastTimestamp: number | undefined;
@@ -98,6 +99,10 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
           });
         } else if (content.type === "toolCall") {
+          if (content.name === "update_plan") {
+            planCalls.add(content.id);
+            continue;
+          }
           const tool: Extract<AgentItem, { kind: "tool" }> = {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
@@ -127,6 +132,17 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       continue;
     }
     if (message.role === "toolResult") {
+      if (planCalls.has(message.toolCallId)) {
+        if (message.isError) continue;
+        const plan = toolPlan(message);
+        if (plan && turnId) {
+          const item: AgentItem = { id: `${turnId}:plan`, turnId, kind: "plan", plan, timestamp };
+          const index = items.findIndex((candidate) => candidate.id === item.id);
+          if (index < 0) items.push(item);
+          else items[index] = item;
+        }
+        continue;
+      }
       const tool = tools.get(message.toolCallId);
       if (tool) {
         tool.status = message.isError ? "error" : "complete";
@@ -722,6 +738,7 @@ export class AgentManager {
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_start") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
       const toolCall = partialToolCall(event.assistantMessageEvent.partial, contentIndex);
+      if (toolCall?.name === "update_plan") return;
       const itemId = `${active.turnId}:tool:${active.assistantSequence++}`;
       const toolCallId = toolCall?.id || `${active.turnId}:preparing:${contentIndex}`;
       active.preparingToolItemIds.set(contentIndex, itemId);
@@ -733,6 +750,12 @@ export class AgentManager {
       }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_end") {
       const { contentIndex, toolCall } = event.assistantMessageEvent;
+      if (toolCall.name === "update_plan") {
+        const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:plan`;
+        active.preparingToolItemIds.delete(contentIndex);
+        active.toolItemIds.set(toolCall.id, itemId);
+        return;
+      }
       const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:tool:${active.assistantSequence++}`;
       active.preparingToolItemIds.delete(contentIndex);
       active.toolItemIds.set(toolCall.id, itemId);
@@ -785,6 +808,7 @@ export class AgentManager {
         ...(event.errorMessage ? { error: event.errorMessage } : {}),
       }, eventScope(active));
     } else if (event.type === "tool_execution_start") {
+      if (event.toolName === "update_plan") return;
       const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
       active.toolItemIds.set(event.toolCallId, itemId);
       this.events.publish(projectId, "tool.started", {
@@ -794,6 +818,7 @@ export class AgentManager {
         args: toolArguments(event.toolName, event.args),
       }, eventScope(active));
     } else if (event.type === "tool_execution_update") {
+      if (event.toolName === "update_plan") return;
       const result = toolOutput(event.partialResult);
       this.events.publish(projectId, "tool.updated", {
         itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
@@ -801,6 +826,23 @@ export class AgentManager {
         ...result,
       }, eventScope(active));
     } else if (event.type === "tool_execution_end") {
+      if (event.toolName === "update_plan") {
+        const plan = toolPlan(event.result);
+        if (!event.isError && plan) {
+          this.events.publish(projectId, "plan.updated", {
+            ...plan,
+            itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:plan`,
+          }, eventScope(active));
+        } else if (event.isError) {
+          this.events.publish(projectId, "tool.completed", {
+            itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:plan`,
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            isError: true,
+          }, eventScope(active));
+        }
+        return;
+      }
       const result = toolOutput(event.result);
       this.events.publish(projectId, "tool.completed", {
         itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
@@ -1083,6 +1125,26 @@ function toolArtifact(result: unknown): ToolArtifact | undefined {
   return undefined;
 }
 
+function toolPlan(result: unknown): PlanState | undefined {
+  const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
+  const value = details && typeof details === "object" && "plan" in details ? (details as { plan?: unknown }).plan : undefined;
+  if (!value || typeof value !== "object" || !Array.isArray((value as { steps?: unknown }).steps)) return undefined;
+  const candidate = value as { explanation?: unknown; steps: unknown[] };
+  const steps: PlanState["steps"] = candidate.steps.flatMap((step) => {
+    if (!step || typeof step !== "object") return [];
+    const item = step as { step?: unknown; status?: unknown };
+    if (typeof item.step !== "string" || !item.step.trim()) return [];
+    const status = item.status;
+    if (status !== "pending" && status !== "in_progress" && status !== "completed") return [];
+    return [{ step: item.step, status }];
+  });
+  if (steps.length !== candidate.steps.length || steps.length === 0) return undefined;
+  return {
+    ...(typeof candidate.explanation === "string" && candidate.explanation ? { explanation: candidate.explanation } : {}),
+    steps,
+  };
+}
+
 function stringify(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
@@ -1116,6 +1178,8 @@ export async function createPiSession(
       "Do not leave a long-running development server active; the host starts the preview after your turn.",
       "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
       "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
+      "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +
+      "Update it when a meaningful step starts or completes. Do not use update_plan for simple one-step requests.",
     ],
   });
   await resourceLoader.reload();

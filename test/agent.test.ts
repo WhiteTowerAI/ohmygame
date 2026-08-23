@@ -22,6 +22,52 @@ describe("lastAssistantError", () => {
 });
 
 describe("conversationItems", () => {
+  it("restores the latest structured plan without a visible plan tool", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
+      sessionMessage("assistant-1", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "plan-1", name: "update_plan", arguments: {} }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("plan-result-1", {
+        role: "toolResult",
+        toolCallId: "plan-1",
+        toolName: "update_plan",
+        content: [{ type: "text", text: "Plan updated" }],
+        details: { plan: { steps: [{ step: "Inspect", status: "in_progress" }] } },
+        isError: false,
+        timestamp: 2,
+      }),
+      sessionMessage("assistant-2", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "plan-2", name: "update_plan", arguments: {} }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("plan-result-2", {
+        role: "toolResult",
+        toolCallId: "plan-2",
+        toolName: "update_plan",
+        content: [{ type: "text", text: "Plan updated" }],
+        details: { plan: { explanation: "Progress", steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }] } },
+        isError: false,
+        timestamp: 3,
+      }),
+    ] as never, false);
+
+    expect(items.filter((item) => item.kind === "plan")).toEqual([{
+      id: "user:plan",
+      turnId: "user",
+      kind: "plan",
+      plan: {
+        explanation: "Progress",
+        steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
+      },
+      timestamp: 3,
+    }]);
+    expect(items.some((item) => item.kind === "tool")).toBe(false);
+  });
+
   it("infers commentary and final answer phases from Pi stop reasons", () => {
     expect(conversationItems([
       sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),

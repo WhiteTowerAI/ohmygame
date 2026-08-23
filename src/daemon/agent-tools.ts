@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ProjectState, ToolDefinition, ToolSettings } from "../shared/contracts.js";
+import type { PlanState, ProjectState, ToolDefinition, ToolSettings } from "../shared/contracts.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -13,7 +13,7 @@ const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
 };
 
 export function activePiToolNames(settings: ToolSettings): string[] {
-  return ["read", "write", "edit", "bash", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])];
+  return ["read", "write", "edit", "bash", "update_plan", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])];
 }
 
 export function createAgentTools(
@@ -22,6 +22,37 @@ export function createAgentTools(
   projects: ProjectManager,
 ): PiToolDefinition[] {
   return [defineTool({
+    name: "update_plan",
+    label: "Update Plan",
+    description: "Create or update a concise implementation plan for multi-step work. Use at most one in_progress step.",
+    parameters: Type.Object({
+      explanation: Type.Optional(Type.String({ maxLength: 2_000, description: "Optional explanation for this plan update" })),
+      plan: Type.Array(Type.Object({
+        step: Type.String({ minLength: 1, maxLength: 500, description: "Task step" }),
+        status: Type.Union([
+          Type.Literal("pending"),
+          Type.Literal("in_progress"),
+          Type.Literal("completed"),
+        ]),
+      }), { minItems: 1, maxItems: 12, description: "The complete list of plan steps" }),
+    }),
+    execute: async (_toolCallId, input) => {
+      const steps = input.plan.map((item) => ({ step: item.step.trim(), status: item.status }));
+      if (steps.some((item) => !item.step)) throw new Error("Plan steps cannot be blank");
+      if (steps.filter((item) => item.status === "in_progress").length > 1) {
+        throw new Error("A plan can have at most one in_progress step");
+      }
+      const plan: PlanState = {
+        ...(input.explanation?.trim() ? { explanation: input.explanation.trim() } : {}),
+        steps,
+      };
+      const completed = steps.filter((item) => item.status === "completed").length;
+      return {
+        content: [{ type: "text", text: `Plan updated: ${completed}/${steps.length} steps completed.` }],
+        details: { plan },
+      };
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
     description: "Generate an image and save it into the current project workspace.",

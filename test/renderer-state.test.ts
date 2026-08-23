@@ -3,6 +3,32 @@ import type { ConversationState, ProjectState, RuntimeEvent, RuntimeEventData, R
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("upserts the latest structured plan and removes its tool placeholder", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.preparing", {
+      itemId: "placeholder", toolCallId: "plan-1", toolName: "tool",
+    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "plan.updated", {
+      itemId: "placeholder",
+      steps: [{ step: "Inspect", status: "in_progress" }],
+    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "plan.updated", {
+      itemId: "turn-1:plan",
+      explanation: "Progress",
+      steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
+    }) });
+
+    expect(state.items.filter((item) => item.kind === "plan")).toEqual([expect.objectContaining({
+      id: "turn-1:plan",
+      plan: {
+        explanation: "Progress",
+        steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
+      },
+    })]);
+    expect(state.items.some((item) => item.id === "placeholder")).toBe(false);
+  });
+
   it("replaces the final turn when the latest prompt is revised", () => {
     const state = {
       ...initialized(),
@@ -304,7 +330,7 @@ function initialized() {
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
-  const agentScoped = type.startsWith("agent.") || type.startsWith("assistant.") || type.startsWith("tool.") || type.startsWith("prompt.");
+  const agentScoped = type.startsWith("agent.") || type.startsWith("assistant.") || type.startsWith("tool.") || type.startsWith("plan.") || type.startsWith("prompt.");
   return {
     id,
     projectId: "project-1",

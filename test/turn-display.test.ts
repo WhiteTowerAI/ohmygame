@@ -35,6 +35,20 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toHaveLength(0);
   });
 
+  it("does not show an empty Working state for a plan-only turn", () => {
+    const display = projectTurnDisplay(turn([{
+      id: "turn-1:plan",
+      turnId: "turn-1",
+      kind: "plan",
+      plan: { steps: [{ step: "Inspect the workspace", status: "in_progress" }] },
+    }], true));
+
+    expect(display.working).toBe(false);
+    expect(display.waiting).toBe(false);
+    expect(display.work).toEqual([]);
+    expect(display.messages).toEqual([]);
+  });
+
   it("shows Thinking when streamed text stops without completing", () => {
     const display = projectTurnDisplay(turn([{
       id: "assistant",
