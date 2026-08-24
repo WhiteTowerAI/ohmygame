@@ -15,17 +15,18 @@ export function projectAgentTurns(items: AgentItem[], activeTurnId?: string): Ag
     else grouped.set(item.turnId, [item]);
   }
 
-  return [...grouped].map(([id, turnItems]) => {
+  return [...grouped].flatMap(([id, turnItems]) => {
     const user = turnItems.find((item): item is Extract<AgentItem, { kind: "user" }> => item.kind === "user");
     const timelineItems = turnItems.filter((item) => (
       item !== user &&
       !(item.kind === "compaction" && item.status === "complete")
     ));
-    return {
+    if (!user && timelineItems.length === 0) return [];
+    return [{
       id,
       user,
       items: timelineItems,
       active: id === activeTurnId,
-    };
+    }];
   });
 }

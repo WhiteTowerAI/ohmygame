@@ -141,6 +141,10 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
+        ...(event.data.reason === "manual" ? {
+          activeTurn: { conversationId: conversation!.id, turnId: event.turnId },
+          conversation: { ...conversation!, agent: { status: "running", turnId: event.turnId } },
+        } : {}),
         items: upsertItem(state.items, {
           id: `${event.turnId}:compaction`,
           turnId: event.turnId,
@@ -153,6 +157,10 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
+        ...(event.data.reason === "manual" ? {
+          activeTurn: scoped.activeTurn?.turnId === event.turnId ? undefined : scoped.activeTurn,
+          conversation: conversation ? { ...conversation, agent: { status: event.data.aborted ? "error" : "idle" } } : conversation,
+        } : {}),
         items: updateItem(state.items, `${event.turnId}:compaction`, (item) => item.kind === "compaction" ? {
           ...item,
           status: event.data.aborted ? "error" : "complete",

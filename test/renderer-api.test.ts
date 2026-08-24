@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, createConversation, deleteProject, duplicateProject, getConversation, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, refinePlan, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteProject, duplicateProject, getConversation, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, refinePlan, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -218,6 +218,24 @@ describe("renderer project API", () => {
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json" },
     }));
+  });
+
+  it("compacts a conversation and reads Pi context usage", async () => {
+    installWindow();
+    const usage = { tokens: 74_000, contextWindow: 100_000, percent: 74 };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(Response.json({ contextUsage: usage }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await compactConversation("project-1", "conversation-1", "Keep API decisions");
+    await expect(getConversationContextUsage("project-1", "conversation-1")).resolves.toEqual(usage);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/compact", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ instructions: "Keep API decisions" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/context-usage", expect.any(Object));
   });
 
   it("sends planning prompts and plan decisions", async () => {

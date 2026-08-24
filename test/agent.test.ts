@@ -767,8 +767,47 @@ describe("AgentManager", () => {
       "agent.completed",
     ]);
     expect(events.since(project.id).find((event) => event.type === "agent.compaction.completed")?.data).toEqual({
+      reason: "threshold",
       aborted: false,
       willRetry: false,
+    });
+    await manager.close();
+  });
+
+  it("runs manual compaction through the native Pi session API", async () => {
+    const session = new FakeSession();
+    session.compact.mockImplementation(async () => {
+      session.emit({ type: "compaction_start", reason: "manual" });
+      session.emit({ type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false });
+    });
+    const events = new RuntimeEventBus();
+    const onRunCompleted = vi.fn();
+    const manager = new AgentManager(events, { createSession: async () => session, onRunCompleted });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = await manager.compact(project, conversation, "Keep the API decisions");
+    await turn.result;
+
+    expect(session.compact).toHaveBeenCalledWith("Keep the API decisions");
+    expect(events.since(project.id).map((event) => event.type)).toEqual([
+      "agent.compaction.started",
+      "agent.compaction.completed",
+    ]);
+    expect(onRunCompleted).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
+  it("reads context usage from the native Pi session", async () => {
+    const session = new FakeSession();
+    session.getContextUsage.mockReturnValue({ tokens: 74_000, contextWindow: 100_000, percent: 74 });
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+
+    await expect(manager.contextUsage(project, createConversation(project))).resolves.toEqual({
+      tokens: 74_000,
+      contextWindow: 100_000,
+      percent: 74,
     });
     await manager.close();
   });
@@ -1003,6 +1042,8 @@ class FakeSession implements CodingSession {
   steer = vi.fn<NonNullable<CodingSession["steer"]>>(async () => {});
   clearQueue = vi.fn<NonNullable<CodingSession["clearQueue"]>>(() => ({ steering: [], followUp: [] }));
   navigateTree = vi.fn<NonNullable<CodingSession["navigateTree"]>>(async () => ({ cancelled: false }));
+  compact = vi.fn<NonNullable<CodingSession["compact"]>>(async () => {});
+  getContextUsage = vi.fn<NonNullable<CodingSession["getContextUsage"]>>(() => undefined);
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});

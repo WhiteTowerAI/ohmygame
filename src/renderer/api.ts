@@ -1,6 +1,7 @@
 import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
+  type AgentContextUsage,
   type AddToolResultRequest,
   type AnswerQuestionnaireRequest,
   type AgentModelCatalog,
@@ -349,6 +350,18 @@ export async function sendPrompt(
     method: "POST",
     body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
   });
+}
+
+export async function compactConversation(projectId: string, conversationId: string, instructions?: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/compact`, {
+    method: "POST",
+    body: JSON.stringify(instructions?.trim() ? { instructions: instructions.trim() } : {}),
+  });
+}
+
+export async function getConversationContextUsage(projectId: string, conversationId: string): Promise<AgentContextUsage | undefined> {
+  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage`);
+  return result.contextUsage;
 }
 
 export async function approvePlan(projectId: string, conversationId: string): Promise<PromptResponse> {

@@ -23,8 +23,10 @@ import {
   answerQuestionnaire,
   cancelPrompt,
   cancelPlan,
+  compactConversation,
   createConversation,
   getConversation,
+  getConversationContextUsage,
   getProject,
   listConversations,
   publishProject,
@@ -325,6 +327,24 @@ export function ProjectShell({
     }
   }
 
+  async function compactCurrentConversation(instructions?: string): Promise<void> {
+    if (!project || !conversation || agentBusy || state.connection !== "open") return;
+    dispatch({ type: "notice", message: undefined });
+    try {
+      await compactConversation(project.id, conversation.id, instructions);
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    }
+  }
+
+  async function currentContextPercent(): Promise<number | undefined> {
+    if (!project || !conversation) return undefined;
+    const usage = await getConversationContextUsage(project.id, conversation.id);
+    return usage?.percent === null || usage?.percent === undefined
+      ? undefined
+      : Math.round(Math.max(0, Math.min(100, usage.percent)));
+  }
+
   async function executePlan(): Promise<boolean> {
     if (!project || !conversation) return false;
     try {
@@ -611,6 +631,8 @@ export function ProjectShell({
               ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
             ]}
             onSubmit={submitPrompt}
+            onCompact={compactCurrentConversation}
+            onContextUsage={currentContextPercent}
             onCancelPlan={discardPlan}
             onModelChange={(model) => void changeModel(model)}
             onReasoningChange={(level) => void changeReasoning(level)}

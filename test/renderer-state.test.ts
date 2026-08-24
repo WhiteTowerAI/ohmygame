@@ -225,9 +225,23 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "threshold" }) });
 
     expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "running" });
+    expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "agent.compaction.completed", { aborted: false, willRetry: false }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "agent.compaction.completed", { reason: "threshold", aborted: false, willRetry: false }) });
     expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "complete" });
+    expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
+    expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
+  });
+
+  it("tracks manual compaction as its own active operation", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.compaction.started", { reason: "manual" }) });
+    expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
+    expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
+
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.completed", { reason: "manual", aborted: false, willRetry: false }) });
+    expect(state.activeTurn).toBeUndefined();
+    expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
 
   it("does not present an aborted compaction as complete", () => {
@@ -236,7 +250,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "overflow" }) });
     state = rendererReducer(state, {
       type: "runtime-event",
-      event: runtimeEvent(3, "agent.compaction.completed", { aborted: true, willRetry: true }),
+      event: runtimeEvent(3, "agent.compaction.completed", { reason: "overflow", aborted: true, willRetry: true }),
     });
 
     expect(state.items.at(-1)).toMatchObject({

@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ToolArtifact } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentContextUsage, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 
@@ -21,6 +21,8 @@ export interface CodingSession {
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
+  compact?(customInstructions?: string): Promise<unknown>;
+  getContextUsage?(): AgentContextUsage | undefined;
   clearQueue?(): { steering: string[]; followUp: string[] };
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
   abort(): Promise<void>;
@@ -330,6 +332,64 @@ export class AgentManager {
     }
     managed.session.setThinkingLevel(level);
     return managed.session.thinkingLevel ?? level;
+  }
+
+  async compact(
+    project: ProjectState,
+    conversation: StoredConversation,
+    customInstructions?: string,
+  ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+    const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
+      throw new Error("Wait for the agent to finish before compacting the session");
+    }
+    const managed = await this.#getSession(project, conversation);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
+      throw new Error("Wait for the agent to finish before compacting the session");
+    }
+    if (!managed.session.compact) throw new Error("The current agent session cannot compact context");
+
+    const turnId = randomUUID();
+    const active: ActiveTurn = {
+      project,
+      projectId: project.id,
+      conversationId: conversation.summary.id,
+      turnId,
+      prompt: "",
+      images: [],
+      mode: "normal",
+      conversation,
+      status: "running",
+      assistantItemIds: new Map(),
+      completedAssistantIndexes: new Set(),
+      assistantSequence: 0,
+      thinkingSequence: 0,
+      preparingToolItemIds: new Map(),
+      toolItemIds: new Map(),
+    };
+    this.#activeTurns.set(key, active);
+    this.#setState(project.id, conversation.summary.id, { status: "running", turnId });
+
+    let run: Promise<AgentRunResult>;
+    const execution = managed.session.compact(customInstructions).then(() => "completed" as const);
+    run = execution.then(
+      (result) => {
+        this.#finishCompact(project, active, run);
+        return result;
+      },
+      (cause) => {
+        this.#finishCompact(project, active, run);
+        throw cause;
+      },
+    );
+    this.#runs.add(run);
+    void run.catch(() => {});
+    return { turnId, result: run };
+  }
+
+  async contextUsage(project: ProjectState, conversation: StoredConversation): Promise<AgentContextUsage | undefined> {
+    const managed = await this.#getSession(project, conversation);
+    return managed.session.getContextUsage?.();
   }
 
   prompt(
@@ -815,6 +875,15 @@ export class AgentManager {
     });
   }
 
+  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>): void {
+    this.#runs.delete(run);
+    const key = conversationKey(project.id, active.conversationId);
+    if (this.#activeTurns.get(key) === active) {
+      this.#activeTurns.delete(key);
+      this.#setState(project.id, active.conversationId, { status: "idle" });
+    }
+  }
+
   #setPlanState(project: ProjectState, conversation: StoredConversation, state: PlanSessionState, persist = true): void {
     const key = conversationKey(project.id, conversation.summary.id);
     this.#planStates.set(key, state);
@@ -1009,6 +1078,7 @@ export class AgentManager {
       this.events.publish(projectId, "agent.compaction.started", { reason: event.reason }, eventScope(active));
     } else if (event.type === "compaction_end") {
       this.events.publish(projectId, "agent.compaction.completed", {
+        reason: event.reason,
         aborted: event.aborted,
         willRetry: event.willRetry,
         ...(event.errorMessage ? { error: event.errorMessage } : {}),

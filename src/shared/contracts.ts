@@ -3,6 +3,12 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 
+export interface AgentContextUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+}
+
 export interface AgentModelRef {
   provider: string;
   id: string;
@@ -454,7 +460,7 @@ export interface RuntimeEventData {
   "plan.mode.changed": PlanSessionState;
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
-  "agent.compaction.completed": { aborted: boolean; willRetry: boolean; error?: string };
+  "agent.compaction.completed": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; error?: string };
   "assistant.started": { itemId: string };
   "assistant.thinking.started": { itemId: string };
   "assistant.thinking.delta": { itemId: string; delta: string };

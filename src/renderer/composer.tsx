@@ -1,12 +1,12 @@
 import { ArrowUp, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PlanMode, PlanState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
-import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
+import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 
 interface ComposerProps {
@@ -23,6 +23,8 @@ interface ComposerProps {
   modelChanging: boolean;
   promptHistory: string[];
   onSubmit: (prompt: string, images: PromptImage[], mode: PromptMode) => Promise<boolean>;
+  onCompact: (instructions?: string) => Promise<void>;
+  onContextUsage: () => Promise<number | undefined>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -45,6 +47,8 @@ export function Composer({
   modelChanging,
   promptHistory,
   onSubmit,
+  onCompact,
+  onContextUsage,
   onCancelPlan,
   onModelChange,
   onReasoningChange,
@@ -57,6 +61,8 @@ export function Composer({
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory));
   const [planning, setPlanning] = useState(planMode === "planning");
+  const [selectedCommand, setSelectedCommand] = useState<"plan" | "compact">("plan");
+  const [contextPercent, setContextPercent] = useState<number>();
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   async function submit() {
@@ -94,8 +100,29 @@ export function Composer({
   const awaitingApproval = planMode === "awaiting_approval";
   const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
   const showPlanCommand = canTogglePlanning && matchesPlanCommand(prompt);
+  const showCompactCommand = conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
   const inputDisabled = !conversationReady || planInputLocked;
+
+  useEffect(() => {
+    if (showPlanCommand) setSelectedCommand("plan");
+    else if (showCompactCommand) setSelectedCommand("compact");
+  }, [showPlanCommand, showCompactCommand]);
+
+  useEffect(() => {
+    if (!showCompactCommand) {
+      setContextPercent(undefined);
+      return;
+    }
+    let disposed = false;
+    setContextPercent(undefined);
+    void onContextUsage().then((percent) => {
+      if (!disposed) setContextPercent(percent);
+    }).catch(() => {
+      if (!disposed) setContextPercent(undefined);
+    });
+    return () => { disposed = true; };
+  }, [showCompactCommand]);
 
   useEffect(() => {
     if (planMode === "planning") setPlanning(true);
@@ -110,11 +137,46 @@ export function Composer({
   }
 
   function submitOrRunCommand() {
+    const instructions = compactInstructions(prompt);
+    if (showCompactCommand && instructions !== null && !running && !stopping) {
+      void runCompact(instructions ?? undefined);
+      return;
+    }
     if (showPlanCommand) {
       void togglePlanning();
       return;
     }
     void submit();
+  }
+
+  async function runCompact(instructions?: string) {
+    setPrompt("");
+    textarea.current?.focus();
+    await onCompact(instructions);
+  }
+
+  function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (!showPlanCommand && !showCompactCommand) return false;
+    const commands: Array<"plan" | "compact"> = [
+      ...(showPlanCommand ? ["plan" as const] : []),
+      ...(showCompactCommand ? ["compact" as const] : []),
+    ];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const current = Math.max(0, commands.indexOf(selectedCommand));
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      setSelectedCommand(commands[(current + offset + commands.length) % commands.length]);
+      return true;
+    }
+    if (event.key !== "Enter" || event.shiftKey) return false;
+    event.preventDefault();
+    if (selectedCommand === "compact" && showCompactCommand) {
+      const instructions = compactInstructions(prompt);
+      void runCompact(instructions ?? undefined);
+    } else if (showPlanCommand) {
+      void togglePlanning();
+    }
+    return true;
   }
 
   return (
@@ -166,11 +228,23 @@ export function Composer({
           </>
         )}
         onChange={changePrompt}
+        onCommandKeyDown={handleCommandKeyDown}
         onHistoryNext={() => browseHistory("next")}
         onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={submitOrRunCommand}
-        overlay={showPlanCommand ? (
-          <PlanCommandMenu planning={planning} onToggle={() => { void togglePlanning(); }} />
+        overlay={showPlanCommand || showCompactCommand ? (
+          <PlanCommandMenu
+            planning={planning}
+            onToggle={() => { void togglePlanning(); }}
+            showPlan={showPlanCommand}
+            showCompact={showCompactCommand}
+            selected={selectedCommand}
+            contextPercent={contextPercent}
+            onCompact={() => {
+              const instructions = compactInstructions(prompt);
+              void runCompact(instructions ?? undefined);
+            }}
+          />
         ) : null}
         placeholder={awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
         textareaRef={textarea}

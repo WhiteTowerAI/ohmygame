@@ -1,4 +1,4 @@
-import { CircleX, Lightbulb } from "lucide-react";
+import { CircleX, FileText, Lightbulb } from "lucide-react";
 
 interface PlanModeIndicatorProps {
   disabled?: boolean;
@@ -20,16 +20,26 @@ export function PlanModeIndicator({ disabled, onExit }: PlanModeIndicatorProps) 
 interface PlanCommandMenuProps {
   planning: boolean;
   onToggle: () => void;
+  showPlan?: boolean;
+  showCompact?: boolean;
+  onCompact?: () => void;
+  selected?: "plan" | "compact";
+  contextPercent?: number;
 }
 
-export function PlanCommandMenu({ planning, onToggle }: PlanCommandMenuProps) {
+export function PlanCommandMenu({ planning, onToggle, showPlan = true, showCompact = false, onCompact, selected, contextPercent }: PlanCommandMenuProps) {
   return (
     <div className="composer-command-menu" role="listbox" aria-label="Composer commands">
-      <button type="button" role="option" aria-selected="true" onClick={onToggle}>
+      {showPlan ? <button className={selected === "plan" ? "is-selected" : ""} type="button" role="option" aria-selected={selected === "plan"} onClick={onToggle}>
         <Lightbulb size={15} aria-hidden="true" />
         <span>Plan mode</span>
         <small>{planning ? "Turn plan mode off" : "Turn plan mode on"}</small>
-      </button>
+      </button> : null}
+      {showCompact ? <button className={selected === "compact" ? "is-selected" : ""} type="button" role="option" aria-selected={selected === "compact"} onClick={onCompact}>
+        <FileText size={15} aria-hidden="true" />
+        <span>Compact</span>
+        <small>Compact this chat's context{contextPercent === undefined ? "" : ` (${contextPercent}% full)`}</small>
+      </button> : null}
     </div>
   );
 }
@@ -37,4 +47,16 @@ export function PlanCommandMenu({ planning, onToggle }: PlanCommandMenuProps) {
 export function matchesPlanCommand(value: string): boolean {
   const command = value.trim().toLowerCase();
   return command.startsWith("/") && !command.includes(" ") && "/plan".startsWith(command);
+}
+
+export function matchesCompactCommand(value: string): boolean {
+  const command = value.trim().toLowerCase();
+  return (command.startsWith("/") && !command.includes(" ") && "/compact".startsWith(command)) || command.startsWith("/compact ");
+}
+
+export function compactInstructions(value: string): string | undefined | null {
+  const command = value.trim();
+  if (command.toLowerCase() === "/compact") return undefined;
+  if (command.toLowerCase().startsWith("/compact ")) return command.slice(9).trim() || undefined;
+  return null;
 }

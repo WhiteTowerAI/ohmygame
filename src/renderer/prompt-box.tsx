@@ -15,6 +15,7 @@ interface PromptBoxProps {
   content?: ReactNode;
   leading?: ReactNode;
   actions: ReactNode;
+  onCommandKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
 }
 
 export function PromptBox({
@@ -31,6 +32,7 @@ export function PromptBox({
   content,
   leading,
   actions,
+  onCommandKeyDown,
 }: PromptBoxProps) {
   useEffect(() => {
     resizeTextarea(textareaRef?.current ?? null);
@@ -53,6 +55,7 @@ export function PromptBox({
         onInput={(event) => resizeTextarea(event.currentTarget)}
         onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (onCommandKeyDown?.(event)) return;
           const historyDirection = promptHistoryDirection(
             event.key,
             event.currentTarget.selectionStart,

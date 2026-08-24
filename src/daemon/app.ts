@@ -1024,6 +1024,47 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: { instructions?: string } }>(
+    "/projects/:projectId/conversations/:conversationId/compact",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: { instructions: { type: "string", maxLength: 4_000 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        const turn = await agents.compact(project, conversation, request.body?.instructions?.trim() || undefined);
+        await turn.result;
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/context-usage",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        return { contextUsage: await agents.contextUsage(project, conversation) };
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.post<{ Params: { projectId: string; conversationId: string } }>(
     "/projects/:projectId/conversations/:conversationId/plan/approve",
     async (request, reply) => {
