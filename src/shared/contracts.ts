@@ -382,6 +382,24 @@ export interface ToolSettings {
   enabledTools: ToolDefinition["id"][];
 }
 
+export type PiPackageResourceType = "extension" | "skill" | "prompt" | "theme";
+export type PiPackageCompatibility = "compatible" | "not-verified" | "not-applicable";
+
+export interface PiPackageSummary {
+  name: string;
+  sourceType: "npm" | "git" | "local" | "url";
+  description?: string;
+  resourceTypes: PiPackageResourceType[];
+  compatibility: PiPackageCompatibility;
+  installed: boolean;
+  installSpec: string;
+}
+
+export interface PiPackageCatalog {
+  packages: PiPackageSummary[];
+  hasMore: boolean;
+}
+
 export interface RunImageToolRequest {
   prompt: string;
   size?: ImageSize;

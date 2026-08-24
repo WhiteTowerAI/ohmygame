@@ -11,9 +11,12 @@ const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
 };
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "update_plan", "questionnaire"]);
 
-export function activePiToolNames(settings: ToolSettings): string[] {
-  return ["read", "write", "edit", "bash", "update_plan", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])];
+export function activePiToolNames(settings: ToolSettings, registeredToolNames: readonly string[] = []): string[] {
+  const openGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
+  const extensionTools = registeredToolNames.filter((name) => !openGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "update_plan", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])])];
 }
 
 export function planningPiToolNames(): string[] {

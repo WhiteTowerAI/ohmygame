@@ -1257,6 +1257,72 @@ button.home-nav-item:hover {
   line-height: 1.45;
 }
 
+.plugins-tabs {
+  display: flex;
+  gap: 18px;
+  margin: 0 0 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.plugins-tabs button {
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.plugins-tabs button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.plugins-explore-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.plugins-explore-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.plugins-explore-header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.plugins-search {
+  display: flex;
+  width: 210px;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+}
+
+.plugins-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
 .plugins-installed > header {
   display: flex;
   height: 26px;
@@ -1314,6 +1380,11 @@ button.home-nav-item:hover {
   color: #eebc70;
 }
 
+.plugin-row-icon-pi {
+  background: #252832;
+  color: #aeb5c4;
+}
+
 .plugin-row-copy {
   display: grid;
   min-width: 0;
@@ -1335,6 +1406,56 @@ button.home-nav-item:hover {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plugin-row-copy small {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-package-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.plugin-package-actions button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.plugin-package-link {
+  width: 28px;
+  padding: 0 !important;
+}
+
+.plugin-package-actions button {
+  min-width: 72px;
+  padding: 0 9px;
+}
+
+.plugin-package-actions button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.plugin-row-package {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
 }
 
 .plugin-switch {
@@ -1408,11 +1529,92 @@ button.home-nav-item:hover {
   font-size: 11px;
 }
 
+.plugins-inline-notice {
+  margin: 10px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .plugins-empty {
   padding: 28px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.plugins-load-more {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.plugins-load-more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.plugins-warning-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 55%);
+}
+
+.plugins-warning {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 35%);
+}
+
+.plugins-warning h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.plugins-warning p {
+  margin: 10px 0 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.plugins-warning > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.plugins-warning button {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.plugins-warning button:last-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #0d0e11;
 }
 
 .tools-heading {

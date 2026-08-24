@@ -27,6 +27,7 @@ import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { InvalidToolSettingsError, ToolSettingsStore } from "./tool-settings.js";
 import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
+import { PiPackageCatalogService } from "./pi-packages.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -38,6 +39,7 @@ export interface AppOptions {
   publishFetch?: typeof fetch;
   portalUrl?: string;
   portalFetch?: typeof fetch;
+  piPackageFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
@@ -375,6 +377,7 @@ export function createApp(options: AppOptions = {}) {
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
+  const piPackages = new PiPackageCatalogService(options.piPackageFetch);
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   let agents: AgentManager;
   agents = new AgentManager(events, {
@@ -393,7 +396,10 @@ export function createApp(options: AppOptions = {}) {
         model,
       );
     }),
-    activeToolNames: (mode) => mode === "planning" ? planningPiToolNames() : activePiToolNames(toolSettings.get()),
+    activeToolNames: (mode, session) => {
+      const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
+      return mode === "planning" ? planningPiToolNames() : activePiToolNames(toolSettings.get(), registered);
+    },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
       void isRunnableWorkspace(project.workspacePath).then((runnable) => {
@@ -433,6 +439,52 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.get("/tools", async () => tools.list());
+
+  app.get<{ Querystring: { query?: string; page?: string; pageSize?: string } }>("/pi-packages", async (request) => {
+    return piPackages.list(
+      request.query.query,
+      request.query.page ? Number(request.query.page) : 1,
+      request.query.pageSize ? Number(request.query.pageSize) : undefined,
+    );
+  });
+
+  app.get("/pi-packages/installed", async () => piPackages.listInstalled());
+
+  app.post<{ Body: { name: string } }>("/pi-packages/install", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name"],
+        properties: { name: { type: "string", minLength: 1, maxLength: 214 } },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      await piPackages.install(request.body.name);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : "Pi package installation failed" });
+    }
+  });
+
+  app.delete<{ Body: { source: string } }>("/pi-packages", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source"],
+        properties: { source: { type: "string", minLength: 1, maxLength: 2_000 } },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      await piPackages.remove(request.body.source);
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : "Pi package removal failed" });
+    }
+  });
 
   app.get("/tool-settings", async () => toolSettings.get());
 

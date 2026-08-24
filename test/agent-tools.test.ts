@@ -21,6 +21,10 @@ describe("agent tools", () => {
     expect(activePiToolNames({ installedTools: ["generate-video"], enabledTools: ["generate-video"] })).toEqual([
       "read", "write", "edit", "bash", "update_plan", "generate_video",
     ]);
+    expect(activePiToolNames(
+      { installedTools: [], enabledTools: [] },
+      ["read", "generate_image", "web_search"],
+    )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan"]);
   });
 
   it("generates an image into the current project workspace", async () => {

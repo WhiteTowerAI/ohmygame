@@ -30,6 +30,7 @@ export interface CodingSession {
   readonly thinkingLevel?: AgentReasoningLevel;
   setThinkingLevel?(level: AgentReasoningLevel): void;
   setActiveToolsByName?(toolNames: string[]): void;
+  getAllTools?(): Array<{ name: string }>;
 }
 
 interface PiPromptImage {
@@ -180,7 +181,7 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
-  activeToolNames?: (mode: PlanMode) => string[];
+  activeToolNames?: (mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
 }
 
@@ -510,7 +511,7 @@ export class AgentManager {
         return "cancelled";
       }
 
-      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(active.mode) ?? BASE_TOOL_NAMES);
+      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(active.mode, managed.session) ?? BASE_TOOL_NAMES);
       if (images.length) {
         await managed.session.prompt(prompt, { images: images.map(toPiImage) });
       } else {

@@ -22,6 +22,8 @@ import {
   type ProjectState,
   type PublishProjectRequest,
   type PublishResult,
+  type PiPackageCatalog,
+  type PiPackageSummary,
   type RuntimeEvent,
   type RunToolRequest,
   type ToolDefinition,
@@ -177,6 +179,24 @@ export async function getCommunityGame(gameId: string): Promise<CommunityGame> {
 
 export async function listTools(): Promise<ToolDefinition[]> {
   return request("/tools");
+}
+
+export async function listPiPackages(query = "", page = 1, pageSize = 20): Promise<PiPackageCatalog> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (query.trim()) params.set("query", query.trim());
+  return request(`/pi-packages?${params.toString()}`);
+}
+
+export async function listInstalledPiPackages(): Promise<PiPackageSummary[]> {
+  return request("/pi-packages/installed");
+}
+
+export async function installPiPackage(name: string): Promise<void> {
+  await request<void>("/pi-packages/install", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function removePiPackage(source: string): Promise<void> {
+  await request("/pi-packages", { method: "DELETE", body: JSON.stringify({ source }) });
 }
 
 export async function getToolSettings(): Promise<ToolSettings> {
