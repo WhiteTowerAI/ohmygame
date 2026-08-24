@@ -1432,6 +1432,170 @@ button.home-nav-item:hover {
   scrollbar-width: thin;
 }
 
+.library-page {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 172px minmax(0, 1fr);
+}
+
+.library-rail {
+  min-width: 0;
+  overflow: auto;
+  padding: 64px 12px 24px;
+  border-right: 1px solid var(--border);
+  background: #0e0f12;
+  scrollbar-width: thin;
+}
+
+.library-filter-section + .library-filter-section { margin-top: 28px; }
+.library-filter-section h2 {
+  margin: 0 4px 6px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.library-filter-section > div { display: grid; gap: 4px; }
+.library-filter-section button {
+  display: flex;
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-filter-section button:hover { background: var(--surface-hover); color: var(--text); }
+.library-filter-section button.is-active { background: #25300f; color: var(--text); font-weight: 650; }
+.library-filter-section button.is-active svg { color: #b8f21f; }
+.library-filter-section button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-filter-section button svg { flex: 0 0 auto; color: #777b87; }
+
+.library-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 40px 40px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.library-header {
+  display: flex;
+  height: 105px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.library-header h1 { margin: 0; color: var(--text); font-size: 20px; font-weight: 650; line-height: 1.2; }
+.library-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.library-search {
+  display: flex;
+  width: 224px;
+  height: 36px;
+  flex: 0 0 224px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #15161b;
+  color: var(--text-faint);
+}
+
+.library-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
+.library-search input::placeholder { color: var(--text-faint); }
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  justify-content: space-between;
+  gap: 28px 24px;
+  padding-top: 35px;
+}
+
+.library-asset-card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--border); border-radius: 7px; background: #121317; font: inherit; text-align: left; cursor: pointer; }
+.library-asset-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.library-asset-card:focus-visible { outline: 2px solid #b8f21f; outline-offset: 2px; }
+.library-asset-thumbnail { display: grid; width: 100%; height: 121px; place-items: center; overflow: hidden; background: #17191e; color: var(--text-faint); }
+.library-asset-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.library-asset-video { background: #23191c; }
+.library-asset-audio { background: #241f16; }
+.library-asset-model { background: #191b27; }
+.library-asset-info { display: grid; min-width: 0; gap: 2px; padding: 7px 9px 8px; }
+.library-asset-info strong, .library-asset-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-asset-info strong { color: #c2c6cf; font-size: 11px; font-weight: 500; }
+.library-asset-info span { color: var(--text-faint); font-size: 9px; }
+.library-state { display: flex; min-height: 240px; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.library-state-error { color: var(--danger); }
+.library-state button { display: inline-flex; height: 28px; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); cursor: pointer; }
+
+.library-dialog-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 68%);
+}
+
+.library-dialog {
+  display: grid;
+  width: min(880px, 100%);
+  max-height: calc(100dvh - 48px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: 0;
+  background: #111216;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+
+.library-dialog-header {
+  display: flex;
+  min-width: 0;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.library-dialog-header > div { min-width: 0; }
+.library-dialog-header h2, .library-dialog-header p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-dialog-header h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 650; }
+.library-dialog-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 11px; }
+.library-dialog-header button { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.library-dialog-header button:hover { background: var(--surface-hover); color: var(--text); }
+.library-dialog-preview { display: grid; min-height: 420px; place-items: center; overflow: auto; background: #0a0b0d; }
+.library-dialog-preview > img, .library-dialog-preview > video { display: block; max-width: 100%; max-height: min(64dvh, 640px); object-fit: contain; }
+.library-dialog-preview > audio { width: min(520px, calc(100% - 48px)); }
+.library-dialog-preview .model-preview { width: 100%; height: min(64dvh, 640px); }
+.library-dialog-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.library-dialog-error { color: var(--danger); }
+.library-dialog-footer { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 24px; padding: 12px 20px; border-top: 1px solid var(--border); }
+.library-dialog-footer dl { display: flex; min-width: 0; gap: 28px; margin: 0; }
+.library-dialog-footer dl > div { display: grid; min-width: 0; gap: 3px; }
+.library-dialog-footer dt { color: var(--text-faint); font-size: 9px; text-transform: uppercase; }
+.library-dialog-footer dd { max-width: 480px; margin: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.library-dialog-footer > button { display: inline-flex; height: 34px; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.library-dialog-footer > button:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+
 .plugins-main {
   width: min(1096px, 100%);
   margin: 0 auto;
@@ -5137,6 +5301,21 @@ textarea:focus-visible {
     overflow: visible;
     padding: 30px 18px;
   }
+
+  .library-page { grid-template-columns: 1fr; }
+  .library-rail { display: flex; gap: 24px; overflow-x: auto; padding: 14px 18px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .library-filter-section { flex: 0 0 auto; }
+  .library-filter-section + .library-filter-section { margin-top: 0; }
+  .library-filter-section > div { display: flex; }
+  .library-filter-section button { width: auto; }
+  .library-content { overflow: visible; padding: 0 18px 30px; }
+  .library-grid { justify-content: start; }
+  .library-dialog-backdrop { padding: 8px; }
+  .library-dialog { max-height: calc(100dvh - 16px); }
+  .library-dialog-preview { min-height: 320px; }
+  .library-dialog-footer { align-items: stretch; flex-direction: column; gap: 12px; }
+  .library-dialog-footer dl { display: grid; gap: 8px; }
+  .library-dialog-footer > button { justify-content: center; }
 
   .tool-dialog-backdrop {
     align-items: end;

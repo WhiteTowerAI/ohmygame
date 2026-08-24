@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import { getWorkspaceAsset, getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
+import { getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
@@ -636,7 +637,7 @@ function AssetsView({
 }
 
 function AssetThumbnail({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
-  const asset = useAssetUrl(file.mediaType === "image" ? projectId : undefined, file.path, revision);
+  const asset = useWorkspaceAssetUrl(file.mediaType === "image" ? projectId : undefined, file.path, revision);
   if (file.mediaType === "image" && asset.url) return <img src={asset.url} alt="" />;
   if (file.mediaType === "video") return <Film size={22} />;
   if (file.mediaType === "audio") return <Music2 size={22} />;
@@ -645,7 +646,7 @@ function AssetThumbnail({ projectId, file, revision }: { projectId: string; file
 }
 
 function AssetPreview({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
-  const asset = useAssetUrl(projectId, file.path, revision);
+  const asset = useWorkspaceAssetUrl(projectId, file.path, revision);
   if (asset.error) return <WorkspaceState error={asset.error} />;
   if (!asset.url) return <WorkspaceState loading label="Loading asset" />;
   return (
@@ -659,31 +660,6 @@ function AssetPreview({ projectId, file, revision }: { projectId: string; file: 
       </div>
     </>
   );
-}
-
-function useAssetUrl(projectId: string | undefined, filePath: string, revision: number): { url?: string; error?: string } {
-  const [state, setState] = useState<{ url?: string; error?: string }>({});
-  useEffect(() => {
-    if (!projectId) {
-      setState({});
-      return;
-    }
-    let disposed = false;
-    let objectUrl: string | undefined;
-    setState({});
-    void getWorkspaceAsset(projectId, filePath).then((blob) => {
-      if (disposed) return;
-      objectUrl = URL.createObjectURL(blob);
-      setState({ url: objectUrl });
-    }).catch((cause) => {
-      if (!disposed) setState({ error: errorMessage(cause) });
-    });
-    return () => {
-      disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [projectId, filePath, revision]);
-  return state;
 }
 
 function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {
