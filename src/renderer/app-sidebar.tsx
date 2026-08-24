@@ -1,4 +1,4 @@
-import { ArrowDownToLine, AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, MoreHorizontal, Plug, RefreshCw, UserRound, Video } from "lucide-react";
+import { ArrowDownToLine, Box, Folder, Gamepad2, House, Library, MoreHorizontal, Plug, RefreshCw, Shapes, UserRound } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
@@ -115,15 +115,11 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "home"} icon={<House size={16} />} label="Home" onClick={() => onNavigate("home")} />
         <NavigationItem active={active === "projects"} icon={<Folder size={16} />} label="Projects" onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon={<Library size={16} />} label="Library" onClick={() => onNavigate("library")} />
+        <div className="home-nav-label home-nav-label-spaced">AGENT</div>
         <NavigationItem active={active === "plugins"} icon={<Plug size={16} />} label="Plugins" onClick={() => onNavigate("plugins")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
         <NavigationItem active={active === "avg-studio"} icon={<Box size={16} />} label="AVG Studio" onClick={() => onNavigate("avg-studio")} />
-        <div className="home-nav-label home-nav-label-spaced">TOOLS</div>
-        <NavigationItem active={active === "3d"} icon={<Box size={16} />} label="3D" onClick={() => onNavigate("3d")} />
-        <NavigationItem active={active === "images"} icon={<Images size={16} />} label="Images" onClick={() => onNavigate("images")} />
-        <NavigationItem active={active === "audio"} icon={<AudioLines size={16} />} label="Audio" onClick={() => onNavigate("audio")} />
-        <NavigationItem active={active === "video"} icon={<Video size={16} />} label="Video" onClick={() => onNavigate("video")} />
-        <NavigationItem active={active === "model-hub"} icon={<Cpu size={16} />} label="Model Hub" onClick={() => onNavigate("model-hub")} />
+        <NavigationItem active={active === "asset-studio"} icon={<Shapes size={16} />} label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
         <div className="home-nav-label home-nav-label-spaced">DISCOVER</div>
         <NavigationItem active={active === "community"} icon={<Gamepad2 size={16} />} label="Community" onClick={() => onNavigate("community")} />
       </nav>

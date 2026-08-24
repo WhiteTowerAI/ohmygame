@@ -6,7 +6,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "plugins", "avg-studio", "3d", "images", "audio", "video", "model-hub", "community"] as const) {
+    for (const page of ["projects", "library", "plugins", "avg-studio", "asset-studio", "community"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
     }

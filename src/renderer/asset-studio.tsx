@@ -1,35 +1,51 @@
-import { Box, Check, Download, FolderInput, Image, LoaderCircle, RefreshCw, Sparkles, Upload, Video, X } from "lucide-react";
+import { Box, ChevronRight, Download, FolderInput, Image, LoaderCircle, RefreshCw, Search, Sparkles, Upload, Video, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { VIDEO_ASPECT_RATIOS, VIDEO_DURATIONS, VIDEO_RESOLUTIONS, type ImageModel, type ImageSize, type ProjectState, type PromptImage, type ToolDefinition, type ToolRun, type VideoAspectRatio, type VideoResolution } from "../shared/contracts.js";
-import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, getToolSettings, listImageModels, listProjects, listTools, runTool, updateImageGenerationSettings, updateToolSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, listImageModels, listProjects, listTools, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 
-interface ImagesPageProps {
-  page: "images" | "3d" | "video";
+interface AssetStudioPageProps {
   onNavigate: (page: SidebarPage) => void;
 }
 
-export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
+type AssetCategory = "all" | "image" | "video" | "3d";
+
+interface AssetAppDefinition {
+  id: string;
+  toolId: ToolDefinition["id"];
+  name: string;
+  description: string;
+  category: Exclude<AssetCategory, "all">;
+}
+
+const ASSET_APPS: readonly AssetAppDefinition[] = [
+  { id: "image-generator", toolId: "generate-image", name: "Image Generator", description: "Create images from a text prompt.", category: "image" },
+  { id: "video-generator", toolId: "generate-video", name: "Video Generator", description: "Animate a reference image or prompt.", category: "video" },
+  { id: "image-to-3d", toolId: "image-to-3d", name: "Image to 3D", description: "Turn a reference image into a 3D asset.", category: "3d" },
+];
+
+function assetCategoryLabel(category: AssetCategory): string {
+  if (category === "all") return "All";
+  if (category === "3d") return "3D";
+  return `${category[0].toUpperCase()}${category.slice(1)}`;
+}
+
+export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
-  const [selectedTool, setSelectedTool] = useState<ToolDefinition>();
-  const [installedTools, setInstalledTools] = useState<ToolDefinition["id"][]>([]);
-  const [enabledTools, setEnabledTools] = useState<ToolDefinition["id"][]>([]);
-  const [updatingTool, setUpdatingTool] = useState<ToolDefinition["id"]>();
-  const [settingsError, setSettingsError] = useState<string>();
+  const [selectedApp, setSelectedApp] = useState<AssetAppDefinition>();
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<AssetCategory>("all");
 
   async function load() {
     setPhase("loading");
     setError(undefined);
     try {
       await waitForRuntime();
-      const [loadedTools, settings] = await Promise.all([listTools(), getToolSettings()]);
-      setTools(loadedTools.filter((tool) => tool.category === page));
-      setInstalledTools(settings.installedTools);
-      setEnabledTools(settings.enabledTools);
+      setTools(await listTools());
       setPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -37,84 +53,60 @@ export function ImagesPage({ page, onNavigate }: ImagesPageProps) {
     }
   }
 
-  useEffect(() => { void load(); }, [page]);
+  useEffect(() => { void load(); }, []);
 
-  async function installTool(tool: ToolDefinition) {
-    if (updatingTool || installedTools.includes(tool.id)) return;
-    setUpdatingTool(tool.id);
-    setSettingsError(undefined);
-    try {
-      const settings = await updateToolSettings({
-        installedTools: [...installedTools, tool.id],
-        enabledTools: [...enabledTools, tool.id],
-      });
-      setInstalledTools(settings.installedTools);
-      setEnabledTools(settings.enabledTools);
-    } catch (cause) {
-      setSettingsError(errorMessage(cause));
-    } finally {
-      setUpdatingTool(undefined);
-    }
-  }
+  const normalizedQuery = query.trim().toLowerCase();
+  const availableApps = ASSET_APPS.map((app) => ({ app, tool: tools.find((tool) => tool.id === app.toolId) }))
+    .filter((entry): entry is { app: AssetAppDefinition; tool: ToolDefinition } => Boolean(entry.tool))
+    .filter(({ app }) => category === "all" || app.category === category)
+    .filter(({ app, tool }) => `${app.name} ${app.description} ${tool.name} ${tool.description}`.toLowerCase().includes(normalizedQuery));
+  const selectedTool = selectedApp ? tools.find((tool) => tool.id === selectedApp.toolId) : undefined;
 
   return (
     <main className="home-shell">
-      <AppSidebar active={page} onNavigate={onNavigate} />
-      <section className="tools-content">
-        <header className="tools-heading">
-          <div>
-            <h1>{page === "3d" ? "3D" : page === "video" ? "Video" : "Images"}</h1>
-            <p>{page === "3d" ? "Turn a reference image into a project-ready 3D asset." : page === "video" ? "Animate a reference image into a project-ready video." : "Generate an image before adding it to a project."}</p>
-          </div>
+      <AppSidebar active="asset-studio" onNavigate={onNavigate} />
+      <section className="asset-studio-content">
+        <header className="asset-studio-heading">
+          <div><h1>Asset Studio</h1><p>Create images, video, and 3D assets with specialized apps.</p></div>
           {phase === "error" ? (
-            <button className="tools-retry" type="button" onClick={() => void load()}>
+            <button className="asset-studio-retry" type="button" onClick={() => void load()}>
               <RefreshCw size={14} /> Retry
             </button>
           ) : null}
         </header>
 
-        {phase === "loading" ? <div className="tools-state"><LoaderCircle className="spin" size={18} />Loading tools</div> : null}
-        {phase === "error" ? <div className="tools-state tools-error" role="alert">{error}</div> : null}
-        {settingsError ? <div className="tools-inline-error" role="alert">{settingsError}</div> : null}
+        <label className="asset-studio-search" htmlFor="asset-studio-search-input">
+          <Search size={15} aria-hidden="true" />
+          <input id="asset-studio-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search asset apps..." />
+        </label>
+        <div className="asset-studio-filters" aria-label="Asset categories">
+          {(["all", "image", "video", "3d"] as const).map((value) => <button key={value} type="button" aria-pressed={category === value} className={category === value ? "is-active" : undefined} onClick={() => setCategory(value)}>{assetCategoryLabel(value)}</button>)}
+        </div>
+        {phase === "loading" ? <div className="asset-studio-state"><LoaderCircle className="spin" size={18} />Loading apps</div> : null}
+        {phase === "error" ? <div className="asset-studio-state asset-studio-error" role="alert">{error}</div> : null}
         {phase === "ready" ? (
-          <div className="tools-grid">
-            {tools.map((tool) => {
-              const installed = installedTools.includes(tool.id);
-              const updating = updatingTool === tool.id;
-              return (
-                <article className="tool-card" key={tool.id}>
-                  <div className="tool-card-summary">
-                    <span className="tool-card-icon">{tool.outputKind === "model" ? <Box size={24} /> : tool.outputKind === "video" ? <Video size={24} /> : <Image size={24} />}</span>
-                    <span className="tool-card-copy">
-                      <strong>{tool.name}</strong>
-                      <span>{tool.description}</span>
-                    </span>
-                  </div>
-                  <div className="tool-card-actions">
-                    <button className="tool-card-action" type="button" onClick={() => setSelectedTool(tool)}>Open</button>
-                    <button
-                      className="tool-agent-toggle"
-                      type="button"
-                      disabled={Boolean(updatingTool) || installed}
-                      onClick={() => void installTool(tool)}
-                    >
-                      {updating ? <LoaderCircle className="spin" size={13} /> : installed ? <Check size={13} /> : null}
-                      {updating ? "Installing…" : installed ? "Installed" : "Install"}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <section className="asset-studio-apps" aria-labelledby="asset-studio-apps-title">
+            <h2 id="asset-studio-apps-title">All apps</h2>
+            {availableApps.length ? <div className="asset-studio-grid">
+              {availableApps.map(({ app, tool }) => <button className={`asset-app-card asset-app-card-${app.category}`} type="button" key={app.id} onClick={() => setSelectedApp(app)}>
+                <span className="asset-app-visual">{tool.outputKind === "model" ? <Box size={38} /> : tool.outputKind === "video" ? <Video size={38} /> : <Image size={38} />}</span>
+                <span className="asset-app-info">
+                  <span className="asset-app-title"><strong>{app.name}</strong><ChevronRight size={15} /></span>
+                  <span className="asset-app-description">{app.description}</span>
+                  <span className="asset-app-category">{assetCategoryLabel(app.category)}</span>
+                </span>
+              </button>)}
+            </div> : <p className="asset-studio-empty">No asset apps match your search.</p>}
+          </section>
         ) : null}
       </section>
 
-      {selectedTool ? <ToolDialog tool={selectedTool} onClose={() => setSelectedTool(undefined)} /> : null}
+      {selectedApp && selectedTool ? <ToolDialog tool={selectedTool} title={selectedApp.name} description={selectedApp.description} onClose={() => setSelectedApp(undefined)} /> : null}
     </main>
   );
 }
 
-function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => void }) {
+function ToolDialog({ tool, title, description, onClose }: { tool: ToolDefinition; title: string; description: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [imageModel, setImageModel] = useState<string>("");
@@ -280,8 +272,8 @@ function ToolDialog({ tool, onClose }: { tool: ToolDefinition; onClose: () => vo
           <div>
             <span className="tool-dialog-icon">{tool.outputKind === "model" ? <Box size={18} /> : tool.outputKind === "video" ? <Video size={18} /> : <Image size={18} />}</span>
             <div>
-              <h2 id="tool-dialog-title">{tool.name}</h2>
-              <p>{tool.description}</p>
+              <h2 id="tool-dialog-title">{title}</h2>
+              <p>{description}</p>
             </div>
           </div>
           <button className="icon-button quiet-button" type="button" onClick={onClose} disabled={busy} title="Close" aria-label="Close">

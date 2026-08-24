@@ -5,7 +5,7 @@ import { Home } from "./home.js";
 import { PluginsPage } from "./plugins.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
-import { ImagesPage } from "./tools.js";
+import { AssetStudioPage } from "./asset-studio.js";
 import type { PromptImage, PromptMode } from "../shared/contracts.js";
 
 export function App() {
@@ -28,7 +28,7 @@ export function App() {
   if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} />;
-  if (route.page === "images" || route.page === "3d" || route.page === "video") return <ImagesPage page={route.page} onNavigate={navigateToSidebarPage} />;
+  if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
   return (
     <ProjectShell

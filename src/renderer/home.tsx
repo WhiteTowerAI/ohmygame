@@ -189,7 +189,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             <h2 id="whats-new-heading">What's New</h2>
           </div>
           <div className="home-whats-new-grid">
-            <button className="home-whats-new-item" type="button" onClick={() => onNavigate("images")}>
+            <button className="home-whats-new-item" type="button" onClick={() => onNavigate("asset-studio")}>
               <span className="home-whats-new-icon"><Image size={23} /></span>
               <span className="home-whats-new-copy">
                 <strong>Image generation</strong>

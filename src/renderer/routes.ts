@@ -4,16 +4,11 @@ export type SidebarPage =
   | "library"
   | "plugins"
   | "avg-studio"
-  | "3d"
-  | "images"
-  | "audio"
-  | "video"
-  | "model-hub"
+  | "asset-studio"
   | "community";
 
 const SIDEBAR_PAGES = new Set<SidebarPage>([
-  "home", "projects", "library", "plugins", "avg-studio", "3d",
-  "images", "audio", "video", "model-hub", "community",
+  "home", "projects", "library", "plugins", "avg-studio", "asset-studio", "community",
 ]);
 
 export type AppRoute =

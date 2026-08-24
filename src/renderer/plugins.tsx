@@ -1,4 +1,4 @@
-import { Box, Check, ExternalLink, Image as ImageIcon, LoaderCircle, Package, RefreshCw, Search, Trash2, Video } from "lucide-react";
+import { ArrowLeft, Box, Check, ExternalLink, Image as ImageIcon, LoaderCircle, Package, RefreshCw, Search, SlidersHorizontal, Trash2, Video } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { PiPackageSummary, ToolDefinition } from "../shared/contracts.js";
 import { getToolSettings, installPiPackage, listInstalledPiPackages, listPiPackages, listTools, removePiPackage, updateToolSettings, waitForRuntime } from "./api.js";
@@ -12,7 +12,7 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [updatingTool, setUpdatingTool] = useState<ToolDefinition["id"]>();
   const [error, setError] = useState<string>();
-  const [tab, setTab] = useState<"installed" | "explore">("installed");
+  const [view, setView] = useState<"plugins" | "manage">("plugins");
   const [packages, setPackages] = useState<PiPackageSummary[]>([]);
   const [installedPackages, setInstalledPackages] = useState<PiPackageSummary[]>([]);
   const [query, setQuery] = useState("");
@@ -46,11 +46,10 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
   useEffect(() => { void load(); }, []);
 
   useEffect(() => {
-    if (tab !== "explore") return;
     setPackages([]);
     setPackagePage(1);
     void loadPackages(1, false);
-  }, [searchQuery, tab]);
+  }, [searchQuery]);
 
   async function loadPackages(page = packagePage, append = false): Promise<void> {
     const requestId = ++packageRequestRef.current;
@@ -80,6 +79,24 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
         enabledTools: enabled
           ? [...enabledTools, tool.id]
           : enabledTools.filter((id) => id !== tool.id),
+      });
+      setInstalledTools(settings.installedTools);
+      setEnabledTools(settings.enabledTools);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setUpdatingTool(undefined);
+    }
+  }
+
+  async function installTool(tool: ToolDefinition): Promise<void> {
+    if (updatingTool || installedTools.includes(tool.id)) return;
+    setUpdatingTool(tool.id);
+    setError(undefined);
+    try {
+      const settings = await updateToolSettings({
+        installedTools: [...installedTools, tool.id],
+        enabledTools: [...enabledTools, tool.id],
       });
       setInstalledTools(settings.installedTools);
       setEnabledTools(settings.enabledTools);
@@ -141,91 +158,148 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
   }
 
   const installed = tools.filter((tool) => installedTools.includes(tool.id));
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleInstalledTools = installed.filter((tool) => pluginSearchText(tool).includes(normalizedQuery));
+  const visibleInstalledPackages = installedPackages.filter((item) => packageSearchText(item).includes(normalizedQuery));
+  const visibleAvailableTools = tools.filter((tool) => !installedTools.includes(tool.id) && pluginSearchText(tool).includes(normalizedQuery));
+  const installedCount = installed.length + installedPackages.length;
 
   return (
     <main className="home-shell">
       <AppSidebar active="plugins" onNavigate={onNavigate} />
       <section className="plugins-content">
         <div className="plugins-main">
-          <header className="plugins-heading">
-            <h1>Plugins</h1>
-            <p>OpenGame tools and Pi packages.</p>
-          </header>
-
-          <nav className="plugins-tabs" aria-label="Plugin views">
-            <button className={tab === "installed" ? "is-active" : ""} type="button" onClick={() => setTab("installed")}>Installed</button>
-            <button className={tab === "explore" ? "is-active" : ""} type="button" onClick={() => setTab("explore")}>Explore</button>
-          </nav>
-
-          {phase === "loading" ? <div className="plugins-state"><LoaderCircle className="spin" size={16} />Loading plugins</div> : null}
-          {phase === "error" ? (
-            <div className="plugins-state plugins-state-error" role="alert">
-              <span>{error}</span>
-              <button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button>
-            </div>
-          ) : null}
-          {phase === "ready" && tab === "installed" ? (
-            <section className="plugins-installed" aria-labelledby="plugins-installed-title">
-              <header>
-                <h2 id="plugins-installed-title">Installed plugins</h2>
-                <span>{installed.length + installedPackages.length} {installed.length + installedPackages.length === 1 ? "plugin" : "plugins"}</span>
+          {view === "manage" ? (
+            <ManagePlugins
+              tools={installed}
+              packages={installedPackages}
+              enabledTools={enabledTools}
+              updatingTool={updatingTool}
+              updatingPackage={updatingPackage}
+              error={error}
+              notice={packageNotice}
+              onBack={() => setView("plugins")}
+              onSetEnabled={setEnabled}
+              onRemovePackage={uninstallPackage}
+            />
+          ) : (
+            <>
+              <header className="plugins-heading">
+                <h1>Plugins</h1>
+                <p>Install plugins and choose what your agent can use.</p>
               </header>
-              {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
-              {packageNotice ? <p className="plugins-inline-notice" role="status">{packageNotice}</p> : null}
-              {installed.length || installedPackages.length ? (
-                <div className="plugins-list">
-                  {installed.map((tool) => {
-                    const enabled = enabledTools.includes(tool.id);
-                    return (
-                      <div className="plugin-row" key={tool.id}>
-                        <PluginIcon tool={tool} />
-                        <span className="plugin-row-copy">
-                          <strong>{pluginName(tool)}</strong>
-                          <span>{pluginDescription(tool)}</span>
-                        </span>
-                        <button
-                          className="plugin-switch"
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          aria-label={`${enabled ? "Disable" : "Enable"} ${pluginName(tool)}`}
-                          disabled={Boolean(updatingTool)}
-                          onClick={() => void setEnabled(tool, !enabled)}
-                        >
-                          <span />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  {installedPackages.map((item) => (
-                    <PiPackageRow key={item.installSpec} item={item} updating={updatingPackage === item.installSpec} onRemove={() => void uninstallPackage(item)} />
-                  ))}
+              <form className="plugins-search" onSubmit={(event: FormEvent) => { event.preventDefault(); setSearchQuery(query.trim()); }}>
+                <Search size={15} />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
+              </form>
+
+              {phase === "loading" ? <div className="plugins-state"><LoaderCircle className="spin" size={16} />Loading plugins</div> : null}
+              {phase === "error" ? (
+                <div className="plugins-state plugins-state-error" role="alert">
+                  <span>{error}</span>
+                  <button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button>
                 </div>
-              ) : (
-                <p className="plugins-empty">Install a tool from Images or 3D to add it to your agent.</p>
-              )}
-            </section>
-          ) : null}
-          {tab === "explore" ? (
-            <section className="plugins-explore" aria-labelledby="plugins-explore-title">
-              <header className="plugins-explore-header">
-                <div><h2 id="plugins-explore-title">Pi packages</h2><span>Discover packages published to npm.</span></div>
-                <form className="plugins-search" onSubmit={(event: FormEvent) => { event.preventDefault(); setSearchQuery(query.trim()); }}><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search packages" aria-label="Search Pi packages" /></form>
-              </header>
-              {packagePhase === "loading" && packages.length === 0 ? <div className="plugins-state"><LoaderCircle className="spin" size={16} />Loading packages</div> : null}
-              {packagePhase === "error" ? <div className="plugins-state plugins-state-error" role="alert"><span>{packageError}</span><button type="button" onClick={() => void loadPackages(packagePage, packagePage > 1)}><RefreshCw size={14} />Retry</button></div> : null}
-              {packages.length ? <div className="plugins-list">{packages.map((item) => <PiPackageRow key={item.name} item={item} updating={updatingPackage === item.name} onInstall={() => void installPackage(item.name)} />)}</div> : null}
-              {hasMorePackages ? <button className="plugins-load-more" type="button" onClick={() => void loadPackages(packagePage + 1, true)} disabled={packagePhase === "loading"}>{packagePhase === "loading" ? <LoaderCircle className="spin" size={14} /> : null}{packagePhase === "loading" ? "Loading…" : "Load more"}</button> : null}
-              {packagePhase === "ready" && packages.length === 0 ? <p className="plugins-empty">{hasMorePackages ? "No verified packages on this page." : "No Pi packages found."}</p> : null}
-              {packageError && packagePhase !== "error" ? <p className="plugins-inline-error" role="alert">{packageError}</p> : null}
-              {packageNotice ? <p className="plugins-inline-notice" role="status">{packageNotice}</p> : null}
-            </section>
-          ) : null}
+              ) : null}
+              {phase === "ready" ? (
+                <>
+                  <section className="plugins-installed" aria-labelledby="plugins-installed-title">
+                    <header>
+                      <h2 id="plugins-installed-title">Installed</h2>
+                      {installedCount ? <button type="button" onClick={() => setView("manage")}><SlidersHorizontal size={13} />Manage</button> : null}
+                    </header>
+                    {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
+                    {visibleInstalledTools.length || visibleInstalledPackages.length ? (
+                      <div className="plugins-installed-scroll">
+                        {visibleInstalledTools.map((tool) => <InstalledPluginCard key={tool.id} tool={tool} />)}
+                        {visibleInstalledPackages.map((item) => <InstalledPackageCard key={item.installSpec} item={item} />)}
+                      </div>
+                    ) : <p className="plugins-empty">{installedCount ? "No installed plugins match your search." : "No plugins installed yet."}</p>}
+                  </section>
+
+                  <section className="plugins-explore" aria-labelledby="plugins-explore-title">
+                    <header className="plugins-section-heading">
+                      <h2 id="plugins-explore-title">Explore</h2>
+                      <span>Discover more capabilities for your agent.</span>
+                    </header>
+                    {packagePhase === "loading" && packages.length === 0 ? <div className="plugins-state plugins-state-compact"><LoaderCircle className="spin" size={16} />Loading packages</div> : null}
+                    {packagePhase === "error" ? <div className="plugins-state plugins-state-error plugins-state-compact" role="alert"><span>{packageError}</span><button type="button" onClick={() => void loadPackages(packagePage, packagePage > 1)}><RefreshCw size={14} />Retry</button></div> : null}
+                    {visibleAvailableTools.length || packages.length ? <div className="plugins-explore-grid">
+                      {visibleAvailableTools.map((tool) => <OpenGameToolRow key={tool.id} tool={tool} updating={updatingTool === tool.id} onInstall={() => void installTool(tool)} />)}
+                      {packages.map((item) => <PiPackageRow key={item.name} item={item} updating={updatingPackage === item.name} onInstall={() => void installPackage(item.name)} />)}
+                    </div> : null}
+                    {hasMorePackages ? <button className="plugins-load-more" type="button" onClick={() => void loadPackages(packagePage + 1, true)} disabled={packagePhase === "loading"}>{packagePhase === "loading" ? <LoaderCircle className="spin" size={14} /> : null}{packagePhase === "loading" ? "Loading…" : "Load more"}</button> : null}
+                    {packagePhase === "ready" && packages.length === 0 && visibleAvailableTools.length === 0 ? <p className="plugins-empty">No plugins found.</p> : null}
+                    {packageError && packagePhase !== "error" ? <p className="plugins-inline-error" role="alert">{packageError}</p> : null}
+                    {packageNotice ? <p className="plugins-inline-notice" role="status">{packageNotice}</p> : null}
+                  </section>
+                </>
+              ) : null}
+            </>
+          )}
         </div>
       </section>
       {pendingInstall ? <PiPackageWarningDialog onCancel={() => setPendingInstall(undefined)} onConfirm={confirmPackageInstall} /> : null}
     </main>
   );
+}
+
+interface ManagePluginsProps {
+  tools: ToolDefinition[];
+  packages: PiPackageSummary[];
+  enabledTools: ToolDefinition["id"][];
+  updatingTool?: ToolDefinition["id"];
+  updatingPackage?: string;
+  error?: string;
+  notice?: string;
+  onBack: () => void;
+  onSetEnabled: (tool: ToolDefinition, enabled: boolean) => Promise<void>;
+  onRemovePackage: (item: PiPackageSummary) => Promise<void>;
+}
+
+function ManagePlugins({ tools, packages, enabledTools, updatingTool, updatingPackage, error, notice, onBack, onSetEnabled, onRemovePackage }: ManagePluginsProps): ReactNode {
+  return <section className="plugins-manage" aria-labelledby="plugins-manage-title">
+    <button className="plugins-back" type="button" onClick={onBack}><ArrowLeft size={14} />Back to Plugins</button>
+    <header className="plugins-heading">
+      <h1 id="plugins-manage-title">Manage plugins</h1>
+      <p>Choose which installed tools your agent can use.</p>
+    </header>
+    {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
+    {notice ? <p className="plugins-inline-notice" role="status">{notice}</p> : null}
+    <div className="plugins-manage-list">
+      {tools.map((tool) => {
+        const enabled = enabledTools.includes(tool.id);
+        return <div className="plugin-row" key={tool.id}>
+          <PluginIcon tool={tool} />
+          <span className="plugin-row-copy"><strong>{pluginName(tool)}</strong><span>OpenGame</span></span>
+          <span className="plugin-agent-access">Agent access</span>
+          <button className="plugin-switch" type="button" role="switch" aria-checked={enabled} aria-label={`${enabled ? "Disable" : "Enable"} ${pluginName(tool)}`} disabled={Boolean(updatingTool)} onClick={() => void onSetEnabled(tool, !enabled)}><span /></button>
+        </div>;
+      })}
+      {packages.map((item) => <PiPackageRow key={item.installSpec} item={item} updating={updatingPackage === item.installSpec} onRemove={() => void onRemovePackage(item)} />)}
+    </div>
+  </section>;
+}
+
+function InstalledPluginCard({ tool }: { tool: ToolDefinition }): ReactNode {
+  return <article className="plugin-installed-card">
+    <PluginIcon tool={tool} />
+    <strong>{pluginName(tool)}</strong>
+  </article>;
+}
+
+function InstalledPackageCard({ item }: { item: PiPackageSummary }): ReactNode {
+  return <article className="plugin-installed-card">
+    <span className="plugin-row-icon plugin-row-icon-pi"><Package size={17} /></span>
+    <strong>{item.name}</strong>
+  </article>;
+}
+
+function OpenGameToolRow({ tool, updating, onInstall }: { tool: ToolDefinition; updating: boolean; onInstall: () => void }): ReactNode {
+  return <div className="plugin-row">
+    <PluginIcon tool={tool} />
+    <span className="plugin-row-copy"><strong>{pluginName(tool)}</strong><span>{pluginDescription(tool)}</span><small>OpenGame · Agent tool</small></span>
+    <span className="plugin-package-actions"><button type="button" disabled={updating} onClick={onInstall}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Installing…" : "Install"}</button></span>
+  </div>;
 }
 
 function PiPackageWarningDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }): ReactNode {
@@ -304,6 +378,14 @@ function pluginDescription(tool: ToolDefinition): string {
   if (tool.id === "generate-image") return "Create and edit images for your game.";
   if (tool.id === "image-to-3d") return "Turn reference images into 3D assets.";
   return "Animate reference images into videos.";
+}
+
+function pluginSearchText(tool: ToolDefinition): string {
+  return `${pluginName(tool)} ${pluginDescription(tool)}`.toLowerCase();
+}
+
+function packageSearchText(item: PiPackageSummary): string {
+  return `${item.name} ${item.description ?? ""}`.toLowerCase();
 }
 
 function errorMessage(cause: unknown): string {
