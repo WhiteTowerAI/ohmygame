@@ -1121,17 +1121,19 @@ button.home-nav-item:hover {
   font-size: 11px;
 }
 
-.home-project-grid {
+.home-project-grid,
+.projects-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px;
 }
 
-.home-project {
+.project-card,
+.community-game-card {
   position: relative;
   display: block;
   min-width: 0;
-  min-height: 226px;
+  min-height: 212px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1140,7 +1142,8 @@ button.home-nav-item:hover {
   text-align: left;
 }
 
-.home-project-open {
+.project-card-open,
+.community-game-card-open {
   display: block;
   width: 100%;
   padding: 0;
@@ -1152,45 +1155,50 @@ button.home-nav-item:hover {
   transition: opacity 120ms ease;
 }
 
-.home-project-open:hover {
+.project-card-open:hover,
+.community-game-card-open:hover {
   opacity: 0.88;
 }
 
-.home-project-preview {
+.project-card-preview,
+.community-game-card-preview {
   display: block;
   width: 100%;
-  height: 150px;
+  aspect-ratio: 252 / 142;
   overflow: hidden;
   border-radius: 8px;
 }
 
-.home-project-preview img {
+.project-card-preview img,
+.community-game-card-preview img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.home-project-preview-0 { background: linear-gradient(180deg, #102720, #245c49); }
-.home-project-preview-1 { background: linear-gradient(180deg, #101e2b, #28536a); }
-.home-project-preview-2 { background: linear-gradient(180deg, #29171e, #613631); }
-.home-project-preview-3 { background: linear-gradient(180deg, #29243e, #5f507d); }
+.project-card-preview-0 { background: linear-gradient(180deg, #102720, #245c49); }
+.project-card-preview-1 { background: linear-gradient(180deg, #101e2b, #28536a); }
+.project-card-preview-2 { background: linear-gradient(180deg, #29171e, #613631); }
+.project-card-preview-3 { background: linear-gradient(180deg, #29243e, #5f507d); }
 
-.home-project-meta {
+.project-card-meta,
+.community-game-card-meta {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
-.home-project-copy {
+.project-card-copy,
+.community-game-card-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
 }
 
-.home-project-menu {
+.project-card-menu {
   display: grid;
   width: 28px;
   height: 28px;
@@ -1204,19 +1212,19 @@ button.home-nav-item:hover {
   color: var(--text-muted);
 }
 
-.home-project-menu:hover,
-.home-project-menu[aria-expanded="true"] {
+.project-card-menu:hover,
+.project-card-menu[aria-expanded="true"] {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-.home-project-actions {
+.project-card-actions {
   position: absolute;
-  top: 170px;
   right: 0;
+  bottom: 8px;
 }
 
-.home-project-actions-menu {
+.project-card-actions-menu {
   position: absolute;
   z-index: 5;
   right: 0;
@@ -1232,7 +1240,7 @@ button.home-nav-item:hover {
   box-shadow: 0 8px 18px rgb(0 0 0 / 28%);
 }
 
-.home-project-actions-menu button {
+.project-card-actions-menu button {
   height: 32px;
   padding: 0;
   border: 0;
@@ -1245,23 +1253,22 @@ button.home-nav-item:hover {
   cursor: pointer;
 }
 
-.home-project-actions-menu button:hover { color: var(--text); }
-.home-project-actions-menu .home-project-actions-delete { color: #ff6b62; }
-.home-project-actions-menu .home-project-actions-delete:hover { color: #ff938c; }
+.project-card-actions-menu button:hover { color: var(--text); }
+.project-card-actions-menu .project-card-actions-delete { color: #ff6b62; }
+.project-card-actions-menu .project-card-actions-delete:hover { color: #ff938c; }
 
-.home-project-name {
+.project-card-name,
+.community-game-card-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.home-project-name {
   font-size: 15px;
   font-weight: 600;
 }
 
-.home-project-time {
+.project-card-time,
+.community-game-card-time {
   color: var(--text-muted);
   font-size: 11px;
 }
@@ -1279,6 +1286,86 @@ button.home-nav-item:hover {
   background: var(--surface-raised);
   animation: home-pulse 1.2s ease-in-out infinite alternate;
 }
+
+.project-card-new {
+  display: flex;
+  min-height: 212px;
+  flex-direction: column;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-card-new-art {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 252 / 142;
+  place-items: center;
+  border: 1px solid #618514;
+  border-radius: 8px;
+  background: #141906;
+  color: #b8f21f;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.project-card-new:hover .project-card-new-art,
+.project-card-new:focus-visible .project-card-new-art {
+  border-color: #b8f21f;
+  background: #1b2408;
+}
+
+.project-card-new:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.project-card-new:focus-visible,
+.project-card-open:focus-visible,
+.project-card-menu:focus-visible,
+.projects-icon-button:focus-visible,
+.projects-sort-menu button:focus-visible {
+  outline: 2px solid #b8f21f;
+  outline-offset: 2px;
+}
+
+.project-card-new > .project-card-copy { margin-top: 10px; gap: 2px; }
+.project-card-new strong { font-size: 15px; font-weight: 600; }
+.project-card-new .project-card-copy > span { color: var(--text-muted); font-size: 11px; }
+
+.projects-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 34px 34px 44px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.projects-header {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 23px;
+}
+
+.projects-header h1 { margin: 0; color: var(--text); font-size: 24px; font-weight: 650; line-height: 1.2; }
+.projects-controls { display: flex; align-items: center; gap: 8px; }
+.projects-search { display: flex; width: min(324px, 38vw); height: 34px; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid var(--border); border-radius: 6px; background: #17181d; color: var(--text-faint); }
+.projects-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 11px; }
+.projects-search input::placeholder { color: var(--text-faint); }
+.projects-sort { position: relative; }
+.projects-icon-button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #17181d; color: var(--text-muted); cursor: pointer; }
+.projects-icon-button:hover { border-color: var(--border-strong); color: var(--text); }
+.projects-sort-menu { position: absolute; z-index: 5; top: 40px; right: 0; display: grid; width: 150px; gap: 2px; padding: 5px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-raised); box-shadow: 0 10px 24px rgb(0 0 0 / 35%); }
+.projects-sort-menu button { height: 30px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.projects-sort-menu button:hover, .projects-sort-menu button.is-active { background: var(--surface-hover); color: var(--text); }
+.projects-state { display: flex; min-height: 240px; align-items: center; justify-content: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+.projects-state-error { color: var(--danger); }
+.projects-state button { display: inline-flex; height: 28px; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); cursor: pointer; }
+.projects-notice { margin: 12px 0 0; color: var(--danger); font-size: 11px; }
 
 .asset-studio-content {
   min-width: 0;
@@ -5289,9 +5376,15 @@ textarea:focus-visible {
   }
 
   .home-whats-new-grid,
-  .home-project-grid {
+  .home-project-grid,
+  .projects-grid {
     grid-template-columns: 1fr;
   }
+
+  .projects-content { overflow: visible; padding: 30px 18px; }
+  .projects-header { align-items: flex-start; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+  .projects-controls { width: 100%; }
+  .projects-search { width: 100%; }
 
   .home-whats-new-item {
     max-width: 320px;

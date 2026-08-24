@@ -1,16 +1,15 @@
-import { ArrowUp, Image, LoaderCircle, MoreHorizontal, RefreshCw } from "lucide-react";
+import { ArrowUp, Image, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { createConversation, createProject, deleteProject, duplicateProject, getProjectCover, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { createConversation, createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { PromptBox } from "./prompt-box.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
+import { ProjectCard } from "./project-card.js";
 import type { SidebarPage } from "./routes.js";
-import { useAuth } from "./auth.js";
-import { UserAvatar } from "./user-avatar.js";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
@@ -21,7 +20,6 @@ interface HomeProps {
 const RECENT_PROJECT_LIMIT = 4;
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
-  const auth = useAuth();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [prompt, setPrompt] = useState("");
@@ -33,9 +31,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const [showAllProjects, setShowAllProjects] = useState(false);
-  const [openProjectMenuId, setOpenProjectMenuId] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
-  const menuRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
 
@@ -65,21 +61,6 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selected.reasoningLevels);
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [model, modelCatalog.models, modelCatalog.defaultReasoningLevel, reasoningLevel]);
-  useEffect(() => {
-    const closeMenu = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpenProjectMenuId(undefined);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenProjectMenuId(undefined);
-    };
-    document.addEventListener("mousedown", closeMenu);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeMenu);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
-
   async function submitPrompt() {
     if (matchesPlanCommand(prompt)) {
       togglePlanning();
@@ -106,19 +87,16 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   async function rename(project: ProjectState) {
-    setOpenProjectMenuId(undefined);
     const name = window.prompt("Rename project", project.name)?.trim();
     if (!name || name === project.name) return;
     await runProjectAction(() => renameProject(project.id, name));
   }
 
   async function duplicate(project: ProjectState) {
-    setOpenProjectMenuId(undefined);
     await runProjectAction(() => duplicateProject(project.id));
   }
 
   async function remove(project: ProjectState) {
-    setOpenProjectMenuId(undefined);
     if (!window.confirm(`Delete “${project.name}”? This cannot be undone.`)) return;
     await runProjectAction(() => deleteProject(project.id));
   }
@@ -220,38 +198,13 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {phase === "ready" && projects.length > 0 ? (
             <div className="home-project-grid">
               {visibleProjects.map((project, index) => (
-                <article className="home-project" key={project.id}>
-                  <button className="home-project-open" type="button" onClick={() => onOpen(project.id)} aria-label={`Open ${project.name}`}>
-                  <ProjectCover projectId={project.id} fallback={index % 4} />
-                  <span className="home-project-meta">
-                    {auth.state.status === "signed-in" ? (
-                      <UserAvatar className="home-project-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
-                    ) : <UserAvatar className="home-project-avatar" name="OpenGame" />}
-                    <span className="home-project-copy">
-                      <span className="home-project-name" title={project.name}>{project.name}</span>
-                      <span className="home-project-time">{projectTime(project.updatedAt)}</span>
-                    </span>
-                  </span>
-                  </button>
-                  <div className="home-project-actions" ref={openProjectMenuId === project.id ? menuRef : undefined}>
-                    <button
-                      className="home-project-menu"
-                      type="button"
-                      aria-label={`Project actions for ${project.name}`}
-                      aria-expanded={openProjectMenuId === project.id}
-                      onClick={() => setOpenProjectMenuId((current) => current === project.id ? undefined : project.id)}
-                    >
-                      <MoreHorizontal size={16} />
-                    </button>
-                    {openProjectMenuId === project.id ? (
-                      <div className="home-project-actions-menu" role="menu">
-                        <button type="button" role="menuitem" onClick={() => void rename(project)}>Rename</button>
-                        <button type="button" role="menuitem" onClick={() => void duplicate(project)}>Duplicate</button>
-                        <button className="home-project-actions-delete" type="button" role="menuitem" onClick={() => void remove(project)}>Delete</button>
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  fallback={index % 4}
+                  onOpen={() => onOpen(project.id)}
+                  actions={{ onRename: () => void rename(project), onDuplicate: () => void duplicate(project), onDelete: () => void remove(project) }}
+                />
               ))}
             </div>
           ) : null}
@@ -266,49 +219,14 @@ function sameModel(model: AgentModel, value?: AgentModelRef): boolean {
   return Boolean(value && model.provider === value.provider && model.id === value.id);
 }
 
-function ProjectCover({ projectId, fallback }: { projectId: string; fallback: number }) {
-  const [url, setUrl] = useState<string>();
-
-  useEffect(() => {
-    let objectUrl: string | undefined;
-    let disposed = false;
-    void getProjectCover(projectId).then((cover) => {
-      if (!cover || disposed) return;
-      objectUrl = URL.createObjectURL(cover);
-      setUrl(objectUrl);
-    }).catch(() => {});
-    return () => {
-      disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [projectId]);
-
-  return (
-    <span className={`home-project-preview home-project-preview-${fallback}`} aria-hidden="true">
-      {url ? <img src={url} alt="" /> : null}
-    </span>
-  );
-}
-
 function ProjectGridSkeleton() {
   return (
     <div className="home-project-grid" aria-label="Loading projects">
-      {[0, 1, 2, 3].map((item) => <div className="home-project home-project-skeleton" key={item} />)}
+      {[0, 1, 2, 3].map((item) => <div className="project-card home-project-skeleton" key={item} />)}
     </div>
   );
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function projectTime(value: string): string {
-  const elapsed = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 60_000) return "Edited just now";
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 60) return `Edited ${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Edited ${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `Edited ${days}d ago`;
 }

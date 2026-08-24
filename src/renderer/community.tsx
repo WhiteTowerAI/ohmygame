@@ -50,16 +50,16 @@ export function Community({
           {phase === "ready" && games.length > 0 ? (
             <div className="home-project-grid">
               {games.map((game, index) => (
-                <article className="home-project" key={game.id}>
-                  <button className="home-project-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
-                    <span className={`home-project-preview home-project-preview-${index % 4} community-game-preview`} aria-hidden="true">
+                <article className="community-game-card" key={game.id}>
+                  <button className="community-game-card-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
+                    <span className={`community-game-card-preview project-card-preview-${index % 4} community-game-preview`} aria-hidden="true">
                       <Gamepad2 size={28} />
                     </span>
-                    <span className="home-project-meta">
+                    <span className="community-game-card-meta">
                       <span className="home-project-avatar" aria-hidden="true"><Gamepad2 size={14} /></span>
-                      <span className="home-project-copy">
-                        <span className="home-project-name" title={game.title}>{game.title}</span>
-                        <span className="home-project-time">{publishedTime(game.publishedAt)}</span>
+                      <span className="community-game-card-copy">
+                        <span className="community-game-card-name" title={game.title}>{game.title}</span>
+                        <span className="community-game-card-time">{publishedTime(game.publishedAt)}</span>
                       </span>
                     </span>
                   </button>
