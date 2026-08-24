@@ -22,6 +22,16 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   notarize: true
+  target:
+    - dmg
+    - zip
+
+publish:
+  provider: github
+  owner: WhiteTowerAI
+  repo: open-game
+  channel: alpha
+  releaseType: prerelease
 
 dmg:
   artifactName: OpenGame-${version}-${arch}.${ext}

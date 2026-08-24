@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopUpdateState } from "../shared/desktop-update.js";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -17,6 +18,17 @@ if (process.isMainFrame) {
     openExternal: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("open-game:capture-page", bounds) as Promise<Uint8Array>,
+    updates: Object.freeze({
+      state: () => ipcRenderer.invoke("open-game:update-state") as Promise<DesktopUpdateState | null>,
+      check: () => ipcRenderer.invoke("open-game:check-for-update") as Promise<void>,
+      download: () => ipcRenderer.invoke("open-game:download-update") as Promise<void>,
+      install: () => ipcRenderer.invoke("open-game:install-update") as Promise<void>,
+      onState: (listener: (state: DesktopUpdateState) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState) => listener(state);
+        ipcRenderer.on("open-game:update-state", callback);
+        return () => ipcRenderer.removeListener("open-game:update-state", callback);
+      },
+    }),
     auth: Object.freeze({
       callbackUrl: () => ipcRenderer.invoke("open-game:auth-callback-url") as Promise<string>,
       cancel: () => ipcRenderer.invoke("open-game:cancel-auth") as Promise<void>,

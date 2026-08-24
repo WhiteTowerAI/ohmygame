@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
+import type { DesktopUpdateState } from "../shared/desktop-update.js";
 
 type SettingsSection = "account" | "providers" | "about";
 
@@ -105,7 +106,42 @@ function AccountSettings({ onOpenSignIn }: { onOpenSignIn: () => void }) {
 }
 
 function AboutSettings() {
-  return <section className="settings-panel"><h3>About</h3><div className="settings-about-row"><span>Version</span><strong>0.0.0</strong></div></section>;
+  const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
+  const updates = window.openGameDesktop?.updates;
+  useEffect(() => {
+    if (!updates) return;
+    let disposed = false;
+    void updates.state().then((state) => { if (!disposed) setUpdate(state); }).catch(() => undefined);
+    const unsubscribe = updates.onState(setUpdate);
+    return () => { disposed = true; unsubscribe(); };
+  }, [updates]);
+  const status = update?.status;
+  const message = status?.type === "up-to-date" ? "You're up to date"
+    : status?.type === "checking" ? "Checking for updates..."
+      : status?.type === "available" ? `Update available: ${status.version}`
+        : status?.type === "downloading" ? `Downloading update (${status.percent}%)`
+          : status?.type === "ready" ? `Ready to restart: ${status.version}`
+            : status?.type === "error" ? status.message : "Not checked yet";
+  const busy = status?.type === "checking" || status?.type === "downloading";
+  return (
+    <section className="settings-panel">
+      <h3>About</h3>
+      <div className="settings-about-row">
+        <span>Version</span>
+        <strong>{update?.currentVersion ?? "0.0.0-alpha.1"}</strong>
+      </div>
+      <p className="settings-about-status">{message}</p>
+      {updates ? (
+        <div className="settings-about-actions">
+          {status?.type === "available" ? <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>Download update</button> : null}
+          {status?.type === "ready" ? <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>Restart to update</button> : null}
+          <button className="settings-secondary-button" type="button" disabled={busy} onClick={() => void updates.check()}>
+            {status?.type === "error" ? "Check again" : "Check for updates"}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function errorMessage(error: unknown): string {

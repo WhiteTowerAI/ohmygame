@@ -140,7 +140,8 @@ body {
   padding: 0 11px;
 }
 
-.home-sidebar-sign-in-main {
+.home-sidebar-sign-in-main,
+.home-sidebar-account-main {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -153,6 +154,52 @@ body {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.home-sidebar-account-main:hover .home-sidebar-account-name,
+.home-sidebar-account-main:focus-visible .home-sidebar-account-name {
+  color: var(--text);
+}
+
+.home-sidebar-update {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: #298ff2;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: width 140ms ease;
+}
+
+.home-sidebar-update:hover,
+.home-sidebar-update:focus-visible {
+  width: 72px;
+  flex-basis: 72px;
+}
+
+.home-sidebar-update span {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width 140ms ease, opacity 100ms ease;
+}
+
+.home-sidebar-update:hover span,
+.home-sidebar-update:focus-visible span {
+  max-width: 48px;
+  opacity: 1;
 }
 
 .home-sidebar-sign-in-main:disabled {
@@ -713,6 +760,20 @@ body {
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-about-status {
+  min-height: 18px;
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 560px) {

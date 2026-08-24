@@ -39,6 +39,7 @@ import {
   type WorkspaceFile,
   type WorkspaceFileContent,
 } from "../shared/contracts.js";
+import type { DesktopUpdateState } from "../shared/desktop-update.js";
 
 const API_BASE = "/api";
 
@@ -54,6 +55,13 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
+      updates: {
+        state: () => Promise<DesktopUpdateState | null>;
+        check: () => Promise<void>;
+        download: () => Promise<void>;
+        install: () => Promise<void>;
+        onState: (listener: (state: DesktopUpdateState) => void) => () => void;
+      };
       auth: {
         callbackUrl: () => Promise<string>;
         cancel: () => Promise<void>;

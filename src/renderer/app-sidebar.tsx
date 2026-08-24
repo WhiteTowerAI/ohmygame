@@ -1,9 +1,10 @@
-import { AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, MoreHorizontal, Plug, UserRound, Video } from "lucide-react";
+import { ArrowDownToLine, AudioLines, Box, Cpu, Folder, Gamepad2, House, Images, Library, MoreHorizontal, Plug, RefreshCw, UserRound, Video } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
 import { SettingsDialog } from "./settings-dialog.js";
 import { UserAvatar } from "./user-avatar.js";
+import type { DesktopUpdateState } from "../shared/desktop-update.js";
 
 interface AppSidebarProps {
   active: SidebarPage;
@@ -22,6 +23,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountError, setAccountError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
   const sidebar = useRef<HTMLElement>(null);
   const account = useRef<HTMLDivElement>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -39,6 +41,32 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [accountMenuOpen]);
+
+  useEffect(() => {
+    const updates = window.openGameDesktop?.updates;
+    if (!updates) return;
+    let disposed = false;
+    void updates.state().then((state) => {
+      if (!disposed) setUpdate(state);
+    }).catch(() => undefined);
+    const unsubscribe = updates.onState(setUpdate);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const updateStatus = update?.status.type;
+  const updateAction = updateStatus === "available"
+    ? { label: "Update", icon: <ArrowDownToLine size={15} />, action: () => void window.openGameDesktop?.updates.download() }
+    : updateStatus === "ready"
+      ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.openGameDesktop?.updates.install() }
+      : undefined;
+  const updateButton = updateAction ? (
+    <button className="home-sidebar-update" type="button" aria-label={updateAction.label} onClick={updateAction.action}>
+      {updateAction.icon}<span>{updateAction.label}</span>
+    </button>
+  ) : null;
 
   function resize(clientX: number): void {
     const shell = sidebar.current?.parentElement;
@@ -101,20 +129,19 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
-          <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
-          <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
-          <button
-            className="home-sidebar-account-menu"
-            type="button"
-            aria-label="Account menu"
-            aria-expanded={accountMenuOpen}
-            onClick={() => {
+          <button className="home-sidebar-account-main" type="button" aria-label="Open account menu" aria-expanded={accountMenuOpen} onClick={() => {
+            setAccountError(undefined);
+            setAccountMenuOpen((open) => !open);
+          }}>
+            <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
+            <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
+          </button>
+          {updateButton ?? (
+            <button className="home-sidebar-account-menu" type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={() => {
               setAccountError(undefined);
               setAccountMenuOpen((open) => !open);
-            }}
-          >
-            <MoreHorizontal size={16} />
-          </button>
+            }}><MoreHorizontal size={16} /></button>
+          )}
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
@@ -140,15 +167,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
             <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
           </button>
-          <button
-            className="home-sidebar-account-menu"
-            type="button"
-            aria-label="Application menu"
-            aria-expanded={accountMenuOpen}
-            onClick={() => setAccountMenuOpen((open) => !open)}
-          >
-            <MoreHorizontal size={16} />
-          </button>
+          {updateButton ?? <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>}
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {

@@ -7,6 +7,7 @@ import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, waitForRenderer } from "./window.js";
+import { DesktopUpdater } from "./updater.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const developmentRendererUrl = process.env.OPEN_GAME_RENDERER_URL ?? "http://127.0.0.1:43120";
@@ -14,7 +15,12 @@ const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-render
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 let quitting = false;
+let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("open-game:auth-callback"));
+
+async function stopServices(): Promise<void> {
+  await Promise.all([daemon?.stop(), oauth.cancel()]);
+}
 
 ipcMain.handle("open-game:open-auth-url", async (_event, url: unknown) => {
   if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
@@ -28,13 +34,17 @@ ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
   return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
+ipcMain.handle("open-game:update-state", () => updater?.state() ?? null);
+ipcMain.handle("open-game:check-for-update", () => updater?.check());
+ipcMain.handle("open-game:download-update", () => updater?.download());
+ipcMain.handle("open-game:install-update", () => updater?.install());
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   if (quitting || !daemon) return;
   event.preventDefault();
   quitting = true;
-  void Promise.all([daemon.stop(), oauth.cancel()]).finally(() => app.quit());
+  void stopServices().finally(() => app.quit());
 });
 
 try {
@@ -48,6 +58,10 @@ try {
     runtimeBin: app.isPackaged ? path.join(process.resourcesPath, "runtime/node/bin") : undefined,
     environment: app.isPackaged ? await packagedEnvironment() : undefined,
   });
+  updater = new DesktopUpdater(app.getVersion(), async () => {
+    await stopServices();
+    quitting = true;
+  });
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   mainWindow = await createDesktopWindow({
@@ -56,12 +70,14 @@ try {
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
   });
+  updater.subscribe((state) => mainWindow?.webContents.send("open-game:update-state", state));
+  if (app.isPackaged) void updater.check();
   mainWindow.once("closed", () => { mainWindow = undefined; });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
   if (app.isReady()) dialog.showErrorBox("OpenGame could not start", message);
-  await Promise.all([daemon?.stop(), oauth.cancel()]);
+  await stopServices();
   app.exit(1);
 }
 
