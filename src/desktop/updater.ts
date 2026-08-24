@@ -1,6 +1,8 @@
 import { app } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+
+const { autoUpdater } = electronUpdater;
 
 export class DesktopUpdater {
   #state: DesktopUpdateState;
