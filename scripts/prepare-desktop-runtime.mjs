@@ -18,11 +18,7 @@ const runtimes = {
     sha256: "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
   },
 };
-const target = `${process.platform}-${process.arch}`;
-const requestedTarget = process.argv[2];
-if (requestedTarget && requestedTarget !== target) {
-  throw new Error(`Cannot prepare ${requestedTarget} desktop runtime on ${target}`);
-}
+const target = process.argv[2] ?? `${process.platform}-${process.arch}`;
 const runtime = runtimes[target];
 if (!runtime) throw new Error(`Desktop packaging is not supported on ${target}`);
 const { archiveName, extractedName, sha256: expectedSha256 } = runtime;
@@ -61,7 +57,7 @@ if (actualSha256 !== expectedSha256) {
   throw new Error(`Node.js runtime checksum mismatch: ${actualSha256}`);
 }
 
-await run("tar", [process.platform === "win32" ? "-xf" : "-xzf", archive, "-C", runtimeRoot]);
+await run("tar", [archiveName.endsWith(".zip") ? "-xf" : "-xzf", archive, "-C", runtimeRoot]);
 await rename(extracted, destination);
 await Promise.all([
   rm(path.join(destination, "include"), { recursive: true, force: true }),
