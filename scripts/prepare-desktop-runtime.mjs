@@ -9,10 +9,12 @@ const version = "22.19.0";
 const runtimes = {
   "darwin-arm64": {
     archiveName: `node-v${version}-darwin-arm64.tar.gz`,
+    extractedName: `node-v${version}-darwin-arm64`,
     sha256: "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d",
   },
   "win32-x64": {
     archiveName: `node-v${version}-win-x64.zip`,
+    extractedName: `node-v${version}-win-x64`,
     sha256: "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
   },
 };
@@ -23,7 +25,7 @@ if (requestedTarget && requestedTarget !== target) {
 }
 const runtime = runtimes[target];
 if (!runtime) throw new Error(`Desktop packaging is not supported on ${target}`);
-const { archiveName, sha256: expectedSha256 } = runtime;
+const { archiveName, extractedName, sha256: expectedSha256 } = runtime;
 const runtimeLayout = `${version}-${target}-minimal-1`;
 const runtimeRoot = path.resolve(".runtime");
 const destination = path.join(runtimeRoot, "node");
@@ -41,7 +43,7 @@ try {
 
 await mkdir(runtimeRoot, { recursive: true });
 const archive = path.join(runtimeRoot, archiveName);
-const extracted = path.join(runtimeRoot, `node-v${version}-${process.platform}-${process.arch}`);
+const extracted = path.join(runtimeRoot, extractedName);
 await rm(destination, { recursive: true, force: true });
 await rm(extracted, { recursive: true, force: true });
 
