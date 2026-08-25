@@ -46,7 +46,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   return (
     <main className="story-playtest-page">
-      <header className="story-playtest-header">
+      <header className="story-playtest-header window-drag-handle">
         <strong>{chapter?.title ?? "Playtest"}</strong>
         {chapter ? <button type="button" onClick={restart}><RotateCcw size={14} />Restart</button> : null}
       </header>

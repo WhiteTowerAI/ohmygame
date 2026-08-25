@@ -970,15 +970,24 @@ button.home-nav-item:hover {
   scrollbar-width: thin;
 }
 
-.desktop-macos .home-content-drag-region {
+.desktop-macos .window-drag-region {
   position: fixed;
   z-index: 2;
   top: 0;
   right: 8px;
   left: var(--sidebar-width, 232px);
-  height: 50px;
+  height: 24px;
   app-region: drag;
   user-select: none;
+}
+
+.desktop-macos .window-drag-handle {
+  app-region: drag;
+  user-select: none;
+}
+
+.desktop-macos .window-drag-handle :is(a, button, input, label, select, textarea) {
+  app-region: no-drag;
 }
 
 .home-start {
@@ -2651,15 +2660,6 @@ textarea:focus-visible {
   background: var(--surface);
 }
 
-.desktop-macos .interactive-drama-header {
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-macos .interactive-drama-header button {
-  app-region: no-drag;
-}
-
 .interactive-drama-chapter {
   display: flex;
   grid-column: 2;
@@ -2880,12 +2880,6 @@ textarea:focus-visible {
 
 .desktop-macos .story-playtest-header {
   padding-left: 80px;
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-macos .story-playtest-header button {
-  app-region: no-drag;
 }
 
 .story-playtest-state {
@@ -3533,19 +3527,8 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
-.desktop-macos .pane-header {
-  app-region: drag;
-  user-select: none;
-}
-
 .desktop-macos .agent-pane > .pane-header {
   padding-left: 88px;
-}
-
-.desktop-macos .pane-header button,
-.desktop-macos .pane-header input,
-.desktop-macos .pane-header select {
-  app-region: no-drag;
 }
 
 .pane-header-actions {
@@ -5798,12 +5781,6 @@ textarea:focus-visible {
 
 .desktop-macos .community-player-header {
   padding-left: 88px;
-  app-region: drag;
-  user-select: none;
-}
-
-.desktop-macos .community-player-header button {
-  app-region: no-drag;
 }
 
 .community-player-stage {

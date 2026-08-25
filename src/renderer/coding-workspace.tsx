@@ -135,7 +135,7 @@ export function CodingWorkspace({
 
   return (
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
-      <header className="pane-header viewer-header">
+      <header className="pane-header viewer-header window-drag-handle">
         <nav className="workspace-tabs" aria-label="Workspace views">
           <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
           <span className="workspace-tab-divider" aria-hidden="true" />

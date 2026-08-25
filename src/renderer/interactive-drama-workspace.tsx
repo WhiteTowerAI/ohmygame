@@ -197,7 +197,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
 
   return (
     <section className="viewer-pane interactive-drama-workspace" aria-label="Interactive Drama workspace">
-      <header className="interactive-drama-header">
+      <header className="interactive-drama-header window-drag-handle">
         <button className="interactive-drama-chapter" type="button">
           <span>Chapter 1 / {chapter?.title ?? "Untitled"}</span>
           <ChevronDown size={14} />

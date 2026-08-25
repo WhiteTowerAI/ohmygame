@@ -698,7 +698,7 @@ function PaneHeader({
   children: ReactNode;
 }) {
   return (
-    <header className="pane-header">
+    <header className="pane-header window-drag-handle">
       <div className="project-heading">
         <button className="icon-button pane-header-action" type="button" onClick={onHome} title="Home" aria-label="Home">
           <House size={14} />

@@ -10,6 +10,7 @@ import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-m
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ProjectCard } from "./project-card.js";
 import type { SidebarPage } from "./routes.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
@@ -119,7 +120,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       <AppSidebar active="home" onNavigate={onNavigate} />
 
       <section className="home-content">
-        <div className="home-content-drag-region" aria-hidden="true" />
+        <WindowDragRegion />
         <div className="home-start">
           <h1>Open Game</h1>
           <PromptBox

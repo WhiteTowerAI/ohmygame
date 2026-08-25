@@ -1,11 +1,14 @@
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 export function EmptyPage({ page, onNavigate }: { page: SidebarPage; onNavigate: (page: SidebarPage) => void }) {
   return (
     <main className="home-shell">
       <AppSidebar active={page} onNavigate={onNavigate} />
-      <section className="home-content" aria-label={`${page} page`} />
+      <section className="home-content" aria-label={`${page} page`}>
+        <WindowDragRegion />
+      </section>
     </main>
   );
 }

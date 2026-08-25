@@ -5,6 +5,7 @@ import { createProject, deleteProject, duplicateProject, listProjects, renamePro
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import type { SidebarPage } from "./routes.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 interface ProjectsPageProps {
   onNavigate: (page: SidebarPage) => void;
@@ -94,7 +95,8 @@ export function ProjectsPage({ onNavigate, onOpenProject, workspace = "general" 
     <main className="home-shell">
       <AppSidebar active={workspace === "interactive-drama" ? "interactive-drama" : "projects"} onNavigate={onNavigate} />
       <section className="projects-content">
-        <header className="projects-header">
+        <WindowDragRegion />
+        <header className="projects-header window-drag-handle">
           <h1>{workspace === "interactive-drama" ? "Interactive Drama" : "Projects"}</h1>
           <div className="projects-controls">
             <label className="projects-search" htmlFor="projects-search-input">

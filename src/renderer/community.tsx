@@ -36,7 +36,7 @@ export function Community({
     <main className="home-shell">
       <AppSidebar active="community" onNavigate={onNavigate} />
       <section className="community-shell">
-        <header className="community-header">
+        <header className="community-header window-drag-handle">
           <h1>Community</h1>
           <button className="icon-button quiet-button" type="button" onClick={() => void load()} title="Refresh" aria-label="Refresh">
             <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
@@ -92,7 +92,7 @@ export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack
 
   return (
     <main className="community-player-page">
-      <header className="community-player-header">
+      <header className="community-player-header window-drag-handle">
         <button className="community-player-back" type="button" onClick={onBack}>
           <ArrowLeft size={15} />
           Community

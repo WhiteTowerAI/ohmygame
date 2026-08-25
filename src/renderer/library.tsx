@@ -95,7 +95,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
           ) : null}
         </aside>
         <section className="library-content">
-          <header className="library-header">
+          <header className="library-header window-drag-handle">
             <div><h1>Library</h1><p>{libraryCountLabel(visibleAssets.length)}</p></div>
             <label className="library-search" htmlFor="library-search-input">
               <Search size={14} aria-hidden="true" />

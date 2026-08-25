@@ -5,6 +5,7 @@ import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, lis
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 interface AssetStudioPageProps {
   onNavigate: (page: SidebarPage) => void;
@@ -66,7 +67,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     <main className="home-shell">
       <AppSidebar active="asset-studio" onNavigate={onNavigate} />
       <section className="asset-studio-content">
-        <header className="asset-studio-heading">
+        <WindowDragRegion />
+        <header className="asset-studio-heading window-drag-handle">
           <div><h1>Asset Studio</h1><p>Create images, video, and 3D assets with specialized apps.</p></div>
           {phase === "error" ? (
             <button className="asset-studio-retry" type="button" onClick={() => void load()}>

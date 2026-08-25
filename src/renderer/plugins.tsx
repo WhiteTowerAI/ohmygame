@@ -4,6 +4,7 @@ import type { PiPackageSummary, ToolDefinition } from "../shared/contracts.js";
 import { getToolSettings, installPiPackage, listInstalledPiPackages, listPiPackages, listTools, removePiPackage, updateToolSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) => void }) {
   const [tools, setTools] = useState<ToolDefinition[]>([]);
@@ -168,6 +169,7 @@ export function PluginsPage({ onNavigate }: { onNavigate: (page: SidebarPage) =>
     <main className="home-shell">
       <AppSidebar active="plugins" onNavigate={onNavigate} />
       <section className="plugins-content">
+        <WindowDragRegion />
         <div className="plugins-main">
           {view === "manage" ? (
             <ManagePlugins
