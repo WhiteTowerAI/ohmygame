@@ -303,6 +303,86 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Ran npm run typecheck");
   });
 
+  it("shows the Godot brand and operation for MCP tool calls", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "mcp",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "mcp",
+        toolName: "mcp",
+        status: "running",
+        args: { tool: "opengame-godot_create_scene", args: { scenePath: "main.tscn" } },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Godot: Create scene");
+    expect(html).toContain("tool-brand-godot");
+    expect(html).not.toContain("Preparing mcp");
+  });
+
+  it("uses a generic plug for unknown MCP servers", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "mcp",
+        turnId: "turn-1",
+        kind: "tool",
+        toolCallId: "mcp",
+        toolName: "mcp",
+        status: "running",
+        args: { server: "custom-tools", tool: "fetch_asset" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Custom tools: Fetch asset");
+    expect(html).toContain("lucide-plug");
+  });
+
+  it("groups consecutive calls by their MCP integration", () => {
+    const mcpTool = (id: string, operation: string): AgentItem => ({
+      id,
+      turnId: "turn-1",
+      kind: "tool",
+      toolCallId: id,
+      toolName: "mcp",
+      status: "complete",
+      args: { tool: `opengame-godot_${operation}` },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      mcpTool("version", "get_godot_version"),
+      mcpTool("run", "run_project"),
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Used Godot 2 times");
+    expect(html).toContain("Godot: Get Godot version");
+    expect(html).toContain("Godot: Run project");
+  });
+
+  it("keeps the generic MCP icon when unknown integrations are grouped", () => {
+    const mcpTool = (id: string, operation: string): AgentItem => ({
+      id,
+      turnId: "turn-1",
+      kind: "tool",
+      toolCallId: id,
+      toolName: "mcp",
+      status: "complete",
+      args: { server: "custom-tools", tool: operation },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      mcpTool("fetch", "fetch_asset"),
+      mcpTool("save", "save_asset"),
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Used Custom tools 2 times");
+    expect(html).toContain("lucide-plug");
+  });
+
   it("keeps earlier tools and replaces only the current trailing tool", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),

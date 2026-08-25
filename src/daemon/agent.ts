@@ -1350,8 +1350,19 @@ function toolArguments(toolName: string, args: unknown): unknown {
     case "read": return boundedValue(compactRecord(values, ["path", "offset", "limit"]));
     case "write":
     case "edit": return boundedValue(compactRecord(values, ["path", "file_path"]));
+    case "mcp": return mcpToolArguments(values);
     default: return boundedValue(args);
   }
+}
+
+function mcpToolArguments(values: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = Object.fromEntries(
+    ["server", "tool", "connect", "describe", "search", "action"]
+      .filter((key) => typeof values[key] === "string")
+      .map((key) => [key, (values[key] as string).slice(0, 300)]),
+  );
+  if (values.args !== undefined) result.args = boundedValue(values.args, 1_000);
+  return result;
 }
 
 function compactRecord(values: Record<string, unknown>, keys: string[]): Record<string, unknown> | undefined {
@@ -1359,17 +1370,17 @@ function compactRecord(values: Record<string, unknown>, keys: string[]): Record<
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function boundedValue(value: unknown): unknown {
+function boundedValue(value: unknown, maxLength = MAX_GENERIC_TOOL_ARGUMENTS): unknown {
   if (value === undefined) return undefined;
   let serialized: string | undefined;
   try {
     serialized = JSON.stringify(value);
   } catch {
-    return String(value).slice(0, MAX_GENERIC_TOOL_ARGUMENTS);
+    return String(value).slice(0, maxLength);
   }
-  if (serialized === undefined) return String(value).slice(0, MAX_GENERIC_TOOL_ARGUMENTS);
-  if (serialized.length <= MAX_GENERIC_TOOL_ARGUMENTS) return JSON.parse(serialized) as unknown;
-  return `${serialized.slice(0, MAX_GENERIC_TOOL_ARGUMENTS)}\n... arguments truncated ...`;
+  if (serialized === undefined) return String(value).slice(0, maxLength);
+  if (serialized.length <= maxLength) return JSON.parse(serialized) as unknown;
+  return `${serialized.slice(0, maxLength)}\n... arguments truncated ...`;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

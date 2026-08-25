@@ -4304,9 +4304,13 @@ textarea:focus-visible {
 }
 
 .tool-row > svg:first-child,
-.tool-group-summary > svg:first-child {
+.tool-row > .tool-brand-icon:first-child,
+.tool-group-summary > svg:first-child,
+.tool-group-summary > .tool-brand-icon:first-child {
   justify-self: center;
 }
+
+.tool-brand-icon { display: block; }
 
 .tool-label {
   overflow: hidden;

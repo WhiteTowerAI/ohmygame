@@ -1,4 +1,5 @@
 import type { AgentItem } from "../shared/contracts.js";
+import { mcpServerName, mcpToolCall } from "./mcp-tool-presentation.js";
 
 export type ToolItem = Extract<AgentItem, { kind: "tool" }>;
 type ThinkingItem = Extract<AgentItem, { kind: "thinking" }>;
@@ -41,7 +42,7 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
 export function toolGroupSummary(tools: ToolItem[]): string {
   const categories = new Map<string, ToolItem[]>();
   for (const tool of tools.filter((item) => item.status !== "error")) {
-    const category = toolCategory(tool.toolName);
+    const category = toolCategory(tool);
     categories.set(category, [...(categories.get(category) ?? []), tool]);
   }
 
@@ -55,10 +56,13 @@ export function toolGroupSummary(tools: ToolItem[]): string {
   return summary[0].toUpperCase() + summary.slice(1);
 }
 
-function toolCategory(toolName: string): string {
+function toolCategory(tool: ToolItem): string {
+  const toolName = tool.toolName;
   if (toolName === "edit" || toolName === "write") return "edit";
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return "read";
   if (toolName === "bash") return "command";
+  const mcpCall = mcpToolCall(toolName, tool.args);
+  if (mcpCall) return `mcp:${mcpCall.server ?? ""}`;
   return `tool:${toolName}`;
 }
 
@@ -73,6 +77,10 @@ function categoryPhrase(category: string, tools: ToolItem[]): string {
   if (category === "edit") return filePhrase("edited", tools);
   if (category === "read") return tools.length === 1 ? "read a file" : "read files";
   if (category === "command") return tools.length === 1 ? "ran a command" : `ran ${tools.length} commands`;
+  if (category.startsWith("mcp:")) {
+    const name = mcpServerName(category.slice("mcp:".length) || undefined);
+    return tools.length === 1 ? `used ${name}` : `used ${name} ${tools.length} times`;
+  }
   const toolName = category.slice("tool:".length);
   return tools.length === 1 ? `used ${toolName}` : `used ${toolName} ${tools.length} times`;
 }

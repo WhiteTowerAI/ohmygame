@@ -6,23 +6,27 @@ import {
   FileText,
   LoaderCircle,
   Pencil,
+  Plug,
   Search,
   Terminal,
   Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { isValidElement, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { isValidElement, useEffect, useState, type ImgHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
+import { mcpToolBrand, mcpToolCall, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
+
+const godotIconUrl = new URL("./assets/godot.svg", import.meta.url).href;
 
 interface AgentTimelineProps {
   items: AgentItem[];
@@ -303,10 +307,15 @@ function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; act
   );
 }
 
-function toolGroupIcon(tools: ToolItem[]): LucideIcon {
+type ToolIcon = LucideIcon | typeof GodotIcon;
+
+function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.toolName === "edit" || tool.toolName === "write")) return FilePenLine;
   if (tools.some((tool) => tool.toolName === "grep" || tool.toolName === "find" || tool.toolName === "read" || tool.toolName === "ls")) return Search;
   if (tools.some((tool) => tool.toolName === "bash")) return Terminal;
+  const mcpCalls = tools.map((tool) => mcpToolCall(tool.toolName, tool.args)).filter((call) => call !== undefined);
+  if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
+  if (mcpCalls.length > 0) return Plug;
   return Wrench;
 }
 
@@ -428,7 +437,9 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
 function ToolActivity({ item, completed = false }: { item: Extract<AgentItem, { kind: "tool" }>; completed?: boolean }) {
   const presentation = completed ? completedToolPresentation(item.toolName, item.args) : toolPresentation(item.toolName, item.args);
   const Icon = presentation.icon;
-  const label = item.status === "preparing" ? preparingToolLabel(item.toolName) : presentation.label;
+  const label = item.status === "preparing" && !mcpToolCall(item.toolName, item.args)
+    ? preparingToolLabel(item.toolName)
+    : presentation.label;
   return (<>
     <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
@@ -474,13 +485,16 @@ function preparingToolLabel(toolName: string): string {
     case "read": return "Preparing read";
     case "write": return "Preparing file";
     case "edit": return "Preparing edit";
+    case "mcp": return "Preparing MCP";
     case "tool": return "Preparing";
     default: return `Preparing ${toolName}`;
   }
 }
 
-function toolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {
+function toolPresentation(toolName: string, args: unknown): { icon: ToolIcon; label: string } {
   const values = record(args);
+  const mcpCall = mcpToolCall(toolName, args);
+  if (mcpCall) return { icon: mcpToolBrand(mcpCall) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(mcpCall) };
   switch (toolName) {
     case "bash": return { icon: Terminal, label: `Running ${text(values?.command) || "command"}` };
     case "edit": return { icon: FilePenLine, label: withTarget("Editing", values) };
@@ -493,8 +507,10 @@ function toolPresentation(toolName: string, args: unknown): { icon: LucideIcon; 
   }
 }
 
-function completedToolPresentation(toolName: string, args: unknown): { icon: LucideIcon; label: string } {
+function completedToolPresentation(toolName: string, args: unknown): { icon: ToolIcon; label: string } {
   const values = record(args);
+  const mcpCall = mcpToolCall(toolName, args);
+  if (mcpCall) return { icon: mcpToolBrand(mcpCall) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(mcpCall) };
   switch (toolName) {
     case "bash": return { icon: Terminal, label: `Ran ${text(values?.command) || "command"}` };
     case "edit":
@@ -505,6 +521,10 @@ function completedToolPresentation(toolName: string, args: unknown): { icon: Luc
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
     default: return { icon: Wrench, label: `Used ${toolName}` };
   }
+}
+
+function GodotIcon({ size = 13, ...props }: ImgHTMLAttributes<HTMLImageElement> & { size?: number }) {
+  return <img className="tool-brand-icon tool-brand-godot" src={godotIconUrl} width={size} height={size} alt="" {...props} />;
 }
 
 function searchLabel(action: string, values: Record<string, unknown> | undefined): string {

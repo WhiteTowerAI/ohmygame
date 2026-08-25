@@ -237,6 +237,33 @@ describe("conversationItems", () => {
 
     expect(items[1]?.kind === "tool" && typeof items[1].args === "string" && items[1].args.length).toBeLessThan(2_100);
   });
+
+  it("keeps MCP identity when nested tool arguments are large", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Create a scene", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{
+          type: "toolCall",
+          id: "mcp",
+          name: "mcp",
+          arguments: {
+            server: "opengame-godot",
+            tool: "create_scene",
+            args: { projectPath: "/game", content: "x".repeat(3_000) },
+          },
+        }],
+        stopReason: "toolUse",
+      }),
+    ] as never);
+
+    expect(items[1]).toMatchObject({
+      kind: "tool",
+      toolName: "mcp",
+      args: { server: "opengame-godot", tool: "create_scene" },
+    });
+    expect(items[1]?.kind === "tool" && typeof (items[1].args as { args?: unknown }).args).toBe("string");
+  });
 });
 
 describe("AgentManager", () => {
