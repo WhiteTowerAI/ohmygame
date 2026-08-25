@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -53,7 +53,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   ending: EndingNode,
 };
 
-export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) {
+export function InteractiveDramaWorkspace({ projectId, collapsedActions }: { projectId: string; collapsedActions?: ReactNode }) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [chapter, setChapter] = useState<{ id: string; title: string }>();
@@ -198,6 +198,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   return (
     <section className="viewer-pane interactive-drama-workspace" aria-label="Interactive Drama workspace">
       <header className="interactive-drama-header window-drag-handle">
+        {collapsedActions}
         <button className="interactive-drama-chapter" type="button">
           <span>Chapter 1 / {chapter?.title ?? "Untitled"}</span>
           <ChevronDown size={14} />

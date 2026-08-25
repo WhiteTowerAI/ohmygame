@@ -536,18 +536,6 @@ export function ProjectShell({
         <div className="workspace-resize-shield" />
       ) : null}
 
-      {agentCollapsed ? (
-        <button
-          className="icon-button agent-expand-button"
-          type="button"
-          onClick={() => setAgentCollapsed(false)}
-          title="Show agent"
-          aria-label="Show agent"
-        >
-          <PanelLeftOpen size={15} />
-        </button>
-      ) : null}
-
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
           title={project?.name ?? "Loading project"}
@@ -693,9 +681,26 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           onPublish={publish}
           onRestart={restartPreview}
+          collapsedActions={agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : undefined}
         />
-      ) : <InteractiveDramaWorkspace projectId={project.id} />}
+      ) : <InteractiveDramaWorkspace
+        projectId={project.id}
+        collapsedActions={agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : undefined}
+      />}
     </main>
+  );
+}
+
+function CollapsedWorkspaceActions({ onHome, onExpand }: { onHome: () => void; onExpand: () => void }) {
+  return (
+    <div className="workspace-navigation-actions" role="toolbar" aria-label="Workspace navigation">
+      <button className="icon-button" type="button" onClick={onHome} title="Home" aria-label="Home">
+        <House size={14} />
+      </button>
+      <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
+        <PanelLeftOpen size={15} />
+      </button>
+    </div>
   );
 }
 

@@ -3574,11 +3574,19 @@ textarea:focus-visible {
   opacity: 0.45;
 }
 
-.agent-expand-button {
+.workspace-navigation-actions {
   position: absolute;
-  z-index: 4;
+  z-index: 20;
   top: 11px;
-  left: 12px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+  app-region: no-drag;
+}
+
+.workspace-navigation-actions .icon-button {
   width: 28px;
   height: 28px;
   border: 0;
@@ -3586,7 +3594,7 @@ textarea:focus-visible {
   color: var(--text-muted);
 }
 
-.agent-expand-button:hover {
+.workspace-navigation-actions .icon-button:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
@@ -3599,9 +3607,22 @@ textarea:focus-visible {
   padding-left: 88px;
 }
 
-.desktop-macos .workspace-shell-agent-collapsed .agent-expand-button {
+.desktop-macos .workspace-navigation-actions {
   left: 88px;
   app-region: no-drag;
+}
+
+.desktop-macos .workspace-navigation-actions .icon-button {
+  app-region: no-drag;
+  pointer-events: auto;
+}
+
+.workspace-shell-agent-collapsed .interactive-drama-header {
+  padding-left: 52px;
+}
+
+.desktop-macos .workspace-shell-agent-collapsed .interactive-drama-header {
+  padding-left: 88px;
 }
 
 .agent-body {
@@ -5407,6 +5428,7 @@ textarea:focus-visible {
 }
 
 .viewer-header {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 8px;

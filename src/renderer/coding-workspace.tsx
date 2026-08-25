@@ -19,7 +19,7 @@ import {
   Tablet,
   X,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
@@ -35,6 +35,7 @@ interface CodingWorkspaceProps {
   workspaceRevision: number;
   onPublish: () => void;
   onRestart: () => void;
+  collapsedActions?: ReactNode;
 }
 
 export function CodingWorkspace({
@@ -44,6 +45,7 @@ export function CodingWorkspace({
   workspaceRevision,
   onPublish,
   onRestart,
+  collapsedActions,
 }: CodingWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("preview");
   const [viewport, setViewport] = useState<PreviewViewport>("fit");
@@ -136,6 +138,7 @@ export function CodingWorkspace({
   return (
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
+        {collapsedActions}
         <nav className="workspace-tabs" aria-label="Workspace views">
           <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
           <span className="workspace-tab-divider" aria-hidden="true" />
