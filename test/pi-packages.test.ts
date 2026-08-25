@@ -42,6 +42,7 @@ describe("Pi package catalog", () => {
     const packageManager = {
       listConfiguredPackages: () => [
         { source: "npm:pi-web-access", scope: "user", filtered: false },
+        { source: "npm:pi-mcp-adapter@2.27.0", scope: "user", filtered: false },
         { source: "git:github.com/example/pi-tools", scope: "user", filtered: false },
         { source: "/tmp/local-pi-package", scope: "user", filtered: false },
         { source: "npm:project-only", scope: "project", filtered: false },
@@ -53,6 +54,25 @@ describe("Pi package catalog", () => {
     expect(service.listInstalled().map(({ sourceType }) => sourceType)).toEqual(["npm", "git", "local"]);
     await service.remove("git:github.com/example/pi-tools");
     expect(removeAndPersist).toHaveBeenCalledWith("git:github.com/example/pi-tools");
+    await expect(service.remove("npm:pi-mcp-adapter@2.27.0")).rejects.toThrow("managed by OpenGame");
+  });
+
+  it("does not expose or install the OpenGame-managed MCP adapter", async () => {
+    const installAndPersist = vi.fn(async () => true);
+    const packageManager = {
+      listConfiguredPackages: () => [],
+      installAndPersist,
+    } as unknown as PackageManager;
+    const service = new PiPackageCatalogService(async (input) => {
+      if (String(input).includes("/-/v1/search")) {
+        return new Response(JSON.stringify({ objects: [{ package: { name: "pi-mcp-adapter" } }] }), { status: 200 });
+      }
+      throw new Error("The managed package manifest should not be requested");
+    }, packageManager);
+
+    expect((await service.list()).packages).toEqual([]);
+    await expect(service.install("pi-mcp-adapter")).rejects.toThrow("managed by OpenGame");
+    expect(installAndPersist).not.toHaveBeenCalled();
   });
 
   it("reports registry failures instead of hiding them as unverified packages", async () => {

@@ -91,6 +91,7 @@ try {
     dataDirectory: process.env.OPEN_GAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
+    piAgentDirectory: path.join(app.getPath("userData"), "pi-agent"),
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

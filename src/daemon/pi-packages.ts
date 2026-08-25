@@ -1,5 +1,7 @@
-import { DefaultPackageManager, getAgentDir, SettingsManager, type PackageManager } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, SettingsManager, type PackageManager } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
 import type { PiPackageCatalog, PiPackageResourceType, PiPackageSummary } from "../shared/contracts.js";
+import { isOpenGameManagedPiPackage } from "./pi-agent.js";
 
 const NPM_SEARCH_URL = "https://registry.npmjs.org/-/v1/search";
 const NPM_REGISTRY_URL = "https://registry.npmjs.org";
@@ -34,9 +36,9 @@ export class PiPackageCatalogService {
   readonly #fetch: typeof fetch;
   #cache?: CachedCatalog;
 
-  constructor(fetchImpl: typeof fetch = fetch, packageManager?: PackageManager) {
+  constructor(fetchImpl: typeof fetch = fetch, packageManager?: PackageManager, agentDir?: string) {
     this.#fetch = fetchImpl;
-    this.#packageManager = packageManager ?? createUserPackageManager();
+    this.#packageManager = packageManager ?? createUserPackageManager(agentDir ?? process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"));
   }
 
   async list(query = "", page = 1, pageSize = DEFAULT_PAGE_SIZE): Promise<PiPackageCatalog> {
@@ -80,6 +82,7 @@ export class PiPackageCatalogService {
   async install(name: string): Promise<void> {
     const packageName = normalizePackageName(name);
     if (!packageName) throw new Error("Invalid Pi package name");
+    if (isOpenGameManagedPiPackage(`npm:${packageName}`)) throw new Error("Pi package is managed by OpenGame");
     const summary = await this.#resolveNpmCandidate({ name: packageName });
     if (!summary) throw new Error("Package is not published as a Pi package");
     const source = `npm:${packageName}`;
@@ -88,6 +91,7 @@ export class PiPackageCatalogService {
   }
 
   async remove(source: string): Promise<void> {
+    if (isOpenGameManagedPiPackage(source)) throw new Error("Pi package is managed by OpenGame");
     const configured = this.#userPackages().some((item) => item.source === source);
     if (!configured) throw new Error("Pi package is not installed");
     await this.#packageManager.removeAndPersist(source);
@@ -97,6 +101,7 @@ export class PiPackageCatalogService {
   async #resolveNpmCandidate(candidate?: NpmSearchPackage): Promise<PiPackageSummary | undefined> {
     const name = stringValue(candidate?.name);
     if (!name) return undefined;
+    if (isOpenGameManagedPiPackage(`npm:${name}`)) return undefined;
     const response = await this.#request(`${NPM_REGISTRY_URL}/${encodeURIComponent(name)}/latest`);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`Pi package manifest request failed (${response.status})`);
@@ -119,12 +124,13 @@ export class PiPackageCatalogService {
   }
 
   #userPackages(): ReturnType<PackageManager["listConfiguredPackages"]> {
-    return this.#packageManager.listConfiguredPackages().filter((item) => item.scope === "user");
+    return this.#packageManager.listConfiguredPackages().filter(
+      (item) => item.scope === "user" && !isOpenGameManagedPiPackage(item.source),
+    );
   }
 }
 
-function createUserPackageManager(): PackageManager {
-  const agentDir = getAgentDir();
+function createUserPackageManager(agentDir: string): PackageManager {
   return new DefaultPackageManager({
     // Plugins is application-level, so it manages Pi's user packages. Project packages
     // remain scoped to their project and are loaded there by Pi.

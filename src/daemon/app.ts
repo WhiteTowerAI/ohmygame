@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -32,6 +32,7 @@ import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorks
 
 export interface AppOptions {
   dataDirectory?: string;
+  piAgentDirectory?: string;
   logger?: boolean;
   accessToken?: string;
   allowedOrigins?: string[];
@@ -340,6 +341,7 @@ const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
+  const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
   const events = new RuntimeEventBus();
   const projects = new ProjectManager(dataDirectory);
   const conversations = new ConversationManager();
@@ -363,7 +365,10 @@ export function createApp(options: AppOptions = {}) {
   );
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
   const getModelRuntime = () => modelRuntimePromise ??= (async () => {
-    const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create()))();
+    const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create({
+      authPath: path.join(piAgentDirectory, "auth.json"),
+      modelsPath: path.join(piAgentDirectory, "models.json"),
+    })))();
     const baseUrl = openAIEndpoint.override();
     if (baseUrl) runtime.registerProvider("openai", { baseUrl });
     return runtime;
@@ -380,7 +385,7 @@ export function createApp(options: AppOptions = {}) {
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
-  const piPackages = new PiPackageCatalogService(options.piPackageFetch);
+  const piPackages = new PiPackageCatalogService(options.piPackageFetch, undefined, piAgentDirectory);
   const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
   let agents: AgentManager;
   agents = new AgentManager(events, {
@@ -397,6 +402,7 @@ export function createApp(options: AppOptions = {}) {
         createAgentTools(project, tools, projects, (input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, input, signal)),
         modelRuntime,
         model,
+        piAgentDirectory,
       );
     }),
     activeToolNames: (mode, session) => {
@@ -692,7 +698,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/models", async () => {
     const runtime = await getModelRuntime();
     const models = await runtime.getAvailable();
-    const piSettings = SettingsManager.create(dataDirectory, getAgentDir());
+    const piSettings = SettingsManager.create(dataDirectory, piAgentDirectory);
     const defaultProvider = piSettings.getDefaultProvider();
     const defaultId = piSettings.getDefaultModel();
     const defaultModel = models.find(({ provider, id }) => provider === defaultProvider && id === defaultId);
@@ -888,7 +894,7 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(201).send({
         ...agents.state(conversation, model, { mode: "normal" }),
         ...(selectedModel ? {
-          reasoningLevel: effectiveReasoningLevel(selectedModel, request.body?.reasoningLevel, defaultReasoningLevel(project.workspacePath)),
+          reasoningLevel: effectiveReasoningLevel(selectedModel, request.body?.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory)),
         } : {}),
       });
     },
@@ -912,7 +918,7 @@ export function createApp(options: AppOptions = {}) {
           reasoningLevel: effectiveReasoningLevel(
             model,
             conversations.reasoningLevel(project, conversation),
-            defaultReasoningLevel(project.workspacePath),
+            defaultReasoningLevel(project.workspacePath, piAgentDirectory),
           ),
         } : {}),
       };
@@ -972,7 +978,7 @@ export function createApp(options: AppOptions = {}) {
           reasoningLevel: effectiveReasoningLevel(
             model,
             conversations.reasoningLevel(project, conversation),
-            defaultReasoningLevel(project.workspacePath),
+            defaultReasoningLevel(project.workspacePath, piAgentDirectory),
           ),
         } satisfies ConversationAgentSettings;
       } catch (cause) {
@@ -1387,6 +1393,6 @@ function effectiveReasoningLevel(
   return clampReasoningLevel(requested ?? fallback, supportedReasoningLevels(model));
 }
 
-function defaultReasoningLevel(cwd: string): AgentReasoningLevel {
-  return parseReasoningLevel(SettingsManager.create(cwd, getAgentDir()).getDefaultThinkingLevel()) ?? "medium";
+function defaultReasoningLevel(cwd: string, agentDir: string): AgentReasoningLevel {
+  return parseReasoningLevel(SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel()) ?? "medium";
 }

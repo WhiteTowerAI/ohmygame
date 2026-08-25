@@ -1,7 +1,6 @@
 import {
   createAgentSession,
   DefaultResourceLoader,
-  getAgentDir,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -14,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { ActiveTurnState, AgentContextUsage, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
+import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -1510,14 +1510,17 @@ export async function createPiSession(
   customTools: ToolDefinition[] = [],
   modelRuntime?: ModelRuntime,
   model?: RuntimeModel,
+  agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  const persistedSettings = SettingsManager.create(workspacePath, getAgentDir());
+  await ensureOpenGamePiEnvironment(agentDir);
+  const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
+  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
-    agentDir: getAgentDir(),
+    agentDir,
     settingsManager: sessionSettings,
     appendSystemPrompt: [
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
@@ -1532,6 +1535,7 @@ export async function createPiSession(
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: workspacePath,
+    agentDir,
     customTools,
     model,
     modelRuntime,
@@ -1539,6 +1543,7 @@ export async function createPiSession(
     sessionManager,
     settingsManager: sessionSettings,
   });
+  await session.bindExtensions({ mode: "rpc" });
   return session;
 }
 

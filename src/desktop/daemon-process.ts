@@ -18,6 +18,7 @@ interface StartDaemonOptions {
   token: string;
   allowedOrigins: string[];
   runtimeBin?: string;
+  piAgentDirectory?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   healthTimeoutMs?: number;
@@ -40,6 +41,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       OPEN_GAME_DATA_DIR: path.resolve(options.dataDirectory),
       OPEN_GAME_DAEMON_TOKEN: options.token,
       OPEN_GAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
+      ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -39,6 +39,7 @@
     "electron-updater": "6.8.9",
     "fastify": "5.11.3",
     "jose": "6.2.9",
+    "jsonc-parser": "3.3.1",
     "lucide-react": "1.31.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
+import { ensureOpenGamePiEnvironment } from "./pi-agent.js";
 import { configureNetworkProxy } from "./proxy.js";
 
 configureNetworkProxy();
@@ -11,6 +12,8 @@ try {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 const dataDirectory = process.env.OPEN_GAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
+const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
+process.env.PI_CODING_AGENT_DIR = piAgentDirectory;
 let app: ReturnType<typeof createApp> | undefined;
 let shuttingDown = false;
 const shutdown = async () => {
@@ -23,8 +26,14 @@ process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
 try {
+  try {
+    await ensureOpenGamePiEnvironment(piAgentDirectory);
+  } catch (error) {
+    console.warn("Could not initialize the OpenGame Pi environment; continuing without managed MCP configuration.", error);
+  }
   app = createApp({
     dataDirectory,
+    piAgentDirectory,
     accessToken: process.env.OPEN_GAME_DAEMON_TOKEN,
     allowedOrigins: (process.env.OPEN_GAME_ALLOWED_ORIGINS ?? "")
       .split(",")

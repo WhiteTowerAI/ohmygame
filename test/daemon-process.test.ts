@@ -70,6 +70,35 @@ describe("desktop daemon process", () => {
     expect(await readFile(pathFile, "utf8")).toBe(`${runtimeBin}${path.delimiter}/system/bin`);
     await daemon.stop();
   });
+
+  it("passes the OpenGame Pi agent directory to the daemon", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "open-game-pi-agent-"));
+    const piAgentDirectory = path.join(directory, "pi-agent");
+    const piAgentFile = path.join(directory, "pi-agent-path");
+    const entry = path.join(directory, "daemon.mjs");
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      writeFileSync(${JSON.stringify(piAgentFile)}, process.env.PI_CODING_AGENT_DIR ?? "");
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+
+    const daemon = await startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: {},
+      piAgentDirectory,
+      healthTimeoutMs: 2_000,
+    });
+
+    expect(await readFile(piAgentFile, "utf8")).toBe(piAgentDirectory);
+    await daemon.stop();
+  });
 });
 
 function isRunning(pid: number): boolean {
