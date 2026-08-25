@@ -3809,6 +3809,37 @@ textarea:focus-visible {
   scrollbar-width: thin;
 }
 
+.agent-timeline-selection-root {
+  display: contents;
+}
+
+.selected-text-menu {
+  position: fixed;
+  z-index: 30;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-raised) 96%, white);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+  transform: translateX(-50%);
+}
+
+.selected-text-menu button {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.selected-text-menu button:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
 .user-input {
   display: flex;
   width: 100%;
@@ -4813,6 +4844,51 @@ textarea:focus-visible {
   border-radius: 14px;
   background: var(--surface-raised);
   text-align: left;
+}
+
+.composer-reference {
+  position: relative;
+  min-width: 0;
+  padding: 8px 32px 8px 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.composer-reference-label {
+  margin-bottom: 3px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.composer-reference-text {
+  max-height: 42px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.composer-reference-remove {
+  position: absolute;
+  top: 7px;
+  right: 4px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 17px;
+}
+
+.composer-reference-remove:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .composer-command-menu {

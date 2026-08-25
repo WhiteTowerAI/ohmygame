@@ -44,6 +44,8 @@ import {
 } from "./api.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
+import type { ChatReference } from "./chat-reference.js";
+import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
 import { Composer } from "./composer.js";
@@ -87,6 +89,7 @@ export function ProjectShell({
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [modelChanging, setModelChanging] = useState(false);
+  const [chatReference, setChatReference] = useState<ChatReference>();
   const modelCatalog = useAgentModels();
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
@@ -95,6 +98,10 @@ export function ProjectShell({
   const workspaceShell = useRef<HTMLElement>(null);
   const agentWidthRef = useRef(agentWidth);
   const resizingAgentRef = useRef(false);
+
+  useEffect(() => {
+    setChatReference(undefined);
+  }, [conversationId]);
 
   function resizeAgent(clientX: number): void {
     const shell = workspaceShell.current;
@@ -320,7 +327,8 @@ export function ProjectShell({
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, nextPrompt, [], images, mode);
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode);
+      setChatReference(undefined);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -592,6 +600,7 @@ export function ProjectShell({
               revisionDisabled={agentBusy || conversation?.planMode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
               waitingForInput={Boolean(state.questionnaire)}
               onRevise={revisePrompt}
+              onAddToChat={(text) => setChatReference({ text })}
             />
           </div>
 
@@ -632,6 +641,8 @@ export function ProjectShell({
               ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
             ]}
             onSubmit={submitPrompt}
+            reference={chatReference}
+            onClearReference={() => setChatReference(undefined)}
             onCompact={compactCurrentConversation}
             onContextUsage={currentContextPercent}
             onCancelPlan={discardPlan}

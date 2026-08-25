@@ -8,6 +8,7 @@ import { PromptBox } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
+import type { ChatReference } from "./chat-reference.js";
 
 interface ComposerProps {
   conversationReady: boolean;
@@ -31,6 +32,8 @@ interface ComposerProps {
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
   onSteerPending: (turnId: string) => Promise<boolean>;
+  reference?: ChatReference;
+  onClearReference?: () => void;
 }
 
 export function Composer({
@@ -55,6 +58,8 @@ export function Composer({
   onStop,
   onRemovePending,
   onSteerPending,
+  reference,
+  onClearReference,
 }: ComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<ComposerImage[]>([]);
@@ -213,7 +218,14 @@ export function Composer({
             )}
           </>
         )}
-        content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
+        content={<>
+          {reference ? <div className="composer-reference">
+            <div className="composer-reference-label">Selected text</div>
+            <div className="composer-reference-text">{reference.text}</div>
+            <button type="button" className="composer-reference-remove" onClick={onClearReference} aria-label="Remove selected text">×</button>
+          </div> : null}
+          <ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />
+        </>}
         disabled={inputDisabled}
         leading={(
           <>

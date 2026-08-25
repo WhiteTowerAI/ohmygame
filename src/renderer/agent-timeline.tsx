@@ -22,6 +22,7 @@ import { ModelPreview } from "./model-preview.js";
 import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
+import { SelectedTextMenu } from "./selected-text-menu.js";
 
 interface AgentTimelineProps {
   items: AgentItem[];
@@ -29,10 +30,12 @@ interface AgentTimelineProps {
   activeTurnId?: string;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
+  onAddToChat?: (text: string) => void;
   waitingForInput?: boolean;
 }
 
-export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise, waitingForInput = false }: AgentTimelineProps) {
+export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+  const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -93,31 +96,34 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
     }
   }
 
-  return turns.map((turn, index) => (
-    <Turn
-      key={turn.id}
-      projectId={projectId}
-      display={displays[index]}
-      now={now}
-      assistantControls={{
-        copiedItemId: copiedAssistantId,
-        latestItemId: latestAssistantId,
-        onCopy: copyAssistant,
-      }}
-      userControls={{
-        editing: turn.user?.id === editingItemId && editingItemId === latestUserId,
-        draft,
-        copied: turn.user?.id === copiedItemId,
-        canEdit: Boolean(onRevise && turn.user?.text && turn.user.id === latestUserId),
-        disabled: Boolean(revisionDisabled || submitting),
-        onCopy: copy,
-        onEdit: edit,
-        onDraftChange: setDraft,
-        onCancel: () => setEditingItemId(undefined),
-        onSubmit: submitRevision,
-      }}
-    />
-  ));
+  return <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+    {turns.map((turn, index) => (
+      <Turn
+        key={turn.id}
+        projectId={projectId}
+        display={displays[index]}
+        now={now}
+        assistantControls={{
+          copiedItemId: copiedAssistantId,
+          latestItemId: latestAssistantId,
+          onCopy: copyAssistant,
+        }}
+        userControls={{
+          editing: turn.user?.id === editingItemId && editingItemId === latestUserId,
+          draft,
+          copied: turn.user?.id === copiedItemId,
+          canEdit: Boolean(onRevise && turn.user?.text && turn.user.id === latestUserId),
+          disabled: Boolean(revisionDisabled || submitting),
+          onCopy: copy,
+          onEdit: edit,
+          onDraftChange: setDraft,
+          onCancel: () => setEditingItemId(undefined),
+          onSubmit: submitRevision,
+        }}
+      />
+    ))}
+    {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
+  </div>;
 }
 
 interface UserControls {
