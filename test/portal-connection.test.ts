@@ -62,7 +62,7 @@ describe("PortalConnection", () => {
     });
     expect(runtime.registerProvider).toHaveBeenCalledWith("opengame", expect.objectContaining({
       baseUrl: "https://portal.open-game.ai/v1",
-      api: "openai-completions",
+      api: "openai-responses",
     }));
     expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
 

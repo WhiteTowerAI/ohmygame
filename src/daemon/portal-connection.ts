@@ -53,7 +53,7 @@ export class PortalConnection {
           runtime.registerProvider(PROVIDER_ID, {
             name: "OpenGame Portal",
             baseUrl: credential.baseUrl,
-            api: "openai-completions",
+            api: "openai-responses",
             authHeader: true,
             models,
           });
