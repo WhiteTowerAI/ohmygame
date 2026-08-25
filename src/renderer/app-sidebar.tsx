@@ -118,7 +118,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <div className="home-nav-label home-nav-label-spaced">AGENT</div>
         <NavigationItem active={active === "plugins"} icon={<Plug size={16} />} label="Plugins" onClick={() => onNavigate("plugins")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
-        <NavigationItem active={active === "avg-studio"} icon={<Box size={16} />} label="AVG Studio" onClick={() => onNavigate("avg-studio")} />
+        <NavigationItem active={active === "interactive-drama"} icon={<Box size={16} />} label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
         <NavigationItem active={active === "asset-studio"} icon={<Shapes size={16} />} label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
         <div className="home-nav-label home-nav-label-spaced">DISCOVER</div>
         <NavigationItem active={active === "community"} icon={<Gamepad2 size={16} />} label="Community" onClick={() => onNavigate("community")} />

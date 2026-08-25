@@ -71,6 +71,7 @@ function createProject(workspacePath: string): ProjectState {
   return {
     id: path.basename(workspacePath),
     name: "Preview",
+    type: "general",
     updatedAt: new Date(0).toISOString(),
     workspacePath,
     preview: { status: "stopped" },

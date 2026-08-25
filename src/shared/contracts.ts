@@ -2,6 +2,7 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
+export type ProjectType = "general" | "interactive-drama";
 
 export interface AgentContextUsage {
   tokens: number | null;
@@ -118,6 +119,7 @@ export interface PublicationState {
 export interface ProjectState {
   id: string;
   name: string;
+  type: ProjectType;
   updatedAt: string;
   workspacePath: string;
   preview: { status: PreviewStatus; url?: string; error?: string };
@@ -298,7 +300,7 @@ export interface AnswerQuestionnaireRequest {
   cancelled?: boolean;
 }
 
-export interface CreateProjectRequest { name?: string }
+export interface CreateProjectRequest { name?: string; type?: ProjectType }
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;

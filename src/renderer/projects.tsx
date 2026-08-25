@@ -1,6 +1,6 @@
 import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
@@ -9,11 +9,12 @@ import type { SidebarPage } from "./routes.js";
 interface ProjectsPageProps {
   onNavigate: (page: SidebarPage) => void;
   onOpenProject: (projectId: string) => void;
+  workspace?: ProjectType;
 }
 
 type ProjectSort = "updated" | "name";
 
-export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
+export function ProjectsPage({ onNavigate, onOpenProject, workspace = "general" }: ProjectsPageProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -47,14 +48,15 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
     return () => document.removeEventListener("mousedown", close);
   }, [sortOpen]);
 
-  const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort), [projects, query, sort]);
+  const workspaceProjects = useMemo(() => filterProjectsByType(projects, workspace), [projects, workspace]);
+  const visibleProjects = useMemo(() => filterAndSortProjects(workspaceProjects, query, sort), [workspaceProjects, query, sort]);
 
   async function create(): Promise<void> {
     if (creating) return;
     setActionError(undefined);
     setCreating(true);
     try {
-      const project = await createProject();
+      const project = await createProject({ type: workspace });
       onOpenProject(project.id);
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -90,10 +92,10 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
 
   return (
     <main className="home-shell">
-      <AppSidebar active="projects" onNavigate={onNavigate} />
+      <AppSidebar active={workspace === "interactive-drama" ? "interactive-drama" : "projects"} onNavigate={onNavigate} />
       <section className="projects-content">
         <header className="projects-header">
-          <h1>Projects</h1>
+          <h1>{workspace === "interactive-drama" ? "Interactive Drama" : "Projects"}</h1>
           <div className="projects-controls">
             <label className="projects-search" htmlFor="projects-search-input">
               <Search size={14} aria-hidden="true" />
@@ -132,7 +134,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
             ))}
           </div>
         ) : null}
-        {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
+        {phase === "ready" && workspaceProjects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
         {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
       </section>
     </main>
@@ -146,6 +148,10 @@ export function filterAndSortProjects(projects: ProjectState[], query: string, s
     .sort((left, right) => sort === "name"
       ? left.name.localeCompare(right.name)
       : right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function filterProjectsByType(projects: ProjectState[], type: ProjectType): ProjectState[] {
+  return projects.filter((project) => project.type === type);
 }
 
 function ProjectState({ children, error = false }: { children: React.ReactNode; error?: boolean }) {

@@ -3,12 +3,12 @@ export type SidebarPage =
   | "projects"
   | "library"
   | "plugins"
-  | "avg-studio"
+  | "interactive-drama"
   | "asset-studio"
   | "community";
 
 const SIDEBAR_PAGES = new Set<SidebarPage>([
-  "home", "projects", "library", "plugins", "avg-studio", "asset-studio", "community",
+  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "community",
 ]);
 
 export type AppRoute =
@@ -30,15 +30,18 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "home" };
     }
   }
+  const studioConversationMatch = /^#\/projects\/([^/]+)\/interactive-drama\/conversations\/([^/]+)$/.exec(hash);
+  const studioMatch = /^#\/projects\/([^/]+)\/interactive-drama$/.exec(hash);
   const conversationMatch = /^#\/projects\/([^/]+)\/conversations\/([^/]+)$/.exec(hash);
   const projectMatch = /^#\/projects\/([^/]+)$/.exec(hash);
-  const match = conversationMatch ?? projectMatch;
+  const match = studioConversationMatch ?? studioMatch ?? conversationMatch ?? projectMatch;
   if (!match?.[1]) return { page: "home" };
   try {
+    const encodedConversationId = studioConversationMatch?.[2] ?? conversationMatch?.[2];
     return {
       page: "project",
       projectId: decodeURIComponent(match[1]),
-      ...(conversationMatch?.[2] ? { conversationId: decodeURIComponent(conversationMatch[2]) } : {}),
+      ...(encodedConversationId ? { conversationId: decodeURIComponent(encodedConversationId) } : {}),
     };
   } catch {
     return { page: "home" };

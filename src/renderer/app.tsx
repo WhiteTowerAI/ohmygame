@@ -31,6 +31,7 @@ export function App() {
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "interactive-drama") return <ProjectsPage workspace="interactive-drama" onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
@@ -66,8 +67,7 @@ export function App() {
   }
 
   function navigateToConversation(projectId: string, conversationId: string, replace = false): void {
-    const hash = conversationHash(projectId, conversationId);
-    window.history[replace ? "replaceState" : "pushState"](null, "", hash);
+    window.history[replace ? "replaceState" : "pushState"](null, "", conversationHash(projectId, conversationId));
     setRoute({ page: "project", projectId, conversationId });
   }
 

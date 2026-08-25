@@ -1074,6 +1074,7 @@ function createProject(): ProjectState {
   return {
     id: "project-1",
     name: "Project",
+    type: "general",
     updatedAt: new Date(0).toISOString(),
     workspacePath: "/tmp/project-1",
     preview: { status: "waiting" },

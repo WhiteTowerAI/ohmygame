@@ -45,6 +45,7 @@ import {
 import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { CodingWorkspace } from "./coding-workspace.js";
+import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
 import { Composer } from "./composer.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
@@ -196,7 +197,7 @@ export function ProjectShell({
         });
         subscribe(detail.cursor, selected.id);
 
-        if (project.preview.status === "stopped") {
+        if (project.type === "general" && project.preview.status === "stopped") {
           void startPreview(project.id).catch((error) => {
             if (!disposed) dispatch({ type: "notice", message: errorMessage(error) });
           });
@@ -295,9 +296,9 @@ export function ProjectShell({
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.conversation?.agent.status === "running" || state.conversation?.agent.status === "cancelling";
-    if (auth.state.status !== "signed-in" || state.phase !== "ready" || !project || publishing || busy) return;
+    if (project?.type !== "general" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     if (takePendingPublish(sessionStorage, project.id)) void publish();
-  }, [auth.state.status, state.phase, state.project?.id, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
+  }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
@@ -673,14 +674,16 @@ export function ProjectShell({
         onLostPointerCapture={finishAgentResize}
       />
 
-      <CodingWorkspace
-        project={project}
-        agentBusy={agentBusy}
-        publishing={publishing}
-        workspaceRevision={workspaceRevision}
-        onPublish={publish}
-        onRestart={restartPreview}
-      />
+      {!project ? <section className="viewer-pane" /> : project.type === "general" ? (
+        <CodingWorkspace
+          project={project}
+          agentBusy={agentBusy}
+          publishing={publishing}
+          workspaceRevision={workspaceRevision}
+          onPublish={publish}
+          onRestart={restartPreview}
+        />
+      ) : <InteractiveDramaWorkspace />}
     </main>
   );
 }

@@ -15,9 +15,9 @@ describe("ProjectManager", () => {
 
     await manager.load();
 
-    expect(manager.get(id)).toMatchObject({ id, name: "Untitled project", workspacePath: workspace });
+    expect(manager.get(id)).toMatchObject({ id, name: "Untitled project", type: "general", workspacePath: workspace });
     expect(await readFile(path.join(workspace, "keep.txt"), "utf8")).toBe("user data");
-    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", id, "project.json"), "utf8"))).toMatchObject({ version: 1, id });
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", id, "project.json"), "utf8"))).toMatchObject({ version: 1, id, type: "general" });
   });
 
   it("does not overwrite invalid project metadata", async () => {
@@ -38,6 +38,19 @@ describe("ProjectManager", () => {
     const project = await manager.create("Blank");
     expect(project.preview).toEqual({ status: "waiting" });
     expect(await readdir(project.workspacePath)).toEqual([]);
+  });
+
+  it("persists project types and preserves them when duplicating", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Story", "interactive-drama");
+
+    expect(project.type).toBe("interactive-drama");
+    expect((await manager.duplicate(project.id)).type).toBe("interactive-drama");
+
+    const restored = new ProjectManager(dataDirectory);
+    await restored.load();
+    expect(restored.get(project.id)?.type).toBe("interactive-drama");
   });
 
   it("writes generated assets only under the project workspace", async () => {

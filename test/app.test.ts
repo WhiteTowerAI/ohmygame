@@ -21,6 +21,19 @@ describe("daemon", () => {
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
+  it("creates a typed project", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-drama" },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+  });
+
   it("lists projects", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);
@@ -499,6 +512,8 @@ describe("daemon", () => {
     apps.push(app);
     const invalidProject = await app.inject({ method: "POST", url: "/projects", payload: { name: 42 } });
     expect(invalidProject.statusCode).toBe(400);
+    const invalidProjectType = await app.inject({ method: "POST", url: "/projects", payload: { type: "unknown" } });
+    expect(invalidProjectType.statusCode).toBe(400);
 
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();

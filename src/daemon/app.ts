@@ -54,7 +54,10 @@ const createProjectSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    properties: { name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+    properties: {
+      name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
+      type: { type: "string", enum: ["general", "interactive-drama"] },
+    },
   },
 } as const;
 
@@ -540,7 +543,7 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
-    const project = await projects.create(request.body?.name);
+    const project = await projects.create(request.body?.name, request.body?.type);
     return reply.code(201).send(project);
   });
 

@@ -2631,6 +2631,216 @@ textarea:focus-visible {
   background: var(--surface);
 }
 
+.viewer-pane.interactive-drama-workspace {
+  --interactive-drama-grid: #34373d;
+  container-type: inline-size;
+  display: grid;
+  grid-template-rows: 50px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.interactive-drama-header {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.desktop-macos .interactive-drama-header {
+  app-region: drag;
+  user-select: none;
+}
+
+.desktop-macos .interactive-drama-header button {
+  app-region: no-drag;
+}
+
+.interactive-drama-chapter {
+  display: flex;
+  grid-column: 2;
+  width: 238px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.interactive-drama-chapter span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.interactive-drama-header-actions {
+  display: flex;
+  grid-column: 3;
+  justify-self: end;
+  gap: 8px;
+}
+
+.interactive-drama-action {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.interactive-drama-action:hover,
+.interactive-drama-chapter:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.interactive-drama-action-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.interactive-drama-action-primary:hover {
+  border-color: color-mix(in srgb, var(--accent) 88%, white);
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.interactive-drama-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.interactive-drama-canvas .react-flow {
+  background: var(--surface);
+}
+
+.story-canvas-pointer .react-flow__pane {
+  cursor: default;
+}
+
+.story-canvas-pan .react-flow__pane {
+  cursor: grab;
+}
+
+.story-canvas-pan .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+.story-canvas-zoom {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 0 0 16px 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+}
+
+.story-canvas-zoom button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.story-canvas-zoom button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.story-canvas-zoom .story-canvas-zoom-value {
+  width: 52px;
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-canvas-toolbar {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: #1b1c20;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
+}
+
+.story-canvas-toolbar button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.story-canvas-toolbar button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.story-canvas-toolbar button.is-active {
+  background: #f0f2f7;
+  color: #17191d;
+}
+
+.story-canvas-toolbar button:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@container (max-width: 620px) {
+  .interactive-drama-chapter {
+    width: min(210px, calc(100cqw - 112px));
+  }
+
+  .interactive-drama-action {
+    width: 32px;
+    padding: 0;
+  }
+
+  .interactive-drama-action span {
+    display: none;
+  }
+}
+
 .workspace-resizer {
   position: relative;
   z-index: 3;

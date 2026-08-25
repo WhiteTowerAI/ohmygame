@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectState, PublicationState } from "../shared/contracts.js";
+import type { ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 
 interface ProjectMetadata {
   version: 1;
   id: string;
   name: string;
+  type: ProjectType;
   updatedAt: string;
   publication?: PublicationState;
 }
@@ -45,7 +46,7 @@ export class ProjectManager {
     }
   }
 
-  async create(name?: string): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "general"): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
     const workspacePath = path.join(projectDirectory, "workspace");
@@ -53,6 +54,7 @@ export class ProjectManager {
       version: 1,
       id,
       name: name?.trim() || "Untitled project",
+      type,
       updatedAt: new Date().toISOString(),
     };
     await mkdir(projectDirectory, { recursive: true });
@@ -88,6 +90,7 @@ export class ProjectManager {
       version: 1,
       id: duplicateId,
       name: `${source.name} copy`,
+      type: source.type,
       updatedAt,
     };
     try {
@@ -201,6 +204,7 @@ function projectState(
   return {
     id: metadata.id,
     name: metadata.name,
+    type: metadata.type,
     updatedAt: metadata.updatedAt,
     workspacePath,
     preview: { status: runnable ? "stopped" : "waiting" },
@@ -224,26 +228,29 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
+      (parsed.type === undefined || parsed.type === "general" || parsed.type === "interactive-drama") &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
       const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
         ? parsed.updatedAt
         : fallbackUpdatedAt;
+      const type = parsed.type ?? "general";
       return {
         metadata: {
           version: 1,
           id,
           name: parsed.name.trim(),
+          type,
           updatedAt,
           ...(parsed.publication ? { publication: parsed.publication } : {}),
         },
-        missing: parsed.updatedAt !== updatedAt,
+        missing: parsed.updatedAt !== updatedAt || parsed.type !== type,
       };
     }
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return { metadata: { version: 1, id, name: "Untitled project", updatedAt: fallbackUpdatedAt }, missing: true };
+    return { metadata: { version: 1, id, name: "Untitled project", type: "general", updatedAt: fallbackUpdatedAt }, missing: true };
   }
 }
 
@@ -252,6 +259,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     version: 1,
     id: project.id,
     name: project.name,
+    type: project.type,
     updatedAt: project.updatedAt,
     ...(project.publication ? { publication: project.publication } : {}),
   };
