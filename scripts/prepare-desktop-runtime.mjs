@@ -6,18 +6,28 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 const version = "22.19.0";
-const platform = "darwin";
-const architecture = "arm64";
-const archiveName = `node-v${version}-${platform}-${architecture}.tar.gz`;
-const expectedSha256 = "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d";
-const runtimeLayout = `${version}-minimal-1`;
+const runtimes = {
+  "darwin-arm64": {
+    archiveName: `node-v${version}-darwin-arm64.tar.gz`,
+    sha256: "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d",
+  },
+  "win32-x64": {
+    archiveName: `node-v${version}-win-x64.zip`,
+    sha256: "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
+  },
+};
+const target = `${process.platform}-${process.arch}`;
+const requestedTarget = process.argv[2];
+if (requestedTarget && requestedTarget !== target) {
+  throw new Error(`Cannot prepare ${requestedTarget} desktop runtime on ${target}`);
+}
+const runtime = runtimes[target];
+if (!runtime) throw new Error(`Desktop packaging is not supported on ${target}`);
+const { archiveName, sha256: expectedSha256 } = runtime;
+const runtimeLayout = `${version}-${target}-minimal-1`;
 const runtimeRoot = path.resolve(".runtime");
 const destination = path.join(runtimeRoot, "node");
 const marker = path.join(destination, ".open-game-node-version");
-
-if (process.platform !== platform || process.arch !== architecture) {
-  throw new Error(`The current desktop package supports only ${platform}-${architecture}`);
-}
 
 try {
   if ((await readFile(marker, "utf8")).trim() === runtimeLayout) {
@@ -31,13 +41,13 @@ try {
 
 await mkdir(runtimeRoot, { recursive: true });
 const archive = path.join(runtimeRoot, archiveName);
-const extracted = path.join(runtimeRoot, `node-v${version}-${platform}-${architecture}`);
+const extracted = path.join(runtimeRoot, `node-v${version}-${process.platform}-${process.arch}`);
 await rm(destination, { recursive: true, force: true });
 await rm(extracted, { recursive: true, force: true });
 
 if (!(await exists(archive)) || await sha256(archive) !== expectedSha256) {
   await rm(archive, { force: true });
-  console.log(`Downloading Node.js ${version} for ${platform}-${architecture}`);
+  console.log(`Downloading Node.js ${version} for ${target}`);
   const response = await fetch(`https://nodejs.org/dist/v${version}/${archiveName}`);
   if (!response.ok || !response.body) throw new Error(`Could not download Node.js runtime (${response.status})`);
   await pipeline(response.body, createWriteStream(archive));
@@ -49,7 +59,7 @@ if (actualSha256 !== expectedSha256) {
   throw new Error(`Node.js runtime checksum mismatch: ${actualSha256}`);
 }
 
-await run("tar", ["-xzf", archive, "-C", runtimeRoot]);
+await run("tar", [process.platform === "win32" ? "-xf" : "-xzf", archive, "-C", runtimeRoot]);
 await rename(extracted, destination);
 await Promise.all([
   rm(path.join(destination, "include"), { recursive: true, force: true }),

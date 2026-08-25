@@ -26,6 +26,11 @@ mac:
     - dmg
     - zip
 
+win:
+  target:
+    - nsis
+  artifactName: OpenGame-${version}-${arch}.${ext}
+
 publish:
   provider: github
   owner: WhiteTowerAI

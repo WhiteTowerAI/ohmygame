@@ -50,7 +50,7 @@ describe("desktop daemon process", () => {
     await writeFile(entry, `
       import { writeFileSync } from "node:fs";
       import { createServer } from "node:http";
-      writeFileSync(${JSON.stringify(pathFile)}, process.env.PATH ?? "");
+      writeFileSync(${JSON.stringify(pathFile)}, process.env.Path ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
@@ -62,7 +62,7 @@ describe("desktop daemon process", () => {
       token: "test-token",
       allowedOrigins: ["null"],
       executable: process.execPath,
-      environment: { PATH: "/system/bin" },
+      environment: { Path: "/system/bin" },
       runtimeBin,
       healthTimeoutMs: 2_000,
     });

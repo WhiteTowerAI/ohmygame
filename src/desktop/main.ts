@@ -91,7 +91,11 @@ try {
     dataDirectory: process.env.OPEN_GAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
-    runtimeBin: app.isPackaged ? path.join(process.resourcesPath, "runtime/node/bin") : undefined,
+    runtimeBin: app.isPackaged
+      ? process.platform === "win32"
+        ? path.join(process.resourcesPath, "runtime", "node")
+        : path.join(process.resourcesPath, "runtime", "node", "bin")
+      : undefined,
     environment: app.isPackaged ? await packagedEnvironment() : undefined,
   });
   updater = new DesktopUpdater(app.getVersion(), async () => {

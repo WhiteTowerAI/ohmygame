@@ -34,16 +34,18 @@ export class PreviewManager {
     try {
       this.#assertCurrent(project.id, operation);
       if (await needsInstall(project.workspacePath)) {
-        await this.#run(project.id, "npm", ["install", "--no-audit", "--no-fund"], project.workspacePath);
+        await this.#run(project.id, npmCommand(), ["install", "--no-audit", "--no-fund"], project.workspacePath);
       }
       this.#assertCurrent(project.id, operation);
 
       const port = await availablePort();
-      const child = spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+      const child = spawn(npmCommand(), ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
         cwd: project.workspacePath,
         env: { ...process.env, BROWSER: "none" },
         stdio: ["ignore", "ignore", "pipe"],
         detached: process.platform !== "win32",
+        shell: process.platform === "win32",
+        windowsHide: true,
       });
       this.#track(project.id, child);
       this.#running.set(project.id, child);
@@ -102,6 +104,8 @@ export class PreviewManager {
       cwd,
       stdio: ["ignore", "ignore", "pipe"],
       detached: process.platform !== "win32",
+      shell: process.platform === "win32",
+      windowsHide: true,
     });
     this.#track(projectId, child);
     try {
@@ -186,21 +190,35 @@ async function waitForCommand(child: ChildProcess, command: string): Promise<voi
 
 async function terminate(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null) return;
-  signalProcessTree(child, "SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolve) => child.once("exit", () => resolve())),
-    new Promise<void>((resolve) => setTimeout(() => {
-      if (child.exitCode === null) signalProcessTree(child, "SIGKILL");
-      resolve();
-    }, 3_000)),
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  await signalProcessTree(child, false);
+  const timedOut = await Promise.race([
+    exited.then(() => false),
+    new Promise<true>((resolve) => setTimeout(() => resolve(true), 3_000)),
   ]);
+  if (timedOut && child.exitCode === null) await signalProcessTree(child, true);
 }
 
-function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
+async function signalProcessTree(child: ChildProcess, force: boolean): Promise<void> {
+  if (process.platform === "win32" && child.pid) {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", ...(force ? ["/f"] : [])], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    await new Promise<void>((resolve, reject) => {
+      killer.once("error", reject);
+      killer.once("exit", () => resolve());
+    });
+    return;
+  }
   try {
-    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
-    else child.kill(signal);
+    if (child.pid) process.kill(-child.pid, force ? "SIGKILL" : "SIGTERM");
+    else child.kill(force ? "SIGKILL" : "SIGTERM");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
+}
+
+function npmCommand(): string {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
 }

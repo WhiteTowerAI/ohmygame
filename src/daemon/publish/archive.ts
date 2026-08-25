@@ -46,9 +46,9 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
       throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
     }
     if (hasDependencies(packageJson) && !await exists(path.join(workspacePath, "node_modules"))) {
-      await run("npm", ["install", "--no-audit", "--no-fund"], workspacePath, track);
+      await run(npmCommand(), ["install", "--no-audit", "--no-fund"], workspacePath, track);
     }
-    await run("npm", ["run", "build"], workspacePath, track);
+    await run(npmCommand(), ["run", "build"], workspacePath, track);
     const output = await findBuildOutput(workspacePath);
     if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
     return output;
@@ -120,6 +120,8 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
     env: { ...process.env, BROWSER: "none" },
     stdio: ["ignore", "ignore", "pipe"],
     detached: process.platform !== "win32",
+    shell: process.platform === "win32",
+    windowsHide: true,
   });
   track(child);
   let stderr = "";
@@ -147,10 +149,25 @@ async function exists(target: string): Promise<boolean> {
 
 async function terminate(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32" && child.pid) {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    await new Promise<void>((resolve, reject) => {
+      killer.once("error", reject);
+      killer.once("exit", () => resolve());
+    });
+    return;
+  }
   try {
-    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGTERM");
+    if (child.pid) process.kill(-child.pid, "SIGTERM");
     else child.kill("SIGTERM");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
+}
+
+function npmCommand(): string {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
 }

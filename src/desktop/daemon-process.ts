@@ -28,7 +28,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
   const environment = { ...(options.environment ?? process.env) };
   if (options.runtimeBin) {
-    environment.PATH = [path.resolve(options.runtimeBin), environment.PATH].filter(Boolean).join(path.delimiter);
+    const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
+    environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
   }
   const child = spawn(options.executable ?? process.execPath, [path.resolve(options.daemonEntry)], {
     env: {
