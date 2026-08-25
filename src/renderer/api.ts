@@ -21,6 +21,7 @@ import {
   type ConversationState,
   type ConversationSummary,
   type ProjectState,
+  type StoryDocument,
   type PublishProjectRequest,
   type PublishResult,
   type PiPackageCatalog,
@@ -55,6 +56,7 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
+      openPlaytest: (projectId: string, chapterId: string) => Promise<void>;
       updates: {
         state: () => Promise<DesktopUpdateState | null>;
         check: () => Promise<void>;
@@ -255,6 +257,14 @@ export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
 
 export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
+}
+
+export async function getStory(projectId: string): Promise<StoryDocument> {
+  return request(`/projects/${projectId}/story`);
+}
+
+export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
+  await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
 }
 
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {

@@ -126,6 +126,43 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
+export type StoryNodeType = "start" | "scene" | "choice" | "ending";
+
+export interface StoryPosition {
+  x: number;
+  y: number;
+}
+
+export interface StoryChoiceOption {
+  id: string;
+  label: string;
+}
+
+export type StoryNode =
+  | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
+  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; description: string } }
+  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[] } }
+  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } };
+
+export interface StoryEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+}
+
+export interface StoryChapter {
+  id: string;
+  title: string;
+  nodes: StoryNode[];
+  edges: StoryEdge[];
+}
+
+export interface StoryDocument {
+  version: 1;
+  chapters: StoryChapter[];
+}
+
 export interface ConversationSummary {
   id: string;
   projectId: string;

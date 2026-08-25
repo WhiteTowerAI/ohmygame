@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -548,6 +548,28 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/projects", async () => projects.list());
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/story", async (request, reply) => {
+    try {
+      return await projects.story(request.params.projectId);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
+    }
+  });
+
+  app.put<{ Params: { projectId: string }; Body: StoryDocument }>("/projects/:projectId/story", {
+    schema: { body: { type: "object" } },
+    bodyLimit: 1_000_000,
+  }, async (request, reply) => {
+    try {
+      await projects.setStory(request.params.projectId, request.body);
+      return reply.code(204).send();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
+    }
+  });
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
     "/projects/:projectId",

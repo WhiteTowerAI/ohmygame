@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
+import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -18,6 +19,7 @@ interface LoadedMetadata {
 }
 
 const PROJECT_COVER_FILE = "cover.webp";
+const STORY_FILE = "story.json";
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
@@ -173,6 +175,32 @@ export class ProjectManager {
     return relativePath.split(path.sep).join("/");
   }
 
+  async story(id: string): Promise<StoryDocument> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
+    const destination = path.join(project.workspacePath, STORY_FILE);
+    try {
+      const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
+      if (!isStoryDocument(parsed)) throw new Error(`Invalid story document: ${destination}`);
+      return parsed;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const story = createStoryDocument();
+      await writeStory(destination, story);
+      return story;
+    }
+  }
+
+  async setStory(id: string, story: StoryDocument): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
+    if (!isStoryDocument(story)) throw new Error("Invalid story document");
+    await writeStory(path.join(project.workspacePath, STORY_FILE), story);
+    await this.touch(id);
+  }
+
   async setPublication(id: string, publication: PublicationState): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -270,6 +298,16 @@ async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+async function writeStory(destination: string, story: StoryDocument): Promise<void> {
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(story, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });

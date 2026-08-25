@@ -34,6 +34,27 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
   });
 
+  it("loads and updates an Interactive Drama story", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    apps.push(app);
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-drama" },
+    })).json();
+
+    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
+    const story = loaded.json();
+    story.chapters[0].title = "The Stopover";
+    const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
+
+    expect(loaded.statusCode).toBe(200);
+    expect(story.chapters[0].nodes).toEqual([expect.objectContaining({ type: "start" })]);
+    expect(updated.statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
+      .toMatchObject({ chapters: [{ title: "The Stopover" }] });
+  });
+
   it("lists projects", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
     apps.push(app);

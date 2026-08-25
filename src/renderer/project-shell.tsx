@@ -683,7 +683,7 @@ export function ProjectShell({
           onPublish={publish}
           onRestart={restartPreview}
         />
-      ) : <InteractiveDramaWorkspace />}
+      ) : <InteractiveDramaWorkspace projectId={project.id} />}
     </main>
   );
 }

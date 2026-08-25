@@ -53,6 +53,35 @@ describe("ProjectManager", () => {
     expect(restored.get(project.id)?.type).toBe("interactive-drama");
   });
 
+  it("creates and atomically updates an Interactive Drama story", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Story", "interactive-drama");
+
+    const story = await manager.story(project.id);
+    expect(story).toMatchObject({
+      version: 1,
+      chapters: [{ title: "Untitled", nodes: [{ type: "start" }], edges: [] }],
+    });
+
+    story.chapters[0]!.title = "The Stopover";
+    await manager.setStory(project.id, story);
+
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8")))
+      .toMatchObject({ chapters: [{ title: "The Stopover" }] });
+    expect((await manager.story(project.id)).chapters[0]?.title).toBe("The Stopover");
+  });
+
+  it("rejects stories for general projects and invalid story documents", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const general = await manager.create("Game");
+    const story = await manager.create("Story", "interactive-drama");
+
+    await expect(manager.story(general.id)).rejects.toThrow("Interactive Drama");
+    await expect(manager.setStory(story.id, { version: 1, chapters: [] })).rejects.toThrow("Invalid story document");
+  });
+
   it("writes generated assets only under the project workspace", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);

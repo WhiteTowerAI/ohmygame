@@ -8,6 +8,7 @@ interface CreateWindowOptions {
   preloadPath: string;
   rendererUrl?: string;
   rendererFile?: string;
+  rendererHash?: string;
 }
 
 export async function createDesktopWindow(options: CreateWindowOptions): Promise<BrowserWindow> {
@@ -17,6 +18,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       ? pathToFileURL(path.resolve(options.rendererFile)).href
       : undefined;
   if (!rendererTarget) throw new Error("A renderer URL or file is required");
+  const loadTarget = options.rendererHash ? `${rendererTarget}${options.rendererHash}` : rendererTarget;
 
   const runtimeArguments = [
     `--open-game-daemon-url=${options.runtime.url}`,
@@ -50,13 +52,19 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    if (url !== rendererTarget) event.preventDefault();
+    if (withoutHash(url) !== rendererTarget) event.preventDefault();
   });
   window.once("ready-to-show", () => window.show());
 
-  await window.loadURL(rendererTarget);
+  await window.loadURL(loadTarget);
 
   return window;
+}
+
+function withoutHash(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  return url.href;
 }
 
 function isHttpUrl(value: string): boolean {

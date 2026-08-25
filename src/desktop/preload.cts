@@ -18,6 +18,8 @@ if (process.isMainFrame) {
     openExternal: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("open-game:capture-page", bounds) as Promise<Uint8Array>,
+    openPlaytest: (projectId: string, chapterId: string) =>
+      ipcRenderer.invoke("open-game:open-playtest", projectId, chapterId) as Promise<void>,
     updates: Object.freeze({
       state: () => ipcRenderer.invoke("open-game:update-state") as Promise<DesktopUpdateState | null>,
       check: () => ipcRenderer.invoke("open-game:check-for-update") as Promise<void>,

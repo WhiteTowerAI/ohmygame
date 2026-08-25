@@ -14,6 +14,7 @@ const developmentRendererUrl = process.env.OPEN_GAME_RENDERER_URL ?? "http://127
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
+const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("open-game:auth-callback"));
@@ -33,6 +34,41 @@ ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
   return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
+});
+ipcMain.handle("open-game:open-playtest", async (event, projectId: unknown, chapterId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
+  if (!validRouteId(projectId) || !validRouteId(chapterId) || !daemon) throw new Error("Invalid playtest target");
+  const current = playtestWindows.get(projectId);
+  if (current) {
+    const existing = await current;
+    if (!existing.isDestroyed()) {
+      existing.focus();
+      return;
+    }
+    playtestWindows.delete(projectId);
+  }
+  const opening = createDesktopWindow({
+    runtime: daemon.runtime,
+    preloadPath: path.join(moduleDirectory, "preload.cjs"),
+    rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
+    rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
+    rendererHash: `#/playtest/${encodeURIComponent(projectId)}/${encodeURIComponent(chapterId)}`,
+  });
+  playtestWindows.set(projectId, opening);
+  try {
+    const playtest = await opening;
+    if (!mainWindow) {
+      playtest.close();
+      return;
+    }
+    playtestWindows.set(projectId, playtest);
+    playtest.once("closed", () => {
+      if (playtestWindows.get(projectId) === playtest) playtestWindows.delete(projectId);
+    });
+  } catch (error) {
+    if (playtestWindows.get(projectId) === opening) playtestWindows.delete(projectId);
+    throw error;
+  }
 });
 ipcMain.handle("open-game:update-state", () => updater?.state() ?? null);
 ipcMain.handle("open-game:check-for-update", () => updater?.check());
@@ -72,7 +108,13 @@ try {
   });
   updater.subscribe((state) => mainWindow?.webContents.send("open-game:update-state", state));
   if (app.isPackaged) void updater.check();
-  mainWindow.once("closed", () => { mainWindow = undefined; });
+  mainWindow.once("closed", () => {
+    mainWindow = undefined;
+    for (const playtest of playtestWindows.values()) {
+      void Promise.resolve(playtest).then((window) => window.close(), () => {});
+    }
+    playtestWindows.clear();
+  });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
@@ -117,4 +159,8 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
     throw new Error("Invalid capture bounds");
   }
   return bounds;
+}
+
+function validRouteId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 200 && !value.includes("/");
 }

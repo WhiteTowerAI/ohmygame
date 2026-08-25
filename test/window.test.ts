@@ -70,4 +70,22 @@ describe("desktop window", () => {
     expect(electron.openExternal).toHaveBeenNthCalledWith(1, "https://example.com/game");
     expect(electron.openExternal).toHaveBeenNthCalledWith(2, "http://127.0.0.1:43130/games/game-1");
   });
+
+  it("loads and permits a renderer hash route", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      rendererHash: "#/playtest/project/chapter",
+    });
+    const window = electron.windows[0] as {
+      loadURL: ReturnType<typeof vi.fn>;
+      onNavigate?: (event: { preventDefault(): void }, url: string) => void;
+    };
+
+    expect(window.loadURL).toHaveBeenCalledWith("http://127.0.0.1:43120/#/playtest/project/chapter");
+    const navigation = { preventDefault: vi.fn() };
+    window.onNavigate?.(navigation, "http://127.0.0.1:43120/#/playtest/project/chapter");
+    expect(navigation.preventDefault).not.toHaveBeenCalled();
+  });
 });

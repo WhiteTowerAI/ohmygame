@@ -14,6 +14,7 @@ const SIDEBAR_PAGES = new Set<SidebarPage>([
 export type AppRoute =
   | { page: SidebarPage }
   | { page: "community-game"; gameId: string }
+  | { page: "playtest"; projectId: string; chapterId: string }
   | { page: "project"; projectId: string; conversationId?: string };
 
 export function parseAppRoute(hash: string): AppRoute {
@@ -26,6 +27,18 @@ export function parseAppRoute(hash: string): AppRoute {
   if (communityGameMatch?.[1]) {
     try {
       return { page: "community-game", gameId: decodeURIComponent(communityGameMatch[1]) };
+    } catch {
+      return { page: "home" };
+    }
+  }
+  const playtestMatch = /^#\/playtest\/([^/]+)\/([^/]+)$/.exec(hash);
+  if (playtestMatch?.[1] && playtestMatch[2]) {
+    try {
+      return {
+        page: "playtest",
+        projectId: decodeURIComponent(playtestMatch[1]),
+        chapterId: decodeURIComponent(playtestMatch[2]),
+      };
     } catch {
       return { page: "home" };
     }
@@ -62,4 +75,8 @@ export function conversationHash(projectId: string, conversationId: string): str
 
 export function communityGameHash(gameId: string): string {
   return `#/community/games/${encodeURIComponent(gameId)}`;
+}
+
+export function playtestHash(projectId: string, chapterId: string): string {
+  return `#/playtest/${encodeURIComponent(projectId)}/${encodeURIComponent(chapterId)}`;
 }
