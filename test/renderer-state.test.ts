@@ -14,21 +14,17 @@ describe("rendererReducer", () => {
       plan: { steps: [{ step: "Inspect", status: "pending" }] },
     });
   });
-  it("upserts the latest structured plan and removes its tool placeholder", () => {
+  it("upserts the latest structured plan item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.preparing", {
-      itemId: "placeholder", toolCallId: "plan-1", toolName: "tool",
-    }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "plan.updated", {
-      itemId: "placeholder",
-      steps: [{ step: "Inspect", status: "in_progress" }],
-    }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "plan.updated", {
-      itemId: "turn-1:plan",
-      explanation: "Progress",
-      steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
-    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.completed", { item: {
+      id: "turn-1:plan", turnId: "turn-1", type: "plan",
+      plan: { steps: [{ step: "Inspect", status: "in_progress" }] },
+    } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.completed", { item: {
+      id: "turn-1:plan", turnId: "turn-1", type: "plan",
+      plan: { explanation: "Progress", steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }] },
+    } }) });
 
     expect(state.items.filter((item) => item.type === "plan")).toEqual([expect.objectContaining({
       id: "turn-1:plan",
@@ -37,7 +33,6 @@ describe("rendererReducer", () => {
         steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
       },
     })]);
-    expect(state.items.some((item) => item.id === "placeholder")).toBe(false);
   });
 
   it("replaces the final turn when the latest prompt is revised", () => {
@@ -88,19 +83,28 @@ describe("rendererReducer", () => {
   it("builds a conversation from normalized runtime events", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build a clock" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "I will " }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.delta", { itemId: "assistant-1", delta: "build it." }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.completed", { itemId: "assistant-1", status: "complete", phase: "final_answer" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "edit", args: { path: "src/app.ts" } }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(7, "tool.updated", { itemId: "tool-1", toolCallId: "tool-1", output: "working" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(8, "tool.completed", { itemId: "tool-1", toolCallId: "tool-1", toolName: "edit", isError: false, output: "done" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "inProgress" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.agentMessage.delta", { itemId: "assistant-1", delta: "I will " }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "item.agentMessage.delta", { itemId: "assistant-1", delta: "build it." }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "item.completed", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "I will build it.", status: "completed", phase: "final_answer" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "item.started", { item: {
+      id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit",
+      status: "inProgress", arguments: { path: "src/app.ts" },
+    } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(7, "item.updated", { item: {
+      id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit",
+      status: "inProgress", arguments: { path: "src/app.ts" }, output: "working",
+    } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(8, "item.completed", { item: {
+      id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit",
+      status: "completed", arguments: { path: "src/app.ts" }, output: "done",
+    } }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(9, "agent.completed", {}) });
 
     expect(state.items).toEqual([
       { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Build a clock", timestamp: 0 },
-      { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "I will build it.", status: "completed", phase: "final_answer", error: undefined, timestamp: 0 },
-      { id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit", status: "completed", arguments: { path: "src/app.ts" }, output: "done", truncated: undefined, timestamp: 0 },
+      { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "I will build it.", status: "completed", phase: "final_answer", timestamp: 0 },
+      { id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit", status: "completed", arguments: { path: "src/app.ts" }, output: "done", timestamp: 0 },
     ]);
     expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
@@ -109,11 +113,11 @@ describe("rendererReducer", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", { itemId: "tool-1", toolCallId: "tool-1", toolName: "read" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "read", status: "inProgress" } }) });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking.started", { itemId: "thinking-1" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.thinking.delta", { itemId: "thinking-1", delta: "Inspecting" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.thinking.completed", { itemId: "thinking-1", text: "Inspecting" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.started", { item: { id: "thinking-1", turnId: "turn-1", type: "reasoning", text: "", status: "inProgress" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "item.reasoning.textDelta", { itemId: "thinking-1", delta: "Inspecting" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "item.completed", { item: { id: "thinking-1", turnId: "turn-1", type: "reasoning", text: "Inspecting", status: "completed" } }) });
     expect(state.items.at(-1)).toMatchObject({ type: "reasoning", text: "Inspecting", status: "completed" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "agent.completed", {}) });
@@ -122,10 +126,10 @@ describe("rendererReducer", () => {
   it("records the latest assistant delta time", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "inProgress" } }) });
     state = rendererReducer(state, {
       type: "runtime-event",
-      event: { ...runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "Working" }), timestamp: new Date(3_000).toISOString() },
+      event: { ...runtimeEvent(3, "item.agentMessage.delta", { itemId: "assistant-1", delta: "Working" }), timestamp: new Date(3_000).toISOString() },
     });
 
     expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Working", timestamp: 3_000 });
@@ -134,14 +138,14 @@ describe("rendererReducer", () => {
   it("transitions a preparing tool into execution on the same item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.preparing", {
-      itemId: "tool-1", toolCallId: "call-1", toolName: "write",
-    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: {
+      id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "call-1", tool: "write", status: "preparing",
+    } }) });
     expect(state.items.at(-1)).toMatchObject({ type: "dynamicToolCall", status: "preparing", tool: "write" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "tool.started", {
-      itemId: "tool-1", toolCallId: "call-1", toolName: "write", args: { path: "src/app.ts" },
-    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.updated", { item: {
+      id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "call-1", tool: "write", status: "inProgress", arguments: { path: "src/app.ts" },
+    } }) });
     expect(state.items).toHaveLength(2);
     expect(state.items.at(-1)).toMatchObject({ type: "dynamicToolCall", status: "inProgress", arguments: { path: "src/app.ts" } });
   });
@@ -149,19 +153,14 @@ describe("rendererReducer", () => {
   it("keeps MCP identity as structured timeline data", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Create a scene" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", {
-      itemId: "mcp-1",
-      toolCallId: "call-1",
-      toolName: "mcp",
-      mcp: { server: "opengame-godot", tool: "create_scene" },
-      args: { scenePath: "main.tscn" },
-    }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "tool.completed", {
-      itemId: "mcp-1",
-      toolCallId: "call-1",
-      toolName: "mcp",
-      isError: false,
-    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: {
+      id: "mcp-1", turnId: "turn-1", type: "mcpToolCall", toolCallId: "call-1", server: "opengame-godot", tool: "create_scene",
+      status: "inProgress", arguments: { scenePath: "main.tscn" },
+    } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.completed", { item: {
+      id: "mcp-1", turnId: "turn-1", type: "mcpToolCall", toolCallId: "call-1", server: "opengame-godot", tool: "create_scene",
+      status: "completed", arguments: { scenePath: "main.tscn" },
+    } }) });
 
     expect(state.items.at(-1)).toMatchObject({
       type: "mcpToolCall",
@@ -197,12 +196,14 @@ describe("rendererReducer", () => {
     expect(state.pendingPrompts).toEqual([]);
   });
 
-  it("keeps model errors in the assistant timeline", () => {
+  it("updates agent error state without synthesizing a timeline item", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.error", { error: "Authentication required" }) });
 
-    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", status: "failed", error: "Authentication required" });
+    expect(state.items).toEqual([
+      { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: 0 },
+    ]);
     expect(state.conversation?.agent).toEqual({ status: "error", error: "Authentication required" });
   });
 
@@ -240,20 +241,20 @@ describe("rendererReducer", () => {
 
     expect(state.items.at(-1)).toMatchObject({ type: "retry", attempt: 1, maxAttempts: 3, error: "fetch failed" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.started", { itemId: "assistant-1" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.delta", { itemId: "assistant-1", delta: "Recovered" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.started", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "inProgress" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "item.agentMessage.delta", { itemId: "assistant-1", delta: "Recovered" }) });
     expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Recovered" });
   });
 
   it("tracks context compaction", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "threshold" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }) });
 
     expect(state.items.at(-1)).toMatchObject({ type: "contextCompaction", status: "inProgress" });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "agent.compaction.completed", { reason: "threshold", aborted: false, willRetry: false }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.completed", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "completed" } }) });
     expect(state.items.at(-1)).toMatchObject({ type: "contextCompaction", status: "completed" });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
     expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
@@ -261,11 +262,11 @@ describe("rendererReducer", () => {
 
   it("tracks manual compaction as its own active operation", () => {
     let state = initialized();
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.compaction.started", { reason: "manual" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }) });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
     expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
 
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.completed", { reason: "manual", aborted: false, willRetry: false }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.completed", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "completed" } }) });
     expect(state.activeTurn).toBeUndefined();
     expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
@@ -273,10 +274,10 @@ describe("rendererReducer", () => {
   it("does not present an aborted compaction as complete", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "overflow" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }) });
     state = rendererReducer(state, {
       type: "runtime-event",
-      event: runtimeEvent(3, "agent.compaction.completed", { reason: "overflow", aborted: true, willRetry: true }),
+      event: runtimeEvent(3, "item.completed", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "failed", error: "Context compaction interrupted; retrying" } }),
     });
 
     expect(state.items.at(-1)).toMatchObject({
@@ -289,22 +290,23 @@ describe("rendererReducer", () => {
   it("removes an empty completed assistant item before a tool call", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Read" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.completed", { itemId: "assistant-1", status: "complete" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "inProgress" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.completed", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "completed" } }) });
 
     expect(state.items).toEqual([
       { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Read", timestamp: 0 },
     ]);
   });
 
-  it("settles a streaming assistant when a run ends without message_end", () => {
+  it("leaves item lifecycle changes to item events", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "assistant.started", { itemId: "assistant-1" }) });
-    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "Done" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.started", { item: { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "", status: "inProgress" } }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.agentMessage.delta", { itemId: "assistant-1", delta: "Done" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.completed", {}) });
 
-    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Done", status: "completed" });
+    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Done", status: "inProgress" });
+    expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
 
   it("ignores agent state from another conversation", () => {
@@ -383,7 +385,7 @@ function initialized() {
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
-  const agentScoped = type.startsWith("agent.") || type.startsWith("assistant.") || type.startsWith("tool.") || type.startsWith("plan.") || type.startsWith("prompt.");
+  const agentScoped = type.startsWith("agent.") || type.startsWith("item.") || type.startsWith("plan.") || type.startsWith("prompt.");
   return {
     id,
     projectId: "project-1",

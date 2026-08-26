@@ -73,7 +73,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("assistant.") || event.type.startsWith("tool.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type.startsWith("questionnaire.");
+  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type.startsWith("questionnaire.");
   let scoped = next;
 
   if (event.type === "agent.started" && conversation && event.conversationId === conversation.id && event.turnId) {
@@ -135,121 +135,50 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         }),
       };
     }
-    case "agent.compaction.started":
-      if (!event.turnId) return scoped;
+    case "item.started":
+    case "item.updated": {
+      const item = { ...event.data.item, timestamp: eventTime(event) };
+      const manualCompaction = item.type === "contextCompaction" && !state.activeTurn;
       return {
         ...scoped,
-        ...(event.data.reason === "manual" ? {
-          activeTurn: { conversationId: conversation!.id, turnId: event.turnId },
-          conversation: { ...conversation!, agent: { status: "running", turnId: event.turnId } },
+        ...(manualCompaction && conversation ? {
+          activeTurn: { conversationId: conversation.id, turnId: item.turnId },
+          conversation: { ...conversation, agent: { status: "running", turnId: item.turnId } },
         } : {}),
-        items: upsertItem(state.items, {
-          id: `${event.turnId}:compaction`,
-          turnId: event.turnId,
-          type: "contextCompaction",
-          status: "inProgress",
-          timestamp: eventTime(event),
-        }),
+        items: upsertItem(state.items, item),
       };
-    case "agent.compaction.completed":
-      if (!event.turnId) return scoped;
-      return {
-        ...scoped,
-        ...(event.data.reason === "manual" ? {
-          activeTurn: scoped.activeTurn?.turnId === event.turnId ? undefined : scoped.activeTurn,
-          conversation: conversation ? { ...conversation, agent: { status: event.data.aborted ? "error" : "idle" } } : conversation,
-        } : {}),
-        items: updateItem(state.items, `${event.turnId}:compaction`, (item) => item.type === "contextCompaction" ? {
-          ...item,
-          status: event.data.aborted ? "failed" : "completed",
-          error: event.data.error ?? (event.data.aborted
-            ? event.data.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted"
-            : undefined),
-        } : item),
-      };
-    case "assistant.started":
-      if (!event.turnId) return scoped;
-      return {
-        ...scoped,
-        items: upsertItem(state.items, {
-          id: event.data.itemId,
-          turnId: event.turnId,
-          type: "agentMessage",
-          text: "",
-          status: "inProgress",
-          timestamp: eventTime(event),
-        }),
-      };
-    case "assistant.thinking.started":
-      if (!event.turnId) return scoped;
-      return {
-        ...scoped,
-        items: upsertItem(state.items, {
-          id: event.data.itemId,
-          turnId: event.turnId,
-          type: "reasoning",
-          text: "",
-          status: "inProgress",
-          timestamp: eventTime(event),
-        }),
-      };
-    case "assistant.thinking.delta":
+    }
+    case "item.reasoning.textDelta":
       return {
         ...scoped,
         items: updateItem(state.items, event.data.itemId, (item) => item.type === "reasoning"
           ? { ...item, text: item.text + event.data.delta }
           : item),
       };
-    case "assistant.thinking.completed":
-      return {
-        ...scoped,
-        items: state.items.flatMap((item) => {
-          if (item.id !== event.data.itemId || item.type !== "reasoning") return [item];
-          return event.data.text
-            ? [{ ...item, text: event.data.text, status: "completed" as const, timestamp: eventTime(event) }]
-            : [];
-        }),
-      };
-    case "assistant.delta":
-      if (!event.turnId) return scoped;
+    case "item.agentMessage.delta":
       return {
         ...scoped,
         items: updateItem(state.items, event.data.itemId, (item) => item.type === "agentMessage"
           ? { ...item, text: item.text + event.data.delta, timestamp: eventTime(event) }
           : item),
       };
-    case "assistant.completed":
+    case "item.completed": {
+      const item = { ...event.data.item, timestamp: eventTime(event) };
+      const manualCompaction = item.type === "contextCompaction" &&
+        !state.items.some((candidate) => candidate.turnId === item.turnId && candidate.type === "userMessage");
+      const items = ((item.type === "agentMessage" || item.type === "reasoning") && item.status === "completed" && !item.text)
+        ? state.items.filter((candidate) => candidate.id !== item.id)
+        : upsertItem(state.items, item);
       return {
         ...scoped,
-        items: state.items.flatMap((item) => {
-          if (item.id !== event.data.itemId || item.type !== "agentMessage") return [item];
-          if (!item.text && event.data.status === "complete") return [];
-          return [{
-            ...item,
-            status: threadItemStatus(event.data.status),
-            phase: event.data.phase,
-            error: event.data.error,
-            timestamp: eventTime(event),
-          }];
-        }),
+        ...(manualCompaction && conversation ? {
+          activeTurn: scoped.activeTurn?.turnId === item.turnId ? undefined : scoped.activeTurn,
+          conversation: { ...conversation, agent: { status: item.status === "failed" ? "error" : "idle" } },
+        } : {}),
+        ...(item.type === "plan" && conversation ? { conversation: { ...conversation, plan: item.plan } } : {}),
+        items,
       };
-    case "plan.updated":
-      if (!event.turnId) return scoped;
-      const planItemId = `${event.turnId}:plan`;
-      const withoutPlaceholder = event.data.itemId === planItemId
-        ? state.items
-        : state.items.filter((item) => item.id !== event.data.itemId);
-      return {
-        ...scoped,
-        conversation: conversation ? { ...conversation, plan: { explanation: event.data.explanation, steps: event.data.steps } } : conversation,
-        items: upsertItem(withoutPlaceholder, {
-          id: planItemId,
-          turnId: event.turnId,
-          type: "plan",
-          plan: { explanation: event.data.explanation, steps: event.data.steps },
-          timestamp: eventTime(event),
-        }),
-      };
+    }
     case "plan.mode.changed":
       return {
         ...scoped,
@@ -263,57 +192,12 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return { ...scoped, questionnaire: event.data };
     case "questionnaire.resolved":
       return scoped.questionnaire?.id === event.data.requestId ? { ...scoped, questionnaire: undefined } : scoped;
-    case "tool.preparing":
-    case "tool.started":
-      if (!event.turnId) return scoped;
-      return {
-        ...scoped,
-        items: upsertItem(state.items, {
-          id: event.data.itemId,
-          turnId: event.turnId,
-          ...(event.data.mcp ? {
-            type: "mcpToolCall" as const,
-            toolCallId: event.data.toolCallId,
-            server: event.data.mcp.server,
-            tool: event.data.mcp.tool,
-          } : {
-            type: "dynamicToolCall" as const,
-            toolCallId: event.data.toolCallId,
-            tool: event.data.toolName,
-          }),
-          status: event.type === "tool.preparing" ? "preparing" : "inProgress",
-          arguments: event.data.args,
-          timestamp: eventTime(event),
-        }),
-      };
-    case "tool.updated":
-      return {
-        ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall")
-          ? { ...item, output: event.data.output ?? item.output, truncated: event.data.truncated ?? item.truncated }
-          : item),
-      };
-    case "tool.completed":
-      if (event.data.toolName === "update_plan") {
-        return { ...scoped, items: state.items.filter((item) => item.id !== event.data.itemId) };
-      }
-      return {
-        ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall") ? {
-          ...item,
-          status: event.data.isError ? "failed" : "completed",
-          output: event.data.output ?? item.output,
-          truncated: event.data.truncated ?? item.truncated,
-          artifact: event.data.artifact ?? item.artifact,
-          timestamp: eventTime(event),
-        } : item),
-      };
     case "agent.completed":
-      return finishAgent(scoped, event.turnId, "complete", undefined, eventTime(event));
+      return finishAgent(scoped, "complete");
     case "agent.cancelled":
-      return finishAgent(scoped, event.turnId, "cancelled", undefined, eventTime(event));
+      return finishAgent(scoped, "cancelled");
     case "agent.error":
-      return finishAgent(scoped, event.turnId, "error", event.data.error, eventTime(event));
+      return finishAgent(scoped, "error", event.data.error);
     case "publish.completed":
       return project ? {
         ...scoped,
@@ -338,42 +222,12 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
 
 function finishAgent(
   state: RendererState,
-  turnId: string | undefined,
   status: "complete" | "cancelled" | "error",
   error?: string,
-  timestamp?: number,
 ): RendererState {
-  const finalizedItems = !turnId ? state.items : state.items.flatMap((item) => {
-    if (item.turnId !== turnId) return [item];
-    if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") && item.status === "preparing") {
-      return status === "complete" ? [] : [{ ...item, status: "failed" as const }];
-    }
-    if (item.type === "reasoning" && item.status === "inProgress") {
-      return item.text ? [{ ...item, status: "completed" as const }] : [];
-    }
-    if (item.type !== "agentMessage" || item.status !== "inProgress") return [item];
-    if (status === "complete" && !item.text) return [];
-    return [{ ...item, status: threadItemStatus(status), error, timestamp }];
-  });
-  const hasFailure = status !== "complete" && turnId && finalizedItems.some((item) => (
-    item.turnId === turnId && item.type === "agentMessage" && item.status === threadItemStatus(status)
-  ));
-  const items = status === "complete" || !turnId || hasFailure ? finalizedItems : [
-    ...finalizedItems,
-    {
-      id: `${turnId}:status`,
-      turnId,
-      type: "agentMessage" as const,
-      text: "",
-      status: threadItemStatus(status),
-      error,
-      timestamp,
-    },
-  ];
-  if (!state.conversation) return { ...state, items };
+  if (!state.conversation) return state;
   return {
     ...state,
-    items,
     questionnaire: undefined,
     conversation: {
       ...state.conversation,
@@ -395,9 +249,4 @@ function upsertItem(items: ThreadItem[], incoming: ThreadItem): ThreadItem[] {
 
 function updateItem(items: ThreadItem[], id: string, update: (item: ThreadItem) => ThreadItem): ThreadItem[] {
   return items.map((item) => item.id === id ? update(item) : item);
-}
-
-function threadItemStatus(status: "complete" | "cancelled" | "error"): "completed" | "cancelled" | "failed" {
-  if (status === "complete") return "completed";
-  return status === "error" ? "failed" : status;
 }

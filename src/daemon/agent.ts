@@ -222,6 +222,7 @@ interface ActiveTurn {
   thinkingSequence: number;
   preparingToolItemIds: Map<number, string>;
   toolItemIds: Map<string, string>;
+  items: Map<string, ThreadItem>;
   startedEventId?: number;
   startedAt?: number;
 }
@@ -378,6 +379,7 @@ export class AgentManager {
       thinkingSequence: 0,
       preparingToolItemIds: new Map(),
       toolItemIds: new Map(),
+      items: new Map(),
     };
     this.#activeTurns.set(key, active);
     this.#setState(project.id, conversation.summary.id, { status: "running", turnId });
@@ -390,7 +392,7 @@ export class AgentManager {
         return result;
       },
       (cause) => {
-        this.#finishCompact(project, active, run);
+        this.#finishCompact(project, active, run, cause);
         throw cause;
       },
     );
@@ -529,6 +531,7 @@ export class AgentManager {
       thinkingSequence: 0,
       preparingToolItemIds: new Map(),
       toolItemIds: new Map(),
+      items: new Map(),
     };
     this.#activeTurns.set(conversationKey(project.id, active.conversationId), active);
     this.#setState(project.id, active.conversationId, { status: "running", turnId });
@@ -599,6 +602,7 @@ export class AgentManager {
         throw new Error(sessionError);
       }
 
+      this.#completeOpenItems(project.id, active, "completed");
       this.#setState(project.id, active.conversationId, { status: "idle" });
       this.events.publish(project.id, "agent.completed", {}, eventScope(active));
       return "completed";
@@ -887,12 +891,14 @@ export class AgentManager {
     });
   }
 
-  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>): void {
+  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, cause?: unknown): void {
     this.#runs.delete(run);
     const key = conversationKey(project.id, active.conversationId);
     if (this.#activeTurns.get(key) === active) {
+      const error = cause === undefined ? undefined : cause instanceof Error ? cause.message : String(cause);
+      this.#completeOpenItems(project.id, active, error ? "failed" : "completed", error);
       this.#activeTurns.delete(key);
-      this.#setState(project.id, active.conversationId, { status: "idle" });
+      this.#setState(project.id, active.conversationId, error ? { status: "error", error } : { status: "idle" });
     }
   }
 
@@ -967,6 +973,7 @@ export class AgentManager {
       active.thinkingSequence = 0;
       active.preparingToolItemIds.clear();
       active.toolItemIds.clear();
+      active.items.clear();
       this.#setState(projectId, conversationId, { status: "running", turnId: started.turnId });
       const startedEvent = this.events.publish(
         projectId,
@@ -981,23 +988,42 @@ export class AgentManager {
       const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
       active.assistantItemIds.set(event.assistantMessageEvent.contentIndex, itemId);
       active.completedAssistantIndexes.delete(event.assistantMessageEvent.contentIndex);
-      this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
+      this.#startItem(projectId, active, {
+        id: itemId,
+        turnId: active.turnId,
+        type: "agentMessage",
+        text: "",
+        status: "inProgress",
+      });
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_start") {
       active.thinkingItemId = `${active.turnId}:thinking:${active.thinkingSequence++}`;
-      this.events.publish(projectId, "assistant.thinking.started", { itemId: active.thinkingItemId }, eventScope(active));
+      this.#startItem(projectId, active, {
+        id: active.thinkingItemId,
+        turnId: active.turnId,
+        type: "reasoning",
+        text: "",
+        status: "inProgress",
+      });
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta") {
       const itemId = active.thinkingItemId ?? `${active.turnId}:thinking:${active.thinkingSequence++}`;
       if (!active.thinkingItemId) {
         active.thinkingItemId = itemId;
-        this.events.publish(projectId, "assistant.thinking.started", { itemId }, eventScope(active));
+        this.#startItem(projectId, active, {
+          id: itemId,
+          turnId: active.turnId,
+          type: "reasoning",
+          text: "",
+          status: "inProgress",
+        });
       }
-      this.events.publish(projectId, "assistant.thinking.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+      this.#appendItemText(active, itemId, event.assistantMessageEvent.delta);
+      this.events.publish(projectId, "item.reasoning.textDelta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_end") {
       if (active.thinkingItemId) {
-        this.events.publish(projectId, "assistant.thinking.completed", {
-          itemId: active.thinkingItemId,
-          text: event.assistantMessageEvent.content,
-        }, eventScope(active));
+        const item = active.items.get(active.thinkingItemId);
+        if (item?.type === "reasoning") {
+          this.#completeItem(projectId, active, { ...item, text: event.assistantMessageEvent.content, status: "completed" });
+        }
         active.thinkingItemId = undefined;
       }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
@@ -1005,32 +1031,41 @@ export class AgentManager {
       const itemId = active.assistantItemIds.get(contentIndex) ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
       if (!active.assistantItemIds.has(contentIndex)) {
         active.assistantItemIds.set(contentIndex, itemId);
-        this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
+        this.#startItem(projectId, active, {
+          id: itemId,
+          turnId: active.turnId,
+          type: "agentMessage",
+          text: "",
+          status: "inProgress",
+        });
       }
-      this.events.publish(projectId, "assistant.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+      this.#appendItemText(active, itemId, event.assistantMessageEvent.delta);
+      this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
       const itemId = active.assistantItemIds.get(contentIndex);
       if (itemId) {
         const phase = assistantBlockPhase(event.assistantMessageEvent.partial.content[contentIndex]);
-        if (phase) {
-          this.events.publish(projectId, "assistant.completed", { itemId, status: "complete", phase }, eventScope(active));
+        const item = active.items.get(itemId);
+        if (phase && item?.type === "agentMessage") {
+          this.#completeItem(projectId, active, {
+            ...item,
+            text: event.assistantMessageEvent.content,
+            status: "completed",
+            phase,
+          });
           active.completedAssistantIndexes.add(contentIndex);
         }
       }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_start") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
       const toolCall = partialToolCall(event.assistantMessageEvent.partial, contentIndex);
-      if (toolCall?.name === "update_plan" || toolCall?.name === "questionnaire") return;
+      if (!toolCall?.name || toolCall.name === "update_plan" || toolCall.name === "questionnaire") return;
       const itemId = `${active.turnId}:tool:${active.assistantSequence++}`;
-      const toolCallId = toolCall?.id || `${active.turnId}:preparing:${contentIndex}`;
+      const toolCallId = toolCall.id || `${active.turnId}:preparing:${contentIndex}`;
       active.preparingToolItemIds.set(contentIndex, itemId);
-      if (toolCall?.id) active.toolItemIds.set(toolCall.id, itemId);
-      this.events.publish(projectId, "tool.preparing", {
-        itemId,
-        toolCallId,
-        toolName: toolCall?.name || "tool",
-      }, eventScope(active));
+      if (toolCall.id) active.toolItemIds.set(toolCall.id, itemId);
+      this.#startItem(projectId, active, toolThreadItem(active.turnId, itemId, toolCallId, toolCall.name, undefined, "preparing"));
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_end") {
       const { contentIndex, toolCall } = event.assistantMessageEvent;
       if (toolCall.name === "questionnaire") {
@@ -1038,46 +1073,43 @@ export class AgentManager {
         return;
       }
       if (toolCall.name === "update_plan") {
-        const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:plan`;
         active.preparingToolItemIds.delete(contentIndex);
-        active.toolItemIds.set(toolCall.id, itemId);
         return;
       }
       const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:tool:${active.assistantSequence++}`;
       active.preparingToolItemIds.delete(contentIndex);
       active.toolItemIds.set(toolCall.id, itemId);
       const args = toolArguments(toolCall.name, toolCall.arguments);
-      const mcp = parseMcpToolIdentity(toolCall.name, args);
-      this.events.publish(projectId, "tool.preparing", {
-        itemId,
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        args: mcp ? mcpToolInput(args) : args,
-        ...(mcp ? { mcp } : {}),
-      }, eventScope(active));
+      this.#updateItem(projectId, active, toolThreadItem(active.turnId, itemId, toolCall.id, toolCall.name, args, "preparing"));
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
-      const status = assistantStatus(event.message.stopReason);
+      const status = threadItemStatus(event.message.stopReason);
       for (const [contentIndex, itemId] of active.assistantItemIds) {
-        if (status === "complete" && active.completedAssistantIndexes.has(contentIndex)) continue;
+        if (status === "completed" && active.completedAssistantIndexes.has(contentIndex)) continue;
         const phase = assistantMessagePhase(
           Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined,
           event.message.stopReason,
         );
-        this.events.publish(projectId, "assistant.completed", {
-          itemId,
+        const item = active.items.get(itemId);
+        if (item?.type !== "agentMessage") continue;
+        this.#completeItem(projectId, active, {
+          ...item,
           status,
           ...(phase ? { phase } : {}),
           ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
-        }, eventScope(active));
+        });
       }
-      if (active.assistantItemIds.size === 0 && status !== "complete") {
+      if (active.assistantItemIds.size === 0 && status !== "completed") {
         const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
-        this.events.publish(projectId, "assistant.started", { itemId }, eventScope(active));
-        this.events.publish(projectId, "assistant.completed", {
-          itemId,
+        const item: Extract<ThreadItem, { type: "agentMessage" }> = {
+          id: itemId,
+          turnId: active.turnId,
+          type: "agentMessage",
+          text: "",
           status,
           ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
-        }, eventScope(active));
+        };
+        this.#startItem(projectId, active, { ...item, status: "inProgress" });
+        this.#completeItem(projectId, active, item);
       }
       active.assistantItemIds.clear();
       active.completedAssistantIndexes.clear();
@@ -1090,35 +1122,36 @@ export class AgentManager {
         error: event.errorMessage,
       }, eventScope(active));
     } else if (event.type === "compaction_start") {
-      this.events.publish(projectId, "agent.compaction.started", { reason: event.reason }, eventScope(active));
+      this.#startItem(projectId, active, {
+        id: `${active.turnId}:compaction`,
+        turnId: active.turnId,
+        type: "contextCompaction",
+        status: "inProgress",
+      });
     } else if (event.type === "compaction_end") {
-      this.events.publish(projectId, "agent.compaction.completed", {
-        reason: event.reason,
-        aborted: event.aborted,
-        willRetry: event.willRetry,
-        ...(event.errorMessage ? { error: event.errorMessage } : {}),
-      }, eventScope(active));
+      this.#completeItem(projectId, active, {
+        id: `${active.turnId}:compaction`,
+        turnId: active.turnId,
+        type: "contextCompaction",
+        status: event.aborted ? "failed" : "completed",
+        ...(event.errorMessage ? { error: event.errorMessage } : event.aborted ? {
+          error: event.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted",
+        } : {}),
+      });
     } else if (event.type === "tool_execution_start") {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
       active.toolItemIds.set(event.toolCallId, itemId);
       const args = toolArguments(event.toolName, event.args);
-      const mcp = parseMcpToolIdentity(event.toolName, args);
-      this.events.publish(projectId, "tool.started", {
-        itemId,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        args: mcp ? mcpToolInput(args) : args,
-        ...(mcp ? { mcp } : {}),
-      }, eventScope(active));
+      this.#updateItem(projectId, active, toolThreadItem(active.turnId, itemId, event.toolCallId, event.toolName, args, "inProgress"));
     } else if (event.type === "tool_execution_update") {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const result = toolOutput(event.partialResult);
-      this.events.publish(projectId, "tool.updated", {
-        itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
-        toolCallId: event.toolCallId,
-        ...result,
-      }, eventScope(active));
+      const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
+      const item = active.items.get(itemId);
+      if (item?.type === "dynamicToolCall" || item?.type === "mcpToolCall") {
+        this.#updateItem(projectId, active, { ...item, ...result });
+      }
     } else if (event.type === "tool_execution_end") {
       if (event.toolName === "questionnaire") return;
       if (event.toolName === "update_plan") {
@@ -1128,37 +1161,97 @@ export class AgentManager {
           if (active.mode === "planning" || active.mode === "executing") {
             this.#setPlanState(active.project, active.conversation, { mode: active.mode, plan });
           }
-          this.events.publish(projectId, "plan.updated", {
-            ...plan,
-            itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:plan`,
-          }, eventScope(active));
-        } else if (event.isError) {
-          this.events.publish(projectId, "tool.completed", {
-            itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:plan`,
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            isError: true,
-          }, eventScope(active));
+          const item: ThreadItem = {
+            id: `${active.turnId}:plan`,
+            turnId: active.turnId,
+            type: "plan",
+            plan,
+          };
+          this.#updateItem(projectId, active, item);
+          this.#completeItem(projectId, active, item);
         }
         return;
       }
       const result = toolOutput(event.result);
-      this.events.publish(projectId, "tool.completed", {
-        itemId: active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        isError: event.isError,
+      const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
+      const current = active.items.get(itemId);
+      const item = current?.type === "dynamicToolCall" || current?.type === "mcpToolCall"
+        ? current
+        : toolThreadItem(active.turnId, itemId, event.toolCallId, event.toolName, undefined, "inProgress");
+      this.#completeItem(projectId, active, {
+        ...item,
+        status: event.isError ? "failed" : "completed",
         ...result,
-      }, eventScope(active));
+      });
     }
   }
 
+  #startItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+    active.items.set(item.id, item);
+    this.events.publish(projectId, "item.started", { item }, eventScope(active));
+  }
+
+  #updateItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+    const type = active.items.has(item.id) ? "item.updated" : "item.started";
+    active.items.set(item.id, item);
+    this.events.publish(projectId, type, { item }, eventScope(active));
+  }
+
+  #completeItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+    active.items.set(item.id, item);
+    this.events.publish(projectId, "item.completed", { item }, eventScope(active));
+  }
+
+  #appendItemText(active: ActiveTurn, itemId: string, delta: string): void {
+    const item = active.items.get(itemId);
+    if (item?.type === "agentMessage" || item?.type === "reasoning") {
+      active.items.set(itemId, { ...item, text: item.text + delta });
+    }
+  }
+
+  #completeOpenItems(projectId: string, active: ActiveTurn, status: "completed" | "cancelled" | "failed", error?: string): void {
+    for (const item of active.items.values()) {
+      if (item.type === "agentMessage" && item.status === "inProgress") {
+        this.#completeItem(projectId, active, { ...item, status, ...(status === "failed" && error ? { error } : {}) });
+      } else if (item.type === "reasoning" && item.status === "inProgress") {
+        this.#completeItem(projectId, active, { ...item, status: "completed" });
+      } else if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") &&
+        (item.status === "preparing" || item.status === "inProgress")) {
+        this.#completeItem(projectId, active, { ...item, status: "failed" });
+      } else if (item.type === "contextCompaction" && item.status === "inProgress") {
+        this.#completeItem(projectId, active, {
+          ...item,
+          status: status === "completed" ? "completed" : "failed",
+          ...(error ? { error } : {}),
+        });
+      }
+    }
+  }
+
+  #ensureTerminalAgentItem(projectId: string, active: ActiveTurn, status: "cancelled" | "failed", error?: string): void {
+    if ([...active.items.values()].some((item) => item.type === "agentMessage" && item.status === status)) return;
+    const item: Extract<ThreadItem, { type: "agentMessage" }> = {
+      id: `${active.turnId}:status`,
+      turnId: active.turnId,
+      type: "agentMessage",
+      text: "",
+      status,
+      ...(error ? { error } : {}),
+    };
+    this.#startItem(projectId, active, { ...item, status: "inProgress" });
+    this.#completeItem(projectId, active, item);
+  }
+
   #markCancelled(projectId: string, active: ActiveTurn): void {
+    this.#completeOpenItems(projectId, active, "cancelled");
+    this.#ensureTerminalAgentItem(projectId, active, "cancelled");
     this.#setState(projectId, active.conversationId, { status: "idle" });
     this.events.publish(projectId, "agent.cancelled", {}, eventScope(active));
   }
 
   #markError(projectId: string, active: ActiveTurn, error: string): void {
+    this.#completeOpenItems(projectId, active, "failed", error);
+    this.#ensureTerminalAgentItem(projectId, active, "failed", error);
     this.#setState(projectId, active.conversationId, { status: "error", error });
     this.events.publish(projectId, "agent.error", { error }, eventScope(active));
   }
@@ -1323,12 +1416,6 @@ async function replayQueue(
   }
 }
 
-function assistantStatus(stopReason: string): "complete" | "cancelled" | "error" {
-  if (stopReason === "error") return "error";
-  if (stopReason === "aborted") return "cancelled";
-  return "complete";
-}
-
 function threadItemStatus(stopReason: string): "completed" | "cancelled" | "failed" {
   if (stopReason === "error") return "failed";
   if (stopReason === "aborted") return "cancelled";
@@ -1377,6 +1464,35 @@ function toolArguments(toolName: string, args: unknown): unknown {
     case "mcp": return mcpToolArguments(values);
     default: return boundedValue(args);
   }
+}
+
+function toolThreadItem(
+  turnId: string,
+  itemId: string,
+  toolCallId: string,
+  toolName: string,
+  args: unknown,
+  status: "preparing" | "inProgress",
+): Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }> {
+  const mcp = parseMcpToolIdentity(toolName, args);
+  return mcp ? {
+    id: itemId,
+    turnId,
+    type: "mcpToolCall",
+    toolCallId,
+    server: mcp.server,
+    tool: mcp.tool,
+    status,
+    arguments: mcpToolInput(args),
+  } : {
+    id: itemId,
+    turnId,
+    type: "dynamicToolCall",
+    toolCallId,
+    tool: toolName,
+    status,
+    arguments: args,
+  };
 }
 
 function mcpToolArguments(values: Record<string, unknown>): Record<string, unknown> {

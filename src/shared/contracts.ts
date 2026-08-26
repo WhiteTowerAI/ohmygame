@@ -511,21 +511,13 @@ export interface RuntimeEventData {
   "agent.started": { prompt: string; images?: PromptImage[]; revision?: "last-turn" };
   "plan.mode.changed": PlanSessionState;
   "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
-  "agent.compaction.started": { reason: "manual" | "threshold" | "overflow" };
-  "agent.compaction.completed": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; error?: string };
-  "assistant.started": { itemId: string };
-  "assistant.thinking.started": { itemId: string };
-  "assistant.thinking.delta": { itemId: string; delta: string };
-  "assistant.thinking.completed": { itemId: string; text: string };
-  "assistant.delta": { itemId: string; delta: string };
-  "assistant.completed": { itemId: string; status: "complete" | "cancelled" | "error"; phase?: AgentMessagePhase; error?: string };
-  "plan.updated": PlanState & { itemId: string };
+  "item.started": { item: ThreadItem };
+  "item.updated": { item: ThreadItem };
+  "item.completed": { item: ThreadItem };
+  "item.agentMessage.delta": { itemId: string; delta: string };
+  "item.reasoning.textDelta": { itemId: string; delta: string };
   "questionnaire.requested": QuestionnaireRequest;
   "questionnaire.resolved": { requestId: string };
-  "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown; mcp?: { server?: string; tool: string } };
-  "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown; mcp?: { server?: string; tool: string } };
-  "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean; artifact?: ToolArtifact };
-  "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean; artifact?: ToolArtifact };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
@@ -545,22 +537,14 @@ export const RUNTIME_EVENT_TYPES = [
   "preview.stopped",
   "agent.started",
   "agent.retrying",
-  "agent.compaction.started",
-  "agent.compaction.completed",
-  "assistant.started",
-  "assistant.thinking.started",
-  "assistant.thinking.delta",
-  "assistant.thinking.completed",
-  "assistant.delta",
-  "assistant.completed",
+  "item.started",
+  "item.updated",
+  "item.completed",
+  "item.agentMessage.delta",
+  "item.reasoning.textDelta",
   "plan.mode.changed",
-  "plan.updated",
   "questionnaire.requested",
   "questionnaire.resolved",
-  "tool.preparing",
-  "tool.started",
-  "tool.updated",
-  "tool.completed",
   "agent.completed",
   "agent.cancelled",
   "agent.error",

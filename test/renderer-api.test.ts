@@ -11,8 +11,8 @@ describe("renderer event stream", () => {
     installWindow();
     const content = [
       sse(1, "agent.started", { prompt: "Build" }),
-      "event: assistant.delta\ndata: {bad json}\n\n",
-      sse(2, "assistant.delta", { itemId: "assistant-1", delta: "你好" }),
+      "event: item.agentMessage.delta\ndata: {bad json}\n\n",
+      sse(2, "item.agentMessage.delta", { itemId: "assistant-1", delta: "你好" }),
     ].join("");
     const encoded = new TextEncoder().encode(content);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(chunkedStream(encoded, [17, 83, 121]), {

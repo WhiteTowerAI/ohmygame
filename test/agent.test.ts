@@ -689,16 +689,16 @@ describe("AgentManager", () => {
     const published = events.since(project.id);
     expect(published.map(({ type, data }) => ({ type, data }))).toEqual([
       { type: "agent.started", data: { prompt: "Build" } },
-      { type: "assistant.thinking.started", data: { itemId: expect.any(String) } },
-      { type: "assistant.thinking.delta", data: { itemId: expect.any(String), delta: "Inspecting" } },
-      { type: "assistant.thinking.completed", data: { itemId: expect.any(String), text: "Inspecting" } },
-      { type: "assistant.started", data: { itemId: expect.any(String) } },
-      { type: "assistant.delta", data: { itemId: expect.any(String), delta: "Hello" } },
-      { type: "assistant.completed", data: { itemId: expect.any(String), status: "complete", phase: "commentary" } },
+      { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "reasoning", text: "", status: "inProgress" }) } },
+      { type: "item.reasoning.textDelta", data: { itemId: expect.any(String), delta: "Inspecting" } },
+      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "reasoning", text: "Inspecting", status: "completed" }) } },
+      { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "agentMessage", text: "", status: "inProgress" }) } },
+      { type: "item.agentMessage.delta", data: { itemId: expect.any(String), delta: "Hello" } },
+      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "agentMessage", text: "Hello", status: "completed", phase: "commentary" }) } },
       { type: "agent.retrying", data: { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" } },
-      { type: "tool.started", data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" } } },
-      { type: "tool.updated", data: { itemId: expect.any(String), toolCallId: "call-1", output: "working" } },
-      { type: "tool.completed", data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "edit", isError: false, output: "patched" } },
+      { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", toolCallId: "call-1", tool: "edit", status: "inProgress", arguments: { path: "src/app.ts" } }) } },
+      { type: "item.updated", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", output: "working" }) } },
+      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", status: "completed", output: "patched" }) } },
       { type: "agent.completed", data: {} },
     ]);
     expect(published.every((event) => (
@@ -746,14 +746,36 @@ describe("AgentManager", () => {
 
     await manager.prompt(project, conversation, "Build").result;
 
-    const assistantEvents = events.since(project.id).filter((event) => event.type.startsWith("assistant."));
-    const startedIds = assistantEvents
-      .filter((event) => event.type === "assistant.started")
-      .map((event) => event.data.itemId);
+    const itemEvents = events.since(project.id);
+    const startedIds = itemEvents.flatMap((event) => event.type === "item.started" && event.data.item.type === "agentMessage"
+      ? [event.data.item.id]
+      : []);
     expect(new Set(startedIds).size).toBe(2);
-    expect(assistantEvents.filter((event) => event.type === "assistant.completed").map((event) => event.data)).toEqual([
-      { itemId: startedIds[0], status: "complete", phase: "commentary" },
-      { itemId: startedIds[1], status: "complete", phase: "final_answer" },
+    expect(itemEvents.filter((event) => event.type === "item.completed").map((event) => event.data.item)).toEqual([
+      expect.objectContaining({ id: startedIds[0], type: "agentMessage", text: "First", status: "completed", phase: "commentary" }),
+      expect.objectContaining({ id: startedIds[1], type: "agentMessage", text: "Second", status: "completed", phase: "final_answer" }),
+    ]);
+    await manager.close();
+  });
+
+  it("completes open assistant items before the turn completes", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 0, partial: assistantPartial([]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "Done", partial: assistantPartial([]) }));
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project), "Build").result;
+
+    expect(events.since(project.id).slice(-2)).toEqual([
+      expect.objectContaining({
+        type: "item.completed",
+        data: { item: expect.objectContaining({ type: "agentMessage", text: "Done", status: "completed" }) },
+      }),
+      expect.objectContaining({ type: "agent.completed" }),
     ]);
     await manager.close();
   });
@@ -780,18 +802,57 @@ describe("AgentManager", () => {
 
     await manager.prompt(project, conversation, "Build").result;
     expect(events.since(project.id).map(({ type, data }) => ({ type, data }))).toContainEqual({
-      type: "tool.preparing",
-      data: { itemId: expect.any(String), toolCallId: "call-1", toolName: "write" },
+      type: "item.started",
+      data: { item: expect.objectContaining({ id: expect.any(String), toolCallId: "call-1", tool: "write", status: "preparing" }) },
     });
     expect(events.since(project.id).map(({ type }) => type)).toEqual([
       "agent.started",
-      "tool.preparing",
-      "tool.preparing",
-      "tool.started",
-      "tool.completed",
+      "item.started",
+      "item.updated",
+      "item.updated",
+      "item.completed",
       "agent.completed",
     ]);
     expect(events.since(project.id).some((event) => JSON.stringify(event).includes("private"))).toBe(false);
+    await manager.close();
+  });
+
+  it("waits for a complete special-tool identity before starting an item", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({
+        type: "toolcall_start",
+        contentIndex: 0,
+        partial: assistantPartial([{ type: "toolCall", id: "", name: "", arguments: {} }]),
+      }));
+      session.emit(messageUpdate({
+        type: "toolcall_end",
+        contentIndex: 0,
+        toolCall: { type: "toolCall", id: "plan-1", name: "update_plan", arguments: {} },
+        partial: assistantPartial([{ type: "toolCall", id: "plan-1", name: "update_plan", arguments: {} }]),
+      }));
+      session.emit({
+        type: "tool_execution_end",
+        toolCallId: "plan-1",
+        toolName: "update_plan",
+        result: {
+          content: [{ type: "text", text: "Plan updated" }],
+          details: { plan: { steps: [{ step: "Inspect", status: "in_progress" }] } },
+        },
+        isError: false,
+      });
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project), "Plan").result;
+
+    const itemEvents = events.since(project.id).filter((event) => event.type.startsWith("item."));
+    expect(itemEvents.map((event) => event.type)).toEqual(["item.started", "item.completed"]);
+    expect(itemEvents.every((event) => (
+      (event.type === "item.started" || event.type === "item.completed") && event.data.item.type === "plan"
+    ))).toBe(true);
     await manager.close();
   });
 
@@ -810,14 +871,13 @@ describe("AgentManager", () => {
 
     expect(events.since(project.id).map((event) => event.type)).toEqual([
       "agent.started",
-      "agent.compaction.started",
-      "agent.compaction.completed",
+      "item.started",
+      "item.completed",
       "agent.completed",
     ]);
-    expect(events.since(project.id).find((event) => event.type === "agent.compaction.completed")?.data).toEqual({
-      reason: "threshold",
-      aborted: false,
-      willRetry: false,
+    expect(events.since(project.id).find((event) => event.type === "item.completed")?.data.item).toMatchObject({
+      type: "contextCompaction",
+      status: "completed",
     });
     await manager.close();
   });
@@ -839,10 +899,32 @@ describe("AgentManager", () => {
 
     expect(session.compact).toHaveBeenCalledWith("Keep the API decisions");
     expect(events.since(project.id).map((event) => event.type)).toEqual([
-      "agent.compaction.started",
-      "agent.compaction.completed",
+      "item.started",
+      "item.completed",
     ]);
     expect(onRunCompleted).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
+  it("fails an open manual compaction item when Pi throws", async () => {
+    const session = new FakeSession();
+    session.compact.mockImplementation(async () => {
+      session.emit({ type: "compaction_start", reason: "manual" });
+      throw new Error("Compaction failed");
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = await manager.compact(project, conversation);
+    await expect(turn.result).rejects.toThrow("Compaction failed");
+
+    expect(events.since(project.id).map((event) => event.type)).toEqual(["item.started", "item.completed"]);
+    expect(events.since(project.id).at(-1)?.data).toEqual({
+      item: expect.objectContaining({ type: "contextCompaction", status: "failed", error: "Compaction failed" }),
+    });
+    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "Compaction failed" });
     await manager.close();
   });
 
