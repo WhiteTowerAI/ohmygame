@@ -258,11 +258,32 @@ describe("conversationItems", () => {
     ] as never);
 
     expect(items[1]).toMatchObject({
-      kind: "tool",
-      toolName: "mcp",
-      args: { server: "opengame-godot", tool: "create_scene" },
+      kind: "mcp",
+      server: "opengame-godot",
+      tool: "create_scene",
     });
-    expect(items[1]?.kind === "tool" && typeof (items[1].args as { args?: unknown }).args).toBe("string");
+    expect(items[1]?.kind === "mcp" && typeof items[1].args).toBe("string");
+  });
+
+  it("keeps MCP identity for server discovery operations", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Inspect Godot tools", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "list", name: "mcp", arguments: { server: "opengame-godot" } },
+          { type: "toolCall", id: "search", name: "mcp", arguments: { server: "opengame-godot", search: "scene" } },
+          { type: "toolCall", id: "describe", name: "mcp", arguments: { server: "opengame-godot", describe: "opengame-godot_add_node" } },
+        ],
+        stopReason: "toolUse",
+      }),
+    ] as never);
+
+    expect(items.slice(1, 4)).toMatchObject([
+      { kind: "mcp", server: "opengame-godot", tool: "list_tools" },
+      { kind: "mcp", server: "opengame-godot", tool: "search_tools", args: { search: "scene" } },
+      { kind: "mcp", server: "opengame-godot", tool: "describe_add_node", args: { describe: "opengame-godot_add_node" } },
+    ]);
   });
 });
 

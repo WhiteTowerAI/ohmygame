@@ -1,7 +1,7 @@
 import type { AgentItem } from "../shared/contracts.js";
-import { mcpServerName, mcpToolCall } from "./mcp-tool-presentation.js";
+import { mcpServerName } from "./mcp-tool-presentation.js";
 
-export type ToolItem = Extract<AgentItem, { kind: "tool" }>;
+export type ToolItem = Extract<AgentItem, { kind: "tool" | "mcp" }>;
 type ThinkingItem = Extract<AgentItem, { kind: "thinking" }>;
 type ActivityItem = ToolItem | ThinkingItem;
 
@@ -15,9 +15,9 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
 
   function flushActivity(current: boolean) {
     if (activity.length === 0) return;
-    const tools = activity.filter((item): item is ToolItem => item.kind === "tool");
+    const tools = activity.filter((item): item is ToolItem => item.kind === "tool" || item.kind === "mcp");
     const latest = activity.at(-1);
-    const activeTool = current && latest?.kind === "tool" && (latest.status === "preparing" || latest.status === "running")
+    const activeTool = current && latest && (latest.kind === "tool" || latest.kind === "mcp") && (latest.status === "preparing" || latest.status === "running")
       ? latest
       : undefined;
     const thinking = current && latest?.kind === "thinking" && latest.status === "streaming" ? latest : undefined;
@@ -28,7 +28,7 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
   }
 
   for (const item of items) {
-    if (item.kind === "tool" || item.kind === "thinking") {
+    if (item.kind === "tool" || item.kind === "mcp" || item.kind === "thinking") {
       activity.push(item);
       continue;
     }
@@ -57,12 +57,11 @@ export function toolGroupSummary(tools: ToolItem[]): string {
 }
 
 function toolCategory(tool: ToolItem): string {
+  if (tool.kind === "mcp") return `mcp:${tool.server ?? ""}`;
   const toolName = tool.toolName;
   if (toolName === "edit" || toolName === "write") return "edit";
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return "read";
   if (toolName === "bash") return "command";
-  const mcpCall = mcpToolCall(toolName, tool.args);
-  if (mcpCall) return `mcp:${mcpCall.server ?? ""}`;
   return `tool:${toolName}`;
 }
 

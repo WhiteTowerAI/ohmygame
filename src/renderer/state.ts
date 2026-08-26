@@ -273,9 +273,16 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(state.items, {
           id: event.data.itemId,
           turnId: event.turnId,
-          kind: "tool",
-          toolCallId: event.data.toolCallId,
-          toolName: event.data.toolName,
+          ...(event.data.mcp ? {
+            kind: "mcp" as const,
+            toolCallId: event.data.toolCallId,
+            server: event.data.mcp.server,
+            tool: event.data.mcp.tool,
+          } : {
+            kind: "tool" as const,
+            toolCallId: event.data.toolCallId,
+            toolName: event.data.toolName,
+          }),
           status: event.type === "tool.preparing" ? "preparing" : "running",
           args: event.data.args,
           timestamp: eventTime(event),
@@ -284,7 +291,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     case "tool.updated":
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => item.kind === "tool"
+        items: updateItem(state.items, event.data.itemId, (item) => (item.kind === "tool" || item.kind === "mcp")
           ? { ...item, output: event.data.output ?? item.output, truncated: event.data.truncated ?? item.truncated }
           : item),
       };
@@ -294,7 +301,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       }
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => item.kind === "tool" ? {
+        items: updateItem(state.items, event.data.itemId, (item) => (item.kind === "tool" || item.kind === "mcp") ? {
           ...item,
           status: event.data.isError ? "error" : "complete",
           output: event.data.output ?? item.output,
@@ -340,7 +347,7 @@ function finishAgent(
 ): RendererState {
   const finalizedItems = !turnId ? state.items : state.items.flatMap((item) => {
     if (item.turnId !== turnId) return [item];
-    if (item.kind === "tool" && item.status === "preparing") {
+    if ((item.kind === "tool" || item.kind === "mcp") && item.status === "preparing") {
       return status === "complete" ? [] : [{ ...item, status: "error" as const }];
     }
     if (item.kind === "thinking" && item.status === "streaming") {

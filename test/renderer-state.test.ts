@@ -146,6 +146,32 @@ describe("rendererReducer", () => {
     expect(state.items.at(-1)).toMatchObject({ kind: "tool", status: "running", args: { path: "src/app.ts" } });
   });
 
+  it("keeps MCP identity as structured timeline data", () => {
+    let state = initialized();
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Create a scene" }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.started", {
+      itemId: "mcp-1",
+      toolCallId: "call-1",
+      toolName: "mcp",
+      mcp: { server: "opengame-godot", tool: "create_scene" },
+      args: { scenePath: "main.tscn" },
+    }) });
+    state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "tool.completed", {
+      itemId: "mcp-1",
+      toolCallId: "call-1",
+      toolName: "mcp",
+      isError: false,
+    }) });
+
+    expect(state.items.at(-1)).toMatchObject({
+      kind: "mcp",
+      server: "opengame-godot",
+      tool: "create_scene",
+      args: { scenePath: "main.tscn" },
+      status: "complete",
+    });
+  });
+
   it("updates preview state and ignores duplicate events", () => {
     let state = initialized();
     const ready = runtimeEvent(3, "preview.ready", { url: "http://127.0.0.1:5173" });

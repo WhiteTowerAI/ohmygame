@@ -60,7 +60,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingFor
 function collectArtifacts(items: AgentItem[]): ToolArtifact[] {
   const seen = new Set<string>();
   return items.flatMap((item) => {
-    if (item.kind !== "tool" || !item.artifact || seen.has(item.artifact.path)) return [];
+    if ((item.kind !== "tool" && item.kind !== "mcp") || !item.artifact || seen.has(item.artifact.path)) return [];
     seen.add(item.artifact.path);
     return [item.artifact];
   });
@@ -71,7 +71,7 @@ function hasVisibleAssistantText(items: AgentItem[]): boolean {
 }
 
 function isWorkItem(item: AgentItem): boolean {
-  return item.kind === "thinking" || item.kind === "tool" || item.kind === "retry" || item.kind === "compaction" ||
+  return item.kind === "thinking" || item.kind === "tool" || item.kind === "mcp" || item.kind === "retry" || item.kind === "compaction" ||
     (item.kind === "assistant" && item.phase === "commentary");
 }
 
@@ -92,7 +92,7 @@ function shouldShowWaiting(items: AgentItem[], now: number): boolean {
   const latest = items.at(-1);
   if (!latest || (latest.kind === "assistant" && latest.status === "streaming" && !hasStalledAssistantText(items, now))) return false;
   if (latest.kind === "retry" || (latest.kind === "compaction" && latest.status === "running")) return false;
-  return !items.some((item) => item.kind === "tool" && (item.status === "preparing" || item.status === "running")) &&
+  return !items.some((item) => (item.kind === "tool" || item.kind === "mcp") && (item.status === "preparing" || item.status === "running")) &&
     !items.some((item) => item.kind === "thinking" && item.status === "streaming");
 }
 
@@ -104,6 +104,6 @@ function hasStalledAssistantText(items: AgentItem[], now: number): boolean {
 
 function withoutCurrentActivity(items: AgentItem[]): AgentItem[] {
   let end = items.length;
-  while (end > 0 && (items[end - 1].kind === "tool" || items[end - 1].kind === "thinking")) end -= 1;
+  while (end > 0 && (items[end - 1].kind === "tool" || items[end - 1].kind === "mcp" || items[end - 1].kind === "thinking")) end -= 1;
   return items.slice(0, end);
 }

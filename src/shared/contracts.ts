@@ -268,6 +268,19 @@ export type AgentItem = (
   | {
       id: string;
       turnId: string;
+      kind: "mcp";
+      toolCallId: string;
+      server?: string;
+      tool: string;
+      status: "preparing" | "running" | "complete" | "error";
+      args?: unknown;
+      output?: string;
+      truncated?: boolean;
+      artifact?: ToolArtifact;
+    }
+  | {
+      id: string;
+      turnId: string;
       kind: "retry";
       attempt: number;
       maxAttempts: number;
@@ -509,8 +522,8 @@ export interface RuntimeEventData {
   "plan.updated": PlanState & { itemId: string };
   "questionnaire.requested": QuestionnaireRequest;
   "questionnaire.resolved": { requestId: string };
-  "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
-  "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown };
+  "tool.preparing": { itemId: string; toolCallId: string; toolName: string; args?: unknown; mcp?: { server?: string; tool: string } };
+  "tool.started": { itemId: string; toolCallId: string; toolName: string; args?: unknown; mcp?: { server?: string; tool: string } };
   "tool.updated": { itemId: string; toolCallId: string; output?: string; truncated?: boolean; artifact?: ToolArtifact };
   "tool.completed": { itemId: string; toolCallId: string; toolName: string; isError: boolean; output?: string; truncated?: boolean; artifact?: ToolArtifact };
   "agent.completed": Record<string, never>;

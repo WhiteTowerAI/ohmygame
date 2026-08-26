@@ -14,6 +14,7 @@ import type { ActiveTurnState, AgentContextUsage, AgentItem, AgentMessagePhase, 
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
+import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -54,7 +55,7 @@ export function loadConversation(workspacePath: string, sessionPath: string, bef
 
 export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): AgentItem[] {
   const items: AgentItem[] = [];
-  const tools = new Map<string, Extract<AgentItem, { kind: "tool" }>>();
+  const tools = new Map<string, Extract<AgentItem, { kind: "tool" | "mcp" }>>();
   const planCalls = new Set<string>();
   const hiddenCalls = new Set<string>();
   let turnId: string | undefined;
@@ -112,14 +113,25 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             hiddenCalls.add(content.id);
             continue;
           }
-          const tool: Extract<AgentItem, { kind: "tool" }> = {
+          const args = toolArguments(content.name, content.arguments);
+          const mcp = parseMcpToolIdentity(content.name, args);
+          const tool: Extract<AgentItem, { kind: "tool" | "mcp" }> = mcp ? {
+            id: `${entry.id}:tool:${content.id}`,
+            turnId,
+            kind: "mcp",
+            toolCallId: content.id,
+            ...mcp,
+            status: "running",
+            args: mcpToolInput(args),
+            timestamp,
+          } : {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
             kind: "tool",
             toolCallId: content.id,
             toolName: content.name,
             status: "running",
-            args: toolArguments(content.name, content.arguments),
+            args,
             timestamp,
           };
           tools.set(content.id, tool);
@@ -169,7 +181,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     items.push({ id: `${turnId}:interrupted`, turnId, kind: "assistant", text: "", status: "interrupted", timestamp: lastTimestamp });
   }
 
-  return items.map((item) => markInterrupted && item.kind === "tool" && item.status === "running"
+  return items.map((item) => markInterrupted && (item.kind === "tool" || item.kind === "mcp") && item.status === "running"
     ? { ...item, status: "error" }
     : item);
 }
@@ -1034,11 +1046,14 @@ export class AgentManager {
       const itemId = active.preparingToolItemIds.get(contentIndex) ?? `${active.turnId}:tool:${active.assistantSequence++}`;
       active.preparingToolItemIds.delete(contentIndex);
       active.toolItemIds.set(toolCall.id, itemId);
+      const args = toolArguments(toolCall.name, toolCall.arguments);
+      const mcp = parseMcpToolIdentity(toolCall.name, args);
       this.events.publish(projectId, "tool.preparing", {
         itemId,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
-        args: toolArguments(toolCall.name, toolCall.arguments),
+        args: mcp ? mcpToolInput(args) : args,
+        ...(mcp ? { mcp } : {}),
       }, eventScope(active));
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
       const status = assistantStatus(event.message.stopReason);
@@ -1087,11 +1102,14 @@ export class AgentManager {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
       const itemId = active.toolItemIds.get(event.toolCallId) ?? `${active.turnId}:tool:${event.toolCallId}`;
       active.toolItemIds.set(event.toolCallId, itemId);
+      const args = toolArguments(event.toolName, event.args);
+      const mcp = parseMcpToolIdentity(event.toolName, args);
       this.events.publish(projectId, "tool.started", {
         itemId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: toolArguments(event.toolName, event.args),
+        args: mcp ? mcpToolInput(args) : args,
+        ...(mcp ? { mcp } : {}),
       }, eventScope(active));
     } else if (event.type === "tool_execution_update") {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
@@ -1357,7 +1375,7 @@ function toolArguments(toolName: string, args: unknown): unknown {
 
 function mcpToolArguments(values: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = Object.fromEntries(
-    ["server", "tool", "connect", "describe", "search", "action"]
+    ["server", "tool", "connect", "describe", "instructions", "search", "action"]
       .filter((key) => typeof values[key] === "string")
       .map((key) => [key, (values[key] as string).slice(0, 300)]),
   );

@@ -309,11 +309,12 @@ describe("AgentTimeline", () => {
       {
         id: "mcp",
         turnId: "turn-1",
-        kind: "tool",
+        kind: "mcp",
         toolCallId: "mcp",
-        toolName: "mcp",
+        server: "opengame-godot",
+        tool: "create_scene",
         status: "running",
-        args: { tool: "opengame-godot_create_scene", args: { scenePath: "main.tscn" } },
+        args: { scenePath: "main.tscn" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -322,17 +323,36 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Preparing mcp");
   });
 
+  it("shows the Godot brand for MCP discovery operations", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "mcp-search",
+        turnId: "turn-1",
+        kind: "mcp",
+        toolCallId: "mcp-search",
+        server: "opengame-godot",
+        tool: "search_tools",
+        status: "running",
+        args: { search: "scene" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Godot: Search tools");
+    expect(html).toContain("tool-brand-godot");
+  });
+
   it("uses a generic plug for unknown MCP servers", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       {
         id: "mcp",
         turnId: "turn-1",
-        kind: "tool",
+        kind: "mcp",
         toolCallId: "mcp",
-        toolName: "mcp",
+        server: "custom-tools",
+        tool: "fetch_asset",
         status: "running",
-        args: { server: "custom-tools", tool: "fetch_asset" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -344,11 +364,11 @@ describe("AgentTimeline", () => {
     const mcpTool = (id: string, operation: string): AgentItem => ({
       id,
       turnId: "turn-1",
-      kind: "tool",
+      kind: "mcp",
       toolCallId: id,
-      toolName: "mcp",
+      server: "opengame-godot",
+      tool: operation,
       status: "complete",
-      args: { tool: `opengame-godot_${operation}` },
     });
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -366,11 +386,11 @@ describe("AgentTimeline", () => {
     const mcpTool = (id: string, operation: string): AgentItem => ({
       id,
       turnId: "turn-1",
-      kind: "tool",
+      kind: "mcp",
       toolCallId: id,
-      toolName: "mcp",
+      server: "custom-tools",
+      tool: operation,
       status: "complete",
-      args: { server: "custom-tools", tool: operation },
     });
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
