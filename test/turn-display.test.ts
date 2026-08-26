@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { AgentItem } from "../src/shared/contracts.js";
+import type { ThreadItem } from "../src/shared/contracts.js";
 import type { AgentTurn } from "../src/renderer/agent-turns.js";
 import { projectTurnDisplay } from "../src/renderer/turn-display.js";
 
 describe("projectTurnDisplay", () => {
   it("keeps Pi facts separate from the initial activity display", () => {
     const display = projectTurnDisplay(turn([
-      thinking("**Planning the build**", "streaming"),
+      thinking("**Planning the build**", "inProgress"),
     ], true));
 
     expect(display).toMatchObject({
@@ -24,9 +24,9 @@ describe("projectTurnDisplay", () => {
     const display = projectTurnDisplay(turn([{
       id: "assistant",
       turnId: "turn-1",
-      kind: "assistant",
+      type: "agentMessage",
       text: "I will inspect the workspace.",
-      status: "streaming",
+      status: "inProgress",
       timestamp: 2,
     }], true), 500);
 
@@ -39,7 +39,7 @@ describe("projectTurnDisplay", () => {
     const display = projectTurnDisplay(turn([{
       id: "turn-1:plan",
       turnId: "turn-1",
-      kind: "plan",
+      type: "plan",
       plan: { steps: [{ step: "Inspect the workspace", status: "in_progress" }] },
     }], true));
 
@@ -53,9 +53,9 @@ describe("projectTurnDisplay", () => {
     const display = projectTurnDisplay(turn([{
       id: "assistant",
       turnId: "turn-1",
-      kind: "assistant",
+      type: "agentMessage",
       text: "I will create the project files.",
-      status: "streaming",
+      status: "inProgress",
       timestamp: 2,
     }], true), 1_002);
 
@@ -67,13 +67,13 @@ describe("projectTurnDisplay", () => {
   it("shows Thinking after stalled streamed commentary during work", () => {
     const display = projectTurnDisplay(turn([
       commentary("I inspected the workspace."),
-      tool("complete"),
+      tool("completed"),
       {
         id: "assistant",
         turnId: "turn-1",
-        kind: "assistant",
+        type: "agentMessage",
         text: "I will create the project files.",
-        status: "streaming",
+        status: "inProgress",
         timestamp: 4,
       },
     ], true), 1_004);
@@ -94,30 +94,30 @@ describe("projectTurnDisplay", () => {
   it("projects a running tool as the current activity", () => {
     const display = projectTurnDisplay(turn([
       commentary("I will update the file."),
-      tool("running"),
+      tool("inProgress"),
     ], true));
 
     expect(display.working).toBe(true);
     expect(display.waiting).toBe(false);
     expect(display.work).toHaveLength(2);
-    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", active: { kind: "tool", status: "running" } });
+    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", active: { type: "dynamicToolCall", status: "inProgress" } });
   });
 
   it("temporarily replaces the trailing completed tool group while waiting", () => {
     const display = projectTurnDisplay(turn([
       commentary("I will inspect the file."),
-      tool("complete"),
+      tool("completed"),
     ], true));
 
     expect(display.waiting).toBe(true);
     expect(display.work).toHaveLength(1);
-    expect(display.work[0]).toMatchObject({ kind: "item", item: { kind: "assistant", phase: "commentary" } });
+    expect(display.work[0]).toMatchObject({ kind: "item", item: { type: "agentMessage", phase: "commentary" } });
   });
 
   it("separates completed work from the final answer", () => {
     const display = projectTurnDisplay(turn([
       commentary("I inspected the file."),
-      tool("complete"),
+      tool("completed"),
       answer("Done."),
     ], false));
 
@@ -130,7 +130,7 @@ describe("projectTurnDisplay", () => {
 
   it("projects generated images after work as artifacts", () => {
     const display = projectTurnDisplay(turn([
-      tool("complete", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } }),
+      tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } }),
       answer("Done."),
     ], false));
 
@@ -139,7 +139,7 @@ describe("projectTurnDisplay", () => {
 
   it("projects generated models after work as artifacts", () => {
     const display = projectTurnDisplay(turn([
-      tool("complete", { artifact: { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } }),
+      tool("completed", { artifact: { type: "model", path: "assets/generated/model.glb", mediaType: "model/gltf-binary" } }),
       answer("Done."),
     ], false));
 
@@ -156,36 +156,36 @@ describe("projectTurnDisplay", () => {
   });
 });
 
-function turn(items: AgentItem[], active: boolean): AgentTurn {
+function turn(items: ThreadItem[], active: boolean): AgentTurn {
   return {
     id: "turn-1",
-    user: { id: "user", turnId: "turn-1", kind: "user", text: "Build", timestamp: 1 },
+    user: { id: "user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: 1 },
     items,
     active,
   };
 }
 
-function thinking(text: string, status: "streaming" | "complete"): AgentItem {
-  return { id: "thinking", turnId: "turn-1", kind: "thinking", text, status, timestamp: 2 };
+function thinking(text: string, status: "inProgress" | "completed"): ThreadItem {
+  return { id: "thinking", turnId: "turn-1", type: "reasoning", text, status, timestamp: 2 };
 }
 
-function commentary(text: string): AgentItem {
-  return { id: `commentary:${text}`, turnId: "turn-1", kind: "assistant", text, status: "complete", phase: "commentary", timestamp: 2 };
+function commentary(text: string): ThreadItem {
+  return { id: `commentary:${text}`, turnId: "turn-1", type: "agentMessage", text, status: "completed", phase: "commentary", timestamp: 2 };
 }
 
-function answer(text: string): AgentItem {
-  return { id: "answer", turnId: "turn-1", kind: "assistant", text, status: "complete", phase: "final_answer", timestamp: 4 };
+function answer(text: string): ThreadItem {
+  return { id: "answer", turnId: "turn-1", type: "agentMessage", text, status: "completed", phase: "final_answer", timestamp: 4 };
 }
 
-function tool(status: "running" | "complete", extra: Partial<Extract<AgentItem, { kind: "tool" }>> = {}): AgentItem {
+function tool(status: "inProgress" | "completed", extra: Partial<Extract<ThreadItem, { type: "dynamicToolCall" }>> = {}): ThreadItem {
   return {
     id: "tool",
     turnId: "turn-1",
-    kind: "tool",
+    type: "dynamicToolCall",
     toolCallId: "tool",
-    toolName: "read",
+    tool: "read",
     status,
-    args: { path: "package.json" },
+    arguments: { path: "package.json" },
     timestamp: 3,
     ...extra,
   };

@@ -1,26 +1,26 @@
-import type { AgentItem } from "../shared/contracts.js";
+import type { ThreadItem } from "../shared/contracts.js";
 import { mcpServerName } from "./mcp-tool-presentation.js";
 
-export type ToolItem = Extract<AgentItem, { kind: "tool" | "mcp" }>;
-type ThinkingItem = Extract<AgentItem, { kind: "thinking" }>;
+export type ToolItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
+type ThinkingItem = Extract<ThreadItem, { type: "reasoning" }>;
 type ActivityItem = ToolItem | ThinkingItem;
 
 export type WorkDisplayItem =
-  | { kind: "item"; item: AgentItem }
+  | { kind: "item"; item: ThreadItem }
   | { kind: "tool-group"; id: string; tools: ToolItem[]; active?: ToolItem; thinking?: ThinkingItem };
 
-export function projectWorkItems(items: AgentItem[], active = false): WorkDisplayItem[] {
+export function projectWorkItems(items: ThreadItem[], active = false): WorkDisplayItem[] {
   const projected: WorkDisplayItem[] = [];
   let activity: ActivityItem[] = [];
 
   function flushActivity(current: boolean) {
     if (activity.length === 0) return;
-    const tools = activity.filter((item): item is ToolItem => item.kind === "tool" || item.kind === "mcp");
+    const tools = activity.filter((item): item is ToolItem => item.type === "dynamicToolCall" || item.type === "mcpToolCall");
     const latest = activity.at(-1);
-    const activeTool = current && latest && (latest.kind === "tool" || latest.kind === "mcp") && (latest.status === "preparing" || latest.status === "running")
+    const activeTool = current && latest && (latest.type === "dynamicToolCall" || latest.type === "mcpToolCall") && (latest.status === "preparing" || latest.status === "inProgress")
       ? latest
       : undefined;
-    const thinking = current && latest?.kind === "thinking" && latest.status === "streaming" ? latest : undefined;
+    const thinking = current && latest?.type === "reasoning" && latest.status === "inProgress" ? latest : undefined;
     if (tools.length > 0 || thinking) {
       projected.push({ kind: "tool-group", id: activity[0].id, tools, active: activeTool, thinking });
     }
@@ -28,7 +28,7 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
   }
 
   for (const item of items) {
-    if (item.kind === "tool" || item.kind === "mcp" || item.kind === "thinking") {
+    if (item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "reasoning") {
       activity.push(item);
       continue;
     }
@@ -41,7 +41,7 @@ export function projectWorkItems(items: AgentItem[], active = false): WorkDispla
 
 export function toolGroupSummary(tools: ToolItem[]): string {
   const categories = new Map<string, ToolItem[]>();
-  for (const tool of tools.filter((item) => item.status !== "error")) {
+  for (const tool of tools.filter((item) => item.status !== "failed")) {
     const category = toolCategory(tool);
     categories.set(category, [...(categories.get(category) ?? []), tool]);
   }
@@ -49,7 +49,7 @@ export function toolGroupSummary(tools: ToolItem[]): string {
   const phrases = [...categories]
     .sort(([left], [right]) => categoryOrder(left) - categoryOrder(right))
     .map(([category, items]) => categoryPhrase(category, items));
-  const failed = tools.filter((item) => item.status === "error").length;
+  const failed = tools.filter((item) => item.status === "failed").length;
   if (failed > 0) phrases.push(failed === 1 ? "one action failed" : `${failed} actions failed`);
   if (phrases.length === 0) return "Used tools";
   const summary = phrases.join(", ");
@@ -57,8 +57,8 @@ export function toolGroupSummary(tools: ToolItem[]): string {
 }
 
 function toolCategory(tool: ToolItem): string {
-  if (tool.kind === "mcp") return `mcp:${tool.server ?? ""}`;
-  const toolName = tool.toolName;
+  if (tool.type === "mcpToolCall") return `mcp:${tool.server ?? ""}`;
+  const toolName = tool.tool;
   if (toolName === "edit" || toolName === "write") return "edit";
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return "read";
   if (toolName === "bash") return "command";
@@ -91,7 +91,7 @@ function filePhrase(action: string, tools: ToolItem[]): string {
 }
 
 function toolTarget(tool: ToolItem): string {
-  const args = record(tool.args);
+  const args = record(tool.arguments);
   return text(args?.path) || text(args?.file_path);
 }
 

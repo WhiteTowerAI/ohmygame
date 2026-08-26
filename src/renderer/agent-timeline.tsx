@@ -16,7 +16,7 @@ import {
 import { isValidElement, useEffect, useState, type ImgHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
+import type { ThreadItem, ToolArtifact } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -29,7 +29,7 @@ import { SelectedTextMenu } from "./selected-text-menu.js";
 const godotIconUrl = new URL("./assets/godot.svg", import.meta.url).href;
 
 interface AgentTimelineProps {
-  items: AgentItem[];
+  items: ThreadItem[];
   projectId?: string;
   activeTurnId?: string;
   revisionDisabled?: boolean;
@@ -57,7 +57,7 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
   const latestUserId = [...turns].reverse().find((turn) => turn.user)?.user?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)
-    .findLast((item) => item.status === "complete" && Boolean(item.text.trim()))
+    .findLast((item) => item.status === "completed" && Boolean(item.text.trim()))
     ?.id;
   useEffect(() => {
     if (editingItemId && editingItemId !== latestUserId) setEditingItemId(undefined);
@@ -165,11 +165,11 @@ function Turn({ display, projectId, now, userControls, assistantControls }: { di
 
 function FinalResponse({ projectId, items, artifacts, controls }: {
   projectId: string;
-  items: Extract<AgentItem, { kind: "assistant" }>[];
+  items: Extract<ThreadItem, { type: "agentMessage" }>[];
   artifacts: ToolArtifact[];
   controls: AssistantControls;
 }) {
-  const copyable = items.filter((item) => item.status === "complete" && Boolean(item.text.trim()));
+  const copyable = items.filter((item) => item.status === "completed" && Boolean(item.text.trim()));
   const responseId = copyable.at(-1)?.id;
   const text = copyable.map((item) => item.text).join("\n\n");
   const timestamp = copyable.at(-1)?.timestamp;
@@ -288,7 +288,7 @@ function WorkItems({ items }: { items: TurnDisplay["work"] }) {
     : <ToolActivityGroup key={item.id} tools={item.tools} active={item.active} thinking={item.thinking} />);
 }
 
-function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: Extract<AgentItem, { kind: "thinking" }> }) {
+function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: Extract<ThreadItem, { type: "reasoning" }> }) {
   if (thinking) return <ThinkingActivity text={thinking.text} />;
   if (active) return <ToolActivity item={active} />;
   if (tools.length === 1) return <ToolActivity item={tools[0]} completed />;
@@ -310,10 +310,10 @@ function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; act
 type ToolIcon = LucideIcon | typeof GodotIcon;
 
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
-  if (tools.some((tool) => tool.kind === "tool" && (tool.toolName === "edit" || tool.toolName === "write"))) return FilePenLine;
-  if (tools.some((tool) => tool.kind === "tool" && (tool.toolName === "grep" || tool.toolName === "find" || tool.toolName === "read" || tool.toolName === "ls"))) return Search;
-  if (tools.some((tool) => tool.kind === "tool" && tool.toolName === "bash")) return Terminal;
-  const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { kind: "mcp" }> => tool.kind === "mcp");
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find" || tool.tool === "read" || tool.tool === "ls"))) return Search;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
+  const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
   if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
   if (mcpCalls.length > 0) return Plug;
   return Wrench;
@@ -362,10 +362,10 @@ function thinkingLabel(text?: string): string {
   return label.trim() || "Thinking";
 }
 
-function TimelineItem({ item }: { item: AgentItem }) {
-  if (item.kind === "thinking") return null;
-  if (item.kind === "tool" || item.kind === "mcp") return <ToolActivity item={item} />;
-  if (item.kind === "retry") {
+function TimelineItem({ item }: { item: ThreadItem }) {
+  if (item.type === "reasoning") return null;
+  if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") return <ToolActivity item={item} />;
+  if (item.type === "retry") {
     return (
       <div className="timeline-event timeline-event-warning">
         <LoaderCircle className="spin" size={13} />
@@ -373,16 +373,16 @@ function TimelineItem({ item }: { item: AgentItem }) {
       </div>
     );
   }
-  if (item.kind === "compaction") {
+  if (item.type === "contextCompaction") {
     return (
-      <div className={`timeline-event${item.status === "error" ? " timeline-event-error" : ""}`}>
-        {item.status === "running" ? <LoaderCircle className="spin" size={13} /> : <X size={13} />}
+      <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
+        {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : <X size={13} />}
         <span>{item.error ?? "Compacting context"}</span>
       </div>
     );
   }
-  if (item.kind === "assistant") {
-    if (!item.text && item.status === "complete") return null;
+  if (item.type === "agentMessage") {
+    if (!item.text && item.status === "completed") return null;
     return (
       <div className={`assistant-message assistant-${item.status}${item.phase === "commentary" ? " commentary-message" : ""}`}>
         {item.text ? <MarkdownContent text={item.text} /> : null}
@@ -434,19 +434,19 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-function ToolActivity({ item, completed = false }: { item: Extract<AgentItem, { kind: "tool" | "mcp" }>; completed?: boolean }) {
+function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
-  const label = item.status === "preparing" && item.kind === "tool"
-    ? preparingToolLabel(item.toolName)
+  const label = item.status === "preparing" && item.type === "dynamicToolCall"
+    ? preparingToolLabel(item.tool)
     : presentation.label;
   return (<>
     <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
       <span className="tool-result" aria-label={item.status}>
-        {item.status === "preparing" || item.status === "running" ? <LoaderCircle className="spin" size={12} /> : null}
-        {item.status === "error" ? <X size={12} /> : null}
+        {item.status === "preparing" || item.status === "inProgress" ? <LoaderCircle className="spin" size={12} /> : null}
+        {item.status === "failed" ? <X size={12} /> : null}
       </span>
     </div>
   </>);
@@ -491,12 +491,12 @@ function preparingToolLabel(toolName: string): string {
   }
 }
 
-function toolPresentation(item: Extract<AgentItem, { kind: "tool" | "mcp" }>): { icon: ToolIcon; label: string } {
-  if (item.kind === "mcp") {
+function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>): { icon: ToolIcon; label: string } {
+  if (item.type === "mcpToolCall") {
     return { icon: mcpToolBrand(item) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(item) };
   }
-  const toolName = item.toolName;
-  const args = item.args;
+  const toolName = item.tool;
+  const args = item.arguments;
   const values = record(args);
   switch (toolName) {
     case "bash": return { icon: Terminal, label: `Running ${text(values?.command) || "command"}` };
@@ -510,12 +510,12 @@ function toolPresentation(item: Extract<AgentItem, { kind: "tool" | "mcp" }>): {
   }
 }
 
-function completedToolPresentation(item: Extract<AgentItem, { kind: "tool" | "mcp" }>): { icon: ToolIcon; label: string } {
-  if (item.kind === "mcp") {
+function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>): { icon: ToolIcon; label: string } {
+  if (item.type === "mcpToolCall") {
     return { icon: mcpToolBrand(item) === "godot" ? GodotIcon : Plug, label: mcpToolLabel(item) };
   }
-  const toolName = item.toolName;
-  const args = item.args;
+  const toolName = item.tool;
+  const args = item.arguments;
   const values = record(args);
   switch (toolName) {
     case "bash": return { icon: Terminal, label: `Ran ${text(values?.command) || "command"}` };

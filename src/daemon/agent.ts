@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentContextUsage, AgentItem, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ToolArtifact } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentContextUsage, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ThreadItem, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
@@ -47,15 +47,15 @@ export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 export type AgentRunResult = "completed" | "cancelled";
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
-export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): AgentItem[] {
+export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
   const sessionDirectory = path.join(path.dirname(workspacePath), "session");
   const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
   return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries, markInterrupted);
 }
 
-export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): AgentItem[] {
-  const items: AgentItem[] = [];
-  const tools = new Map<string, Extract<AgentItem, { kind: "tool" | "mcp" }>>();
+export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): ThreadItem[] {
+  const items: ThreadItem[] = [];
+  const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
   const planCalls = new Set<string>();
   const hiddenCalls = new Set<string>();
   let turnId: string | undefined;
@@ -72,7 +72,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnFinished = false;
       const parsed = parseUserPrompt(textContent(message.content));
       const images = imageContent(message.content);
-      if (parsed.text || images.length > 0) items.push({ id: entry.id, turnId, kind: "user", text: parsed.text, ...(images.length ? { images } : {}), timestamp });
+      if (parsed.text || images.length > 0) items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(images.length ? { images } : {}), timestamp });
       continue;
     }
     if (message.role === "assistant") {
@@ -85,9 +85,9 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             items.push({
               id: `${entry.id}:thinking:${index}`,
               turnId,
-              kind: "thinking",
+              type: "reasoning",
               text: thinking,
-              status: "complete",
+              status: "completed",
               timestamp,
             });
           }
@@ -97,9 +97,9 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           items.push({
             id: `${entry.id}:assistant:${index}`,
             turnId,
-            kind: "assistant",
+            type: "agentMessage",
             text: content.text,
-            status: assistantStatus(message.stopReason),
+            status: threadItemStatus(message.stopReason),
             ...(phase ? { phase } : {}),
             timestamp,
             ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
@@ -115,23 +115,23 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           }
           const args = toolArguments(content.name, content.arguments);
           const mcp = parseMcpToolIdentity(content.name, args);
-          const tool: Extract<AgentItem, { kind: "tool" | "mcp" }> = mcp ? {
+          const tool: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }> = mcp ? {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
-            kind: "mcp",
+            type: "mcpToolCall",
             toolCallId: content.id,
             ...mcp,
-            status: "running",
-            args: mcpToolInput(args),
+            status: "inProgress",
+            arguments: mcpToolInput(args),
             timestamp,
           } : {
             id: `${entry.id}:tool:${content.id}`,
             turnId,
-            kind: "tool",
+            type: "dynamicToolCall",
             toolCallId: content.id,
-            toolName: content.name,
-            status: "running",
-            args,
+            tool: content.name,
+            status: "inProgress",
+            arguments: args,
             timestamp,
           };
           tools.set(content.id, tool);
@@ -142,9 +142,9 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         items.push({
           id: `${entry.id}:assistant`,
           turnId,
-          kind: "assistant",
+          type: "agentMessage",
           text: "",
-          status: assistantStatus(message.stopReason),
+          status: threadItemStatus(message.stopReason),
           timestamp,
           ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
         });
@@ -158,7 +158,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         if (message.isError) continue;
         const plan = toolPlan(message);
         if (plan && turnId) {
-          const item: AgentItem = { id: `${turnId}:plan`, turnId, kind: "plan", plan, timestamp };
+          const item: ThreadItem = { id: `${turnId}:plan`, turnId, type: "plan", plan, timestamp };
           const index = items.findIndex((candidate) => candidate.id === item.id);
           if (index < 0) items.push(item);
           else items[index] = item;
@@ -167,7 +167,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       }
       const tool = tools.get(message.toolCallId);
       if (tool) {
-        tool.status = message.isError ? "error" : "complete";
+        tool.status = message.isError ? "failed" : "completed";
         tool.timestamp = timestamp;
         const result = toolOutput(message);
         if (result.output) tool.output = result.output;
@@ -178,11 +178,11 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   }
 
   if (markInterrupted && turnId && !turnFinished) {
-    items.push({ id: `${turnId}:interrupted`, turnId, kind: "assistant", text: "", status: "interrupted", timestamp: lastTimestamp });
+    items.push({ id: `${turnId}:interrupted`, turnId, type: "agentMessage", text: "", status: "interrupted", timestamp: lastTimestamp });
   }
 
-  return items.map((item) => markInterrupted && (item.kind === "tool" || item.kind === "mcp") && item.status === "running"
-    ? { ...item, status: "error" }
+  return items.map((item) => markInterrupted && (item.type === "dynamicToolCall" || item.type === "mcpToolCall") && item.status === "inProgress"
+    ? { ...item, status: "failed" }
     : item);
 }
 
@@ -806,13 +806,13 @@ export class AgentManager {
     pending.resolve(result);
   }
 
-  activeItem(projectId: string, conversationId: string): Extract<AgentItem, { kind: "user" }> | undefined {
+  activeItem(projectId: string, conversationId: string): Extract<ThreadItem, { type: "userMessage" }> | undefined {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return undefined;
     return {
       id: `${active.turnId}:user`,
       turnId: active.turnId,
-      kind: "user",
+      type: "userMessage",
       text: active.prompt,
       ...(active.images.length ? { images: active.images } : {}),
       ...(active.startedAt === undefined ? {} : { timestamp: active.startedAt }),
@@ -1327,6 +1327,12 @@ function assistantStatus(stopReason: string): "complete" | "cancelled" | "error"
   if (stopReason === "error") return "error";
   if (stopReason === "aborted") return "cancelled";
   return "complete";
+}
+
+function threadItemStatus(stopReason: string): "completed" | "cancelled" | "failed" {
+  if (stopReason === "error") return "failed";
+  if (stopReason === "aborted") return "cancelled";
+  return "completed";
 }
 
 function isAssistantMessage(message: unknown): message is {

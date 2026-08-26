@@ -1,13 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentTimeline } from "../src/renderer/agent-timeline.js";
-import type { AgentItem } from "../src/shared/contracts.js";
+import type { ThreadItem } from "../src/shared/contracts.js";
 
 describe("AgentTimeline", () => {
   it("does not render structured plans in conversation history", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "turn-1:plan", turnId: "turn-1", kind: "plan", plan: { steps: [{ step: "Inspect files", status: "completed" }] } },
+      { id: "turn-1:plan", turnId: "turn-1", type: "plan", plan: { steps: [{ step: "Inspect files", status: "completed" }] } },
     ]} />);
 
     expect(html).not.toContain("Inspect files");
@@ -30,7 +30,7 @@ describe("AgentTimeline", () => {
   it("shows Pi's streamed reasoning summary before work begins", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "**Planning Vite app creation**", status: "streaming" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "**Planning Vite app creation**", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Planning Vite app creation");
@@ -59,7 +59,7 @@ describe("AgentTimeline", () => {
   it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { ...assistant("response", "Hello"), status: "streaming", phase: undefined },
+      { ...assistant("response", "Hello"), status: "inProgress", phase: undefined },
     ]} activeTurnId="turn-1" />);
     const complete = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -90,7 +90,7 @@ describe("AgentTimeline", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
-      { ...assistant("commentary", "I will write the game files."), status: "streaming", phase: undefined },
+      { ...assistant("commentary", "I will write the game files."), status: "inProgress", phase: undefined },
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("I will write the game files.");
@@ -100,7 +100,7 @@ describe("AgentTimeline", () => {
   it("shows Thinking after stalled text", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { ...assistant("commentary", "I will write the game files."), status: "streaming", phase: undefined, timestamp: 1 },
+      { ...assistant("commentary", "I will write the game files."), status: "inProgress", phase: undefined, timestamp: 1 },
     ]} activeTurnId="turn-1" />);
 
     expect(html.indexOf("I will write the game files.")).toBeLessThan(html.indexOf("Thinking"));
@@ -109,7 +109,7 @@ describe("AgentTimeline", () => {
   it("keeps unclassified text in the stable Working container until its phase is known", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { ...assistant("commentary", "I will inspect it."), status: "streaming", phase: undefined },
+      { ...assistant("commentary", "I will inspect it."), status: "inProgress", phase: undefined },
     ]} activeTurnId="turn-1" />);
     const commentary = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -129,11 +129,11 @@ describe("AgentTimeline", () => {
       {
         id: "failed-tool",
         turnId: "turn-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "failed-tool",
-        toolName: "bash",
-        status: "error",
-        args: { command: "npm run build" },
+        tool: "bash",
+        status: "failed",
+        arguments: { command: "npm run build" },
         output: "private build output",
       },
     ]} activeTurnId="turn-1" />);
@@ -147,7 +147,7 @@ describe("AgentTimeline", () => {
   it("does not keep completed Pi thinking as a history row", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Inspect the project structure.", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Inspect the project structure.", status: "completed" },
     ]} />);
 
     expect(html).not.toContain("Thinking");
@@ -158,7 +158,7 @@ describe("AgentTimeline", () => {
   it("does not create empty Worked activity for Thinking followed by a final answer", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
       assistant("response", "Done.", "final_answer"),
     ]} />);
 
@@ -171,7 +171,7 @@ describe("AgentTimeline", () => {
   it("replaces the latest tool with Thinking after earlier commentary", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
     ]} activeTurnId="turn-1" />);
@@ -188,7 +188,7 @@ describe("AgentTimeline", () => {
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
       assistant("next", "I will update it.", "commentary"),
     ]} activeTurnId="turn-1" />);
 
@@ -202,7 +202,7 @@ describe("AgentTimeline", () => {
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Planning the next edit", status: "streaming" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Planning the next edit", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Working for");
@@ -215,7 +215,7 @@ describe("AgentTimeline", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "Planning the next edit", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "Planning the next edit", status: "completed" },
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Thinking");
@@ -228,7 +228,7 @@ describe("AgentTimeline", () => {
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
       tool(),
-      { id: "thinking", turnId: "turn-1", kind: "thinking", text: "private", status: "complete" },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
       assistant("response", "Done.", "final_answer"),
     ]} />);
 
@@ -259,11 +259,11 @@ describe("AgentTimeline", () => {
       {
         id: "edit",
         turnId: "turn-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "edit",
-        toolName: "edit",
-        status: "running",
-        args: { path: "src/app.ts" },
+        tool: "edit",
+        status: "inProgress",
+        arguments: { path: "src/app.ts" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -279,20 +279,20 @@ describe("AgentTimeline", () => {
       {
         id: "edit",
         turnId: "turn-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "edit",
-        toolName: "edit",
-        status: "complete",
-        args: { path: "src/app.ts" },
+        tool: "edit",
+        status: "completed",
+        arguments: { path: "src/app.ts" },
       },
       {
         id: "bash",
         turnId: "turn-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "bash",
-        toolName: "bash",
-        status: "complete",
-        args: { command: "npm run typecheck" },
+        tool: "bash",
+        status: "completed",
+        arguments: { command: "npm run typecheck" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -309,12 +309,12 @@ describe("AgentTimeline", () => {
       {
         id: "mcp",
         turnId: "turn-1",
-        kind: "mcp",
+        type: "mcpToolCall",
         toolCallId: "mcp",
         server: "opengame-godot",
         tool: "create_scene",
-        status: "running",
-        args: { scenePath: "main.tscn" },
+        status: "inProgress",
+        arguments: { scenePath: "main.tscn" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -329,12 +329,12 @@ describe("AgentTimeline", () => {
       {
         id: "mcp-search",
         turnId: "turn-1",
-        kind: "mcp",
+        type: "mcpToolCall",
         toolCallId: "mcp-search",
         server: "opengame-godot",
         tool: "search_tools",
-        status: "running",
-        args: { search: "scene" },
+        status: "inProgress",
+        arguments: { search: "scene" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -348,11 +348,11 @@ describe("AgentTimeline", () => {
       {
         id: "mcp",
         turnId: "turn-1",
-        kind: "mcp",
+        type: "mcpToolCall",
         toolCallId: "mcp",
         server: "custom-tools",
         tool: "fetch_asset",
-        status: "running",
+        status: "inProgress",
       },
     ]} activeTurnId="turn-1" />);
 
@@ -361,14 +361,14 @@ describe("AgentTimeline", () => {
   });
 
   it("groups consecutive calls by their MCP integration", () => {
-    const mcpTool = (id: string, operation: string): AgentItem => ({
+    const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
       turnId: "turn-1",
-      kind: "mcp",
+      type: "mcpToolCall",
       toolCallId: id,
       server: "opengame-godot",
       tool: operation,
-      status: "complete",
+      status: "completed",
     });
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -383,14 +383,14 @@ describe("AgentTimeline", () => {
   });
 
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
-    const mcpTool = (id: string, operation: string): AgentItem => ({
+    const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
       turnId: "turn-1",
-      kind: "mcp",
+      type: "mcpToolCall",
       toolCallId: id,
       server: "custom-tools",
       tool: operation,
-      status: "complete",
+      status: "completed",
     });
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -411,11 +411,11 @@ describe("AgentTimeline", () => {
       {
         id: "edit",
         turnId: "turn-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "edit",
-        toolName: "edit",
-        status: "complete",
-        args: { path: "src/app.ts" },
+        tool: "edit",
+        status: "completed",
+        arguments: { path: "src/app.ts" },
       },
     ]} activeTurnId="turn-1" />);
 
@@ -465,7 +465,7 @@ describe("AgentTimeline", () => {
   it("does not offer response copy while a final answer is streaming", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
-      { ...assistant("final", "Still writing", "final_answer"), status: "streaming" },
+      { ...assistant("final", "Still writing", "final_answer"), status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
     expect(html).not.toContain('aria-label="Copy response"');
@@ -507,23 +507,23 @@ describe("AgentTimeline", () => {
   });
 });
 
-function user(): AgentItem {
-  return { id: "user", turnId: "turn-1", kind: "user", text: "Build", timestamp: Date.now() - 1_000 };
+function user(): ThreadItem {
+  return { id: "user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: Date.now() - 1_000 };
 }
 
-function tool(): AgentItem {
+function tool(): ThreadItem {
   return {
     id: "tool",
     turnId: "turn-1",
-    kind: "tool",
+    type: "dynamicToolCall",
     toolCallId: "tool",
-    toolName: "read",
-    status: "complete",
-    args: { path: "package.json" },
+    tool: "read",
+    status: "completed",
+    arguments: { path: "package.json" },
     timestamp: Date.now(),
   };
 }
 
-function assistant(id: string, text: string, phase?: "commentary" | "final_answer"): AgentItem {
-  return { id, turnId: "turn-1", kind: "assistant", text, status: "complete", phase, timestamp: Date.now() };
+function assistant(id: string, text: string, phase?: "commentary" | "final_answer"): ThreadItem {
+  return { id, turnId: "turn-1", type: "agentMessage", text, status: "completed", phase, timestamp: Date.now() };
 }

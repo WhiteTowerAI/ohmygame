@@ -55,17 +55,17 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
 
-    expect(items.filter((item) => item.kind === "plan")).toEqual([{
+    expect(items.filter((item) => item.type === "plan")).toEqual([{
       id: "user:plan",
       turnId: "user",
-      kind: "plan",
+      type: "plan",
       plan: {
         explanation: "Progress",
         steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
       },
       timestamp: 3,
     }]);
-    expect(items.some((item) => item.kind === "tool")).toBe(false);
+    expect(items.some((item) => item.type === "dynamicToolCall")).toBe(false);
   });
 
   it("infers commentary and final answer phases from Pi stop reasons", () => {
@@ -86,7 +86,7 @@ describe("conversationItems", () => {
         content: [{ type: "text", text: "Partial answer" }],
         stopReason: "length",
       }),
-    ] as never).filter((item) => item.kind === "assistant")).toMatchObject([
+    ] as never).filter((item) => item.type === "agentMessage")).toMatchObject([
       { text: "I will inspect it.", phase: "commentary" },
       { text: "Done.", phase: "final_answer" },
       { text: "Partial answer", phase: "final_answer" },
@@ -120,22 +120,22 @@ describe("conversationItems", () => {
         stopReason: "stop",
       }),
     ] as never)).toEqual([
-      { id: "user-1", turnId: "user-1", kind: "user", text: "Build a game", timestamp: 1 },
-      { id: "assistant-1:thinking:0", turnId: "user-1", kind: "thinking", text: "I should inspect the files first.", status: "complete", timestamp: 0 },
-      { id: "assistant-1:assistant:1", turnId: "user-1", kind: "assistant", text: "I will build it. ", status: "complete", phase: "commentary", timestamp: 0 },
+      { id: "user-1", turnId: "user-1", type: "userMessage", text: "Build a game", timestamp: 1 },
+      { id: "assistant-1:thinking:0", turnId: "user-1", type: "reasoning", text: "I should inspect the files first.", status: "completed", timestamp: 0 },
+      { id: "assistant-1:assistant:1", turnId: "user-1", type: "agentMessage", text: "I will build it. ", status: "completed", phase: "commentary", timestamp: 0 },
       {
         id: "assistant-1:tool:call-1",
         turnId: "user-1",
-        kind: "tool",
+        type: "dynamicToolCall",
         toolCallId: "call-1",
-        toolName: "write",
-        status: "complete",
-        args: { path: "secret" },
+        tool: "write",
+        status: "completed",
+        arguments: { path: "secret" },
         output: "large private output",
         timestamp: 2,
       },
-      { id: "assistant-1:assistant:3", turnId: "user-1", kind: "assistant", text: "Starting now.", status: "complete", phase: "commentary", timestamp: 0 },
-      { id: "assistant-2:assistant:0", turnId: "user-1", kind: "assistant", text: "Done.", status: "complete", phase: "final_answer", timestamp: 0 },
+      { id: "assistant-1:assistant:3", turnId: "user-1", type: "agentMessage", text: "Starting now.", status: "completed", phase: "commentary", timestamp: 0 },
+      { id: "assistant-2:assistant:0", turnId: "user-1", type: "agentMessage", text: "Done.", status: "completed", phase: "final_answer", timestamp: 0 },
     ]);
   });
 
@@ -145,9 +145,9 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error:assistant", turnId: "error", kind: "assistant", text: "", status: "error", error: "No API key", timestamp: 0 },
-      { id: "user", turnId: "user", kind: "user", text: "Stop", timestamp: 1 },
-      { id: "cancelled:assistant", turnId: "user", kind: "assistant", text: "", status: "cancelled", timestamp: 0 },
+      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: "No API key", timestamp: 0 },
+      { id: "user", turnId: "user", type: "userMessage", text: "Stop", timestamp: 1 },
+      { id: "cancelled:assistant", turnId: "user", type: "agentMessage", text: "", status: "cancelled", timestamp: 0 },
     ]);
   });
 
@@ -161,7 +161,7 @@ describe("conversationItems", () => {
     ] as never, false)).toEqual([{
       id: "user",
       turnId: "user",
-      kind: "user",
+      type: "userMessage",
       text: "",
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
       timestamp: 1,
@@ -176,7 +176,7 @@ describe("conversationItems", () => {
         content: [{ type: "toolCall", id: "call-1", name: "write", arguments: { path: "index.html" } }],
         stopReason: "toolUse",
       }),
-    ] as never).at(-1)).toMatchObject({ kind: "assistant", status: "interrupted" });
+    ] as never).at(-1)).toMatchObject({ type: "agentMessage", status: "interrupted" });
   });
 
   it("truncates large tool output while keeping its beginning and end", () => {
@@ -197,9 +197,9 @@ describe("conversationItems", () => {
       }),
     ] as never);
 
-    expect(items[1]).toMatchObject({ kind: "tool", truncated: true });
-    expect(items[1]?.kind === "tool" && items[1].output).toContain("start-");
-    expect(items[1]?.kind === "tool" && items[1].output).toContain("-end");
+    expect(items[1]).toMatchObject({ type: "dynamicToolCall", truncated: true });
+    expect(items[1]?.type === "dynamicToolCall" && items[1].output).toContain("start-");
+    expect(items[1]?.type === "dynamicToolCall" && items[1].output).toContain("-end");
   });
 
   it("keeps only display-safe arguments for built-in tools", () => {
@@ -215,9 +215,9 @@ describe("conversationItems", () => {
         ],
         stopReason: "toolUse",
       }),
-    ] as never).filter((item) => item.kind === "tool");
+    ] as never).filter((item) => item.type === "dynamicToolCall");
 
-    expect(items.map((item) => item.args)).toEqual([
+    expect(items.map((item) => item.arguments)).toEqual([
       { path: "src/app.ts" },
       { path: "src/app.ts" },
       { path: "src/app.ts", offset: 2, limit: 20 },
@@ -235,7 +235,7 @@ describe("conversationItems", () => {
       }),
     ] as never);
 
-    expect(items[1]?.kind === "tool" && typeof items[1].args === "string" && items[1].args.length).toBeLessThan(2_100);
+    expect(items[1]?.type === "dynamicToolCall" && typeof items[1].arguments === "string" && items[1].arguments.length).toBeLessThan(2_100);
   });
 
   it("keeps MCP identity when nested tool arguments are large", () => {
@@ -258,11 +258,11 @@ describe("conversationItems", () => {
     ] as never);
 
     expect(items[1]).toMatchObject({
-      kind: "mcp",
+      type: "mcpToolCall",
       server: "opengame-godot",
       tool: "create_scene",
     });
-    expect(items[1]?.kind === "mcp" && typeof items[1].args).toBe("string");
+    expect(items[1]?.type === "mcpToolCall" && typeof items[1].arguments).toBe("string");
   });
 
   it("keeps MCP identity for server discovery operations", () => {
@@ -280,9 +280,9 @@ describe("conversationItems", () => {
     ] as never);
 
     expect(items.slice(1, 4)).toMatchObject([
-      { kind: "mcp", server: "opengame-godot", tool: "list_tools" },
-      { kind: "mcp", server: "opengame-godot", tool: "search_tools", args: { search: "scene" } },
-      { kind: "mcp", server: "opengame-godot", tool: "describe_add_node", args: { describe: "opengame-godot_add_node" } },
+      { type: "mcpToolCall", server: "opengame-godot", tool: "list_tools" },
+      { type: "mcpToolCall", server: "opengame-godot", tool: "search_tools", arguments: { search: "scene" } },
+      { type: "mcpToolCall", server: "opengame-godot", tool: "describe_add_node", arguments: { describe: "opengame-godot_add_node" } },
     ]);
   });
 });

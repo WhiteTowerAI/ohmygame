@@ -212,7 +212,7 @@ describe("daemon", () => {
     const detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
 
     expect(detail.json()).toMatchObject({
-      items: [{ kind: "user", text: "Describe", images: [image], turnId: turn.json().turnId }],
+      items: [{ type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId }],
       cursor: 1,
       activeTurn: { conversationId: conversation.id, turnId: turn.json().turnId },
     });
@@ -607,8 +607,8 @@ describe("daemon", () => {
         agent: { status: "idle" },
       }),
       items: [
-        { id: "user-1", turnId: "user-1", kind: "user", text: "Hello", timestamp: 0 },
-        { id: "assistant-1:assistant:0", turnId: "user-1", kind: "assistant", text: "Hi", status: "complete", phase: "final_answer", timestamp: 1 },
+        { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
+        { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
       ],
       cursor: 0,
       pendingPrompts: [],
@@ -649,8 +649,8 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({
       conversation: { id: "session-1", agent: { status: "running", turnId: expect.any(String) } },
       items: [
-        { id: "old-user", turnId: "old-user", kind: "user", text: "Current" },
-        { id: "old-assistant:assistant:0", turnId: "old-user", kind: "assistant", text: "Answer", status: "complete" },
+        { id: "old-user", turnId: "old-user", type: "userMessage", text: "Current" },
+        { id: "old-assistant:assistant:0", turnId: "old-user", type: "agentMessage", text: "Answer", status: "completed" },
       ],
       cursor: 0,
     });

@@ -1,8 +1,6 @@
-import type { ActiveTurnState, AgentItem, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, QuestionnaireRequest, RuntimeEvent } from "../shared/contracts.js";
+import type { ActiveTurnState, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, QuestionnaireRequest, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
-
-export type TimelineItem = AgentItem;
 
 export interface RendererState {
   phase: "loading" | "ready" | "fatal";
@@ -12,14 +10,14 @@ export interface RendererState {
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
   questionnaire?: QuestionnaireRequest;
-  items: TimelineItem[];
+  items: ThreadItem[];
   lastEventId: number;
   notice?: string;
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
-  | { type: "conversation-loaded"; conversation: ConversationState; items: AgentItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
+  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: ThreadItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
+  | { type: "conversation-loaded"; conversation: ConversationState; items: ThreadItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
   | { type: "connection"; status: ConnectionStatus }
@@ -101,7 +99,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     case "agent.started": {
       if (!event.turnId) return scoped;
       const replacedTurnId = event.data.revision === "last-turn"
-        ? [...state.items].reverse().find((item) => item.kind === "user")?.turnId
+        ? [...state.items].reverse().find((item) => item.type === "userMessage")?.turnId
         : undefined;
       return {
         ...scoped,
@@ -109,7 +107,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
         items: [
           ...state.items.filter((item) => item.turnId !== replacedTurnId),
-          { id: `${event.turnId}:user`, turnId: event.turnId, kind: "user", text: event.data.prompt, ...(event.data.images?.length ? { images: event.data.images } : {}), timestamp: eventTime(event) },
+          { id: `${event.turnId}:user`, turnId: event.turnId, type: "userMessage", text: event.data.prompt, ...(event.data.images?.length ? { images: event.data.images } : {}), timestamp: eventTime(event) },
         ],
       };
     }
@@ -131,7 +129,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(state.items, {
           id: `${event.turnId}:retry:${event.data.attempt}`,
           turnId: event.turnId,
-          kind: "retry",
+          type: "retry",
           timestamp: eventTime(event),
           ...event.data,
         }),
@@ -148,8 +146,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(state.items, {
           id: `${event.turnId}:compaction`,
           turnId: event.turnId,
-          kind: "compaction",
-          status: "running",
+          type: "contextCompaction",
+          status: "inProgress",
           timestamp: eventTime(event),
         }),
       };
@@ -161,9 +159,9 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           activeTurn: scoped.activeTurn?.turnId === event.turnId ? undefined : scoped.activeTurn,
           conversation: conversation ? { ...conversation, agent: { status: event.data.aborted ? "error" : "idle" } } : conversation,
         } : {}),
-        items: updateItem(state.items, `${event.turnId}:compaction`, (item) => item.kind === "compaction" ? {
+        items: updateItem(state.items, `${event.turnId}:compaction`, (item) => item.type === "contextCompaction" ? {
           ...item,
-          status: event.data.aborted ? "error" : "complete",
+          status: event.data.aborted ? "failed" : "completed",
           error: event.data.error ?? (event.data.aborted
             ? event.data.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted"
             : undefined),
@@ -176,9 +174,9 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(state.items, {
           id: event.data.itemId,
           turnId: event.turnId,
-          kind: "assistant",
+          type: "agentMessage",
           text: "",
-          status: "streaming",
+          status: "inProgress",
           timestamp: eventTime(event),
         }),
       };
@@ -189,16 +187,16 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(state.items, {
           id: event.data.itemId,
           turnId: event.turnId,
-          kind: "thinking",
+          type: "reasoning",
           text: "",
-          status: "streaming",
+          status: "inProgress",
           timestamp: eventTime(event),
         }),
       };
     case "assistant.thinking.delta":
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => item.kind === "thinking"
+        items: updateItem(state.items, event.data.itemId, (item) => item.type === "reasoning"
           ? { ...item, text: item.text + event.data.delta }
           : item),
       };
@@ -206,9 +204,9 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return {
         ...scoped,
         items: state.items.flatMap((item) => {
-          if (item.id !== event.data.itemId || item.kind !== "thinking") return [item];
+          if (item.id !== event.data.itemId || item.type !== "reasoning") return [item];
           return event.data.text
-            ? [{ ...item, text: event.data.text, status: "complete" as const, timestamp: eventTime(event) }]
+            ? [{ ...item, text: event.data.text, status: "completed" as const, timestamp: eventTime(event) }]
             : [];
         }),
       };
@@ -216,7 +214,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       if (!event.turnId) return scoped;
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => item.kind === "assistant"
+        items: updateItem(state.items, event.data.itemId, (item) => item.type === "agentMessage"
           ? { ...item, text: item.text + event.data.delta, timestamp: eventTime(event) }
           : item),
       };
@@ -224,11 +222,11 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return {
         ...scoped,
         items: state.items.flatMap((item) => {
-          if (item.id !== event.data.itemId || item.kind !== "assistant") return [item];
+          if (item.id !== event.data.itemId || item.type !== "agentMessage") return [item];
           if (!item.text && event.data.status === "complete") return [];
           return [{
             ...item,
-            status: event.data.status,
+            status: threadItemStatus(event.data.status),
             phase: event.data.phase,
             error: event.data.error,
             timestamp: eventTime(event),
@@ -247,7 +245,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         items: upsertItem(withoutPlaceholder, {
           id: planItemId,
           turnId: event.turnId,
-          kind: "plan",
+          type: "plan",
           plan: { explanation: event.data.explanation, steps: event.data.steps },
           timestamp: eventTime(event),
         }),
@@ -274,24 +272,24 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           id: event.data.itemId,
           turnId: event.turnId,
           ...(event.data.mcp ? {
-            kind: "mcp" as const,
+            type: "mcpToolCall" as const,
             toolCallId: event.data.toolCallId,
             server: event.data.mcp.server,
             tool: event.data.mcp.tool,
           } : {
-            kind: "tool" as const,
+            type: "dynamicToolCall" as const,
             toolCallId: event.data.toolCallId,
-            toolName: event.data.toolName,
+            tool: event.data.toolName,
           }),
-          status: event.type === "tool.preparing" ? "preparing" : "running",
-          args: event.data.args,
+          status: event.type === "tool.preparing" ? "preparing" : "inProgress",
+          arguments: event.data.args,
           timestamp: eventTime(event),
         }),
       };
     case "tool.updated":
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => (item.kind === "tool" || item.kind === "mcp")
+        items: updateItem(state.items, event.data.itemId, (item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall")
           ? { ...item, output: event.data.output ?? item.output, truncated: event.data.truncated ?? item.truncated }
           : item),
       };
@@ -301,9 +299,9 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       }
       return {
         ...scoped,
-        items: updateItem(state.items, event.data.itemId, (item) => (item.kind === "tool" || item.kind === "mcp") ? {
+        items: updateItem(state.items, event.data.itemId, (item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall") ? {
           ...item,
-          status: event.data.isError ? "error" : "complete",
+          status: event.data.isError ? "failed" : "completed",
           output: event.data.output ?? item.output,
           truncated: event.data.truncated ?? item.truncated,
           artifact: event.data.artifact ?? item.artifact,
@@ -347,27 +345,27 @@ function finishAgent(
 ): RendererState {
   const finalizedItems = !turnId ? state.items : state.items.flatMap((item) => {
     if (item.turnId !== turnId) return [item];
-    if ((item.kind === "tool" || item.kind === "mcp") && item.status === "preparing") {
-      return status === "complete" ? [] : [{ ...item, status: "error" as const }];
+    if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") && item.status === "preparing") {
+      return status === "complete" ? [] : [{ ...item, status: "failed" as const }];
     }
-    if (item.kind === "thinking" && item.status === "streaming") {
-      return item.text ? [{ ...item, status: "complete" as const }] : [];
+    if (item.type === "reasoning" && item.status === "inProgress") {
+      return item.text ? [{ ...item, status: "completed" as const }] : [];
     }
-    if (item.kind !== "assistant" || item.status !== "streaming") return [item];
+    if (item.type !== "agentMessage" || item.status !== "inProgress") return [item];
     if (status === "complete" && !item.text) return [];
-    return [{ ...item, status, error, timestamp }];
+    return [{ ...item, status: threadItemStatus(status), error, timestamp }];
   });
   const hasFailure = status !== "complete" && turnId && finalizedItems.some((item) => (
-    item.turnId === turnId && item.kind === "assistant" && item.status === status
+    item.turnId === turnId && item.type === "agentMessage" && item.status === threadItemStatus(status)
   ));
   const items = status === "complete" || !turnId || hasFailure ? finalizedItems : [
     ...finalizedItems,
     {
       id: `${turnId}:status`,
       turnId,
-      kind: "assistant" as const,
+      type: "agentMessage" as const,
       text: "",
-      status,
+      status: threadItemStatus(status),
       error,
       timestamp,
     },
@@ -389,12 +387,17 @@ function eventTime(event: RuntimeEvent): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function upsertItem(items: AgentItem[], incoming: AgentItem): AgentItem[] {
+function upsertItem(items: ThreadItem[], incoming: ThreadItem): ThreadItem[] {
   const index = items.findIndex((item) => item.id === incoming.id);
   if (index < 0) return [...items, incoming];
   return items.map((item, itemIndex) => itemIndex === index ? incoming : item);
 }
 
-function updateItem(items: AgentItem[], id: string, update: (item: AgentItem) => AgentItem): AgentItem[] {
+function updateItem(items: ThreadItem[], id: string, update: (item: ThreadItem) => ThreadItem): ThreadItem[] {
   return items.map((item) => item.id === id ? update(item) : item);
+}
+
+function threadItemStatus(status: "complete" | "cancelled" | "error"): "completed" | "cancelled" | "failed" {
+  if (status === "complete") return "completed";
+  return status === "error" ? "failed" : status;
 }

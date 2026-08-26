@@ -316,9 +316,9 @@ export function ProjectShell({
   const currentConversationBusy = Boolean(state.activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || conversation?.agent.status === "running" || conversation?.agent.status === "cancelling";
   const activePlanItem = state.activeTurn
-    ? state.items.findLast((item) => item.kind === "plan" && item.turnId === state.activeTurn?.turnId)
+    ? state.items.findLast((item) => item.type === "plan" && item.turnId === state.activeTurn?.turnId)
     : undefined;
-  const activePlan = activePlanItem?.kind === "plan"
+  const activePlan = activePlanItem?.type === "plan"
     ? activePlanItem.plan
     : conversation?.planMode !== "normal" ? conversation?.plan : undefined;
 
@@ -625,7 +625,7 @@ export function ProjectShell({
             reasoningLevel={conversation?.reasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
-              ...state.items.flatMap((item) => item.kind === "user" && item.text.trim() ? [item.text] : []),
+              ...state.items.flatMap((item) => item.type === "userMessage" && item.text.trim() ? [item.text] : []),
               ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
             ]}
             onSubmit={submitPrompt}

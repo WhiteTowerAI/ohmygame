@@ -143,7 +143,7 @@ describe("renderer project API", () => {
 
   it("loads a project's persisted conversation", async () => {
     installWindow();
-    const conversation = { items: [{ id: "one", kind: "user", text: "Hi" }], cursor: 4 };
+    const conversation = { items: [{ id: "one", type: "userMessage", text: "Hi" }], cursor: 4 };
     const fetchMock = vi.fn(async () => Response.json(conversation));
     vi.stubGlobal("fetch", fetchMock);
 

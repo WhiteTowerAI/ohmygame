@@ -30,7 +30,7 @@ describe("rendererReducer", () => {
       steps: [{ step: "Inspect", status: "completed" }, { step: "Implement", status: "in_progress" }],
     }) });
 
-    expect(state.items.filter((item) => item.kind === "plan")).toEqual([expect.objectContaining({
+    expect(state.items.filter((item) => item.type === "plan")).toEqual([expect.objectContaining({
       id: "turn-1:plan",
       plan: {
         explanation: "Progress",
@@ -45,26 +45,26 @@ describe("rendererReducer", () => {
       ...initialized(),
       lastEventId: 1,
       items: [
-        { id: "user-1", turnId: "turn-1", kind: "user" as const, text: "First" },
-        { id: "answer-1", turnId: "turn-1", kind: "assistant" as const, text: "One", status: "complete" as const },
-        { id: "user-2", turnId: "turn-2", kind: "user" as const, text: "Second" },
-        { id: "answer-2", turnId: "turn-2", kind: "assistant" as const, text: "Two", status: "complete" as const },
+        { id: "user-1", turnId: "turn-1", type: "userMessage" as const, text: "First" },
+        { id: "answer-1", turnId: "turn-1", type: "agentMessage" as const, text: "One", status: "completed" as const },
+        { id: "user-2", turnId: "turn-2", type: "userMessage" as const, text: "Second" },
+        { id: "answer-2", turnId: "turn-2", type: "agentMessage" as const, text: "Two", status: "completed" as const },
       ],
     };
     const event = { ...runtimeEvent(2, "agent.started", { prompt: "Revised", revision: "last-turn" }), turnId: "turn-3" };
 
     const next = rendererReducer(state, { type: "runtime-event", event });
 
-    expect(next.items.map((item) => [item.turnId, item.kind, "text" in item ? item.text : undefined])).toEqual([
-      ["turn-1", "user", "First"],
-      ["turn-1", "assistant", "One"],
-      ["turn-3", "user", "Revised"],
+    expect(next.items.map((item) => [item.turnId, item.type, "text" in item ? item.text : undefined])).toEqual([
+      ["turn-1", "userMessage", "First"],
+      ["turn-1", "agentMessage", "One"],
+      ["turn-3", "userMessage", "Revised"],
     ]);
   });
   it("initializes with restored conversation history", () => {
     const items = [
-      { id: "user", turnId: "turn-1", kind: "user" as const, text: "Hi" },
-      { id: "assistant", turnId: "turn-1", kind: "assistant" as const, text: "Hello", status: "complete" as const },
+      { id: "user", turnId: "turn-1", type: "userMessage" as const, text: "Hi" },
+      { id: "assistant", turnId: "turn-1", type: "agentMessage" as const, text: "Hello", status: "completed" as const },
     ];
 
     const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), conversation: conversation(), items, cursor: 0 });
@@ -98,9 +98,9 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(9, "agent.completed", {}) });
 
     expect(state.items).toEqual([
-      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Build a clock", timestamp: 0 },
-      { id: "assistant-1", turnId: "turn-1", kind: "assistant", text: "I will build it.", status: "complete", phase: "final_answer", error: undefined, timestamp: 0 },
-      { id: "tool-1", turnId: "turn-1", kind: "tool", toolCallId: "tool-1", toolName: "edit", status: "complete", args: { path: "src/app.ts" }, output: "done", truncated: undefined, timestamp: 0 },
+      { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Build a clock", timestamp: 0 },
+      { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "I will build it.", status: "completed", phase: "final_answer", error: undefined, timestamp: 0 },
+      { id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit", status: "completed", arguments: { path: "src/app.ts" }, output: "done", truncated: undefined, timestamp: 0 },
     ]);
     expect(state.conversation?.agent).toEqual({ status: "idle" });
   });
@@ -114,7 +114,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.thinking.started", { itemId: "thinking-1" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.thinking.delta", { itemId: "thinking-1", delta: "Inspecting" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(5, "assistant.thinking.completed", { itemId: "thinking-1", text: "Inspecting" }) });
-    expect(state.items.at(-1)).toMatchObject({ kind: "thinking", text: "Inspecting", status: "complete" });
+    expect(state.items.at(-1)).toMatchObject({ type: "reasoning", text: "Inspecting", status: "completed" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(6, "agent.completed", {}) });
   });
@@ -128,7 +128,7 @@ describe("rendererReducer", () => {
       event: { ...runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "Working" }), timestamp: new Date(3_000).toISOString() },
     });
 
-    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Working", timestamp: 3_000 });
+    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Working", timestamp: 3_000 });
   });
 
   it("transitions a preparing tool into execution on the same item", () => {
@@ -137,13 +137,13 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "tool.preparing", {
       itemId: "tool-1", toolCallId: "call-1", toolName: "write",
     }) });
-    expect(state.items.at(-1)).toMatchObject({ kind: "tool", status: "preparing", toolName: "write" });
+    expect(state.items.at(-1)).toMatchObject({ type: "dynamicToolCall", status: "preparing", tool: "write" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "tool.started", {
       itemId: "tool-1", toolCallId: "call-1", toolName: "write", args: { path: "src/app.ts" },
     }) });
     expect(state.items).toHaveLength(2);
-    expect(state.items.at(-1)).toMatchObject({ kind: "tool", status: "running", args: { path: "src/app.ts" } });
+    expect(state.items.at(-1)).toMatchObject({ type: "dynamicToolCall", status: "inProgress", arguments: { path: "src/app.ts" } });
   });
 
   it("keeps MCP identity as structured timeline data", () => {
@@ -164,11 +164,11 @@ describe("rendererReducer", () => {
     }) });
 
     expect(state.items.at(-1)).toMatchObject({
-      kind: "mcp",
+      type: "mcpToolCall",
       server: "opengame-godot",
       tool: "create_scene",
-      args: { scenePath: "main.tscn" },
-      status: "complete",
+      arguments: { scenePath: "main.tscn" },
+      status: "completed",
     });
   });
 
@@ -202,7 +202,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.error", { error: "Authentication required" }) });
 
-    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", status: "error", error: "Authentication required" });
+    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", status: "failed", error: "Authentication required" });
     expect(state.conversation?.agent).toEqual({ status: "error", error: "Authentication required" });
   });
 
@@ -238,11 +238,11 @@ describe("rendererReducer", () => {
       event: runtimeEvent(2, "agent.retrying", { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" }),
     });
 
-    expect(state.items.at(-1)).toMatchObject({ kind: "retry", attempt: 1, maxAttempts: 3, error: "fetch failed" });
+    expect(state.items.at(-1)).toMatchObject({ type: "retry", attempt: 1, maxAttempts: 3, error: "fetch failed" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.started", { itemId: "assistant-1" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "assistant.delta", { itemId: "assistant-1", delta: "Recovered" }) });
-    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Recovered" });
+    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Recovered" });
   });
 
   it("tracks context compaction", () => {
@@ -250,11 +250,11 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "agent.started", { prompt: "Build" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "agent.compaction.started", { reason: "threshold" }) });
 
-    expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "running" });
+    expect(state.items.at(-1)).toMatchObject({ type: "contextCompaction", status: "inProgress" });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "agent.compaction.completed", { reason: "threshold", aborted: false, willRetry: false }) });
-    expect(state.items.at(-1)).toMatchObject({ kind: "compaction", status: "complete" });
+    expect(state.items.at(-1)).toMatchObject({ type: "contextCompaction", status: "completed" });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
     expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
   });
@@ -280,8 +280,8 @@ describe("rendererReducer", () => {
     });
 
     expect(state.items.at(-1)).toMatchObject({
-      kind: "compaction",
-      status: "error",
+      type: "contextCompaction",
+      status: "failed",
       error: "Context compaction interrupted; retrying",
     });
   });
@@ -293,7 +293,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.completed", { itemId: "assistant-1", status: "complete" }) });
 
     expect(state.items).toEqual([
-      { id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Read", timestamp: 0 },
+      { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Read", timestamp: 0 },
     ]);
   });
 
@@ -304,7 +304,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "assistant.delta", { itemId: "assistant-1", delta: "Done" }) });
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.completed", {}) });
 
-    expect(state.items.at(-1)).toMatchObject({ kind: "assistant", text: "Done", status: "complete" });
+    expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Done", status: "completed" });
   });
 
   it("ignores agent state from another conversation", () => {
@@ -349,7 +349,7 @@ describe("rendererReducer", () => {
       event: { ...runtimeEvent(9, "agent.started", { prompt: "Other" }), conversationId: "conversation-2" },
     });
 
-    expect(state.items).toEqual([{ id: "turn-1:user", turnId: "turn-1", kind: "user", text: "Other", timestamp: 0 }]);
+    expect(state.items).toEqual([{ id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Other", timestamp: 0 }]);
   });
 
 });

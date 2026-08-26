@@ -1,14 +1,14 @@
-import type { AgentItem, ToolArtifact } from "../shared/contracts.js";
+import type { ThreadItem, ToolArtifact } from "../shared/contracts.js";
 import type { AgentTurn } from "./agent-turns.js";
 import { projectWorkItems, type WorkDisplayItem } from "./work-items.js";
 
-type AssistantItem = Extract<AgentItem, { kind: "assistant" }>;
+type AssistantItem = Extract<ThreadItem, { type: "agentMessage" }>;
 
 export interface TurnDisplay {
-  user?: Extract<AgentItem, { kind: "user" }>;
+  user?: Extract<ThreadItem, { type: "userMessage" }>;
   work: WorkDisplayItem[];
   artifacts: ToolArtifact[];
-  messages: AgentItem[];
+  messages: ThreadItem[];
   finalMessages: AssistantItem[];
   active: boolean;
   working: boolean;
@@ -20,11 +20,11 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingFor
   const finalStarted = turn.items.some(isFinalAnswer);
   const finalMessages = turn.active ? [] : turn.items.filter(isFinalAnswer);
   const processItems = turn.active ? turn.items : turn.items.filter((item) => !isFinalAnswer(item));
-  const activityItems = processItems.filter((item) => item.kind !== "plan");
-  const workStarted = activityItems.some((item) => item.kind !== "thinking" && isWorkItem(item));
+  const activityItems = processItems.filter((item) => item.type !== "plan");
+  const workStarted = activityItems.some((item) => item.type !== "reasoning" && isWorkItem(item));
 
   if (!turn.active) {
-    const workItems = activityItems.filter((item) => item.kind !== "thinking" && isWorkItem(item));
+    const workItems = activityItems.filter((item) => item.type !== "reasoning" && isWorkItem(item));
     return {
       user: turn.user,
       work: projectWorkItems(workItems),
@@ -57,53 +57,53 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingFor
   };
 }
 
-function collectArtifacts(items: AgentItem[]): ToolArtifact[] {
+function collectArtifacts(items: ThreadItem[]): ToolArtifact[] {
   const seen = new Set<string>();
   return items.flatMap((item) => {
-    if ((item.kind !== "tool" && item.kind !== "mcp") || !item.artifact || seen.has(item.artifact.path)) return [];
+    if ((item.type !== "dynamicToolCall" && item.type !== "mcpToolCall") || !item.artifact || seen.has(item.artifact.path)) return [];
     seen.add(item.artifact.path);
     return [item.artifact];
   });
 }
 
-function hasVisibleAssistantText(items: AgentItem[]): boolean {
-  return items.some((item) => item.kind === "assistant" && Boolean(item.text.trim()));
+function hasVisibleAssistantText(items: ThreadItem[]): boolean {
+  return items.some((item) => item.type === "agentMessage" && Boolean(item.text.trim()));
 }
 
-function isWorkItem(item: AgentItem): boolean {
-  return item.kind === "thinking" || item.kind === "tool" || item.kind === "mcp" || item.kind === "retry" || item.kind === "compaction" ||
-    (item.kind === "assistant" && item.phase === "commentary");
+function isWorkItem(item: ThreadItem): boolean {
+  return item.type === "reasoning" || item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "retry" || item.type === "contextCompaction" ||
+    (item.type === "agentMessage" && item.phase === "commentary");
 }
 
-function isFinalAnswer(item: AgentItem): item is AssistantItem {
-  return item.kind === "assistant" && item.phase === "final_answer";
+function isFinalAnswer(item: ThreadItem): item is AssistantItem {
+  return item.type === "agentMessage" && item.phase === "final_answer";
 }
 
-function isStreamingThinking(item: AgentItem): item is Extract<AgentItem, { kind: "thinking" }> {
-  return item.kind === "thinking" && item.status === "streaming";
+function isStreamingThinking(item: ThreadItem): item is Extract<ThreadItem, { type: "reasoning" }> {
+  return item.type === "reasoning" && item.status === "inProgress";
 }
 
-function withoutInitialThinking(items: AgentItem[]): AgentItem[] {
-  const firstVisible = items.findIndex((item) => item.kind !== "thinking");
+function withoutInitialThinking(items: ThreadItem[]): ThreadItem[] {
+  const firstVisible = items.findIndex((item) => item.type !== "reasoning");
   return firstVisible < 0 ? [] : items.slice(firstVisible);
 }
 
-function shouldShowWaiting(items: AgentItem[], now: number): boolean {
+function shouldShowWaiting(items: ThreadItem[], now: number): boolean {
   const latest = items.at(-1);
-  if (!latest || (latest.kind === "assistant" && latest.status === "streaming" && !hasStalledAssistantText(items, now))) return false;
-  if (latest.kind === "retry" || (latest.kind === "compaction" && latest.status === "running")) return false;
-  return !items.some((item) => (item.kind === "tool" || item.kind === "mcp") && (item.status === "preparing" || item.status === "running")) &&
-    !items.some((item) => item.kind === "thinking" && item.status === "streaming");
+  if (!latest || (latest.type === "agentMessage" && latest.status === "inProgress" && !hasStalledAssistantText(items, now))) return false;
+  if (latest.type === "retry" || (latest.type === "contextCompaction" && latest.status === "inProgress")) return false;
+  return !items.some((item) => (item.type === "dynamicToolCall" || item.type === "mcpToolCall") && (item.status === "preparing" || item.status === "inProgress")) &&
+    !items.some((item) => item.type === "reasoning" && item.status === "inProgress");
 }
 
-function hasStalledAssistantText(items: AgentItem[], now: number): boolean {
+function hasStalledAssistantText(items: ThreadItem[], now: number): boolean {
   const latest = items.at(-1);
-  return latest?.kind === "assistant" && latest.status === "streaming" && Boolean(latest.text.trim()) &&
+  return latest?.type === "agentMessage" && latest.status === "inProgress" && Boolean(latest.text.trim()) &&
     latest.timestamp !== undefined && now - latest.timestamp >= 1_000;
 }
 
-function withoutCurrentActivity(items: AgentItem[]): AgentItem[] {
+function withoutCurrentActivity(items: ThreadItem[]): ThreadItem[] {
   let end = items.length;
-  while (end > 0 && (items[end - 1].kind === "tool" || items[end - 1].kind === "mcp" || items[end - 1].kind === "thinking")) end -= 1;
+  while (end > 0 && (items[end - 1].type === "dynamicToolCall" || items[end - 1].type === "mcpToolCall" || items[end - 1].type === "reasoning")) end -= 1;
   return items.slice(0, end);
 }

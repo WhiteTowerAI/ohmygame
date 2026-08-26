@@ -229,38 +229,38 @@ export interface PlanState {
   steps: PlanStep[];
 }
 
-export type AgentItem = (
-  | { id: string; turnId: string; kind: "user"; text: string; images?: PromptImage[] }
+export type ThreadItem = (
+  | { id: string; turnId: string; type: "userMessage"; text: string; images?: PromptImage[] }
   | {
       id: string;
       turnId: string;
-      kind: "assistant";
+      type: "agentMessage";
       text: string;
-      status: "streaming" | "complete" | "cancelled" | "interrupted" | "error";
+      status: "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
       phase?: AgentMessagePhase;
       error?: string;
     }
   | {
       id: string;
       turnId: string;
-      kind: "thinking";
+      type: "reasoning";
       text: string;
-      status: "streaming" | "complete";
+      status: "inProgress" | "completed";
     }
   | {
       id: string;
       turnId: string;
-      kind: "plan";
+      type: "plan";
       plan: PlanState;
     }
   | {
       id: string;
       turnId: string;
-      kind: "tool";
+      type: "dynamicToolCall";
       toolCallId: string;
-      toolName: string;
-      status: "preparing" | "running" | "complete" | "error";
-      args?: unknown;
+      tool: string;
+      status: "preparing" | "inProgress" | "completed" | "failed";
+      arguments?: unknown;
       output?: string;
       truncated?: boolean;
       artifact?: ToolArtifact;
@@ -268,12 +268,12 @@ export type AgentItem = (
   | {
       id: string;
       turnId: string;
-      kind: "mcp";
+      type: "mcpToolCall";
       toolCallId: string;
       server?: string;
       tool: string;
-      status: "preparing" | "running" | "complete" | "error";
-      args?: unknown;
+      status: "preparing" | "inProgress" | "completed" | "failed";
+      arguments?: unknown;
       output?: string;
       truncated?: boolean;
       artifact?: ToolArtifact;
@@ -281,7 +281,7 @@ export type AgentItem = (
   | {
       id: string;
       turnId: string;
-      kind: "retry";
+      type: "retry";
       attempt: number;
       maxAttempts: number;
       delayMs: number;
@@ -290,15 +290,15 @@ export type AgentItem = (
   | {
       id: string;
       turnId: string;
-      kind: "compaction";
-      status: "running" | "complete" | "error";
+      type: "contextCompaction";
+      status: "inProgress" | "completed" | "failed";
       error?: string;
     }
 ) & { timestamp?: number };
 
 export interface ConversationDetail {
   conversation: ConversationState;
-  items: AgentItem[];
+  items: ThreadItem[];
   cursor: number;
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];

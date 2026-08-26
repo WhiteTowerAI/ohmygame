@@ -4324,7 +4324,7 @@ textarea:focus-visible {
   color: var(--text-faint);
 }
 
-.tool-error .tool-result {
+.tool-failed .tool-result {
   color: var(--danger);
 }
 
