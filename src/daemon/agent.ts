@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentContextUsage, AgentMessagePhase, AgentModelRef, AgentReasoningLevel, AgentStatus, ConversationState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ThreadItem, ToolArtifact } from "../shared/contracts.js";
+import type { ActiveTurnState, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ThreadItem, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
@@ -243,7 +243,7 @@ export class AgentManager {
   readonly #sessions = new Map<string, ManagedSession>();
   readonly #sessionLoads = new Map<string, Promise<ManagedSession>>();
   readonly #activeTurns = new Map<string, ActiveTurn>();
-  readonly #conversationStates = new Map<string, ConversationState["agent"]>();
+  readonly #agentStates = new Map<string, ConversationAgentState>();
   readonly #planStates = new Map<string, PlanSessionState>();
   readonly #runs = new Set<Promise<AgentRunResult>>();
   readonly #pendingPrompts = new Map<string, QueuedPrompt[]>();
@@ -258,14 +258,8 @@ export class AgentManager {
     private readonly options: AgentManagerOptions = {},
   ) {}
 
-  state(conversation: StoredConversation, model?: AgentModelRef, planState: PlanSessionState = { mode: "normal" }): ConversationState {
-    return {
-      ...conversation.summary,
-      agent: this.#conversationStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" },
-      ...(model ? { model } : {}),
-      planMode: planState.mode,
-      ...(planState.plan ? { plan: planState.plan } : {}),
-    };
+  agentState(conversation: StoredConversation): ConversationAgentState {
+    return this.#agentStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" };
   }
 
   restorePlanState(conversation: StoredConversation, state: PlanSessionState): void {
@@ -382,7 +376,7 @@ export class AgentManager {
       items: new Map(),
     };
     this.#activeTurns.set(key, active);
-    this.#setState(project.id, conversation.summary.id, { status: "running", turnId });
+    this.#setState(project.id, conversation.summary.id, { status: "running" });
 
     let run: Promise<AgentRunResult>;
     const execution = managed.session.compact(customInstructions).then(() => "completed" as const);
@@ -534,7 +528,7 @@ export class AgentManager {
       items: new Map(),
     };
     this.#activeTurns.set(conversationKey(project.id, active.conversationId), active);
-    this.#setState(project.id, active.conversationId, { status: "running", turnId });
+    this.#setState(project.id, active.conversationId, { status: "running" });
     const started = this.events.publish(
       project.id,
       "agent.started",
@@ -622,7 +616,7 @@ export class AgentManager {
     const active = this.#activeTurns.get(key);
     if (!active || active.turnId !== turnId || active.status !== "running") return;
     active.status = "cancelling";
-    this.#setState(projectId, conversationId, { status: "cancelling", turnId });
+    this.#setState(projectId, conversationId, { status: "cancelling" });
     const managed = this.#sessions.get(key);
     if (managed) {
       await this.#withQueueMutation(key, async () => {
@@ -842,7 +836,7 @@ export class AgentManager {
     this.#closing = true;
     for (const active of this.#activeTurns.values()) {
       active.status = "cancelling";
-      this.#setState(active.projectId, active.conversationId, { status: "cancelling", turnId: active.turnId });
+      this.#setState(active.projectId, active.conversationId, { status: "cancelling" });
     }
     for (const pending of this.#questionnaires.values()) {
       pending.removeAbortListener?.();
@@ -974,7 +968,7 @@ export class AgentManager {
       active.preparingToolItemIds.clear();
       active.toolItemIds.clear();
       active.items.clear();
-      this.#setState(projectId, conversationId, { status: "running", turnId: started.turnId });
+      this.#setState(projectId, conversationId, { status: "running" });
       const startedEvent = this.events.publish(
         projectId,
         "agent.started",
@@ -1256,8 +1250,8 @@ export class AgentManager {
     this.events.publish(projectId, "agent.error", { error }, eventScope(active));
   }
 
-  #setState(projectId: string, conversationId: string, state: ConversationState["agent"]): void {
-    this.#conversationStates.set(conversationKey(projectId, conversationId), state);
+  #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {
+    this.#agentStates.set(conversationKey(projectId, conversationId), state);
   }
 
   isProjectBusy(projectId: string): boolean {
@@ -1270,8 +1264,8 @@ export class AgentManager {
     for (const key of this.#sessions.keys()) {
       if (key.startsWith(prefix)) this.#forgetConversation(key);
     }
-    for (const key of this.#conversationStates.keys()) {
-      if (key.startsWith(prefix)) this.#conversationStates.delete(key);
+    for (const key of this.#agentStates.keys()) {
+      if (key.startsWith(prefix)) this.#agentStates.delete(key);
     }
     for (const key of this.#planStates.keys()) {
       if (key.startsWith(prefix)) this.#planStates.delete(key);

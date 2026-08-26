@@ -18,7 +18,6 @@ import {
   type CreateProjectRequest,
   type CommunityGame,
   type ConversationDetail,
-  type ConversationState,
   type ConversationSummary,
   type ProjectState,
   type StoryDocument,
@@ -307,7 +306,7 @@ export async function createConversation(
   projectId: string,
   model?: AgentModelRef,
   reasoningLevel?: AgentReasoningLevel,
-): Promise<ConversationState> {
+): Promise<ConversationSummary> {
   return request(`/projects/${projectId}/conversations`, {
     method: "POST",
     body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),

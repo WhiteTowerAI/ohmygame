@@ -441,13 +441,13 @@ describe("daemon", () => {
       ],
       defaultReasoningLevel: "medium",
     });
-    expect(created.json().model).toEqual({ provider: first.provider, id: first.id });
+    expect(created.json()).toMatchObject({ id: expect.any(String), projectId: project.id, title: "New conversation" });
     expect(changed.json()).toEqual({
       model: { provider: second.provider, id: second.id },
       reasoningLevel: "medium",
     });
     expect(reasoning.json()).toEqual({ level: "high" });
-    expect(detail.json().conversation.model).toEqual({ provider: second.provider, id: second.id });
+    expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
   });
 
   it("applies an OpenAI-compatible endpoint through Pi", async () => {
@@ -604,8 +604,10 @@ describe("daemon", () => {
         projectId: project.id,
         title: "Hello",
         messageCount: 2,
-        agent: { status: "idle" },
       }),
+      agent: { status: "idle" },
+      settings: {},
+      plan: { mode: "normal" },
       items: [
         { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
         { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
@@ -647,7 +649,8 @@ describe("daemon", () => {
     const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
 
     expect(response.json()).toMatchObject({
-      conversation: { id: "session-1", agent: { status: "running", turnId: expect.any(String) } },
+      conversation: { id: "session-1" },
+      agent: { status: "running" },
       items: [
         { id: "old-user", turnId: "old-user", type: "userMessage", text: "Current" },
         { id: "old-assistant:assistant:0", turnId: "old-user", type: "agentMessage", text: "Answer", status: "completed" },

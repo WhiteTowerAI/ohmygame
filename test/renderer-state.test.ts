@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationState, ProjectState, RuntimeEvent, RuntimeEventData, RuntimeEventType } from "../src/shared/contracts.js";
+import type { ConversationDetail, ConversationSummary, ProjectState, RuntimeEvent, RuntimeEventData, RuntimeEventType } from "../src/shared/contracts.js";
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
@@ -9,8 +9,8 @@ describe("rendererReducer", () => {
       plan: { steps: [{ step: "Inspect", status: "pending" }] },
     }) });
 
-    expect(state.conversation).toMatchObject({
-      planMode: "awaiting_approval",
+    expect(state.plan).toMatchObject({
+      mode: "awaiting_approval",
       plan: { steps: [{ step: "Inspect", status: "pending" }] },
     });
   });
@@ -62,7 +62,7 @@ describe("rendererReducer", () => {
       { id: "assistant", turnId: "turn-1", type: "agentMessage" as const, text: "Hello", status: "completed" as const },
     ];
 
-    const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), conversation: conversation(), items, cursor: 0 });
+    const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), detail: detail({ items }) });
 
     expect(state.items).toEqual(items);
   });
@@ -76,8 +76,8 @@ describe("rendererReducer", () => {
       },
     });
 
-    expect(state.conversation?.model).toEqual({ provider: "openai-codex", id: "gpt-5.5" });
-    expect(state.conversation?.reasoningLevel).toBe("high");
+    expect(state.settings.model).toEqual({ provider: "openai-codex", id: "gpt-5.5" });
+    expect(state.settings.reasoningLevel).toBe("high");
   });
 
   it("builds a conversation from normalized runtime events", () => {
@@ -106,7 +106,7 @@ describe("rendererReducer", () => {
       { id: "assistant-1", turnId: "turn-1", type: "agentMessage", text: "I will build it.", status: "completed", phase: "final_answer", timestamp: 0 },
       { id: "tool-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "tool-1", tool: "edit", status: "completed", arguments: { path: "src/app.ts" }, output: "done", timestamp: 0 },
     ]);
-    expect(state.conversation?.agent).toEqual({ status: "idle" });
+    expect(state.agent).toEqual({ status: "idle" });
   });
 
   it("streams Pi thinking into a timeline item", () => {
@@ -204,7 +204,7 @@ describe("rendererReducer", () => {
     expect(state.items).toEqual([
       { id: "turn-1:user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: 0 },
     ]);
-    expect(state.conversation?.agent).toEqual({ status: "error", error: "Authentication required" });
+    expect(state.agent).toEqual({ status: "error", error: "Authentication required" });
   });
 
   it("updates the published game from a completed publish event", () => {
@@ -257,18 +257,18 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(3, "item.completed", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "completed" } }) });
     expect(state.items.at(-1)).toMatchObject({ type: "contextCompaction", status: "completed" });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
-    expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
+    expect(state.agent).toEqual({ status: "running" });
   });
 
   it("tracks manual compaction as its own active operation", () => {
     let state = initialized();
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(1, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }) });
     expect(state.activeTurn).toEqual({ conversationId: "conversation-1", turnId: "turn-1" });
-    expect(state.conversation?.agent).toEqual({ status: "running", turnId: "turn-1" });
+    expect(state.agent).toEqual({ status: "running" });
 
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(2, "item.completed", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "completed" } }) });
     expect(state.activeTurn).toBeUndefined();
-    expect(state.conversation?.agent).toEqual({ status: "idle" });
+    expect(state.agent).toEqual({ status: "idle" });
   });
 
   it("does not present an aborted compaction as complete", () => {
@@ -306,7 +306,7 @@ describe("rendererReducer", () => {
     state = rendererReducer(state, { type: "runtime-event", event: runtimeEvent(4, "agent.completed", {}) });
 
     expect(state.items.at(-1)).toMatchObject({ type: "agentMessage", text: "Done", status: "inProgress" });
-    expect(state.conversation?.agent).toEqual({ status: "idle" });
+    expect(state.agent).toEqual({ status: "idle" });
   });
 
   it("ignores agent state from another conversation", () => {
@@ -316,7 +316,7 @@ describe("rendererReducer", () => {
     });
 
     expect(state.items).toEqual([]);
-    expect(state.conversation?.agent.status).toBe("idle");
+    expect(state.agent.status).toBe("idle");
     expect(state.activeTurn).toBeUndefined();
     expect(state.lastEventId).toBe(1);
   });
@@ -341,10 +341,12 @@ describe("rendererReducer", () => {
     });
     state = rendererReducer(state, {
       type: "conversation-loaded",
-      conversation: { ...conversation(), id: "conversation-2", agent: { status: "running", turnId: "turn-1" } },
-      items: [],
-      activeTurn: { conversationId: "conversation-2", turnId: "turn-1" },
-      cursor: 8,
+      detail: detail({
+        conversation: { ...conversation(), id: "conversation-2" },
+        agent: { status: "running" },
+        activeTurn: { conversationId: "conversation-2", turnId: "turn-1" },
+        cursor: 8,
+      }),
     });
     state = rendererReducer(state, {
       type: "runtime-event",
@@ -367,7 +369,7 @@ function project(): ProjectState {
   };
 }
 
-function conversation(): ConversationState {
+function conversation(): ConversationSummary {
   return {
     id: "conversation-1",
     projectId: "project-1",
@@ -375,13 +377,24 @@ function conversation(): ConversationState {
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
     messageCount: 0,
+  };
+}
+
+function detail(overrides: Partial<ConversationDetail> = {}): ConversationDetail {
+  return {
+    conversation: conversation(),
     agent: { status: "idle" },
-    planMode: "normal",
+    settings: {},
+    plan: { mode: "normal" },
+    items: [],
+    cursor: 0,
+    pendingPrompts: [],
+    ...overrides,
   };
 }
 
 function initialized() {
-  return rendererReducer(initialRendererState, { type: "initialized", project: project(), conversation: conversation(), cursor: 0 });
+  return rendererReducer(initialRendererState, { type: "initialized", project: project(), detail: detail() });
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {

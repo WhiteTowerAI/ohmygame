@@ -1,4 +1,4 @@
-import type { ActiveTurnState, ConversationAgentSettings, ConversationState, PendingPrompt, ProjectState, QuestionnaireRequest, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
+import type { ActiveTurnState, ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, QuestionnaireRequest, RuntimeEvent, ThreadItem } from "../shared/contracts.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -6,7 +6,10 @@ export interface RendererState {
   phase: "loading" | "ready" | "fatal";
   connection: ConnectionStatus;
   project?: ProjectState;
-  conversation?: ConversationState;
+  conversation?: ConversationSummary;
+  agent: ConversationAgentState;
+  settings: ConversationAgentSettings;
+  plan: PlanSessionState;
   activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
   questionnaire?: QuestionnaireRequest;
@@ -16,8 +19,8 @@ export interface RendererState {
 }
 
 export type RendererAction =
-  | { type: "initialized"; project: ProjectState; conversation: ConversationState; items?: ThreadItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
-  | { type: "conversation-loaded"; conversation: ConversationState; items: ThreadItem[]; activeTurn?: ActiveTurnState; pendingPrompts?: PendingPrompt[]; questionnaire?: QuestionnaireRequest; cursor: number }
+  | { type: "initialized"; project: ProjectState; detail: ConversationDetail }
+  | { type: "conversation-loaded"; detail: ConversationDetail }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
   | { type: "connection"; status: ConnectionStatus }
@@ -27,6 +30,9 @@ export type RendererAction =
 export const initialRendererState: RendererState = {
   phase: "loading",
   connection: "connecting",
+  agent: { status: "idle" },
+  settings: {},
+  plan: { mode: "normal" },
   items: [],
   pendingPrompts: [],
   lastEventId: 0,
@@ -34,34 +40,42 @@ export const initialRendererState: RendererState = {
 
 export function rendererReducer(state: RendererState, action: RendererAction): RendererState {
   if (action.type === "conversation-loaded") {
+    const detail = action.detail;
     return {
       ...state,
       phase: "ready",
-      conversation: action.conversation,
-      activeTurn: action.activeTurn,
-      pendingPrompts: action.pendingPrompts ?? [],
-      questionnaire: action.questionnaire,
-      items: action.items,
+      conversation: detail.conversation,
+      agent: detail.agent,
+      settings: detail.settings,
+      plan: detail.plan,
+      activeTurn: detail.activeTurn,
+      pendingPrompts: detail.pendingPrompts,
+      questionnaire: detail.questionnaire,
+      items: detail.items,
       notice: undefined,
-      lastEventId: action.cursor,
+      lastEventId: detail.cursor,
     };
   }
   if (action.type === "initialized") {
+    const detail = action.detail;
     return {
       ...state,
       phase: "ready",
       project: action.project,
-      conversation: action.conversation,
-      activeTurn: action.activeTurn,
-      pendingPrompts: action.pendingPrompts ?? [],
-      questionnaire: action.questionnaire,
-      items: action.items ?? state.items,
-      lastEventId: action.cursor,
+      conversation: detail.conversation,
+      agent: detail.agent,
+      settings: detail.settings,
+      plan: detail.plan,
+      activeTurn: detail.activeTurn,
+      pendingPrompts: detail.pendingPrompts,
+      questionnaire: detail.questionnaire,
+      items: detail.items,
+      lastEventId: detail.cursor,
     };
   }
   if (action.type === "connection") return { ...state, connection: action.status };
   if (action.type === "conversation-settings") {
-    return state.conversation ? { ...state, conversation: { ...state.conversation, ...action.settings } } : state;
+    return { ...state, settings: action.settings };
   }
   if (action.type === "notice") return { ...state, notice: action.message };
   if (action.type === "fatal") return { ...state, phase: "fatal", notice: action.message };
@@ -103,7 +117,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         : undefined;
       return {
         ...scoped,
-        conversation: conversation ? { ...conversation, agent: { status: "running", turnId: event.turnId } } : conversation,
+        agent: { status: "running" },
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
         items: [
           ...state.items.filter((item) => item.turnId !== replacedTurnId),
@@ -143,7 +157,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         ...scoped,
         ...(manualCompaction && conversation ? {
           activeTurn: { conversationId: conversation.id, turnId: item.turnId },
-          conversation: { ...conversation, agent: { status: "running", turnId: item.turnId } },
+          agent: { status: "running" },
         } : {}),
         items: upsertItem(state.items, item),
       };
@@ -173,20 +187,16 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         ...scoped,
         ...(manualCompaction && conversation ? {
           activeTurn: scoped.activeTurn?.turnId === item.turnId ? undefined : scoped.activeTurn,
-          conversation: { ...conversation, agent: { status: item.status === "failed" ? "error" : "idle" } },
+          agent: { status: item.status === "failed" ? "error" : "idle" },
         } : {}),
-        ...(item.type === "plan" && conversation ? { conversation: { ...conversation, plan: item.plan } } : {}),
+        ...(item.type === "plan" ? { plan: { ...state.plan, plan: item.plan } } : {}),
         items,
       };
     }
     case "plan.mode.changed":
       return {
         ...scoped,
-        conversation: conversation ? {
-          ...conversation,
-          planMode: event.data.mode,
-          plan: event.data.plan,
-        } : conversation,
+        plan: event.data,
       };
     case "questionnaire.requested":
       return { ...scoped, questionnaire: event.data };
@@ -225,14 +235,10 @@ function finishAgent(
   status: "complete" | "cancelled" | "error",
   error?: string,
 ): RendererState {
-  if (!state.conversation) return state;
   return {
     ...state,
     questionnaire: undefined,
-    conversation: {
-      ...state.conversation,
-      agent: status === "error" ? { status: "error", error } : { status: "idle" },
-    },
+    agent: status === "error" ? { status: "error", error } : { status: "idle" },
   };
 }
 

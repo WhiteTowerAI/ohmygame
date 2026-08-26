@@ -172,12 +172,9 @@ export interface ConversationSummary {
   messageCount: number;
 }
 
-export interface ConversationState extends ConversationSummary {
-  agent: { status: AgentStatus; turnId?: string; error?: string };
-  model?: AgentModelRef;
-  reasoningLevel?: AgentReasoningLevel;
-  planMode: PlanMode;
-  plan?: PlanState;
+export interface ConversationAgentState {
+  status: AgentStatus;
+  error?: string;
 }
 
 export interface ActiveTurnState {
@@ -297,7 +294,10 @@ export type ThreadItem = (
 ) & { timestamp?: number };
 
 export interface ConversationDetail {
-  conversation: ConversationState;
+  conversation: ConversationSummary;
+  agent: ConversationAgentState;
+  settings: ConversationAgentSettings;
+  plan: PlanSessionState;
   items: ThreadItem[];
   cursor: number;
   activeTurn?: ActiveTurnState;
@@ -359,8 +359,8 @@ export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
 export interface SetConversationReasoningRequest { level: AgentReasoningLevel }
 export interface ConversationAgentSettings {
-  model: AgentModelRef;
-  reasoningLevel: AgentReasoningLevel;
+  model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
 }
 export interface PromptRequest {
   prompt: string;

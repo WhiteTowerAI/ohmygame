@@ -162,12 +162,7 @@ export function ProjectShell({
         const detail = await getConversation(projectId, selectedConversationId, true);
         dispatch({
           type: "conversation-loaded",
-          conversation: detail.conversation,
-          items: detail.items,
-          activeTurn: detail.activeTurn,
-          pendingPrompts: detail.pendingPrompts,
-          questionnaire: detail.questionnaire,
-          cursor: detail.cursor,
+          detail,
         });
         return detail.cursor;
       },
@@ -195,12 +190,7 @@ export function ProjectShell({
         dispatch({
           type: "initialized",
           project,
-          conversation: detail.conversation,
-          items: detail.items,
-          activeTurn: detail.activeTurn,
-          pendingPrompts: detail.pendingPrompts,
-          questionnaire: detail.questionnaire,
-          cursor: detail.cursor,
+          detail,
         });
         subscribe(detail.cursor, selected.id);
 
@@ -243,12 +233,7 @@ export function ProjectShell({
         const detail = await getConversation(projectId, requestedConversation.id);
         if (!disposed) dispatch({
           type: "conversation-loaded",
-          conversation: detail.conversation,
-          items: detail.items,
-          activeTurn: detail.activeTurn,
-          pendingPrompts: detail.pendingPrompts,
-          questionnaire: detail.questionnaire,
-          cursor: detail.cursor,
+          detail,
         });
         if (!disposed) subscribe(detail.cursor, requestedConversation.id);
       } catch (error) {
@@ -302,10 +287,10 @@ export function ProjectShell({
   useEffect(() => {
     const project = state.project;
     const busy = sendingInitialPrompt ||
-      state.conversation?.agent.status === "running" || state.conversation?.agent.status === "cancelling";
+      state.agent.status === "running" || state.agent.status === "cancelling";
     if (project?.type !== "general" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     if (takePendingPublish(sessionStorage, project.id)) void publish();
-  }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.conversation?.agent.status, sendingInitialPrompt, publishing]);
+  }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
@@ -314,13 +299,13 @@ export function ProjectShell({
   const project = state.project;
   const conversation = state.conversation;
   const currentConversationBusy = Boolean(state.activeTurn);
-  const agentBusy = sendingInitialPrompt || currentConversationBusy || conversation?.agent.status === "running" || conversation?.agent.status === "cancelling";
+  const agentBusy = sendingInitialPrompt || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling";
   const activePlanItem = state.activeTurn
     ? state.items.findLast((item) => item.type === "plan" && item.turnId === state.activeTurn?.turnId)
     : undefined;
   const activePlan = activePlanItem?.type === "plan"
     ? activePlanItem.plan
-    : conversation?.planMode !== "normal" ? conversation?.plan : undefined;
+    : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
   async function submitPrompt(nextPrompt: string, images: PromptImage[], mode: PromptMode): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -415,7 +400,7 @@ export function ProjectShell({
   }
 
   async function stopAgent() {
-    const turnId = conversation?.agent.turnId ?? (currentConversationBusy ? state.activeTurn?.turnId : undefined);
+    const turnId = currentConversationBusy ? state.activeTurn?.turnId : undefined;
     if (!project || !conversation || !turnId || !currentConversationBusy) return;
     try {
       await cancelPrompt(project.id, conversation.id, turnId);
@@ -482,7 +467,7 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id, conversation?.model, conversation?.reasoningLevel);
+      const created = await createConversation(project.id, state.settings.model, state.settings.reasoningLevel);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
@@ -511,8 +496,8 @@ export function ProjectShell({
     dispatch({ type: "notice", message: undefined });
     try {
       const reasoningLevel = await setConversationReasoning(project.id, conversation.id, level);
-      if (!conversation.model) return;
-      dispatch({ type: "conversation-settings", settings: { model: conversation.model, reasoningLevel } });
+      if (!state.settings.model) return;
+      dispatch({ type: "conversation-settings", settings: { model: state.settings.model, reasoningLevel } });
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally {
@@ -585,7 +570,7 @@ export function ProjectShell({
               items={state.items}
               projectId={projectId}
               activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
-              revisionDisabled={agentBusy || conversation?.planMode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
+              revisionDisabled={agentBusy || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
               waitingForInput={Boolean(state.questionnaire)}
               onRevise={revisePrompt}
               onAddToChat={(text) => setChatReference({ text })}
@@ -600,7 +585,7 @@ export function ProjectShell({
             />
           ) : null}
 
-          {conversation?.planMode === "awaiting_approval" ? (
+          {state.plan.mode === "awaiting_approval" ? (
             <div className="plan-review">
               <PlanApprovalCard
                 disabled={agentBusy || state.connection !== "open"}
@@ -611,18 +596,18 @@ export function ProjectShell({
             </div>
           ) : null}
 
-          {!state.questionnaire && conversation?.planMode !== "awaiting_approval" ? <Composer
+          {!state.questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
-            stopping={conversation?.agent.status === "cancelling" || sendingInitialPrompt}
+            stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
             pendingPrompts={state.pendingPrompts}
             plan={activePlan}
-            planMode={conversation?.planMode ?? "normal"}
+            planMode={state.plan.mode}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
-            model={conversation?.model}
-            reasoningLevel={conversation?.reasoningLevel}
+            model={state.settings.model}
+            reasoningLevel={state.settings.reasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
               ...state.items.flatMap((item) => item.type === "userMessage" && item.text.trim() ? [item.text] : []),

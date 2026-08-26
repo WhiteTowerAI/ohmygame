@@ -96,7 +96,7 @@ export class ConversationManager {
 
   model(project: ProjectState, stored: StoredConversation): AgentModelRef | undefined {
     const model = this.open(project, stored).buildSessionContext().model;
-    return model ? { provider: model.provider, id: model.modelId } : undefined;
+    return model?.provider && model.modelId ? { provider: model.provider, id: model.modelId } : undefined;
   }
 
   setModel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): void {

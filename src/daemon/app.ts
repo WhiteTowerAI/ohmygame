@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -891,12 +891,7 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(400).send({ error: "Reasoning level is not available for this model" });
       }
       const conversation = await conversations.create(project, model, request.body?.reasoningLevel);
-      return reply.code(201).send({
-        ...agents.state(conversation, model, { mode: "normal" }),
-        ...(selectedModel ? {
-          reasoningLevel: effectiveReasoningLevel(selectedModel, request.body?.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory)),
-        } : {}),
-      });
+      return reply.code(201).send(conversation.summary);
     },
   );
 
@@ -912,8 +907,8 @@ export function createApp(options: AppOptions = {}) {
       agents.restorePlanState(conversation, planState);
       const activePlanState = agents.planState(conversation);
       const model = modelRef ? (await getModelRuntime()).getModel(modelRef.provider, modelRef.id) : undefined;
-      const state = {
-        ...agents.state(conversation, modelRef, activePlanState),
+      const settings = {
+        ...(modelRef ? { model: modelRef } : {}),
         ...(model ? {
           reasoningLevel: effectiveReasoningLevel(
             model,
@@ -926,7 +921,10 @@ export function createApp(options: AppOptions = {}) {
       const activeItem = agents.activeItem(project.id, conversation.summary.id);
       const restoreActiveItem = Boolean(activeItem?.images?.length);
       return {
-        conversation: state,
+        conversation: conversation.summary,
+        agent: agents.agentState(conversation),
+        settings,
+        plan: activePlanState,
         items: [
           ...loadConversation(
             project.workspacePath,
@@ -940,7 +938,7 @@ export function createApp(options: AppOptions = {}) {
         activeTurn: agents.activeTurn(project.id, conversation.summary.id),
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
         questionnaire: agents.questionnaire(project.id, conversation.summary.id),
-      };
+      } satisfies ConversationDetail;
     },
   );
 

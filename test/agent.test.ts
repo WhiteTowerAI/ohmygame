@@ -298,7 +298,7 @@ describe("AgentManager", () => {
     const conversation = createConversation(project);
 
     const run = manager.prompt(project, conversation, "Plan this", [], [], "planning").result!;
-    await vi.waitFor(() => expect(manager.state(conversation).agent.status).toBe("running"));
+    await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
     const pending = manager.askQuestionnaire(project.id, conversation.summary.id, {
       questions: [{
         id: "scope",
@@ -356,7 +356,7 @@ describe("AgentManager", () => {
     const conversation = createConversation(project);
 
     const firstRun = manager.prompt(project, conversation, "First").result;
-    expect(manager.state(conversation).agent.status).toBe("running");
+    expect(manager.agentState(conversation).status).toBe("running");
     const queued = manager.prompt(project, conversation, "Second");
     await queued.result;
     expect(queued).toMatchObject({ queued: true, turnId: expect.any(String) });
@@ -490,7 +490,7 @@ describe("AgentManager", () => {
     session.emit({ type: "message_start", message: { role: "user", content: "Expanded by Pi", timestamp: Date.now() } } as AgentSessionEvent);
 
     expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
-    expect(manager.state(conversation).agent).toEqual({ status: "running", turnId: queued.turnId });
+    expect(manager.agentState(conversation)).toEqual({ status: "running" });
     expect(events.since(project.id).slice(-2)).toEqual([
       expect.objectContaining({ type: "prompt.removed", turnId: queued.turnId }),
       expect.objectContaining({ type: "agent.started", turnId: queued.turnId, data: { prompt: "Second" } }),
@@ -596,7 +596,7 @@ describe("AgentManager", () => {
     const conversation = createConversation(project);
 
     await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("Auth unavailable");
-    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "Auth unavailable" });
+    expect(manager.agentState(conversation)).toEqual({ status: "error", error: "Auth unavailable" });
     expect(events.since(project.id).at(-1)?.type).toBe("agent.error");
     await manager.close();
   });
@@ -609,7 +609,7 @@ describe("AgentManager", () => {
     const conversation = createConversation(project);
 
     await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("No API key");
-    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "No API key" });
+    expect(manager.agentState(conversation)).toEqual({ status: "error", error: "No API key" });
     await manager.close();
   });
 
@@ -629,7 +629,7 @@ describe("AgentManager", () => {
     await expect(run).resolves.toBe("cancelled");
     expect(session.abort).toHaveBeenCalledOnce();
     expect(session.dispose).toHaveBeenCalledOnce();
-    expect(manager.state(conversation).agent.status).toBe("idle");
+    expect(manager.agentState(conversation).status).toBe("idle");
     expect(events.since(project.id).at(-1)?.type).toBe("agent.cancelled");
   });
 
@@ -924,7 +924,7 @@ describe("AgentManager", () => {
     expect(events.since(project.id).at(-1)?.data).toEqual({
       item: expect.objectContaining({ type: "contextCompaction", status: "failed", error: "Compaction failed" }),
     });
-    expect(manager.state(conversation).agent).toEqual({ status: "error", error: "Compaction failed" });
+    expect(manager.agentState(conversation)).toEqual({ status: "error", error: "Compaction failed" });
     await manager.close();
   });
 

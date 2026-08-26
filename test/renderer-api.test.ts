@@ -143,11 +143,19 @@ describe("renderer project API", () => {
 
   it("loads a project's persisted conversation", async () => {
     installWindow();
-    const conversation = { items: [{ id: "one", type: "userMessage", text: "Hi" }], cursor: 4 };
-    const fetchMock = vi.fn(async () => Response.json(conversation));
+    const detail = {
+      conversation: { id: "conversation-1", projectId: "project-1", title: "Conversation", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), messageCount: 1 },
+      agent: { status: "idle" },
+      settings: {},
+      plan: { mode: "normal" },
+      items: [{ id: "one", turnId: "turn-1", type: "userMessage", text: "Hi" }],
+      pendingPrompts: [],
+      cursor: 4,
+    };
+    const fetchMock = vi.fn(async () => Response.json(detail));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getConversation("project-1", "conversation-1")).resolves.toEqual(conversation);
+    await expect(getConversation("project-1", "conversation-1")).resolves.toEqual(detail);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/projects/project-1/conversations/conversation-1",
       expect.objectContaining({ headers: {} }),
@@ -164,9 +172,10 @@ describe("renderer project API", () => {
     installWindow();
     const model = { provider: "openai-codex", providerName: "OpenAI Codex", id: "gpt-5.5", name: "GPT-5.5", reasoningLevels: ["low", "medium", "high"] as const };
     const settings = { model, reasoningLevel: "medium" };
+    const conversation = { id: "conversation-1", projectId: "project-1", title: "New conversation", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), messageCount: 0 };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" }))
-      .mockResolvedValueOnce(Response.json({ id: "conversation-1", model }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(conversation, { status: 201 }))
       .mockResolvedValueOnce(Response.json(settings))
       .mockResolvedValueOnce(Response.json({ level: "high" }));
     vi.stubGlobal("fetch", fetchMock);
