@@ -1,11 +1,14 @@
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   Code2,
   ExternalLink,
   FileCode2,
   Film,
   Box,
+  Folder,
+  FolderOpen,
   Globe2,
   Image as ImageIcon,
   Layers3,
@@ -19,10 +22,12 @@ import {
   Tablet,
   X,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Tree, type NodeRendererProps } from "react-arborist";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
+import { HighlightedCode } from "./highlighted-code.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
@@ -558,24 +563,52 @@ function CodeView({
   error?: string;
   onSelect: (path: string) => void;
 }) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const tree = useMemo(() => workspaceFileTree(files), [files]);
+  const [treeElement, setTreeElement] = useState<HTMLDivElement | null>(null);
+  const treeSize = useElementSize(treeElement);
   if (loading && files.length === 0) return <WorkspaceState loading label="Loading code" />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
   if (files.length === 0) return <WorkspaceState icon={<FileCode2 size={20} />} label="No code files" />;
   return (
     <div className="code-view">
-      <div className="file-list">
-        {files.map((file) => (
-          <button
-            className={`file-row${file.path === selectedPath ? " file-row-active" : ""}`}
-            type="button"
-            key={file.path}
-            onClick={() => onSelect(file.path)}
-            title={file.path}
-          >
-            <FileCode2 size={13} />
-            <span>{file.path}</span>
-          </button>
-        ))}
+      <div className="file-explorer">
+        <label className="file-filter">
+          <Search size={13} aria-hidden="true" />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Filter files…"
+            aria-label="Filter workspace files"
+          />
+        </label>
+        <div className="file-tree" ref={setTreeElement}>
+          {treeSize.height > 0 ? (
+            <Tree
+              data={tree}
+              width={treeSize.width}
+              height={treeSize.height}
+              rowHeight={26}
+              indent={15}
+              openByDefault={false}
+              selection={selectedPath}
+              searchTerm={searchTerm}
+              searchMatch={(node, term) => node.data.name.toLocaleLowerCase().includes(term.toLocaleLowerCase())}
+              disableDrag
+              disableDrop
+              disableEdit
+              disableMultiSelection
+              onActivate={(node) => {
+                if (node.data.path) onSelect(node.data.path);
+                else node.toggle();
+              }}
+              aria-label="Workspace files"
+            >
+              {WorkspaceTreeNode}
+            </Tree>
+          ) : null}
+        </div>
       </div>
       <div className="file-content">
         {error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label="Loading file" /> : selectedFile ? (
@@ -584,13 +617,98 @@ function CodeView({
           ) : (
             <>
               <div className="file-content-header">{selectedFile.path}{selectedFile.truncated ? " (truncated)" : ""}</div>
-              <pre className="workspace-code">{selectedFile.content}</pre>
+              <HighlightedCode path={selectedFile.path} content={selectedFile.content ?? ""} />
             </>
           )
-        ) : <WorkspaceState label="Select a file" />}
+        ) : <WorkspaceState icon={<FolderOpen size={20} />} label="Select a file from the workspace tree" />}
       </div>
     </div>
   );
+}
+
+export interface WorkspaceFileNode {
+  id: string;
+  name: string;
+  path?: string;
+  children?: WorkspaceFileNode[];
+}
+
+interface MutableWorkspaceFileNode {
+  id: string;
+  name: string;
+  path?: string;
+  children: Map<string, MutableWorkspaceFileNode>;
+}
+
+export function workspaceFileTree(files: readonly WorkspaceFile[]): WorkspaceFileNode[] {
+  const roots = new Map<string, MutableWorkspaceFileNode>();
+  for (const file of files) {
+    const parts = file.path.split("/").filter(Boolean);
+    let children = roots;
+    let currentPath = "";
+    for (const [index, name] of parts.entries()) {
+      currentPath = currentPath ? `${currentPath}/${name}` : name;
+      let node = children.get(name);
+      if (!node) {
+        node = { id: currentPath, name, children: new Map() };
+        children.set(name, node);
+      }
+      if (index === parts.length - 1) node.path = file.path;
+      children = node.children;
+    }
+  }
+  return finalizeWorkspaceNodes(roots);
+}
+
+function finalizeWorkspaceNodes(nodes: Map<string, MutableWorkspaceFileNode>): WorkspaceFileNode[] {
+  return [...nodes.values()]
+    .sort((left, right) => Number(Boolean(left.path)) - Number(Boolean(right.path)) || left.name.localeCompare(right.name))
+    .map((node) => ({
+      id: node.id,
+      name: node.name,
+      ...(node.path ? { path: node.path } : {}),
+      ...(node.children.size > 0 ? { children: finalizeWorkspaceNodes(node.children) } : {}),
+    }));
+}
+
+function WorkspaceTreeNode({ node, style }: NodeRendererProps<WorkspaceFileNode>) {
+  return (
+    <div className={`file-tree-node${node.isSelected ? " file-tree-node-selected" : ""}`} style={style} title={node.id}>
+      {node.isLeaf ? <span className="file-tree-spacer" /> : (
+        <button
+          className={`file-tree-toggle${node.isOpen ? " file-tree-toggle-open" : ""}`}
+          type="button"
+          tabIndex={-1}
+          aria-label={node.isOpen ? `Collapse ${node.data.name}` : `Expand ${node.data.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            node.toggle();
+          }}
+        >
+          <ChevronRight size={13} aria-hidden="true" />
+        </button>
+      )}
+      {node.isLeaf
+        ? <FileCode2 className="file-tree-file-icon" size={13} aria-hidden="true" />
+        : node.isOpen
+          ? <FolderOpen className="file-tree-folder-icon" size={14} aria-hidden="true" />
+          : <Folder className="file-tree-folder-icon" size={14} aria-hidden="true" />}
+      <span>{node.data.name}</span>
+    </div>
+  );
+}
+
+function useElementSize(element: HTMLElement | null): { width: number; height: number } {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    if (!element) return;
+    const update = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return size;
 }
 
 function AssetsView({
