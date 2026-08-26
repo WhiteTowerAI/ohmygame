@@ -212,9 +212,13 @@ describe("daemon", () => {
     const detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
 
     expect(detail.json()).toMatchObject({
-      items: [{ type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId }],
+      turns: [{
+        id: turn.json().turnId,
+        conversationId: conversation.id,
+        status: "inProgress",
+        items: [{ type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId }],
+      }],
       cursor: 1,
-      activeTurn: { conversationId: conversation.id, turnId: turn.json().turnId },
     });
     finishPrompt();
   });
@@ -608,10 +612,15 @@ describe("daemon", () => {
       agent: { status: "idle" },
       settings: {},
       plan: { mode: "normal" },
-      items: [
-        { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
-        { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
-      ],
+      turns: [{
+        id: "user-1",
+        conversationId: "session-1",
+        status: "completed",
+        items: [
+          { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
+          { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
+        ],
+      }],
       cursor: 0,
       pendingPrompts: [],
     });
@@ -651,10 +660,14 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({
       conversation: { id: "session-1" },
       agent: { status: "running" },
-      items: [
-        { id: "old-user", turnId: "old-user", type: "userMessage", text: "Current" },
-        { id: "old-assistant:assistant:0", turnId: "old-user", type: "agentMessage", text: "Answer", status: "completed" },
-      ],
+      turns: [{
+        id: "old-user",
+        status: "completed",
+        items: [
+          { id: "old-user", turnId: "old-user", type: "userMessage", text: "Current" },
+          { id: "old-assistant:assistant:0", turnId: "old-user", type: "agentMessage", text: "Answer", status: "completed" },
+        ],
+      }],
       cursor: 0,
     });
     finishPrompt();

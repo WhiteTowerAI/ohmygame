@@ -1,10 +1,10 @@
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { QuestionnaireRequest } from "../shared/contracts.js";
+import type { ThreadItem } from "../shared/contracts.js";
 import { InlineAnswer } from "./inline-answer.js";
 
 interface QuestionnaireCardProps {
-  request: QuestionnaireRequest;
+  request: Extract<ThreadItem, { type: "userInputRequest" }>;
   onSubmit: (answers: Array<{ questionId: string; value: string }>) => Promise<boolean>;
   onSkip: () => Promise<boolean>;
 }
@@ -20,7 +20,7 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
     setIndex(0);
     setAnswers({});
     setCustom(false);
-  }, [request.id]);
+  }, [request.requestId]);
 
   if (!question) return null;
   const answer = answers[question.id] ?? "";

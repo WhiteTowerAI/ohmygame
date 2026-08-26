@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ThreadItem } from "../src/shared/contracts.js";
-import type { AgentTurn } from "../src/renderer/agent-turns.js";
+import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 import { projectTurnDisplay } from "../src/renderer/turn-display.js";
 
 describe("projectTurnDisplay", () => {
@@ -156,12 +155,12 @@ describe("projectTurnDisplay", () => {
   });
 });
 
-function turn(items: ThreadItem[], active: boolean): AgentTurn {
+function turn(items: ThreadItem[], active: boolean): Turn {
   return {
     id: "turn-1",
-    user: { id: "user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: 1 },
-    items,
-    active,
+    conversationId: "conversation-1",
+    status: active ? "inProgress" : "completed",
+    items: [{ id: "user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: 1 }, ...items],
   };
 }
 

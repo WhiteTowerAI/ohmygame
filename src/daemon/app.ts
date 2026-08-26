@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -399,7 +400,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
-        createAgentTools(project, tools, projects, (input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, input, signal)),
+        createAgentTools(project, tools, projects, (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal)),
         modelRuntime,
         model,
         piAgentDirectory,
@@ -918,26 +919,29 @@ export function createApp(options: AppOptions = {}) {
         } : {}),
       };
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
-      const activeItem = agents.activeItem(project.id, conversation.summary.id);
-      const restoreActiveItem = Boolean(activeItem?.images?.length);
+      const activeItems = agents.activeItems(project.id, conversation.summary.id);
+      const restoreActiveItems = Boolean(activeItems.find((item) => item.type === "userMessage")?.images?.length);
+      const loadedItems = [
+        ...loadConversation(
+          project.workspacePath,
+          conversation.sessionPath,
+          currentRun?.timestamp,
+          !currentRun,
+        ),
+        ...(restoreActiveItems ? activeItems : []),
+      ];
       return {
         conversation: conversation.summary,
         agent: agents.agentState(conversation),
         settings,
         plan: activePlanState,
-        items: [
-          ...loadConversation(
-            project.workspacePath,
-            conversation.sessionPath,
-            currentRun?.timestamp,
-            !currentRun,
-          ),
-          ...(restoreActiveItem && activeItem ? [activeItem] : []),
-        ],
-        cursor: !currentRun ? events.cursor() : restoreActiveItem ? currentRun.id : currentRun.id - 1,
-        activeTurn: agents.activeTurn(project.id, conversation.summary.id),
+        turns: groupThreadItems(
+          conversation.summary.id,
+          loadedItems,
+          agents.activeTurnId(project.id, conversation.summary.id),
+        ),
+        cursor: !currentRun ? events.cursor() : restoreActiveItems ? currentRun.id : currentRun.id - 1,
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
-        questionnaire: agents.questionnaire(project.id, conversation.summary.id),
       } satisfies ConversationDetail;
     },
   );

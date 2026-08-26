@@ -177,9 +177,12 @@ export interface ConversationAgentState {
   error?: string;
 }
 
-export interface ActiveTurnState {
-  conversationId: string;
-  turnId: string;
+export type ItemStatus = "preparing" | "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
+export type TurnStatus = Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
+
+export interface ThreadItemError {
+  message: string;
+  code?: string;
 }
 
 export interface PromptReference {
@@ -233,16 +236,16 @@ export type ThreadItem = (
       turnId: string;
       type: "agentMessage";
       text: string;
-      status: "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
+      status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
       phase?: AgentMessagePhase;
-      error?: string;
+      error?: ThreadItemError;
     }
   | {
       id: string;
       turnId: string;
       type: "reasoning";
       text: string;
-      status: "inProgress" | "completed";
+      status: Extract<ItemStatus, "inProgress" | "completed">;
     }
   | {
       id: string;
@@ -256,7 +259,7 @@ export type ThreadItem = (
       type: "dynamicToolCall";
       toolCallId: string;
       tool: string;
-      status: "preparing" | "inProgress" | "completed" | "failed";
+      status: Extract<ItemStatus, "preparing" | "inProgress" | "completed" | "failed">;
       arguments?: unknown;
       output?: string;
       truncated?: boolean;
@@ -269,7 +272,7 @@ export type ThreadItem = (
       toolCallId: string;
       server?: string;
       tool: string;
-      status: "preparing" | "inProgress" | "completed" | "failed";
+      status: Extract<ItemStatus, "preparing" | "inProgress" | "completed" | "failed">;
       arguments?: unknown;
       output?: string;
       truncated?: boolean;
@@ -282,27 +285,42 @@ export type ThreadItem = (
       attempt: number;
       maxAttempts: number;
       delayMs: number;
-      error: string;
+      error: ThreadItemError;
     }
   | {
       id: string;
       turnId: string;
       type: "contextCompaction";
-      status: "inProgress" | "completed" | "failed";
-      error?: string;
+      status: Extract<ItemStatus, "inProgress" | "completed" | "failed">;
+      error?: ThreadItemError;
+    }
+  | {
+      id: string;
+      turnId: string;
+      type: "userInputRequest";
+      requestId: string;
+      questions: QuestionnaireQuestion[];
+      status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
+      answers?: QuestionnaireAnswer[];
+      error?: ThreadItemError;
     }
 ) & { timestamp?: number };
+
+export interface Turn {
+  id: string;
+  conversationId: string;
+  status: TurnStatus;
+  items: ThreadItem[];
+}
 
 export interface ConversationDetail {
   conversation: ConversationSummary;
   agent: ConversationAgentState;
   settings: ConversationAgentSettings;
   plan: PlanSessionState;
-  items: ThreadItem[];
+  turns: Turn[];
   cursor: number;
-  activeTurn?: ActiveTurnState;
   pendingPrompts: PendingPrompt[];
-  questionnaire?: QuestionnaireRequest;
 }
 
 export type PlanMode = "normal" | "planning" | "awaiting_approval" | "executing";
@@ -325,11 +343,6 @@ export interface QuestionnaireQuestion {
   prompt: string;
   options: QuestionnaireOption[];
   allowOther: boolean;
-}
-
-export interface QuestionnaireRequest {
-  id: string;
-  questions: QuestionnaireQuestion[];
 }
 
 export interface QuestionnaireAnswer {
@@ -516,8 +529,6 @@ export interface RuntimeEventData {
   "item.completed": { item: ThreadItem };
   "item.agentMessage.delta": { itemId: string; delta: string };
   "item.reasoning.textDelta": { itemId: string; delta: string };
-  "questionnaire.requested": QuestionnaireRequest;
-  "questionnaire.resolved": { requestId: string };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
@@ -543,8 +554,6 @@ export const RUNTIME_EVENT_TYPES = [
   "item.agentMessage.delta",
   "item.reasoning.textDelta",
   "plan.mode.changed",
-  "questionnaire.requested",
-  "questionnaire.resolved",
   "agent.completed",
   "agent.cancelled",
   "agent.error",

@@ -1,5 +1,4 @@
-import type { ThreadItem, ToolArtifact } from "../shared/contracts.js";
-import type { AgentTurn } from "./agent-turns.js";
+import type { ThreadItem, ToolArtifact, Turn } from "../shared/contracts.js";
 import { projectWorkItems, type WorkDisplayItem } from "./work-items.js";
 
 type AssistantItem = Extract<ThreadItem, { type: "agentMessage" }>;
@@ -16,17 +15,20 @@ export interface TurnDisplay {
   thinkingText?: string;
 }
 
-export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingForInput = false): TurnDisplay {
-  const finalStarted = turn.items.some(isFinalAnswer);
-  const finalMessages = turn.active ? [] : turn.items.filter(isFinalAnswer);
-  const processItems = turn.active ? turn.items : turn.items.filter((item) => !isFinalAnswer(item));
+export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput = false): TurnDisplay {
+  const active = turn.status === "inProgress";
+  const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
+  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" && !(item.type === "contextCompaction" && item.status === "completed"));
+  const finalStarted = items.some(isFinalAnswer);
+  const finalMessages = active ? [] : items.filter(isFinalAnswer);
+  const processItems = active ? items : items.filter((item) => !isFinalAnswer(item));
   const activityItems = processItems.filter((item) => item.type !== "plan");
   const workStarted = activityItems.some((item) => item.type !== "reasoning" && isWorkItem(item));
 
-  if (!turn.active) {
+  if (!active) {
     const workItems = activityItems.filter((item) => item.type !== "reasoning" && isWorkItem(item));
     return {
-      user: turn.user,
+      user,
       work: projectWorkItems(workItems),
       artifacts: collectArtifacts(processItems),
       messages: activityItems.filter((item) => !isWorkItem(item)),
@@ -45,7 +47,7 @@ export function projectTurnDisplay(turn: AgentTurn, now = Date.now(), waitingFor
   const thinking = processItems.findLast(isStreamingThinking);
 
   return {
-    user: turn.user,
+    user,
     work,
     artifacts: collectArtifacts(processItems),
     messages: [],

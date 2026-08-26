@@ -16,12 +16,11 @@ import {
 import { isValidElement, useEffect, useState, type ImgHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ThreadItem, ToolArtifact } from "../shared/contracts.js";
+import type { ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
-import { projectAgentTurns, type AgentTurn } from "./agent-turns.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
@@ -29,16 +28,15 @@ import { SelectedTextMenu } from "./selected-text-menu.js";
 const godotIconUrl = new URL("./assets/godot.svg", import.meta.url).href;
 
 interface AgentTimelineProps {
-  items: ThreadItem[];
+  turns: ThreadTurn[];
   projectId?: string;
-  activeTurnId?: string;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
   onAddToChat?: (text: string) => void;
   waitingForInput?: boolean;
 }
 
-export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export function AgentTimeline({ turns, projectId = "", revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
@@ -47,14 +45,13 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
-    if (!activeTurnId) return;
+    if (!turns.some((turn) => turn.status === "inProgress")) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [activeTurnId]);
+  }, [turns]);
 
-  const turns = projectAgentTurns(items, activeTurnId);
   const displays = turns.map((turn) => projectTurnDisplay(turn, now, waitingForInput));
-  const latestUserId = [...turns].reverse().find((turn) => turn.user)?.user?.id;
+  const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)
     .findLast((item) => item.status === "completed" && Boolean(item.text.trim()))
@@ -63,7 +60,7 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
     if (editingItemId && editingItemId !== latestUserId) setEditingItemId(undefined);
   }, [editingItemId, latestUserId]);
 
-  async function copy(item: NonNullable<AgentTurn["user"]>) {
+  async function copy(item: Extract<ThreadItem, { type: "userMessage" }>) {
     if (!item.text) return;
     try {
       await navigator.clipboard.writeText(item.text);
@@ -85,7 +82,7 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
     window.setTimeout(() => setCopiedAssistantId((current) => current === id ? undefined : current), 1_500);
   }
 
-  function edit(item: NonNullable<AgentTurn["user"]>) {
+  function edit(item: Extract<ThreadItem, { type: "userMessage" }>) {
     setEditingItemId(item.id);
     setDraft(item.text);
   }
@@ -113,10 +110,10 @@ export function AgentTimeline({ items, projectId = "", activeTurnId, revisionDis
           onCopy: copyAssistant,
         }}
         userControls={{
-          editing: turn.user?.id === editingItemId && editingItemId === latestUserId,
+          editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
           draft,
-          copied: turn.user?.id === copiedItemId,
-          canEdit: Boolean(onRevise && turn.user?.text && turn.user.id === latestUserId),
+          copied: displays[index].user?.id === copiedItemId,
+          canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
           disabled: Boolean(revisionDisabled || submitting),
           onCopy: copy,
           onEdit: edit,
@@ -136,8 +133,8 @@ interface UserControls {
   canEdit: boolean;
   disabled: boolean;
   draft: string;
-  onCopy: (item: NonNullable<AgentTurn["user"]>) => void;
-  onEdit: (item: NonNullable<AgentTurn["user"]>) => void;
+  onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
+  onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onDraftChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
@@ -198,7 +195,7 @@ function formatResponseTime(timestamp: number): string {
   }).format(timestamp);
 }
 
-function UserInput({ item, controls }: { item: AgentTurn["user"]; controls: UserControls }) {
+function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
   if (!item) return null;
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -369,7 +366,7 @@ function TimelineItem({ item }: { item: ThreadItem }) {
     return (
       <div className="timeline-event timeline-event-warning">
         <LoaderCircle className="spin" size={13} />
-        <span>Retrying {item.attempt}/{item.maxAttempts}: {item.error}</span>
+        <span>Retrying {item.attempt}/{item.maxAttempts}: {item.error.message}</span>
       </div>
     );
   }
@@ -377,7 +374,7 @@ function TimelineItem({ item }: { item: ThreadItem }) {
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
         {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : <X size={13} />}
-        <span>{item.error ?? "Compacting context"}</span>
+        <span>{item.error?.message ?? "Compacting context"}</span>
       </div>
     );
   }
@@ -388,7 +385,7 @@ function TimelineItem({ item }: { item: ThreadItem }) {
         {item.text ? <MarkdownContent text={item.text} /> : null}
         {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
         {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
-        {item.error ? <p className="message-error" role="alert">{item.error}</p> : null}
+        {item.error ? <p className="message-error" role="alert">{item.error.message}</p> : null}
       </div>
     );
   }

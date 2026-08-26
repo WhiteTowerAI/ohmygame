@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -264,7 +264,7 @@ export function ProjectShell({
   useEffect(() => {
     const element = timeline.current;
     if (element && followTimeline.current) element.scrollTop = element.scrollHeight;
-  }, [state.items]);
+  }, [state.turns]);
 
   useEffect(() => {
     const updateMaximum = () => {
@@ -298,10 +298,15 @@ export function ProjectShell({
 
   const project = state.project;
   const conversation = state.conversation;
-  const currentConversationBusy = Boolean(state.activeTurn);
+  const activeTurn = state.turns.find((turn) => turn.status === "inProgress");
+  const items = state.turns.flatMap((turn) => turn.items);
+  const questionnaire = activeTurn?.items.find((item): item is Extract<ThreadItem, { type: "userInputRequest" }> => (
+    item.type === "userInputRequest" && item.status === "inProgress"
+  ));
+  const currentConversationBusy = Boolean(activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling";
-  const activePlanItem = state.activeTurn
-    ? state.items.findLast((item) => item.type === "plan" && item.turnId === state.activeTurn?.turnId)
+  const activePlanItem = activeTurn
+    ? activeTurn.items.findLast((item) => item.type === "plan")
     : undefined;
   const activePlan = activePlanItem?.type === "plan"
     ? activePlanItem.plan
@@ -373,10 +378,10 @@ export function ProjectShell({
   }
 
   async function respondToQuestionnaire(answers: Array<{ questionId: string; value: string }>, cancelled = false): Promise<boolean> {
-    if (!project || !conversation || !state.questionnaire) return false;
+    if (!project || !conversation || !questionnaire) return false;
     try {
       await answerQuestionnaire(project.id, conversation.id, {
-        requestId: state.questionnaire.id,
+        requestId: questionnaire.requestId,
         ...(cancelled ? { cancelled: true } : { answers }),
       });
       return true;
@@ -400,7 +405,7 @@ export function ProjectShell({
   }
 
   async function stopAgent() {
-    const turnId = currentConversationBusy ? state.activeTurn?.turnId : undefined;
+    const turnId = activeTurn?.id;
     if (!project || !conversation || !turnId || !currentConversationBusy) return;
     try {
       await cancelPrompt(project.id, conversation.id, turnId);
@@ -539,7 +544,7 @@ export function ProjectShell({
           <ConversationMenu
             conversations={conversations}
             currentConversationId={conversation?.id}
-            activeConversationId={state.activeTurn?.conversationId}
+            activeConversationId={activeTurn?.conversationId}
             disabled={!conversation}
             onRename={rename}
             onSelect={onOpenConversation}
@@ -567,19 +572,18 @@ export function ProjectShell({
           >
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <AgentTimeline
-              items={state.items}
+              turns={state.turns}
               projectId={projectId}
-              activeTurnId={currentConversationBusy ? state.activeTurn?.turnId : undefined}
               revisionDisabled={agentBusy || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
-              waitingForInput={Boolean(state.questionnaire)}
+              waitingForInput={Boolean(questionnaire)}
               onRevise={revisePrompt}
               onAddToChat={(text) => setChatReference({ text })}
             />
           </div>
 
-          {state.questionnaire ? (
+          {questionnaire ? (
             <QuestionnaireCard
-              request={state.questionnaire}
+              request={questionnaire}
               onSubmit={(answers) => respondToQuestionnaire(answers)}
               onSkip={() => respondToQuestionnaire([], true)}
             />
@@ -596,7 +600,7 @@ export function ProjectShell({
             </div>
           ) : null}
 
-          {!state.questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
+          {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
@@ -610,7 +614,7 @@ export function ProjectShell({
             reasoningLevel={state.settings.reasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
-              ...state.items.flatMap((item) => item.type === "userMessage" && item.text.trim() ? [item.text] : []),
+              ...items.flatMap((item) => item.type === "userMessage" && item.text.trim() ? [item.text] : []),
               ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
             ]}
             onSubmit={submitPrompt}

@@ -24,6 +24,7 @@ export function planningPiToolNames(): string[] {
 }
 
 export type AskQuestionnaire = (
+  toolCallId: string,
   input: {
     questions: Array<{
       id: string;
@@ -58,9 +59,9 @@ export function createAgentTools(
         allowOther: Type.Optional(Type.Boolean({ description: "Allow a custom answer; defaults to true" })),
       }), { minItems: 1, maxItems: 3 }),
     }),
-    execute: async (_toolCallId, input, signal) => {
+    execute: async (toolCallId, input, signal) => {
       if (!askQuestionnaire) throw new Error("Questionnaire is not available");
-      const result = await askQuestionnaire(input, signal);
+      const result = await askQuestionnaire(toolCallId, input, signal);
       if (result.cancelled) {
         return { content: [{ type: "text", text: "The user skipped these questions. Continue with reasonable defaults." }], details: result };
       }

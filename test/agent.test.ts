@@ -22,6 +22,44 @@ describe("lastAssistantError", () => {
 });
 
 describe("conversationItems", () => {
+  it("restores a completed questionnaire as a user input request item", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Plan", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{
+          type: "toolCall",
+          id: "questionnaire-1",
+          name: "questionnaire",
+          arguments: {
+            questions: [{
+              id: "scope",
+              prompt: "Scope?",
+              options: [{ value: "small", label: "Small" }, { value: "large", label: "Large" }],
+            }],
+          },
+        }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("result", {
+        role: "toolResult",
+        toolCallId: "questionnaire-1",
+        toolName: "questionnaire",
+        content: [{ type: "text", text: "scope: Small" }],
+        details: { cancelled: false, answers: [{ questionId: "scope", value: "small", label: "Small", custom: false }] },
+        isError: false,
+        timestamp: 2,
+      }),
+    ] as never, false);
+
+    expect(items).toContainEqual(expect.objectContaining({
+      type: "userInputRequest",
+      requestId: "questionnaire-1",
+      status: "completed",
+      answers: [{ questionId: "scope", value: "small", label: "Small", custom: false }],
+    }));
+  });
+
   it("restores the latest structured plan without a visible plan tool", () => {
     const items = conversationItems([
       sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
@@ -145,7 +183,7 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: "No API key", timestamp: 0 },
+      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: { message: "No API key" }, timestamp: 0 },
       { id: "user", turnId: "user", type: "userMessage", text: "Stop", timestamp: 1 },
       { id: "cancelled:assistant", turnId: "user", type: "agentMessage", text: "", status: "cancelled", timestamp: 0 },
     ]);
@@ -299,20 +337,25 @@ describe("AgentManager", () => {
 
     const run = manager.prompt(project, conversation, "Plan this", [], [], "planning").result!;
     await vi.waitFor(() => expect(manager.agentState(conversation).status).toBe("running"));
-    const pending = manager.askQuestionnaire(project.id, conversation.summary.id, {
+    const pending = manager.askQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", {
       questions: [{
         id: "scope",
         prompt: "What should be built first?",
         options: [{ value: "game", label: "A game", recommended: true }, { value: "tool", label: "A tool" }],
       }],
     });
-    const request = manager.questionnaire(project.id, conversation.summary.id);
-    expect(request?.questions[0]?.options[0]?.recommended).toBe(true);
-    expect(events.since(project.id).at(-1)?.type).toBe("questionnaire.requested");
+    const requested = events.since(project.id).at(-1);
+    expect(requested).toMatchObject({
+      type: "item.started",
+      data: { item: { type: "userInputRequest", requestId: "questionnaire-1", status: "inProgress" } },
+    });
 
-    manager.answerQuestionnaire(project.id, conversation.summary.id, request!.id, [{ questionId: "scope", value: "game" }]);
+    manager.answerQuestionnaire(project.id, conversation.summary.id, "questionnaire-1", [{ questionId: "scope", value: "game" }]);
     await expect(pending).resolves.toMatchObject({ cancelled: false, answers: [{ value: "game", custom: false }] });
-    expect(manager.questionnaire(project.id, conversation.summary.id)).toBeUndefined();
+    expect(events.since(project.id).at(-1)).toMatchObject({
+      type: "item.completed",
+      data: { item: { type: "userInputRequest", requestId: "questionnaire-1", status: "completed" } },
+    });
     prompt.resolve();
     await expect(run).resolves.toBe("completed");
     await manager.close();
@@ -553,13 +596,13 @@ describe("AgentManager", () => {
       expect(firstSession.prompt).toHaveBeenCalledWith("First");
       expect(secondSession.prompt).toHaveBeenCalledWith("Second");
     });
-    expect(manager.activeTurn(project.id, first.summary.id)).toMatchObject({ conversationId: first.summary.id });
-    expect(manager.activeTurn(project.id, second.summary.id)).toMatchObject({ conversationId: second.summary.id });
+    expect(manager.activeTurnId(project.id, first.summary.id)).toBeDefined();
+    expect(manager.activeTurnId(project.id, second.summary.id)).toBeDefined();
 
     firstPrompt.resolve();
     await firstRun;
-    expect(manager.activeTurn(project.id, first.summary.id)).toBeUndefined();
-    expect(manager.activeTurn(project.id, second.summary.id)).toMatchObject({ conversationId: second.summary.id });
+    expect(manager.activeTurnId(project.id, first.summary.id)).toBeUndefined();
+    expect(manager.activeTurnId(project.id, second.summary.id)).toBeDefined();
     expect(manager.isProjectBusy(project.id)).toBe(true);
 
     secondPrompt.resolve();
@@ -901,6 +944,7 @@ describe("AgentManager", () => {
     expect(events.since(project.id).map((event) => event.type)).toEqual([
       "item.started",
       "item.completed",
+      "agent.completed",
     ]);
     expect(onRunCompleted).not.toHaveBeenCalled();
     await manager.close();
@@ -920,9 +964,9 @@ describe("AgentManager", () => {
     const turn = await manager.compact(project, conversation);
     await expect(turn.result).rejects.toThrow("Compaction failed");
 
-    expect(events.since(project.id).map((event) => event.type)).toEqual(["item.started", "item.completed"]);
-    expect(events.since(project.id).at(-1)?.data).toEqual({
-      item: expect.objectContaining({ type: "contextCompaction", status: "failed", error: "Compaction failed" }),
+    expect(events.since(project.id).map((event) => event.type)).toEqual(["item.started", "item.completed", "agent.error"]);
+    expect(events.since(project.id).at(-2)?.data).toEqual({
+      item: expect.objectContaining({ type: "contextCompaction", status: "failed", error: { message: "Compaction failed" } }),
     });
     expect(manager.agentState(conversation)).toEqual({ status: "error", error: "Compaction failed" });
     await manager.close();

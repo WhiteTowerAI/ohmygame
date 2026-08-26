@@ -1,7 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { AgentTimeline } from "../src/renderer/agent-timeline.js";
-import type { ThreadItem } from "../src/shared/contracts.js";
+import { AgentTimeline as ThreadTimeline } from "../src/renderer/agent-timeline.js";
+import type { ComponentProps } from "react";
+import type { ThreadItem, Turn } from "../src/shared/contracts.js";
+
+function AgentTimeline({ items, activeTurnId, ...props }: Omit<ComponentProps<typeof ThreadTimeline>, "turns"> & { items: ThreadItem[]; activeTurnId?: string }) {
+  const grouped = new Map<string, ThreadItem[]>();
+  for (const item of items) grouped.set(item.turnId, [...(grouped.get(item.turnId) ?? []), item]);
+  const turns: Turn[] = [...grouped].map(([id, turnItems]) => ({
+    id,
+    conversationId: "conversation-1",
+    status: id === activeTurnId ? "inProgress" : "completed",
+    items: turnItems,
+  }));
+  return <ThreadTimeline {...props} turns={turns} />;
+}
 
 describe("AgentTimeline", () => {
   it("does not render structured plans in conversation history", () => {

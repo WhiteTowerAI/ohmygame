@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActiveTurnState, AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireRequest, QuestionnaireResult, ThreadItem, ToolArtifact } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
@@ -57,7 +57,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   const items: ThreadItem[] = [];
   const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
   const planCalls = new Set<string>();
-  const hiddenCalls = new Set<string>();
+  const questionnaireCalls = new Map<string, Extract<ThreadItem, { type: "userInputRequest" }>>();
   let turnId: string | undefined;
   let turnFinished = true;
   let lastTimestamp: number | undefined;
@@ -102,7 +102,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             status: threadItemStatus(message.stopReason),
             ...(phase ? { phase } : {}),
             timestamp,
-            ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
+            ...(message.stopReason === "error" ? { error: itemError(message.errorMessage || "The model request failed") } : {}),
           });
         } else if (content.type === "toolCall") {
           if (content.name === "update_plan") {
@@ -110,7 +110,11 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             continue;
           }
           if (content.name === "questionnaire") {
-            hiddenCalls.add(content.id);
+            const item = questionnaireThreadItem(turnId, content.id, content.arguments, timestamp);
+            if (item) {
+              questionnaireCalls.set(content.id, item);
+              items.push(item);
+            }
             continue;
           }
           const args = toolArguments(content.name, content.arguments);
@@ -146,14 +150,26 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
           text: "",
           status: threadItemStatus(message.stopReason),
           timestamp,
-          ...(message.stopReason === "error" ? { error: message.errorMessage || "The model request failed" } : {}),
+          ...(message.stopReason === "error" ? { error: itemError(message.errorMessage || "The model request failed") } : {}),
         });
       }
       if (message.stopReason !== "toolUse") turnFinished = true;
       continue;
     }
     if (message.role === "toolResult") {
-      if (hiddenCalls.has(message.toolCallId)) continue;
+      const questionnaire = questionnaireCalls.get(message.toolCallId);
+      if (questionnaire) {
+        const result = questionnaireResult(message);
+        const completed: typeof questionnaire = message.isError
+          ? { ...questionnaire, status: "failed", error: itemError(toolOutput(message).output || "Questionnaire failed"), timestamp }
+          : result?.cancelled
+            ? { ...questionnaire, status: "cancelled", answers: [], timestamp }
+            : { ...questionnaire, status: "completed", ...(result ? { answers: result.answers } : {}), timestamp };
+        questionnaireCalls.set(message.toolCallId, completed);
+        const index = items.findIndex((item) => item.id === completed.id);
+        if (index >= 0) items[index] = completed;
+        continue;
+      }
       if (planCalls.has(message.toolCallId)) {
         if (message.isError) continue;
         const plan = toolPlan(message);
@@ -181,9 +197,16 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     items.push({ id: `${turnId}:interrupted`, turnId, type: "agentMessage", text: "", status: "interrupted", timestamp: lastTimestamp });
   }
 
-  return items.map((item) => markInterrupted && (item.type === "dynamicToolCall" || item.type === "mcpToolCall") && item.status === "inProgress"
-    ? { ...item, status: "failed" }
-    : item);
+  return items.map((item) => {
+    if (!markInterrupted) return item;
+    if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") && item.status === "inProgress") {
+      return { ...item, status: "failed" };
+    }
+    if (item.type === "userInputRequest" && item.status === "inProgress") {
+      return { ...item, status: "failed", error: itemError("Questionnaire interrupted") };
+    }
+    return item;
+  });
 }
 
 function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number | undefined {
@@ -233,7 +256,7 @@ interface QueuedPrompt extends PendingPrompt {
 }
 
 interface PendingQuestionnaire {
-  request: QuestionnaireRequest;
+  item: Extract<ThreadItem, { type: "userInputRequest" }>;
   resolve: (result: QuestionnaireResult) => void;
   reject: (cause: Error) => void;
   removeAbortListener?: () => void;
@@ -725,13 +748,10 @@ export class AgentManager {
     }));
   }
 
-  questionnaire(projectId: string, conversationId: string): QuestionnaireRequest | undefined {
-    return this.#questionnaires.get(conversationKey(projectId, conversationId))?.request;
-  }
-
   askQuestionnaire(
     projectId: string,
     conversationId: string,
+    toolCallId: string,
     input: {
       questions: Array<{
         id: string;
@@ -747,8 +767,12 @@ export class AgentManager {
     if (!active || active.mode !== "planning") throw new Error("Questions can only be asked during an active plan");
     if (this.#questionnaires.has(key)) throw new Error("A questionnaire is already waiting for an answer");
     validateQuestionnaire(input.questions);
-    const request: QuestionnaireRequest = {
-      id: randomUUID(),
+    const item: Extract<ThreadItem, { type: "userInputRequest" }> = {
+      id: `${active.turnId}:input:${toolCallId}`,
+      turnId: active.turnId,
+      type: "userInputRequest",
+      requestId: toolCallId,
+      status: "inProgress",
       questions: input.questions.map((question) => ({
         id: question.id,
         prompt: question.prompt.trim(),
@@ -762,19 +786,19 @@ export class AgentManager {
       })),
     };
     return new Promise<QuestionnaireResult>((resolve, reject) => {
-      const pending: PendingQuestionnaire = { request, resolve, reject };
+      const pending: PendingQuestionnaire = { item, resolve, reject };
       if (signal) {
         const abort = () => {
           if (this.#questionnaires.get(key) !== pending) return;
           this.#questionnaires.delete(key);
-          this.events.publish(projectId, "questionnaire.resolved", { requestId: request.id }, eventScope(active));
+          this.#completeItem(projectId, active, { ...item, status: "cancelled" });
           reject(new Error("Questionnaire cancelled"));
         };
         signal.addEventListener("abort", abort, { once: true });
         pending.removeAbortListener = () => signal.removeEventListener("abort", abort);
       }
       this.#questionnaires.set(key, pending);
-      this.events.publish(projectId, "questionnaire.requested", request, eventScope(active));
+      this.#startItem(projectId, active, item);
     });
   }
 
@@ -787,34 +811,37 @@ export class AgentManager {
   ): void {
     const key = conversationKey(projectId, conversationId);
     const pending = this.#questionnaires.get(key);
-    if (!pending || pending.request.id !== requestId) throw new Error("Questionnaire is no longer active");
+    if (!pending || pending.item.requestId !== requestId) throw new Error("Questionnaire is no longer active");
     const result: QuestionnaireResult = {
       cancelled,
-      answers: cancelled ? [] : questionnaireAnswers(pending.request, answers),
+      answers: cancelled ? [] : questionnaireAnswers(pending.item.questions, answers),
     };
     this.#questionnaires.delete(key);
     pending.removeAbortListener?.();
     const active = this.#activeTurns.get(key);
-    this.events.publish(
-      projectId,
-      "questionnaire.resolved",
-      { requestId },
-      { conversationId, ...(active ? { turnId: active.turnId } : {}) },
-    );
+    if (active) this.#completeItem(projectId, active, {
+      ...pending.item,
+      status: cancelled ? "cancelled" : "completed",
+      answers: result.answers,
+    });
     pending.resolve(result);
   }
 
-  activeItem(projectId: string, conversationId: string): Extract<ThreadItem, { type: "userMessage" }> | undefined {
+  activeItems(projectId: string, conversationId: string): ThreadItem[] {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
-    if (!active) return undefined;
-    return {
+    if (!active) return [];
+    return [{
       id: `${active.turnId}:user`,
       turnId: active.turnId,
       type: "userMessage",
       text: active.prompt,
       ...(active.images.length ? { images: active.images } : {}),
       ...(active.startedAt === undefined ? {} : { timestamp: active.startedAt }),
-    };
+    }, ...active.items.values()];
+  }
+
+  activeTurnId(projectId: string, conversationId: string): string | undefined {
+    return this.#activeTurns.get(conversationKey(projectId, conversationId))?.turnId;
   }
 
   activeStart(projectId: string, conversationId: string): { id: number; timestamp: string } | undefined {
@@ -864,6 +891,11 @@ export class AgentManager {
       const questionnaire = this.#questionnaires.get(key);
       if (questionnaire) {
         questionnaire.removeAbortListener?.();
+        this.#completeItem(projectId, active, {
+          ...questionnaire.item,
+          status: "failed",
+          error: itemError("Planning ended before the questionnaire was answered"),
+        });
         questionnaire.reject(new Error("Planning ended before the questionnaire was answered"));
         this.#questionnaires.delete(key);
       }
@@ -893,6 +925,7 @@ export class AgentManager {
       this.#completeOpenItems(project.id, active, error ? "failed" : "completed", error);
       this.#activeTurns.delete(key);
       this.#setState(project.id, active.conversationId, error ? { status: "error", error } : { status: "idle" });
+      this.events.publish(project.id, error ? "agent.error" : "agent.completed", error ? { error } : {}, eventScope(active));
     }
   }
 
@@ -1089,7 +1122,7 @@ export class AgentManager {
           ...item,
           status,
           ...(phase ? { phase } : {}),
-          ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
+          ...(event.message.stopReason === "error" ? { error: itemError(event.message.errorMessage || "The model request failed") } : {}),
         });
       }
       if (active.assistantItemIds.size === 0 && status !== "completed") {
@@ -1100,7 +1133,7 @@ export class AgentManager {
           type: "agentMessage",
           text: "",
           status,
-          ...(event.message.stopReason === "error" ? { error: event.message.errorMessage || "The model request failed" } : {}),
+          ...(event.message.stopReason === "error" ? { error: itemError(event.message.errorMessage || "The model request failed") } : {}),
         };
         this.#startItem(projectId, active, { ...item, status: "inProgress" });
         this.#completeItem(projectId, active, item);
@@ -1128,8 +1161,8 @@ export class AgentManager {
         turnId: active.turnId,
         type: "contextCompaction",
         status: event.aborted ? "failed" : "completed",
-        ...(event.errorMessage ? { error: event.errorMessage } : event.aborted ? {
-          error: event.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted",
+        ...(event.errorMessage ? { error: itemError(event.errorMessage) } : event.aborted ? {
+          error: itemError(event.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted"),
         } : {}),
       });
     } else if (event.type === "tool_execution_start") {
@@ -1206,7 +1239,7 @@ export class AgentManager {
   #completeOpenItems(projectId: string, active: ActiveTurn, status: "completed" | "cancelled" | "failed", error?: string): void {
     for (const item of active.items.values()) {
       if (item.type === "agentMessage" && item.status === "inProgress") {
-        this.#completeItem(projectId, active, { ...item, status, ...(status === "failed" && error ? { error } : {}) });
+        this.#completeItem(projectId, active, { ...item, status, ...(status === "failed" && error ? { error: itemError(error) } : {}) });
       } else if (item.type === "reasoning" && item.status === "inProgress") {
         this.#completeItem(projectId, active, { ...item, status: "completed" });
       } else if ((item.type === "dynamicToolCall" || item.type === "mcpToolCall") &&
@@ -1216,7 +1249,13 @@ export class AgentManager {
         this.#completeItem(projectId, active, {
           ...item,
           status: status === "completed" ? "completed" : "failed",
-          ...(error ? { error } : {}),
+          ...(error ? { error: itemError(error) } : {}),
+        });
+      } else if (item.type === "userInputRequest" && item.status === "inProgress") {
+        this.#completeItem(projectId, active, {
+          ...item,
+          status: status === "cancelled" ? "cancelled" : "failed",
+          ...(error ? { error: itemError(error) } : {}),
         });
       }
     }
@@ -1230,7 +1269,7 @@ export class AgentManager {
       type: "agentMessage",
       text: "",
       status,
-      ...(error ? { error } : {}),
+      ...(error ? { error: itemError(error) } : {}),
     };
     this.#startItem(projectId, active, { ...item, status: "inProgress" });
     this.#completeItem(projectId, active, item);
@@ -1270,11 +1309,6 @@ export class AgentManager {
     for (const key of this.#planStates.keys()) {
       if (key.startsWith(prefix)) this.#planStates.delete(key);
     }
-  }
-
-  activeTurn(projectId: string, conversationId: string): ActiveTurnState | undefined {
-    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
-    return active ? { conversationId: active.conversationId, turnId: active.turnId } : undefined;
   }
 
   #forgetConversation(key: string): void {
@@ -1614,14 +1648,14 @@ function validateQuestionnaire(questions: Array<{
 }
 
 function questionnaireAnswers(
-  request: QuestionnaireRequest,
+  questions: QuestionnaireQuestion[],
   answers: Array<{ questionId: string; value: string }>,
 ): QuestionnaireAnswer[] {
   const byQuestion = new Map(answers.map((answer) => [answer.questionId, answer.value.trim()]));
-  if (byQuestion.size !== request.questions.length || answers.length !== request.questions.length) {
+  if (byQuestion.size !== questions.length || answers.length !== questions.length) {
     throw new Error("Every question requires one answer");
   }
-  return request.questions.map((question) => {
+  return questions.map((question) => {
     const value = byQuestion.get(question.id);
     if (!value) throw new Error("Question answers cannot be blank");
     const option = question.options.find((candidate) => candidate.value === value);
@@ -1633,6 +1667,58 @@ function questionnaireAnswers(
       custom: !option,
     };
   });
+}
+
+function itemError(message: string, code?: string): ThreadItemError {
+  return { message, ...(code ? { code } : {}) };
+}
+
+function questionnaireThreadItem(
+  turnId: string,
+  toolCallId: string,
+  input: unknown,
+  timestamp?: number,
+): Extract<ThreadItem, { type: "userInputRequest" }> | undefined {
+  const questions = record(input)?.questions;
+  if (!Array.isArray(questions)) return undefined;
+  const parsed = questions.flatMap((value): QuestionnaireQuestion[] => {
+    const question = record(value);
+    if (typeof question?.id !== "string" || typeof question.prompt !== "string" || !Array.isArray(question.options)) return [];
+    const options = question.options.flatMap((value) => {
+      const option = record(value);
+      if (typeof option?.value !== "string" || typeof option.label !== "string") return [];
+      return [{
+        value: option.value,
+        label: option.label,
+        ...(typeof option.description === "string" ? { description: option.description } : {}),
+        ...(option.recommended === true ? { recommended: true } : {}),
+      }];
+    });
+    if (options.length !== question.options.length) return [];
+    return [{ id: question.id, prompt: question.prompt, options, allowOther: question.allowOther !== false }];
+  });
+  if (parsed.length !== questions.length) return undefined;
+  return {
+    id: `${turnId}:input:${toolCallId}`,
+    turnId,
+    type: "userInputRequest",
+    requestId: toolCallId,
+    questions: parsed,
+    status: "inProgress",
+    timestamp,
+  };
+}
+
+function questionnaireResult(message: unknown): QuestionnaireResult | undefined {
+  const details = record(record(message)?.details);
+  if (!details || typeof details.cancelled !== "boolean" || !Array.isArray(details.answers)) return undefined;
+  const answers = details.answers.flatMap((value): QuestionnaireAnswer[] => {
+    const answer = record(value);
+    if (typeof answer?.questionId !== "string" || typeof answer.value !== "string" || typeof answer.label !== "string" || typeof answer.custom !== "boolean") return [];
+    return [{ questionId: answer.questionId, value: answer.value, label: answer.label, custom: answer.custom }];
+  });
+  if (answers.length !== details.answers.length) return undefined;
+  return { cancelled: details.cancelled, answers };
 }
 
 function executionPrompt(prompt: string, plan?: PlanState): string {
