@@ -10,6 +10,7 @@ describe("projectTurnDisplay", () => {
 
     expect(display).toMatchObject({
       active: true,
+      failed: false,
       working: false,
       waiting: false,
       thinkingText: "**Planning the build**",
@@ -90,7 +91,7 @@ describe("projectTurnDisplay", () => {
     expect(display.waiting).toBe(false);
   });
 
-  it("projects a running tool as the current activity", () => {
+  it("projects a running tool group as current", () => {
     const display = projectTurnDisplay(turn([
       commentary("I will update the file."),
       tool("inProgress"),
@@ -99,18 +100,19 @@ describe("projectTurnDisplay", () => {
     expect(display.working).toBe(true);
     expect(display.waiting).toBe(false);
     expect(display.work).toHaveLength(2);
-    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", active: { type: "dynamicToolCall", status: "inProgress" } });
+    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", current: true, tools: [{ type: "dynamicToolCall", status: "inProgress" }] });
   });
 
-  it("temporarily replaces the trailing completed tool group while waiting", () => {
+  it("keeps the trailing completed tool group while waiting", () => {
     const display = projectTurnDisplay(turn([
       commentary("I will inspect the file."),
       tool("completed"),
     ], true));
 
     expect(display.waiting).toBe(true);
-    expect(display.work).toHaveLength(1);
+    expect(display.work).toHaveLength(2);
     expect(display.work[0]).toMatchObject({ kind: "item", item: { type: "agentMessage", phase: "commentary" } });
+    expect(display.work[1]).toMatchObject({ kind: "tool-group", current: true, tools: [{ type: "dynamicToolCall", status: "completed" }] });
   });
 
   it("separates completed work from the final answer", () => {
@@ -121,10 +123,25 @@ describe("projectTurnDisplay", () => {
     ], false));
 
     expect(display.active).toBe(false);
+    expect(display.failed).toBe(false);
     expect(display.work).toHaveLength(2);
     expect(display.messages).toEqual([]);
     expect(display.finalMessages).toHaveLength(1);
     expect(display.finalMessages[0].text).toBe("Done.");
+  });
+
+  it("keeps non-final agent messages in work even without a phase", () => {
+    const display = projectTurnDisplay(turn([{
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "I was checking the project.",
+      status: "failed",
+      error: { message: "stream disconnected" },
+    }], false));
+
+    expect(display.work).toHaveLength(1);
+    expect(display.messages).toEqual([]);
   });
 
   it("projects generated images after work as artifacts", () => {

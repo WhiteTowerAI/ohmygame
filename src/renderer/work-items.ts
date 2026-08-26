@@ -7,7 +7,7 @@ type ActivityItem = ToolItem | ThinkingItem;
 
 export type WorkDisplayItem =
   | { kind: "item"; item: ThreadItem }
-  | { kind: "tool-group"; id: string; tools: ToolItem[]; active?: ToolItem; thinking?: ThinkingItem };
+  | { kind: "tool-group"; id: string; tools: ToolItem[]; current: boolean; thinking?: ThinkingItem };
 
 export function projectWorkItems(items: ThreadItem[], active = false): WorkDisplayItem[] {
   const projected: WorkDisplayItem[] = [];
@@ -17,12 +17,9 @@ export function projectWorkItems(items: ThreadItem[], active = false): WorkDispl
     if (activity.length === 0) return;
     const tools = activity.filter((item): item is ToolItem => item.type === "dynamicToolCall" || item.type === "mcpToolCall");
     const latest = activity.at(-1);
-    const activeTool = current && latest && (latest.type === "dynamicToolCall" || latest.type === "mcpToolCall") && (latest.status === "preparing" || latest.status === "inProgress")
-      ? latest
-      : undefined;
     const thinking = current && latest?.type === "reasoning" && latest.status === "inProgress" ? latest : undefined;
     if (tools.length > 0 || thinking) {
-      projected.push({ kind: "tool-group", id: activity[0].id, tools, active: activeTool, thinking });
+      projected.push({ kind: "tool-group", id: activity[0].id, tools, current, thinking });
     }
     activity = [];
   }

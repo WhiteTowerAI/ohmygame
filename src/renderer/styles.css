@@ -4000,7 +4000,7 @@ textarea:focus-visible {
 }
 
 .assistant-message {
-  margin: 0 0 18px;
+  margin: 0;
   color: #d8dbe0;
   font-size: 12px;
   line-height: 1.65;
@@ -4069,24 +4069,20 @@ textarea:focus-visible {
 
 .work-summary {
   display: grid;
-  width: fit-content;
+  width: 100%;
   min-height: 30px;
-  grid-template-columns: 14px minmax(0, auto);
+  grid-template-columns: minmax(0, auto) 14px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 0 7px;
-  border-radius: 4px;
+  gap: 8px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   list-style: none;
 }
 
 .work-summary-active {
-  width: 100%;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
   cursor: default;
-  padding-right: 0;
-  padding-left: 0;
+  border-bottom-color: var(--border);
 }
 
 .work-summary-active:not(.work-summary-thinking) {
@@ -4098,43 +4094,39 @@ textarea:focus-visible {
   color: var(--text-faint);
 }
 
-.work-activity:not(.work-activity-active) .work-summary:hover {
-  background: var(--surface-hover);
-}
-
 .work-summary::-webkit-details-marker {
   display: none;
 }
 
 .work-chevron {
+  display: block;
+  width: 14px;
+  height: 14px;
+  justify-self: start;
   color: var(--text-faint);
   transition: transform 120ms ease;
 }
 
 .work-activity[open] > .work-summary .work-chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .work-items {
-  padding: 2px 0 2px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0 2px;
 }
 
 .active-work-items {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 0 2px;
 }
 
 .active-work-items > * {
   margin: 0;
-}
-
-.work-items .commentary-message {
-  margin: 5px 0 8px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.55;
 }
 
 .muted-text {
@@ -4145,7 +4137,6 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.message-error,
 .composer-error {
   color: var(--danger);
 }
@@ -4227,13 +4218,6 @@ textarea:focus-visible {
 .plan-status-step.plan-in_progress svg { color: var(--accent); }
 .plan-status-step.plan-pending svg { color: var(--text-faint); }
 
-.message-error {
-  margin: 8px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: normal;
-}
-
 .timeline-event {
   display: flex;
   min-height: 28px;
@@ -4251,8 +4235,41 @@ textarea:focus-visible {
   margin-top: 1px;
 }
 
-.timeline-event-warning { color: var(--warning); }
 .timeline-event-error { color: var(--danger); }
+
+.connection-activity-details {
+  margin: 0;
+}
+
+.assistant-message + .connection-activity-details {
+  margin-top: 10px;
+}
+
+.connection-activity-details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.connection-activity-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.connection-activity-details[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.connection-activity-failed .connection-activity > svg:first-child {
+  color: var(--danger);
+}
+
+.connection-activity-error {
+  margin: 2px 0 0 21px;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 
 .tool-activity {
   margin: 0;
@@ -4260,7 +4277,7 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.timeline-activity { margin-bottom: 8px; }
+.timeline-activity { margin-bottom: 0; }
 
 .tool-artifacts {
   margin: 12px 0 16px;
@@ -4303,6 +4320,111 @@ textarea:focus-visible {
   padding: 0;
 }
 
+.tool-activity-details {
+  margin: 0;
+}
+
+.tool-activity-details .timeline-activity {
+  margin-bottom: 0;
+}
+
+.tool-activity-details > summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-activity-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-row-expandable {
+  grid-template-columns: 14px minmax(0, auto) 14px 14px minmax(0, 1fr);
+}
+
+.tool-detail-chevron {
+  color: var(--text-faint);
+  transition: transform 120ms ease;
+}
+
+.tool-activity-details[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 0 21px;
+  padding: 6px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.tool-detail-block {
+  min-width: 0;
+}
+
+.tool-detail-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.tool-details pre,
+.tool-details code {
+  display: block;
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.tool-details pre {
+  padding: 2px 0;
+  background: transparent;
+}
+
+.tool-shell-details {
+  gap: 0;
+  margin: 2px 0 0;
+  padding: 6px 0 6px 21px;
+}
+
+.tool-shell-details .tool-detail-label {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.tool-shell-details .tool-shell-command,
+.tool-shell-details .tool-shell-output {
+  padding: 0;
+  background: transparent;
+}
+
+.tool-shell-details .tool-shell-output {
+  margin-top: 8px;
+  color: var(--text-muted);
+}
+
+.tool-shell-prompt {
+  color: var(--text-faint);
+}
+
+.tool-details-truncated,
+.tool-details-error {
+  margin: 0;
+  color: var(--text-faint);
+}
+
+.tool-details-error {
+  color: var(--danger);
+}
+
 .tool-row > svg:first-child,
 .tool-row > .tool-brand-icon:first-child,
 .tool-group-summary > svg:first-child,
@@ -4329,24 +4451,19 @@ textarea:focus-visible {
 }
 
 .tool-activity-group {
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .tool-group-summary {
   display: grid;
   min-height: 28px;
-  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  grid-template-columns: 14px minmax(0, auto) 14px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   padding: 0;
-  border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
   list-style: none;
-}
-
-.tool-group-summary:hover {
-  background: var(--surface-hover);
 }
 
 .tool-group-summary::-webkit-details-marker {
@@ -4359,11 +4476,27 @@ textarea:focus-visible {
 }
 
 .tool-activity-group[open] > .tool-group-summary .tool-group-chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .tool-group-items {
-  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 0;
+}
+
+.tool-group-items-current {
+  gap: 8px;
+  padding-left: 0;
+}
+
+.tool-activity-group[open] > .tool-group-items {
+  padding-top: 1px;
+}
+
+.tool-activity-group[open] > .tool-group-items .tool-row {
+  min-height: 22px;
 }
 
 .thinking-activity {

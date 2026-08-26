@@ -20,9 +20,7 @@ export function groupThreadItems(
 }
 
 function completedTurnStatus(items: readonly ThreadItem[]): TurnStatus {
-  const terminal = [...items].reverse().find((item) => (
-    item.type === "agentMessage" &&
-    (item.status === "failed" || item.status === "cancelled" || item.status === "interrupted")
-  ));
-  return terminal?.type === "agentMessage" ? terminal.status : "completed";
+  const terminal = [...items].reverse().find((item) => item.type === "agentMessage");
+  if (terminal?.type !== "agentMessage") return "completed";
+  return terminal.status === "inProgress" ? "interrupted" : terminal.status;
 }

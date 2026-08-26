@@ -245,6 +245,7 @@ interface ActiveTurn {
   thinkingSequence: number;
   preparingToolItemIds: Map<number, string>;
   toolItemIds: Map<string, string>;
+  retryItemId?: string;
   items: Map<string, ThreadItem>;
   startedEventId?: number;
   startedAt?: number;
@@ -1000,6 +1001,7 @@ export class AgentManager {
       active.thinkingSequence = 0;
       active.preparingToolItemIds.clear();
       active.toolItemIds.clear();
+      active.retryItemId = undefined;
       active.items.clear();
       this.#setState(projectId, conversationId, { status: "running" });
       const startedEvent = this.events.publish(
@@ -1142,12 +1144,29 @@ export class AgentManager {
       active.completedAssistantIndexes.clear();
       active.preparingToolItemIds.clear();
     } else if (event.type === "auto_retry_start") {
-      this.events.publish(projectId, "agent.retrying", {
+      const item: Extract<ThreadItem, { type: "retry" }> = {
+        id: `${active.turnId}:retry`,
+        turnId: active.turnId,
+        type: "retry",
+        status: "inProgress",
         attempt: event.attempt,
         maxAttempts: event.maxAttempts,
         delayMs: event.delayMs,
-        error: event.errorMessage,
-      }, eventScope(active));
+        error: itemError(event.errorMessage),
+      };
+      active.retryItemId = item.id;
+      this.#updateItem(projectId, active, item);
+    } else if (event.type === "auto_retry_end") {
+      const item = active.retryItemId ? active.items.get(active.retryItemId) : undefined;
+      if (item?.type === "retry") {
+        this.#completeItem(projectId, active, {
+          ...item,
+          status: event.success ? "completed" : "failed",
+          ...(event.finalError ? { error: itemError(event.finalError) } : {}),
+        });
+        if (event.success) active.items.delete(item.id);
+      }
+      active.retryItemId = undefined;
     } else if (event.type === "compaction_start") {
       this.#startItem(projectId, active, {
         id: `${active.turnId}:compaction`,
@@ -1246,6 +1265,12 @@ export class AgentManager {
         (item.status === "preparing" || item.status === "inProgress")) {
         this.#completeItem(projectId, active, { ...item, status: "failed" });
       } else if (item.type === "contextCompaction" && item.status === "inProgress") {
+        this.#completeItem(projectId, active, {
+          ...item,
+          status: status === "completed" ? "completed" : "failed",
+          ...(error ? { error: itemError(error) } : {}),
+        });
+      } else if (item.type === "retry" && item.status === "inProgress") {
         this.#completeItem(projectId, active, {
           ...item,
           status: status === "completed" ? "completed" : "failed",

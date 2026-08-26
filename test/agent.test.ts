@@ -719,6 +719,8 @@ describe("AgentManager", () => {
         message: { ...assistantPartial(completedContent), stopReason: "toolUse" },
       } as AgentSessionEvent);
       session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2_000, errorMessage: "fetch failed" });
+      session.emit({ type: "auto_retry_start", attempt: 2, maxAttempts: 3, delayMs: 4_000, errorMessage: "fetch failed again" });
+      session.emit({ type: "auto_retry_end", success: true, attempt: 2 });
       session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts", oldText: "private", newText: "source" } });
       session.emit({ type: "tool_execution_update", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" }, partialResult: { content: [{ type: "text", text: "working" }] } });
       session.emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: { content: [{ type: "text", text: "patched" }] }, isError: false });
@@ -738,7 +740,9 @@ describe("AgentManager", () => {
       { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "agentMessage", text: "", status: "inProgress" }) } },
       { type: "item.agentMessage.delta", data: { itemId: expect.any(String), delta: "Hello" } },
       { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "agentMessage", text: "Hello", status: "completed", phase: "commentary" }) } },
-      { type: "agent.retrying", data: { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" } },
+      { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "retry", status: "inProgress", attempt: 1, maxAttempts: 3, delayMs: 2_000, error: { message: "fetch failed" } }) } },
+      { type: "item.updated", data: { item: expect.objectContaining({ id: expect.any(String), type: "retry", status: "inProgress", attempt: 2, maxAttempts: 3, delayMs: 4_000, error: { message: "fetch failed again" } }) } },
+      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "retry", status: "completed", attempt: 2 }) } },
       { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", toolCallId: "call-1", tool: "edit", status: "inProgress", arguments: { path: "src/app.ts" } }) } },
       { type: "item.updated", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", output: "working" }) } },
       { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", status: "completed", output: "patched" }) } },

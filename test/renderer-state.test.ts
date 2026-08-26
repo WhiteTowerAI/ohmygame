@@ -60,12 +60,43 @@ describe("rendererReducer", () => {
     expect(next.turns.at(-1)?.items[0]).toMatchObject({ type: "userMessage", text: "Revised" });
   });
 
-  it("stores retry and errors as structured item data", () => {
+  it("removes a transient retry item after reconnection succeeds", () => {
     let state = initialized();
     state = event(state, runtimeEvent(1, "agent.started", { prompt: "Build" }));
-    state = event(state, runtimeEvent(2, "agent.retrying", { attempt: 1, maxAttempts: 3, delayMs: 2_000, error: "fetch failed" }));
+    const retry: ThreadItem = {
+      id: "turn-1:retry:1",
+      turnId: "turn-1",
+      type: "retry",
+      status: "inProgress",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2_000,
+      error: { message: "fetch failed" },
+    };
+    state = event(state, runtimeEvent(2, "item.started", { item: retry }));
 
-    expect(state.turns[0]?.items.at(-1)).toMatchObject({ type: "retry", error: { message: "fetch failed" } });
+    expect(state.turns[0]?.items.at(-1)).toMatchObject({ type: "retry", status: "inProgress", error: { message: "fetch failed" } });
+    state = event(state, runtimeEvent(3, "item.completed", { item: { ...retry, status: "completed" } }));
+    expect(state.turns[0]?.items.some((item) => item.type === "retry")).toBe(false);
+  });
+
+  it("keeps a retry item when reconnection finally fails", () => {
+    let state = initialized();
+    state = event(state, runtimeEvent(1, "agent.started", { prompt: "Build" }));
+    const retry: ThreadItem = {
+      id: "turn-1:retry",
+      turnId: "turn-1",
+      type: "retry",
+      status: "inProgress",
+      attempt: 3,
+      maxAttempts: 3,
+      delayMs: 4_000,
+      error: { message: "fetch failed" },
+    };
+    state = event(state, runtimeEvent(2, "item.started", { item: retry }));
+    state = event(state, runtimeEvent(3, "item.completed", { item: { ...retry, status: "failed", error: { message: "connection failed" } } }));
+
+    expect(state.turns[0]?.items.at(-1)).toMatchObject({ type: "retry", status: "failed", error: { message: "connection failed" } });
   });
 
   it("keeps an agent error state even when the event has no message", () => {

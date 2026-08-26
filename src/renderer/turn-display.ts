@@ -10,6 +10,7 @@ export interface TurnDisplay {
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
   active: boolean;
+  failed: boolean;
   working: boolean;
   waiting: boolean;
   thinkingText?: string;
@@ -18,7 +19,9 @@ export interface TurnDisplay {
 export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput = false): TurnDisplay {
   const active = turn.status === "inProgress";
   const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
-  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" && !(item.type === "contextCompaction" && item.status === "completed"));
+  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" &&
+    !(item.type === "retry" && item.status === "completed") &&
+    !(item.type === "contextCompaction" && item.status === "completed"));
   const finalStarted = items.some(isFinalAnswer);
   const finalMessages = active ? [] : items.filter(isFinalAnswer);
   const processItems = active ? items : items.filter((item) => !isFinalAnswer(item));
@@ -34,6 +37,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
       messages: activityItems.filter((item) => !isWorkItem(item)),
       finalMessages,
       active: false,
+      failed: turn.status === "failed",
       working: false,
       waiting: false,
     };
@@ -43,7 +47,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
   const waiting = !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
-  const work = projectWorkItems(waiting ? withoutCurrentActivity(visibleItems) : visibleItems, live);
+  const work = projectWorkItems(visibleItems, live);
   const thinking = processItems.findLast(isStreamingThinking);
 
   return {
@@ -53,6 +57,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
     messages: [],
     finalMessages,
     active: true,
+    failed: false,
     working,
     waiting,
     thinkingText: thinking?.text,
@@ -74,7 +79,7 @@ function hasVisibleAssistantText(items: ThreadItem[]): boolean {
 
 function isWorkItem(item: ThreadItem): boolean {
   return item.type === "reasoning" || item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "retry" || item.type === "contextCompaction" ||
-    (item.type === "agentMessage" && item.phase === "commentary");
+    (item.type === "agentMessage" && item.phase !== "final_answer");
 }
 
 function isFinalAnswer(item: ThreadItem): item is AssistantItem {
@@ -102,10 +107,4 @@ function hasStalledAssistantText(items: ThreadItem[], now: number): boolean {
   const latest = items.at(-1);
   return latest?.type === "agentMessage" && latest.status === "inProgress" && Boolean(latest.text.trim()) &&
     latest.timestamp !== undefined && now - latest.timestamp >= 1_000;
-}
-
-function withoutCurrentActivity(items: ThreadItem[]): ThreadItem[] {
-  let end = items.length;
-  while (end > 0 && (items[end - 1].type === "dynamicToolCall" || items[end - 1].type === "mcpToolCall" || items[end - 1].type === "reasoning")) end -= 1;
-  return items.slice(0, end);
 }

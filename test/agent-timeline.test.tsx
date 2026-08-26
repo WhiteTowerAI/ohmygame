@@ -4,13 +4,13 @@ import { AgentTimeline as ThreadTimeline } from "../src/renderer/agent-timeline.
 import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
-function AgentTimeline({ items, activeTurnId, ...props }: Omit<ComponentProps<typeof ThreadTimeline>, "turns"> & { items: ThreadItem[]; activeTurnId?: string }) {
+function AgentTimeline({ items, activeTurnId, failedTurnId, ...props }: Omit<ComponentProps<typeof ThreadTimeline>, "turns"> & { items: ThreadItem[]; activeTurnId?: string; failedTurnId?: string }) {
   const grouped = new Map<string, ThreadItem[]>();
   for (const item of items) grouped.set(item.turnId, [...(grouped.get(item.turnId) ?? []), item]);
   const turns: Turn[] = [...grouped].map(([id, turnItems]) => ({
     id,
     conversationId: "conversation-1",
-    status: id === activeTurnId ? "inProgress" : "completed",
+    status: id === activeTurnId ? "inProgress" : id === failedTurnId ? "failed" : "completed",
     items: turnItems,
   }));
   return <ThreadTimeline {...props} turns={turns} />;
@@ -50,7 +50,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("**");
   });
 
-  it("replaces initial Thinking with elapsed work when work begins", () => {
+  it("keeps completed tools visible when work begins", () => {
     const html = renderToStaticMarkup(
       <AgentTimeline items={[user(), tool()]} activeTurnId="turn-1" />,
     );
@@ -58,7 +58,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Working for");
     expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("lucide-loader-circle");
     expect(html).toContain("Thinking");
-    expect(html).not.toContain("Read package.json");
+    expect(html).toContain("Read package.json");
     expect(html).not.toContain("tool-activity-group");
     expect(html).not.toContain("<details class=\"work-activity\"");
   });
@@ -135,7 +135,7 @@ describe("AgentTimeline", () => {
     expect(commentary).toContain("Thinking");
   });
 
-  it("replaces the latest completed tool group while waiting for the next step", () => {
+  it("keeps completed and failed tools visible while waiting for the next step", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -153,8 +153,9 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Thinking");
     expect(html).not.toContain("Read a file, one action failed");
-    expect(html).not.toContain("Ran npm run build");
-    expect(html).not.toContain("private build output");
+    expect(html).toContain("Ran npm run build");
+    expect(html).not.toContain('class="tool-activity-details" open');
+    expect(html).toContain("private build output");
   });
 
   it("does not keep completed Pi thinking as a history row", () => {
@@ -181,7 +182,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("work-items");
   });
 
-  it("replaces the latest tool with Thinking after earlier commentary", () => {
+  it("keeps the latest tool before Thinking after earlier commentary", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private", status: "completed" },
@@ -193,7 +194,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("thinking-block");
     expect(html).toContain("I will inspect it.");
     expect(html).toContain("Thinking");
-    expect(html).not.toContain("Read package.json");
+    expect(html).toContain("Read package.json");
   });
 
   it("omits completed Thinking while preserving the surrounding event order", () => {
@@ -210,7 +211,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Thinking");
   });
 
-  it("uses the current activity row for Thinking between tool calls", () => {
+  it("shows the current tools and Thinking together", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       assistant("commentary", "I will inspect it.", "commentary"),
@@ -220,11 +221,11 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Working for");
     expect(html).toContain("Planning the next edit");
-    expect(html).not.toContain("package.json");
+    expect(html).toContain("package.json");
     expect(html).not.toContain("tool-activity-group");
   });
 
-  it("replaces a completed Thinking summary with the generic status", () => {
+  it("keeps tools when completed reasoning returns to the generic status", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -233,7 +234,7 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Thinking");
     expect(html).not.toContain("Planning the next edit");
-    expect(html).not.toContain("Read package.json");
+    expect(html).toContain("Read package.json");
   });
 
   it("drops Thinking from the final tool aggregation", () => {
@@ -265,7 +266,180 @@ describe("AgentTimeline", () => {
     expect(html.indexOf("Done.")).toBeGreaterThan(html.indexOf("</details>"));
   });
 
-  it("shows only the current tool while a consecutive tool group is running", () => {
+  it("shows a right-facing arrow for collapsed Worked", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      assistant("response", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain('class="lucide lucide-chevron-right work-chevron"');
+  });
+
+  it("renders a failed stream as a connection activity inside Worked", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "I started checking the project.",
+      status: "failed",
+      error: { message: "OpenAI Responses stream ended before a terminal response event" },
+    }]} failedTurnId="turn-1" />);
+
+    expect(html).toContain("Worked for");
+    expect(html).toContain("I started checking the project.");
+    expect(html).toContain("Connection error");
+    expect(html).toContain("OpenAI Responses stream ended before a terminal response event");
+    expect(html).toContain('class="connection-activity-details connection-activity-failed"');
+    expect(html).not.toContain('class="message-error"');
+  });
+
+  it("renders only the final connection error when a turn has multiple failed attempts", () => {
+    const failedMessage = (id: string, text: string, error: string): ThreadItem => ({
+      id,
+      turnId: "turn-1",
+      type: "agentMessage",
+      text,
+      status: "failed",
+      error: { message: error },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      failedMessage("attempt-1", "First partial response.", "first disconnect"),
+      failedMessage("attempt-2", "Second partial response.", "second disconnect"),
+      failedMessage("attempt-3", "Third partial response.", "final disconnect"),
+    ]} failedTurnId="turn-1" />);
+
+    expect(html.match(/Connection error/g)).toHaveLength(1);
+    expect(html).not.toContain("first disconnect");
+    expect(html).not.toContain("second disconnect");
+    expect(html).toContain("final disconnect");
+    expect(html.indexOf("Third partial response.")).toBeLessThan(html.indexOf("Connection error"));
+  });
+
+  it("shows only one expandable reconnect row for a retried stream error", () => {
+    const error = "OpenAI Responses stream ended before a terminal response event";
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "I started checking the project.",
+      status: "failed",
+      error: { message: error },
+    }, {
+      id: "retry",
+      turnId: "turn-1",
+      type: "retry",
+      status: "inProgress",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 1_000,
+      error: { message: error },
+    }]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Reconnecting 1/3");
+    expect(html.match(/OpenAI Responses stream ended before a terminal response event/g)).toHaveLength(1);
+    expect(html.match(/connection-activity-details/g)).toHaveLength(1);
+    expect(html).toContain("lucide-loader-circle spin");
+  });
+
+  it("stops animating reconnecting after later activity appears", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry",
+      turnId: "turn-1",
+      type: "retry",
+      status: "inProgress",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 1_000,
+      error: { message: "stream disconnected" },
+    }, assistant("commentary", "I resumed the work.", "commentary")]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Reconnecting 1/3");
+    expect(html).toContain('Reconnecting 1/3</span><svg');
+    expect(html).toContain('<span class="tool-result"></span>');
+  });
+
+  it("does not present an intermediate stream failure as a final connection error", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "I started checking the project.",
+      status: "failed",
+      error: { message: "stream disconnected" },
+    }]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("I started checking the project.");
+    expect(html).not.toContain("Connection error");
+  });
+
+  it("does not show a retry after reconnection succeeds", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry",
+      turnId: "turn-1",
+      type: "retry",
+      status: "completed",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 1_000,
+      error: { message: "stream disconnected" },
+    }, assistant("response", "Done.", "final_answer")]} />);
+
+    expect(html).not.toContain("Reconnecting 1/3");
+    expect(html).not.toContain("Connection error");
+    expect(html).not.toContain("lucide-loader-circle spin");
+    expect(html).toContain("Done.");
+  });
+
+  it("uses a failed retry as the single terminal connection error", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry",
+      turnId: "turn-1",
+      type: "retry",
+      status: "failed",
+      attempt: 3,
+      maxAttempts: 3,
+      delayMs: 4_000,
+      error: { message: "stream disconnected" },
+    }, {
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "",
+      status: "failed",
+      error: { message: "stream disconnected" },
+    }]} failedTurnId="turn-1" />);
+
+    expect(html.match(/Connection error/g)).toHaveLength(1);
+    expect(html.match(/stream disconnected/g)).toHaveLength(1);
+  });
+
+  it("keeps an unclassified completed process message inside Worked", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-process",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "I am checking the project.",
+      status: "completed",
+    }]} />);
+
+    expect(html).toContain("Worked for");
+    expect(html.indexOf("Worked for")).toBeLessThan(html.indexOf("I am checking the project."));
+  });
+
+  it("uses the same assistant message style for commentary and final text", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("commentary", "I am checking the project.", "commentary"),
+      assistant("final", "The project is ready.", "final_answer"),
+    ]} />);
+
+    expect(html).not.toContain("commentary-message");
+    expect(html.match(/class="assistant-message assistant-completed"/g)).toHaveLength(2);
+  });
+
+  it("shows completed and current tools while a consecutive group is running", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { ...tool(), id: "read", toolCallId: "read" },
@@ -281,11 +455,35 @@ describe("AgentTimeline", () => {
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Editing src/app.ts");
-    expect(html).not.toContain("package.json");
+    expect(html).toContain("package.json");
     expect(html).not.toContain("tool-activity-group");
   });
 
-  it("uses one Thinking row after a completed mixed tool group", () => {
+  it("collapses an earlier activity group after commentary starts a new stage", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...tool(), id: "read-1", toolCallId: "read-1" },
+      { ...tool(), id: "read-2", toolCallId: "read-2", arguments: { path: "src/app.ts" } },
+      assistant("commentary", "Now I will run the checks.", "commentary"),
+      {
+        id: "check",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "check",
+        tool: "bash",
+        status: "inProgress",
+        arguments: { command: "npm test" },
+      },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Read files");
+    expect(html).toContain("Now I will run the checks.");
+    expect(html).toContain("Running npm test");
+    expect(html.indexOf("Read files")).toBeLessThan(html.indexOf("Now I will run the checks."));
+    expect(html.indexOf("Now I will run the checks.")).toBeLessThan(html.indexOf("Running npm test"));
+  });
+
+  it("shows a completed mixed tool group before one Thinking row", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -311,9 +509,9 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Thinking");
     expect(html).not.toContain("Edited a file, read a file, ran a command");
-    expect(html).not.toContain("Read package.json");
-    expect(html).not.toContain("Edited src/app.ts");
-    expect(html).not.toContain("Ran npm run typecheck");
+    expect(html).toContain("Read package.json");
+    expect(html).toContain("Edited src/app.ts");
+    expect(html).toContain("Ran npm run typecheck");
   });
 
   it("shows the Godot brand and operation for MCP tool calls", () => {
@@ -416,7 +614,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("lucide-plug");
   });
 
-  it("keeps earlier tools and replaces only the current trailing tool", () => {
+  it("keeps tools on both sides of commentary while waiting", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -434,7 +632,7 @@ describe("AgentTimeline", () => {
 
     expect(html).not.toContain("tool-activity-group");
     expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("Now I will edit it."));
-    expect(html).not.toContain("Edited src/app.ts");
+    expect(html).toContain("Edited src/app.ts");
     expect(html.indexOf("Now I will edit it.")).toBeLessThan(html.indexOf("Thinking"));
   });
 
@@ -517,6 +715,58 @@ describe("AgentTimeline", () => {
 
     expect(html.match(/<time /g)).toHaveLength(1);
     expect(html).toContain('dateTime="2026-08-23T08:05:00.000Z"');
+  });
+
+  it("lets users expand a command to inspect its output", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "command",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "command",
+        tool: "bash",
+        status: "completed",
+        arguments: { command: "npm test", cwd: "/workspace" },
+        output: "Tests passed",
+      },
+    ]} />);
+
+    expect(html).toContain('class="tool-activity-details"');
+    expect(html).toContain("Shell");
+    expect(html).toContain("npm test");
+    expect(html).not.toContain("Arguments");
+    expect(html).not.toContain("/workspace");
+    expect(html).not.toContain("Output");
+    expect(html).toContain("Tests passed");
+  });
+
+  it("keeps failed tool details collapsed by default", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...tool(), status: "failed", output: "Permission denied" },
+    ]} />);
+
+    expect(html).toContain('<details class="tool-activity-details">');
+    expect(html).not.toContain('<details class="tool-activity-details" open');
+    expect(html).toContain("Permission denied");
+  });
+
+  it("keeps tools without inspectable data as plain rows", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { ...tool(), arguments: undefined },
+    ]} />);
+
+    expect(html).not.toContain("tool-activity-details");
+  });
+
+  it("does not expose read arguments as a generic inspector", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), tool()]} />);
+
+    expect(html).toContain("Read package.json");
+    expect(html).not.toContain("tool-activity-details");
+    expect(html).not.toContain("Arguments");
   });
 });
 

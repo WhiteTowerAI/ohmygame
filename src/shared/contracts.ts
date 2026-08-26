@@ -282,6 +282,7 @@ export type ThreadItem = (
       id: string;
       turnId: string;
       type: "retry";
+      status: Extract<ItemStatus, "inProgress" | "completed" | "failed">;
       attempt: number;
       maxAttempts: number;
       delayMs: number;
@@ -523,7 +524,6 @@ export interface RuntimeEventData {
   "preview.stopped": Record<string, never>;
   "agent.started": { prompt: string; images?: PromptImage[]; revision?: "last-turn" };
   "plan.mode.changed": PlanSessionState;
-  "agent.retrying": { attempt: number; maxAttempts: number; delayMs: number; error: string };
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
   "item.completed": { item: ThreadItem };
@@ -547,7 +547,6 @@ export const RUNTIME_EVENT_TYPES = [
   "preview.error",
   "preview.stopped",
   "agent.started",
-  "agent.retrying",
   "item.started",
   "item.updated",
   "item.completed",

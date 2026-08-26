@@ -107,18 +107,6 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return { ...next, pendingPrompts: [...state.pendingPrompts, { turnId: event.turnId, prompt: event.data.prompt, references: event.data.references, images: event.data.images ?? [] }] };
     case "prompt.removed":
       return { ...next, pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId) };
-    case "agent.retrying":
-      if (!event.turnId || !conversation) return next;
-      return upsertTurnItem(next, conversation.id, event.turnId, {
-        id: `${event.turnId}:retry:${event.data.attempt}`,
-        turnId: event.turnId,
-        type: "retry",
-        attempt: event.data.attempt,
-        maxAttempts: event.data.maxAttempts,
-        delayMs: event.data.delayMs,
-        error: { message: event.data.error },
-        timestamp: eventTime(event),
-      });
     case "item.started":
     case "item.updated": {
       if (!conversation) return next;
@@ -133,7 +121,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     case "item.completed": {
       if (!conversation) return next;
       const item = { ...event.data.item, timestamp: eventTime(event) };
-      const result = item.type !== "userInputRequest" && (item.type === "agentMessage" || item.type === "reasoning") && item.status === "completed" && !item.text
+      const result = shouldRemoveCompletedItem(item)
         ? removeTurnItem(next, item.id)
         : upsertTurnItem(next, conversation.id, item.turnId, item);
       return {
@@ -185,6 +173,11 @@ function updateTurnItem(state: RendererState, id: string, update: (item: ThreadI
 
 function removeTurnItem(state: RendererState, id: string): RendererState {
   return { ...state, turns: state.turns.map((turn) => ({ ...turn, items: turn.items.filter((item) => item.id !== id) })) };
+}
+
+function shouldRemoveCompletedItem(item: ThreadItem): boolean {
+  if (item.type === "retry") return item.status === "completed";
+  return (item.type === "agentMessage" || item.type === "reasoning") && item.status === "completed" && !item.text;
 }
 
 function updateTurn(turns: Turn[], id: string, update: (turn: Turn) => Turn): Turn[] {

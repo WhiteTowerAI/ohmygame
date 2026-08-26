@@ -1,6 +1,6 @@
 import {
   Check,
-  ChevronDown,
+  ChevronRight,
   Copy,
   FilePenLine,
   FileText,
@@ -10,6 +10,8 @@ import {
   Search,
   Terminal,
   Wrench,
+  Wifi,
+  WifiOff,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +28,7 @@ import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 
 const godotIconUrl = new URL("./assets/godot.svg", import.meta.url).href;
+type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
 interface AgentTimelineProps {
   turns: ThreadTurn[];
@@ -257,7 +260,7 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
       </div>
       {hasContent ? (
         <div className="active-work-items">
-          <WorkItems items={display.work} />
+          <WorkItems items={display.work} active />
           {display.waiting ? <ThinkingActivity /> : null}
         </div>
       ) : null}
@@ -269,38 +272,59 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
   return (
     <details className="work-activity">
       <summary className="work-summary">
-        <ChevronDown className="work-chevron" size={13} />
         <span>Worked for {turnDuration(display)}</span>
+        <ChevronRight className="work-chevron" size={13} />
       </summary>
       <div className="work-items">
-        <WorkItems items={display.work} />
+        <WorkItems items={display.work} failed={display.failed} />
       </div>
     </details>
   );
 }
 
-function WorkItems({ items }: { items: TurnDisplay["work"] }) {
-  return items.map((item) => item.kind === "item"
-    ? <TimelineItem key={item.item.id} item={item.item} />
-    : <ToolActivityGroup key={item.id} tools={item.tools} active={item.active} thinking={item.thinking} />);
+function WorkItems({ items, active = false, failed = false }: { items: TurnDisplay["work"]; active?: boolean; failed?: boolean }) {
+  const rendered = items.map((item, index) => {
+    if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} current={item.current} thinking={item.thinking} />;
+    return <TimelineItem
+      key={item.item.id}
+      item={item.item}
+      hideError={item.item.type === "agentMessage" && Boolean(item.item.error)}
+      retrying={active && item.item.type === "retry" && item.item.status === "inProgress" && index === items.length - 1}
+    />;
+  });
+  if (failed) {
+    const hasFailedRetry = items.some((item) => item.kind === "item" && item.item.type === "retry" && item.item.status === "failed");
+    const error = items.flatMap((item) => item.kind === "item" && item.item.type === "agentMessage" && item.item.error ? [item.item] : []).at(-1);
+    if (!hasFailedRetry && error?.type === "agentMessage" && error.error) {
+      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error.message} failed />);
+    }
+  }
+  return rendered;
 }
 
-function ToolActivityGroup({ tools, active, thinking }: { tools: ToolItem[]; active?: ToolItem; thinking?: Extract<ThreadItem, { type: "reasoning" }> }) {
-  if (thinking) return <ThinkingActivity text={thinking.text} />;
-  if (active) return <ToolActivity item={active} />;
-  if (tools.length === 1) return <ToolActivity item={tools[0]} completed />;
-  const Icon = toolGroupIcon(tools);
+function ToolActivityGroup({ tools, current, thinking }: { tools: ToolItem[]; current: boolean; thinking?: Extract<ThreadItem, { type: "reasoning" }> }) {
+  if (!current && tools.length === 1) return <ToolActivity item={tools[0]} completed />;
+  if (tools.length === 0) return thinking ? <ThinkingActivity text={thinking.text} /> : null;
+  if (!current && tools.length > 1) {
+    const Icon = toolGroupIcon(tools);
+    return (
+      <details className="tool-activity-group">
+        <summary className="tool-group-summary">
+          <Icon size={13} aria-hidden="true" />
+          <span className="tool-label">{toolGroupSummary(tools)}</span>
+          <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
+        </summary>
+        <div className="tool-group-items">
+          {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed />)}
+        </div>
+      </details>
+    );
+  }
   return (
-    <details className="tool-activity-group">
-      <summary className="tool-group-summary">
-        <Icon size={13} aria-hidden="true" />
-        <span className="tool-label">{toolGroupSummary(tools)}</span>
-        <ChevronDown className="tool-group-chevron" size={13} aria-hidden="true" />
-      </summary>
-      <div className="tool-group-items">
-        {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed />)}
-      </div>
-    </details>
+    <div className="tool-group-items tool-group-items-current">
+      {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} />)}
+      {thinking ? <ThinkingActivity text={thinking.text} /> : null}
+    </div>
   );
 }
 
@@ -359,16 +383,16 @@ function thinkingLabel(text?: string): string {
   return label.trim() || "Thinking";
 }
 
-function TimelineItem({ item }: { item: ThreadItem }) {
+function TimelineItem({ item, hideError = false, retrying = false }: { item: ThreadItem; hideError?: boolean; retrying?: boolean }) {
   if (item.type === "reasoning") return null;
   if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") return <ToolActivity item={item} />;
   if (item.type === "retry") {
-    return (
-      <div className="timeline-event timeline-event-warning">
-        <LoaderCircle className="spin" size={13} />
-        <span>Retrying {item.attempt}/{item.maxAttempts}: {item.error.message}</span>
-      </div>
-    );
+    return <ConnectionActivity
+      title={item.status === "failed" ? "Connection error" : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
+      error={item.error.message}
+      retrying={retrying}
+      failed={item.status === "failed"}
+    />;
   }
   if (item.type === "contextCompaction") {
     return (
@@ -380,16 +404,37 @@ function TimelineItem({ item }: { item: ThreadItem }) {
   }
   if (item.type === "agentMessage") {
     if (!item.text && item.status === "completed") return null;
-    return (
-      <div className={`assistant-message assistant-${item.status}${item.phase === "commentary" ? " commentary-message" : ""}`}>
+    const message = (
+      <div className={`assistant-message assistant-${item.status}`}>
         {item.text ? <MarkdownContent text={item.text} /> : null}
         {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
         {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
-        {item.error ? <p className="message-error" role="alert">{item.error.message}</p> : null}
       </div>
+    );
+    if (!item.error || hideError) return message;
+    return (
+      <>
+        {message}
+        <ConnectionActivity title="Connection error" error={item.error.message} failed />
+      </>
     );
   }
   return null;
+}
+
+function ConnectionActivity({ title, error, retrying = false, failed = false }: { title: string; error: string; retrying?: boolean; failed?: boolean }) {
+  const Icon = failed ? WifiOff : Wifi;
+  return (
+    <details className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`}>
+      <summary className="tool-activity tool-row tool-row-expandable timeline-activity connection-activity" role={failed ? "alert" : undefined}>
+        <Icon size={13} aria-hidden="true" />
+        <span className="tool-label">{title}</span>
+        <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+        <span className="tool-result">{retrying ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : null}</span>
+      </summary>
+      <div className="connection-activity-error">{error}</div>
+    </details>
+  );
 }
 
 function MarkdownContent({ text, className = "" }: { text: string; className?: string }) {
@@ -437,16 +482,101 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
   const label = item.status === "preparing" && item.type === "dynamicToolCall"
     ? preparingToolLabel(item.tool)
     : presentation.label;
-  return (<>
-    <div className={`tool-activity tool-row timeline-activity tool-${item.status}`}>
+  const expandable = hasToolDetails(item);
+  const row = (
+    <div className={`tool-activity tool-row${expandable ? " tool-row-expandable" : ""} timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
+      {expandable ? <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /> : null}
       <span className="tool-result" aria-label={item.status}>
         {item.status === "preparing" || item.status === "inProgress" ? <LoaderCircle className="spin" size={12} /> : null}
         {item.status === "failed" ? <X size={12} /> : null}
       </span>
     </div>
-  </>);
+  );
+  if (!expandable) return row;
+  return (
+    <details className="tool-activity-details">
+      <summary>{row}</summary>
+      <ToolDetails item={item} />
+    </details>
+  );
+}
+
+function ToolDetails({ item }: { item: ToolCallItem }) {
+  const args = record(item.arguments);
+  if (item.type === "dynamicToolCall" && item.tool === "bash") return <ShellDetails item={item} command={text(args?.command)} />;
+  if (item.type === "dynamicToolCall" && ["read", "grep", "find", "ls"].includes(item.tool)) return <FileOperationDetails item={item} args={args} />;
+  if (item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool)) return <FileChangeDetails item={item} args={args} />;
+  return <StructuredToolDetails item={item} />;
+}
+
+function ShellDetails({ item, command }: { item: ToolCallItem; command: string }) {
+  return <div className="tool-details tool-shell-details">
+    <ToolDetailBlock label="Shell"><pre className="tool-shell-command"><span className="tool-shell-prompt">$</span> {command || "command"}</pre></ToolDetailBlock>
+    {item.output ? <pre className="tool-shell-output">{item.output}</pre> : null}
+    {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">Command failed without output.</p> : null}
+  </div>;
+}
+
+function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
+  return <div className="tool-details">
+    {fileOperationContext(item.tool, args)}
+    {item.output ? <ToolDetailBlock label="Result"><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">Result truncated</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">Operation failed without output.</p> : null}
+  </div>;
+}
+
+function FileChangeDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
+  return <div className="tool-details">
+    <ToolDetailBlock label="File"><code>{text(args?.path) || text(args?.file_path) || "Unknown file"}</code></ToolDetailBlock>
+    {item.output ? <ToolDetailBlock label="Result"><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">Result truncated</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">File change failed without output.</p> : null}
+  </div>;
+}
+
+function StructuredToolDetails({ item }: { item: ToolCallItem }) {
+  return (
+    <div className="tool-details">
+      {item.arguments !== undefined ? <ToolDetailBlock label="Input"><pre>{formatToolValue(item.arguments)}</pre></ToolDetailBlock> : null}
+      {item.output ? <ToolDetailBlock label="Output"><pre>{item.output}</pre></ToolDetailBlock> : null}
+      {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
+      {!item.output && item.status === "failed" ? <p className="tool-details-error">The tool call failed without output.</p> : null}
+    </div>
+  );
+}
+
+function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
+  const path = text(args?.path) || text(args?.file_path);
+  const query = text(args?.pattern) || text(args?.query);
+  if (tool === "read") return path ? <ToolDetailBlock label="File"><code>{path}</code></ToolDetailBlock> : null;
+  if (query && path) return <ToolDetailBlock label="Search"><code>{query} in {path}</code></ToolDetailBlock>;
+  if (query) return <ToolDetailBlock label="Search"><code>{query}</code></ToolDetailBlock>;
+  return path ? <ToolDetailBlock label="Path"><code>{path}</code></ToolDetailBlock> : null;
+}
+
+function ToolDetailBlock({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="tool-detail-block"><span className="tool-detail-label">{label}</span>{children}</div>;
+}
+
+function hasToolDetails(item: ToolCallItem): boolean {
+  if (item.status === "failed" || item.truncated) return true;
+  if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output);
+  if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
+  if (["read", "grep", "find", "ls", "edit", "write"].includes(item.tool)) return Boolean(item.output);
+  return item.arguments !== undefined || Boolean(item.output);
+}
+
+function formatToolValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function ArtifactPreviews({ projectId, artifacts }: { projectId: string; artifacts: ToolArtifact[] }) {
