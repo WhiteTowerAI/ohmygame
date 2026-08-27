@@ -19,6 +19,7 @@ extraResources:
     to: desktop-config.json
 
 mac:
+  icon: build/icon.icns
   category: public.app-category.developer-tools
   hardenedRuntime: true
   notarize: true
@@ -27,6 +28,7 @@ mac:
     - zip
 
 win:
+  icon: build/icon.ico
   target:
     - nsis
   artifactName: OpenGame-${version}-${arch}.${ext}
