@@ -11,6 +11,7 @@ interface ProjectMetadata {
   type: ProjectType;
   updatedAt: string;
   publication?: PublicationState;
+  hidden?: boolean;
 }
 
 interface LoadedMetadata {
@@ -23,6 +24,7 @@ const STORY_FILE = "story.json";
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
+  readonly #hiddenProjects = new Set<string>();
   readonly #projectsDirectory: string;
 
   constructor(dataDirectory: string) {
@@ -44,6 +46,7 @@ export class ProjectManager {
         await isRunnableWorkspace(workspacePath),
       );
       this.#projects.set(project.id, project);
+      if (metadata.hidden) this.#hiddenProjects.add(project.id);
       if (missing) await writeMetadata(projectDirectory, metadata);
     }
   }
@@ -67,8 +70,23 @@ export class ProjectManager {
     return project;
   }
 
+  async ensureInternalWorkspace(name: string): Promise<ProjectState> {
+    const existing = [...this.#projects.values()].find((project) => (
+      this.#hiddenProjects.has(project.id) && project.name === name
+    ));
+    if (existing) return existing;
+    const project = await this.create(name, "general");
+    this.#hiddenProjects.add(project.id);
+    await writeMetadata(path.dirname(project.workspacePath), { ...metadataFor(project), hidden: true });
+    return project;
+  }
+
   list(): ProjectState[] {
-    return [...this.#projects.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return [...this.#projects.values()].filter((project) => !this.#hiddenProjects.has(project.id)).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  all(): ProjectState[] {
+    return [...this.#projects.values()];
   }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
@@ -119,6 +137,7 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     await rm(path.dirname(project.workspacePath), { recursive: true, force: false });
     this.#projects.delete(id);
+    this.#hiddenProjects.delete(id);
     return project;
   }
 
@@ -211,7 +230,7 @@ export class ProjectManager {
     project: ProjectState,
     changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "publication">>,
   ): Promise<void> {
-    const metadata = { ...metadataFor(project), ...changes };
+    const metadata = { ...metadataFor(project), ...(this.#hiddenProjects.has(project.id) ? { hidden: true } : {}), ...changes };
     await writeMetadata(path.dirname(project.workspacePath), metadata);
     project.name = metadata.name;
     project.updatedAt = metadata.updatedAt;
@@ -257,7 +276,8 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
       (parsed.type === undefined || parsed.type === "general" || parsed.type === "interactive-drama") &&
-      (parsed.publication === undefined || validPublication(parsed.publication))
+      (parsed.publication === undefined || validPublication(parsed.publication)) &&
+      (parsed.hidden === undefined || typeof parsed.hidden === "boolean")
     ) {
       const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
         ? parsed.updatedAt
@@ -271,6 +291,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           type,
           updatedAt,
           ...(parsed.publication ? { publication: parsed.publication } : {}),
+          ...(parsed.hidden ? { hidden: true } : {}),
         },
         missing: parsed.updatedAt !== updatedAt || parsed.type !== type,
       };

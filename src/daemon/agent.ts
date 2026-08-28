@@ -2,6 +2,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   ModelRuntime,
+  parseSkillBlock,
   SessionManager,
   SettingsManager,
   type AgentSessionEvent,
@@ -10,7 +11,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
+import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
@@ -34,6 +36,7 @@ export interface CodingSession {
   setThinkingLevel?(level: AgentReasoningLevel): void;
   setActiveToolsByName?(toolNames: string[]): void;
   getAllTools?(): Array<{ name: string }>;
+  getSkills?(): Array<{ name: string; description: string }>;
 }
 
 interface PiPromptImage {
@@ -72,7 +75,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnFinished = false;
       const parsed = parseUserPrompt(textContent(message.content));
       const images = imageContent(message.content);
-      if (parsed.text || images.length > 0) items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(images.length ? { images } : {}), timestamp });
+      if (parsed.text || images.length > 0) items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(parsed.mentions.length ? { mentions: parsed.mentions } : {}), ...(images.length ? { images } : {}), timestamp });
       continue;
     }
     if (message.role === "assistant") {
@@ -218,7 +221,8 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 
 interface AgentManagerOptions {
   createSession?: SessionFactory;
-  activeToolNames?: (mode: PlanMode, session: CodingSession) => string[];
+  loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
+  activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
 }
 
@@ -233,6 +237,7 @@ interface ActiveTurn {
   conversationId: string;
   turnId: string;
   prompt: string;
+  mentions: PluginMention[];
   images: PromptImage[];
   mode: PlanMode;
   plan?: PlanState;
@@ -275,6 +280,7 @@ export class AgentManager {
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
   readonly #questionnaires = new Map<string, PendingQuestionnaire>();
+  readonly #invalidatedProjects = new Set<string>();
   #closing = false;
 
   constructor(
@@ -387,6 +393,7 @@ export class AgentManager {
       conversationId: conversation.summary.id,
       turnId,
       prompt: "",
+      mentions: [],
       images: [],
       mode: "normal",
       conversation,
@@ -424,6 +431,14 @@ export class AgentManager {
     return managed.session.getContextUsage?.();
   }
 
+  async skills(project: ProjectState, conversation: StoredConversation): Promise<Array<{ name: string; description: string }>> {
+    const existing = this.#sessions.get(conversationKey(project.id, conversation.summary.id));
+    if (existing) return existing.session.getSkills?.() ?? [];
+    if (this.options.loadSkills) return this.options.loadSkills(project);
+    const managed = await this.#getSession(project, conversation);
+    return managed.session.getSkills?.() ?? [];
+  }
+
   prompt(
     project: ProjectState,
     conversation: StoredConversation,
@@ -431,6 +446,7 @@ export class AgentManager {
     references: PromptReference[] = [],
     images: PromptImage[] = [],
     mode: "normal" | "planning" | "executing" = "normal",
+    mentions: PluginMention[] = [],
     turnId = randomUUID(),
   ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
     if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
@@ -444,16 +460,16 @@ export class AgentManager {
     if (active) {
       if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
-      const wirePrompt = promptWithReferences(prompt, references);
+      const wirePrompt = promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references);
       const result = this.#withQueueMutation(key, async () => {
         const event = this.events.publish(
           project.id,
           "prompt.queued",
-          { prompt, references, ...(images.length ? { images } : {}) },
+          { prompt, ...(mentions.length ? { mentions } : {}), references, ...(images.length ? { images } : {}) },
           { conversationId: conversation.summary.id, turnId },
           images.length ? { prompt, references } : undefined,
         );
-        const queued = { turnId, prompt, references, images, wirePrompt, queuedEventId: event.id };
+        const queued = { turnId, prompt, mentions, references, images, wirePrompt, queuedEventId: event.id };
         this.#pendingPrompts.set(key, [...(this.#pendingPrompts.get(key) ?? []), queued]);
         try {
           const managed = await this.#getSession(project, conversation);
@@ -475,7 +491,7 @@ export class AgentManager {
 
     this.#pendingPrompts.delete(key);
     if (mode === "planning") this.#setPlanState(project, conversation, { mode: "planning", ...(planState.plan ? { plan: planState.plan } : {}) }, false);
-    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan) };
+    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan, mentions) };
   }
 
   async reviseLast(
@@ -510,13 +526,25 @@ export class AgentManager {
       const turnId = randomUUID();
       return {
         turnId,
-        result: this.#startPrompt(project, conversation, prompt, references, previous.images, turnId, "last-turn"),
+        result: this.#startPrompt(
+          project,
+          conversation,
+          prompt,
+          references,
+          previous.images,
+          turnId,
+          "last-turn",
+          "normal",
+          undefined,
+          previous.mentions.filter((mention) => hasPluginMentionToken(prompt, mention)),
+        ),
       };
     } catch (cause) {
       if (navigated && !this.#activeTurns.has(key)) this.#forgetConversation(key);
       throw cause;
     } finally {
       this.#revisions.delete(key);
+      this.#flushInvalidatedProject(project.id);
     }
   }
 
@@ -530,6 +558,7 @@ export class AgentManager {
     revision?: "last-turn",
     mode: PlanMode = "normal",
     plan?: PlanState,
+    mentions: PluginMention[] = [],
   ): Promise<AgentRunResult> {
 
     const active: ActiveTurn = {
@@ -538,6 +567,7 @@ export class AgentManager {
       conversationId: conversation.summary.id,
       turnId,
       prompt,
+      mentions,
       images,
       mode,
       conversation,
@@ -556,17 +586,19 @@ export class AgentManager {
     const started = this.events.publish(
       project.id,
       "agent.started",
-      { prompt, ...(images.length ? { images } : {}), ...(revision ? { revision } : {}) },
+      { prompt, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(revision ? { revision } : {}) },
       eventScope(active),
       images.length ? { prompt, ...(revision ? { revision } : {}) } : undefined,
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
+    const mentionedPrompt = serializePluginMentions(prompt, mentions);
+    const invocation = mode === "normal" ? skillInvocationPrompt(mentionedPrompt) : mentionedPrompt;
     const wirePrompt = mode === "planning"
-      ? planningPrompt(promptWithReferences(prompt, references))
+      ? planningPrompt(promptWithReferences(invocation, references))
       : mode === "executing"
-        ? executionPrompt(promptWithReferences(prompt, references), active.plan)
-        : promptWithReferences(prompt, references);
+        ? executionPrompt(promptWithReferences(invocation, references), active.plan)
+        : promptWithReferences(invocation, references);
     const execution = this.#runPrompt(project, conversation, wirePrompt, images, active);
     let run: Promise<AgentRunResult>;
     run = execution.then(
@@ -604,7 +636,7 @@ export class AgentManager {
         return "cancelled";
       }
 
-      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(active.mode, managed.session) ?? BASE_TOOL_NAMES);
+      managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(project, active.mode, managed.session) ?? BASE_TOOL_NAMES);
       if (images.length) {
         await managed.session.prompt(prompt, { images: images.map(toPiImage) });
       } else {
@@ -744,8 +776,8 @@ export class AgentManager {
   }
 
   pendingPrompts(projectId: string, conversationId: string): PendingPrompt[] {
-    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, references, images }) => ({
-      turnId, prompt, references, images,
+    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, mentions, references, images }) => ({
+      turnId, prompt, mentions, references, images,
     }));
   }
 
@@ -836,6 +868,7 @@ export class AgentManager {
       turnId: active.turnId,
       type: "userMessage",
       text: active.prompt,
+      ...(active.mentions.length ? { mentions: active.mentions } : {}),
       ...(active.images.length ? { images: active.images } : {}),
       ...(active.startedAt === undefined ? {} : { timestamp: active.startedAt }),
     }, ...active.items.values()];
@@ -915,6 +948,7 @@ export class AgentManager {
           : { mode: "awaiting_approval", ...(active.plan ? { plan: active.plan } : {}) });
       }
       if (result === "completed" && !this.#closing) this.options.onRunCompleted?.(project);
+      this.#flushInvalidatedProject(projectId);
     });
   }
 
@@ -927,6 +961,7 @@ export class AgentManager {
       this.#activeTurns.delete(key);
       this.#setState(project.id, active.conversationId, error ? { status: "error", error } : { status: "idle" });
       this.events.publish(project.id, error ? "agent.error" : "agent.completed", error ? { error } : {}, eventScope(active));
+      this.#flushInvalidatedProject(project.id);
     }
   }
 
@@ -945,11 +980,14 @@ export class AgentManager {
     if (loading) return loading;
     const promise = this.#loadSession(project, conversation);
     this.#sessionLoads.set(key, promise);
+    let managed: ManagedSession;
     try {
-      return await promise;
+      managed = await promise;
     } finally {
       if (this.#sessionLoads.get(key) === promise) this.#sessionLoads.delete(key);
+      this.#flushInvalidatedProject(project.id);
     }
+    return this.#sessions.get(key) === managed ? managed : this.#getSession(project, conversation);
   }
 
   async #loadSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
@@ -993,6 +1031,7 @@ export class AgentManager {
       this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
       active.turnId = started.turnId;
       active.prompt = started.prompt;
+      active.mentions = started.mentions;
       active.images = started.images;
       active.assistantItemIds.clear();
       active.completedAssistantIndexes.clear();
@@ -1007,7 +1046,7 @@ export class AgentManager {
       const startedEvent = this.events.publish(
         projectId,
         "agent.started",
-        { prompt: started.prompt, ...(started.images.length ? { images: started.images } : {}) },
+        { prompt: started.prompt, ...(started.mentions.length ? { mentions: started.mentions } : {}), ...(started.images.length ? { images: started.images } : {}) },
         eventScope(active),
         started.images.length ? { prompt: started.prompt } : undefined,
       );
@@ -1323,7 +1362,13 @@ export class AgentManager {
     return [...this.#activeTurns.keys(), ...this.#revisions].some((key) => key.startsWith(prefix));
   }
 
+  invalidateProjectSessions(projectId: string): void {
+    this.#invalidatedProjects.add(projectId);
+    this.#flushInvalidatedProject(projectId);
+  }
+
   forgetProject(projectId: string): void {
+    this.#invalidatedProjects.delete(projectId);
     const prefix = `${projectId}:`;
     for (const key of this.#sessions.keys()) {
       if (key.startsWith(prefix)) this.#forgetConversation(key);
@@ -1333,6 +1378,15 @@ export class AgentManager {
     }
     for (const key of this.#planStates.keys()) {
       if (key.startsWith(prefix)) this.#planStates.delete(key);
+    }
+  }
+
+  #flushInvalidatedProject(projectId: string): void {
+    const prefix = `${projectId}:`;
+    if (!this.#invalidatedProjects.has(projectId) || this.isProjectBusy(projectId) || [...this.#sessionLoads.keys()].some((key) => key.startsWith(prefix))) return;
+    this.#invalidatedProjects.delete(projectId);
+    for (const key of this.#sessions.keys()) {
+      if (key.startsWith(prefix)) this.#forgetConversation(key);
     }
   }
 
@@ -1352,27 +1406,39 @@ function promptWithReferences(prompt: string, references: PromptReference[]): st
   return `${prompt}\n\n${REFERENCE_MARKER}\n${JSON.stringify(references.map(({ path }) => path))}\n</workspace-file-references>`;
 }
 
-function parseUserPrompt(value: string): { text: string; references: PromptReference[] } {
+export function skillInvocationPrompt(prompt: string): string {
+  const match = prompt.match(/^\$([a-zA-Z0-9][a-zA-Z0-9._-]*)(?=\s|$)/);
+  return match ? `/skill:${match[1]}${prompt.slice(match[0].length)}` : prompt;
+}
+
+function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[] } {
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = value.lastIndexOf(marker);
-  if (index < 0) return { text: value, references: [] };
+  const visible = index < 0 ? value : value.slice(0, index);
+  const skill = parseSkillBlock(visible);
+  const restored = skill ? `$${skill.name}${skill.userMessage ? ` ${skill.userMessage}` : ""}` : visible;
+  const parsed = parsePluginMentions(restored);
+  const text = parsed.text;
+  if (index < 0) return { text, mentions: parsed.mentions, references: [] };
   const closing = "\n</workspace-file-references>";
   const encoded = value.slice(index + marker.length, value.endsWith(closing) ? -closing.length : undefined);
   try {
     const paths: unknown = JSON.parse(encoded);
     return {
-      text: value.slice(0, index),
+      text,
+      mentions: parsed.mentions,
       references: Array.isArray(paths)
         ? paths.filter((item): item is string => typeof item === "string").map((path) => ({ type: "workspace-file", path }))
         : [],
     };
   } catch {
-    return { text: value.slice(0, index), references: [] };
+    return { text, mentions: parsed.mentions, references: [] };
   }
 }
 
 function lastUserPrompt(workspacePath: string, sessionPath: string): {
   id: string;
+  mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
 } | undefined {
@@ -1381,9 +1447,11 @@ function lastUserPrompt(workspacePath: string, sessionPath: string): {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry.type !== "message" || entry.message.role !== "user") continue;
+    const parsed = parseUserPrompt(textContent(entry.message.content));
     return {
       id: entry.id,
-      references: parseUserPrompt(textContent(entry.message.content)).references,
+      mentions: parsed.mentions,
+      references: parsed.references,
       images: imageContent(entry.message.content),
     };
   }
@@ -1767,28 +1835,10 @@ export async function createPiSession(
   modelRuntime?: ModelRuntime,
   model?: RuntimeModel,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
+  resolvePluginSkillPaths?: () => Promise<string[]>,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  await ensureOpenGamePiEnvironment(agentDir);
-  const persistedSettings = SettingsManager.create(workspacePath, agentDir);
-  const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
-  sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
-  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: workspacePath,
-    agentDir,
-    settingsManager: sessionSettings,
-    appendSystemPrompt: [
-      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
-      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
-      "Do not leave a long-running development server active; the host starts the preview after your turn.",
-      "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
-      "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
-      "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +
-      "Update it when a meaningful step starts or completes. Do not use update_plan for simple one-step requests.",
-    ],
-  });
-  await resourceLoader.reload();
+  const { resourceLoader, sessionSettings } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkillPaths);
   const { session } = await createAgentSession({
     cwd: workspacePath,
     agentDir,
@@ -1800,7 +1850,47 @@ export async function createPiSession(
     settingsManager: sessionSettings,
   });
   await session.bindExtensions({ mode: "rpc" });
-  return session;
+  return Object.assign(session, {
+    getSkills: () => resourceLoader.getSkills().skills.map(({ name, description }) => ({ name, description })),
+  });
+}
+
+export async function loadPiSkills(
+  workspacePath: string,
+  agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
+  resolvePluginSkillPaths?: () => Promise<string[]>,
+): Promise<Array<{ name: string; description: string }>> {
+  const { resourceLoader } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkillPaths);
+  return resourceLoader.getSkills().skills.map(({ name, description }) => ({ name, description }));
+}
+
+async function createPiResourceLoader(
+  workspacePath: string,
+  agentDir: string,
+  resolvePluginSkillPaths?: () => Promise<string[]>,
+): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager }> {
+  await ensureOpenGamePiEnvironment(agentDir);
+  const persistedSettings = SettingsManager.create(workspacePath, agentDir);
+  const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
+  sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
+  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: workspacePath,
+    agentDir,
+    settingsManager: sessionSettings,
+    additionalSkillPaths: await resolvePluginSkillPaths?.(),
+    appendSystemPrompt: [
+      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
+      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
+      "Do not leave a long-running development server active; the host starts the preview after your turn.",
+      "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
+      "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
+      "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +
+      "Update it when a meaningful step starts or completes. Do not use update_plan for simple one-step requests.",
+    ],
+  });
+  await resourceLoader.reload();
+  return { resourceLoader, sessionSettings };
 }
 
 export function lastAssistantError(messages: readonly unknown[]): string | undefined {

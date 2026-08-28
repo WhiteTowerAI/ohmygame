@@ -1,6 +1,6 @@
 import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, PendingPrompt, PlanMode, PlanState, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
@@ -9,6 +9,8 @@ import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import type { ChatReference } from "./chat-reference.js";
+import { ComposerMentionMenu } from "./composer-mention-menu.js";
+import { activePluginMentions, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 
 interface ComposerProps {
   conversationReady: boolean;
@@ -22,8 +24,11 @@ interface ComposerProps {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   modelChanging: boolean;
-  promptHistory: string[];
-  onSubmit: (prompt: string, images: PromptImage[], mode: PromptMode) => Promise<boolean>;
+  promptHistory: Array<{ prompt: string; mentions: PluginMention[] }>;
+  capabilities: ConversationCapabilities;
+  initialDraft?: string;
+  onInitialDraftHandled?: () => void;
+  onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
   onContextUsage: () => Promise<number | undefined>;
   onCancelPlan: () => Promise<boolean>;
@@ -49,6 +54,9 @@ export function Composer({
   reasoningLevel,
   modelChanging,
   promptHistory,
+  capabilities,
+  initialDraft,
+  onInitialDraftHandled,
   onSubmit,
   onCompact,
   onContextUsage,
@@ -61,22 +69,51 @@ export function Composer({
   reference,
   onClearReference,
 }: ComposerProps) {
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialDraft ?? "");
+  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
-  const [history, setHistory] = useState(() => createPromptHistory(promptHistory));
+  const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
+  const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
   const [planning, setPlanning] = useState(planMode === "planning");
   const [selectedCommand, setSelectedCommand] = useState<"plan" | "compact">("plan");
   const [contextPercent, setContextPercent] = useState<number>();
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [selectedMention, setSelectedMention] = useState(0);
+  const [dismissedMention, setDismissedMention] = useState<string>();
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const candidateMention = mentionQuery(prompt, mentionCursor);
+  const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
+  const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
+  const mentions = activeMention ? matchingMentions(
+    planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
+    activeMention,
+  ).slice(0, 8) : [];
+
+  useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
+  useEffect(() => {
+    if (!initialDraft) return;
+    setMentionCursor(initialDraft.length);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(initialDraft.length, initialDraft.length);
+    });
+    onInitialDraftHandled?.();
+  }, []);
+  useEffect(() => {
+    if (!mentionKey) setDismissedMention(undefined);
+  }, [mentionKey]);
 
   async function submit() {
     const value = prompt.trim();
     if (!conversationReady || (!value && images.length === 0) || stopping) return;
-    const submitted = await onSubmit(value, promptImages(images), planning ? "planning" : "normal");
+    const submitted = await onSubmit(value, activePluginMentions(value, pluginMentions), promptImages(images), planning ? "planning" : "normal");
     if (submitted) {
       setHistory((current) => recordPrompt(current, value));
+      setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
       setPrompt("");
+      setPluginMentions([]);
+      setMentionCursor(0);
       setImages([]);
       setAttachmentError(undefined);
       textarea.current?.focus();
@@ -88,6 +125,8 @@ export function Composer({
     if (!result) return;
     setHistory(result.history);
     setPrompt(result.prompt);
+    setPluginMentions(mentionHistory.get(result.prompt) ?? []);
+    setMentionCursor(result.prompt.length);
     requestAnimationFrame(() => {
       const end = result.prompt.length;
       textarea.current?.setSelectionRange(end, end);
@@ -96,9 +135,29 @@ export function Composer({
 
   function changePrompt(value: string) {
     setPrompt(value);
+    setPluginMentions((current) => activePluginMentions(value, current));
     setHistory((current) => current.index === current.entries.length
       ? current
       : { ...current, index: current.entries.length, draft: value });
+  }
+
+  function selectMention(mention: ComposerMention) {
+    if (!activeMention) return;
+    const inserted = insertMention(prompt, activeMention, mention);
+    changePrompt(inserted.value);
+    if (mention.type === "plugin") {
+      const selected = toPluginMention(mention.value);
+      setPluginMentions((current) => [
+        ...current.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
+        selected,
+      ]);
+    }
+    setMentionCursor(inserted.cursor);
+    setSelectedMention(0);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(inserted.cursor, inserted.cursor);
+    });
   }
 
   const showStop = running && !prompt.trim() && images.length === 0;
@@ -138,6 +197,8 @@ export function Composer({
     if (planning && planMode === "planning" && !await onCancelPlan()) return;
     setPlanning((value) => !value);
     setPrompt("");
+    setPluginMentions([]);
+    setMentionCursor(0);
     textarea.current?.focus();
   }
 
@@ -156,11 +217,31 @@ export function Composer({
 
   async function runCompact(instructions?: string) {
     setPrompt("");
+    setMentionCursor(0);
     textarea.current?.focus();
     await onCompact(instructions);
   }
 
   function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    setMentionCursor(event.currentTarget.selectionStart);
+    if (mentions.length > 0) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        setSelectedMention((current) => (current + offset + mentions.length) % mentions.length);
+        return true;
+      }
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+        event.preventDefault();
+        selectMention(mentions[selectedMention] ?? mentions[0]);
+        return true;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedMention(mentionKey);
+        return true;
+      }
+    }
     if (!showPlanCommand && !showCompactCommand) return false;
     const commands: Array<"plan" | "compact"> = [
       ...(showPlanCommand ? ["plan" as const] : []),
@@ -244,7 +325,9 @@ export function Composer({
         onHistoryNext={() => browseHistory("next")}
         onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={submitOrRunCommand}
-        overlay={showPlanCommand || showCompactCommand ? (
+        overlay={mentions.length ? (
+          <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />
+        ) : showPlanCommand || showCompactCommand ? (
           <PlanCommandMenu
             planning={planning}
             onToggle={() => { void togglePlanning(); }}
@@ -260,6 +343,7 @@ export function Composer({
         ) : null}
         placeholder={awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
         textareaRef={textarea}
+        onSelectionChange={setMentionCursor}
         value={prompt}
         variant="project"
       />

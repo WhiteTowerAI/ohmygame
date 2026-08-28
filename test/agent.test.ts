@@ -3,7 +3,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AgentManager, conversationItems, lastAssistantError, type CodingSession } from "../src/daemon/agent.js";
+import { AgentManager, conversationItems, lastAssistantError, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -21,7 +21,41 @@ describe("lastAssistantError", () => {
   });
 });
 
+describe("skillInvocationPrompt", () => {
+  it("maps the Composer syntax to Pi's native skill command", () => {
+    expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
+    expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+  });
+});
+
 describe("conversationItems", () => {
+  it("restores Plugin references as natural Composer mentions", () => {
+    const items = conversationItems([
+      sessionMessage("user", {
+        role: "user",
+        content: "Use [@Godot](plugin://godot@opengame) to inspect the scene",
+        timestamp: 1,
+      }),
+    ] as never, false);
+
+    expect(items[0]).toMatchObject({
+      type: "userMessage",
+      text: "Use @Godot to inspect the scene",
+      mentions: [{ name: "godot", displayName: "Godot", marketplaceId: "opengame" }],
+    });
+  });
+
+  it("restores an expanded Pi skill invocation as Composer syntax", () => {
+    const items = conversationItems([
+      sessionMessage("user", {
+        role: "user",
+        content: "<skill name=\"review\" location=\"/skills/review/SKILL.md\">\nReferences are relative to /skills/review.\n\nReview carefully.\n</skill>\n\ncheck this change",
+        timestamp: 1,
+      }),
+    ] as never, false);
+    expect(items[0]).toMatchObject({ type: "userMessage", text: "$review check this change" });
+  });
+
   it("restores a completed questionnaire as a user input request item", () => {
     const items = conversationItems([
       sessionMessage("user", { role: "user", content: "Plan", timestamp: 1 }),
@@ -990,6 +1024,36 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("uses the active session skills instead of reloading project resources", async () => {
+    const session = new FakeSession();
+    session.getSkills.mockReturnValue([{ name: "active", description: "Active session skill" }]);
+    const loadSkills = vi.fn(async () => [{ name: "latest", description: "Latest project skill" }]);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, loadSkills });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Start").result;
+
+    await expect(manager.skills(project, conversation)).resolves.toEqual([{ name: "active", description: "Active session skill" }]);
+    expect(loadSkills).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
+  it("loads skills without starting a model session", async () => {
+    const createSession = vi.fn(async () => { throw new Error("Model unavailable"); });
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession,
+      loadSkills: async () => [{ name: "review", description: "Review changes" }],
+    });
+    const project = createProject();
+
+    await expect(manager.skills(project, createConversation(project))).resolves.toEqual([
+      { name: "review", description: "Review changes" },
+    ]);
+    expect(createSession).not.toHaveBeenCalled();
+    await manager.close();
+  });
+
   it("keeps a cached session for each conversation", async () => {
     const firstSession = new FakeSession();
     const secondSession = new FakeSession();
@@ -1008,6 +1072,66 @@ describe("AgentManager", () => {
     await manager.close();
     expect(firstSession.dispose).toHaveBeenCalledOnce();
     expect(secondSession.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("invalidates idle project sessions immediately", async () => {
+    const firstSession = new FakeSession();
+    const secondSession = new FakeSession();
+    const createSession = vi.fn().mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "First").result;
+    manager.invalidateProjectSessions(project.id);
+
+    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    await manager.prompt(project, conversation, "Second").result;
+    expect(createSession).toHaveBeenCalledTimes(2);
+    await manager.close();
+  });
+
+  it("defers project session invalidation until the active run finishes", async () => {
+    const firstSession = new FakeSession();
+    const secondSession = new FakeSession();
+    const pending = deferred<void>();
+    firstSession.prompt.mockImplementation(() => pending.promise);
+    const createSession = vi.fn().mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const run = manager.prompt(project, conversation, "First").result;
+    await vi.waitFor(() => expect(firstSession.prompt).toHaveBeenCalled());
+    manager.invalidateProjectSessions(project.id);
+    expect(firstSession.dispose).not.toHaveBeenCalled();
+
+    pending.resolve();
+    await run;
+    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    await manager.prompt(project, conversation, "Second").result;
+    expect(createSession).toHaveBeenCalledTimes(2);
+    await manager.close();
+  });
+
+  it("reloads a session invalidated while it is loading", async () => {
+    const firstSession = new FakeSession();
+    const secondSession = new FakeSession();
+    const pending = deferred<CodingSession>();
+    const createSession = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValueOnce(secondSession);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const skills = manager.skills(project, conversation);
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+    manager.invalidateProjectSessions(project.id);
+    pending.resolve(firstSession);
+
+    await expect(skills).resolves.toEqual([]);
+    expect(firstSession.dispose).toHaveBeenCalledOnce();
+    expect(createSession).toHaveBeenCalledTimes(2);
+    await manager.close();
   });
 
   it("updates cached session tools without recreating the session", async () => {
@@ -1039,7 +1163,7 @@ describe("AgentManager", () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, {
       createSession: async () => session,
-      activeToolNames: (mode) => mode === "planning" ? ["read", "update_plan"] : ["read", "write", "edit", "bash", "update_plan"],
+      activeToolNames: (_project, mode) => mode === "planning" ? ["read", "update_plan"] : ["read", "write", "edit", "bash", "update_plan"],
     });
     const project = createProject();
     const conversation = createConversation(project);
@@ -1222,6 +1346,7 @@ class FakeSession implements CodingSession {
   navigateTree = vi.fn<NonNullable<CodingSession["navigateTree"]>>(async () => ({ cancelled: false }));
   compact = vi.fn<NonNullable<CodingSession["compact"]>>(async () => {});
   getContextUsage = vi.fn<NonNullable<CodingSession["getContextUsage"]>>(() => undefined);
+  getSkills = vi.fn<NonNullable<CodingSession["getSkills"]>>(() => []);
   abort = vi.fn<() => Promise<void>>(async () => {});
   dispose = vi.fn<() => void>();
   setModel = vi.fn<NonNullable<CodingSession["setModel"]>>(async () => {});

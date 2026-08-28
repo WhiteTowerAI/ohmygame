@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteProject, duplicateProject, getConversation, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getToolSettings, getWorkspaceAsset, getWorkspaceFile, listModels, listProjects, listTools, listWorkspaceFiles, publishProject, refinePlan, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updateToolSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, refinePlan, removeLocalPlugin, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -101,6 +101,38 @@ describe("renderer event stream", () => {
 });
 
 describe("renderer project API", () => {
+  it("lists and reads plugins through the unified API", async () => {
+    installWindow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ plugins: [], errors: [] }))
+      .mockResolvedValueOnce(Response.json({ id: "opengame:godot" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listPlugins();
+    await readPlugin("opengame:godot");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/opengame%3Agodot", expect.objectContaining({ headers: {} }));
+  });
+
+  it("updates settings and removes personal plugins through the unified API", async () => {
+    installWindow();
+    const plugin = { id: "local:character-writer" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(plugin))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updatePluginSettings(plugin.id, { enabled: false, components: {} });
+    await removeLocalPlugin(plugin.id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/local%3Acharacter-writer/settings", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ enabled: false, components: {} }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/local%3Acharacter-writer", expect.objectContaining({ method: "DELETE" }));
+  });
+
   it("passes the current user token only in the publish request body", async () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ deployment: {}, game: {} }));
@@ -229,6 +261,19 @@ describe("renderer project API", () => {
     }));
   });
 
+  it("sends structured Plugin mentions with the visible prompt", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ queued: false, turnId: "turn-1" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+
+    await sendPrompt("project-1", "conversation-1", "Use @Godot", [], [], "normal", [mention]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+      body: JSON.stringify({ prompt: "Use @Godot", mentions: [mention] }),
+    }));
+  });
+
   it("compacts a conversation and reads Pi context usage", async () => {
     installWindow();
     const usage = { tokens: 74_000, contextWindow: 100_000, percent: 74 };
@@ -307,6 +352,20 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/queue/turn-2", expect.objectContaining({
       method: "DELETE",
     }));
+  });
+
+  it("loads Composer capabilities for a conversation", async () => {
+    installWindow();
+    const fetchMock = vi.fn(async () => Response.json({ plugins: [], skills: [{ name: "review", description: "Review changes" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getConversationCapabilities("project-1", "conversation-1")).resolves.toEqual({
+      plugins: [],
+      skills: [{ name: "review", description: "Review changes" }],
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/projects/project-1/conversations/conversation-1/capabilities",
+      expect.any(Object),
+    );
   });
 
   it("steers queued messages", async () => {
@@ -459,23 +518,6 @@ describe("renderer tools API", () => {
     }));
   });
 
-  it("loads and updates agent tool settings", async () => {
-    installWindow();
-    const disabled = { installedTools: [], enabledTools: [] };
-    const enabled = { installedTools: ["generate-image"], enabledTools: ["generate-image"] };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(disabled))
-      .mockResolvedValueOnce(Response.json(enabled));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getToolSettings()).resolves.toEqual(disabled);
-    await expect(updateToolSettings(enabled as never)).resolves.toEqual(enabled);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tool-settings", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-settings", expect.objectContaining({
-      method: "PUT",
-      body: JSON.stringify(enabled),
-    }));
-  });
 });
 
 function installWindow(): void {

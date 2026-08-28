@@ -1,7 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
+import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlanState, ProjectState, QuestionnaireResult, ToolDefinition, ToolSettings } from "../shared/contracts.js";
+import type { PlanState, ProjectState, QuestionnaireResult, ToolDefinition } from "../shared/contracts.js";
+import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -11,12 +13,12 @@ const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
 };
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "update_plan", "questionnaire"]);
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "update_plan", "questionnaire", "install_plugin"]);
 
-export function activePiToolNames(settings: ToolSettings, registeredToolNames: readonly string[] = []): string[] {
+export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][], registeredToolNames: readonly string[] = []): string[] {
   const openGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !openGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "update_plan", ...settings.enabledTools.map((id) => PI_TOOL_NAMES[id])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
 }
 
 export function planningPiToolNames(): string[] {
@@ -36,11 +38,14 @@ export type AskQuestionnaire = (
   signal?: AbortSignal,
 ) => Promise<QuestionnaireResult>;
 
+export type InstallPlugin = (sourcePath: string) => Promise<PluginDetail>;
+
 export function createAgentTools(
   project: ProjectState,
   tools: ToolRunner,
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
+  installPlugin?: InstallPlugin,
 ): PiToolDefinition[] {
   return [defineTool({
     name: "questionnaire",
@@ -68,6 +73,35 @@ export function createAgentTools(
       return {
         content: [{ type: "text", text: result.answers.map((answer) => `${answer.questionId}: ${answer.label}`).join("\n") }],
         details: result,
+      };
+    },
+  }), defineTool({
+    name: "install_plugin",
+    label: "Install Plugin",
+    description: "Validate and install an OpenGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
+    parameters: Type.Object({
+      path: Type.String({ minLength: 1, description: "Plugin directory relative to the current workspace" }),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      if (!installPlugin) throw new Error("Plugin installation is not available");
+      signal?.throwIfAborted();
+      const [workspacePath, sourcePath] = await Promise.all([
+        realpath(project.workspacePath),
+        realpath(path.resolve(project.workspacePath, input.path)),
+      ]);
+      const relative = path.relative(workspacePath, sourcePath);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error("Plugin directory must be inside the current workspace");
+      }
+      const plugin = await installPlugin(sourcePath);
+      const counts = [
+        plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
+        plugin.tools.length ? `${plugin.tools.length} Tool${plugin.tools.length === 1 ? "" : "s"}` : undefined,
+        plugin.connections.length ? `${plugin.connections.length} Connection${plugin.connections.length === 1 ? "" : "s"}` : undefined,
+      ].filter(Boolean).join(" · ") || "No components";
+      return {
+        content: [{ type: "text", text: `Created and installed ${plugin.displayName}.\n${counts}\nSource: ${sourcePath}` }],
+        details: { plugin: { id: plugin.id, displayName: plugin.displayName, sourcePath } },
       };
     },
   }), defineTool({

@@ -9,10 +9,12 @@ import { ProjectShell } from "./project-shell.js";
 import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { AssetStudioPage } from "./asset-studio.js";
 import type { PromptImage, PromptMode } from "../shared/contracts.js";
+import { createPluginAuthoringSession } from "./api.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
   const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[]; mode: PromptMode }>();
+  const [initialDraft, setInitialDraft] = useState<{ conversationId: string; prompt: string }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -29,7 +31,7 @@ export function App() {
   }
   if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
-  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} />;
+  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <ProjectsPage workspace="interactive-drama" onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
@@ -42,7 +44,9 @@ export function App() {
       projectId={route.projectId}
       conversationId={route.conversationId}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
+      initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.prompt : undefined}
       onInitialPromptHandled={clearInitialPrompt}
+      onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
       onHome={goHome}
     />
@@ -55,7 +59,15 @@ export function App() {
 
   function openProject(projectId: string): void {
     setInitialPrompt(undefined);
+    setInitialDraft(undefined);
     navigateToProject(projectId);
+  }
+
+  async function addPlugin(): Promise<void> {
+    const session = await createPluginAuthoringSession();
+    setInitialPrompt(undefined);
+    setInitialDraft({ conversationId: session.conversationId, prompt: "$plugin-creator Create an OpenGame plugin that " });
+    navigateToConversation(session.projectId, session.conversationId);
   }
 
   function clearInitialPrompt(): void {

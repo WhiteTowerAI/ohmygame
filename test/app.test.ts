@@ -158,6 +158,65 @@ describe("daemon", () => {
     expect(rejected.json()).toEqual({ error: "File not found" });
   });
 
+  it("validates Plugin mentions and sends Codex references to Pi", async () => {
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-mention-api-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Use @Godot", mentions: [mention] },
+    });
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@opengame)"));
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Use @Missing", mentions: [{ name: "missing", displayName: "Missing", marketplaceId: "opengame" }] },
+    });
+
+    expect(accepted.statusCode).toBe(202);
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toEqual({ error: "Plugin Missing is not installed" });
+  });
+
+  it("returns the skills loaded by the current conversation session", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-capabilities-api-")),
+      createSession: async () => ({
+        messages: [],
+        prompt: async () => {},
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        getSkills: () => [{ name: "review", description: "Review changes" }],
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${conversation.id}/capabilities`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
+  });
+
   it("accepts an image without text and passes it to Pi", async () => {
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({

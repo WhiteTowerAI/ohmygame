@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest";
+import { activePluginMentions, insertMention, matchingMentions, mentionQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
+import type { ConversationCapabilities } from "../src/shared/contracts.js";
+
+const capabilities: ConversationCapabilities = {
+  plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "opengame" }],
+  skills: [{ name: "review", description: "Review a change" }],
+};
+
+describe("composer mentions", () => {
+  it("finds a mention at the cursor without matching email-like text", () => {
+    expect(mentionQuery("Use @image", 10)).toEqual({ start: 4, end: 10, trigger: "@", query: "image" });
+    expect(mentionQuery("mail@example", 12)).toBeUndefined();
+    expect(mentionQuery("Use $review", 11)).toBeUndefined();
+  });
+
+  it("filters plugins and skills by their user-facing metadata", () => {
+    const pluginQuery = mentionQuery("@generation", 11)!;
+    const skillQuery = mentionQuery("$rev", 4)!;
+    expect(matchingMentions(capabilities, pluginQuery)).toMatchObject([{ type: "plugin", value: { name: "image-generation" } }]);
+    expect(matchingMentions(capabilities, skillQuery)).toMatchObject([{ type: "skill", value: { name: "review" } }]);
+  });
+
+  it("inserts a stable plugin or skill token and preserves surrounding text", () => {
+    const query = mentionQuery("Use @im now", 7)!;
+    expect(insertMention("Use @im now", query, { type: "plugin", value: capabilities.plugins[0] })).toEqual({
+      value: "Use @Image Generation now",
+      cursor: 21,
+    });
+    const scoped = { ...capabilities.plugins[0], name: "@scope/plugin", displayName: "Scoped Plugin" };
+    expect(insertMention("@s", mentionQuery("@s", 2)!, { type: "plugin", value: scoped }).value).toBe("@Scoped Plugin ");
+  });
+
+  it("keeps only menu-selected plugins that remain in the prompt", () => {
+    const mention = toPluginMention(capabilities.plugins[0]);
+    expect(activePluginMentions("Use @Image Generation", [mention])).toEqual([mention]);
+    expect(activePluginMentions("Use images", [mention])).toEqual([]);
+  });
+});

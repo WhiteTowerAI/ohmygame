@@ -275,37 +275,6 @@ describe("tool runner", () => {
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
-  it("persists the tools enabled for the agent", async () => {
-    const dataDirectory = await temporaryData();
-    const app = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
-    apps.push(app);
-
-    expect((await app.inject({ method: "GET", url: "/tool-settings" })).json()).toEqual({ installedTools: [], enabledTools: [] });
-    const update = await app.inject({
-      method: "PUT",
-      url: "/tool-settings",
-      payload: { installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] },
-    });
-    expect(update.statusCode).toBe(200);
-    expect(update.json()).toEqual({ installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] });
-    expect((await app.inject({
-      method: "PUT",
-      url: "/tool-settings",
-      payload: { installedTools: ["missing"], enabledTools: [] },
-    })).statusCode).toBe(400);
-    expect((await app.inject({
-      method: "PUT",
-      url: "/tool-settings",
-      payload: { installedTools: [], enabledTools: ["generate-image"] },
-    })).statusCode).toBe(400);
-
-    await app.close();
-    apps.splice(apps.indexOf(app), 1);
-    const restarted = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
-    apps.push(restarted);
-    expect((await restarted.inject({ method: "GET", url: "/tool-settings" })).json())
-      .toEqual({ installedTools: ["generate-image", "image-to-3d"], enabledTools: ["generate-image", "image-to-3d"] });
-  });
 });
 
 function temporaryData(): Promise<string> {

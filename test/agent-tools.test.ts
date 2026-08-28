@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,20 +11,53 @@ import type { VideoGenerator } from "../src/daemon/minimax-video.js";
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
     expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
-    expect(activePiToolNames({ installedTools: [], enabledTools: [] })).toEqual(["read", "write", "edit", "bash", "update_plan"]);
-    expect(activePiToolNames({ installedTools: ["generate-image"], enabledTools: ["generate-image"] })).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "generate_image",
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+    expect(activePiToolNames(["generate-image"])).toEqual([
+      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image",
     ]);
-    expect(activePiToolNames({ installedTools: ["image-to-3d"], enabledTools: ["image-to-3d"] })).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "generate_3d_asset",
+    expect(activePiToolNames(["image-to-3d"])).toEqual([
+      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
-    expect(activePiToolNames({ installedTools: ["generate-video"], enabledTools: ["generate-video"] })).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "generate_video",
+    expect(activePiToolNames(["generate-video"])).toEqual([
+      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(
-      { installedTools: [], enabledTools: [] },
+      [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan"]);
+    )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+  });
+
+  it("installs a plugin only from inside the current workspace", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Plugin Creator");
+    const pluginDirectory = path.join(project.workspacePath, "character-workflow");
+    const outsideDirectory = path.join(path.dirname(project.workspacePath), "outside");
+    await Promise.all([mkdir(pluginDirectory), mkdir(outsideDirectory)]);
+    await symlink(outsideDirectory, path.join(project.workspacePath, "linked-plugin"));
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    let installedPath = "";
+    const plugin = {
+      id: "local:character-workflow", name: "character-workflow", displayName: "Character Workflow", description: "Characters", version: "0.1.0",
+      marketplace: { id: "personal", displayName: "Personal" }, source: { type: "local" as const }, installed: true, enabled: true,
+      skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }], tools: [], connections: [],
+    };
+    const tool = createAgentTools(project, runner, projects, undefined, async (sourcePath) => {
+      installedPath = sourcePath;
+      return plugin;
+    }).find(({ name }) => name === "install_plugin");
+    if (!tool) throw new Error("Expected install plugin tool");
+
+    const result = await tool.execute("call-plugin", { path: "character-workflow" }, undefined, undefined, {} as never);
+
+    expect(installedPath).toBe(await realpath(pluginDirectory));
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Created and installed Character Workflow") }]);
+    await expect(tool.execute("call-outside", { path: "../outside" }, undefined, undefined, {} as never))
+      .rejects.toThrow("inside the current workspace");
+    await expect(tool.execute("call-linked", { path: "linked-plugin" }, undefined, undefined, {} as never))
+      .rejects.toThrow("inside the current workspace");
   });
 
   it("generates an image into the current project workspace", async () => {

@@ -31,7 +31,11 @@ describe("desktop daemon access", () => {
   });
 
   it("allows only the configured renderer origin", async () => {
-    const app = createApp({ accessToken: "desktop-secret", allowedOrigins: ["http://127.0.0.1:43120"] });
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-access-")),
+      accessToken: "desktop-secret",
+      allowedOrigins: ["http://127.0.0.1:43120"],
+    });
     apps.push(app);
 
     const allowed = await app.inject({

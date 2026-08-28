@@ -8,6 +8,7 @@ import {
   type AgentModelRef,
   type AgentReasoningLevel,
   type ConversationAgentSettings,
+  type ConversationCapabilities,
   type ImageGenerationSettings,
   type ImageModel,
   type ModelAuthEvent,
@@ -23,16 +24,14 @@ import {
   type StoryDocument,
   type PublishProjectRequest,
   type PublishResult,
-  type PiPackageCatalog,
-  type PiPackageSummary,
   type RuntimeEvent,
   type RunToolRequest,
   type ToolDefinition,
   type ToolRun,
-  type ToolSettings,
   type UpdateImageGenerationSettings,
   type UpdateModel3DGenerationSettings,
   type PromptImage,
+  type PluginMention,
   type PromptMode,
   type PromptReference,
   type PromptResponse,
@@ -40,6 +39,7 @@ import {
   type WorkspaceFileContent,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { PluginCatalog, PluginDetail, PluginSettings } from "../shared/plugins.js";
 
 const API_BASE = "/api";
 
@@ -191,30 +191,24 @@ export async function listTools(): Promise<ToolDefinition[]> {
   return request("/tools");
 }
 
-export async function listPiPackages(query = "", page = 1, pageSize = 20): Promise<PiPackageCatalog> {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  if (query.trim()) params.set("query", query.trim());
-  return request(`/pi-packages?${params.toString()}`);
+export async function listPlugins(): Promise<PluginCatalog> {
+  return request("/plugins");
 }
 
-export async function listInstalledPiPackages(): Promise<PiPackageSummary[]> {
-  return request("/pi-packages/installed");
+export async function createPluginAuthoringSession(): Promise<{ projectId: string; conversationId: string }> {
+  return request("/plugins/authoring-session", { method: "POST" });
 }
 
-export async function installPiPackage(name: string): Promise<void> {
-  await request<void>("/pi-packages/install", { method: "POST", body: JSON.stringify({ name }) });
+export async function readPlugin(id: string): Promise<PluginDetail> {
+  return request(`/plugins/${encodeURIComponent(id)}`);
 }
 
-export async function removePiPackage(source: string): Promise<void> {
-  await request("/pi-packages", { method: "DELETE", body: JSON.stringify({ source }) });
+export async function updatePluginSettings(id: string, settings: PluginSettings): Promise<PluginDetail> {
+  return request(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) });
 }
 
-export async function getToolSettings(): Promise<ToolSettings> {
-  return request("/tool-settings");
-}
-
-export async function updateToolSettings(settings: ToolSettings): Promise<ToolSettings> {
-  return request("/tool-settings", { method: "PUT", body: JSON.stringify(settings) });
+export async function removeLocalPlugin(id: string): Promise<void> {
+  await request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest): Promise<ToolRun> {
@@ -362,10 +356,11 @@ export async function sendPrompt(
   references: PromptReference[] = [],
   images: PromptImage[] = [],
   mode: PromptMode = "normal",
+  mentions: PluginMention[] = [],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
   });
 }
 
@@ -379,6 +374,10 @@ export async function compactConversation(projectId: string, conversationId: str
 export async function getConversationContextUsage(projectId: string, conversationId: string): Promise<AgentContextUsage | undefined> {
   const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage`);
   return result.contextUsage;
+}
+
+export async function getConversationCapabilities(projectId: string, conversationId: string): Promise<ConversationCapabilities> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/capabilities`);
 }
 
 export async function approvePlan(projectId: string, conversationId: string): Promise<PromptResponse> {

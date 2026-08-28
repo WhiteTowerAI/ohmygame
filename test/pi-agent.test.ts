@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   ensureOpenGamePiEnvironment,
   isOpenGameManagedPiPackage,
+  listMcpServers,
+  setMcpServerEnabled,
   withRequiredPiPackages,
 } from "../src/daemon/pi-agent.js";
 
@@ -76,6 +78,52 @@ describe("OpenGame Pi environment", () => {
     await expect(ensureOpenGamePiEnvironment(agentDir)).rejects.toThrow("OpenGame Pi MCP config is invalid");
     expect(await readFile(path.join(agentDir, "mcp.json"), "utf8")).toBe(invalidConfig);
   });
+
+  it("disables Godot without removing its MCP definition", async () => {
+    const agentDir = await mkdtemp(path.join(tmpdir(), "open-game-pi-agent-"));
+    await ensureOpenGamePiEnvironment(agentDir);
+    await setMcpServerEnabled(agentDir, "opengame-godot", false);
+    await ensureOpenGamePiEnvironment(agentDir);
+
+    expect(JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"))).toMatchObject({
+      mcpServers: { "opengame-godot": { ...GODOT_SERVER, disabled: true } },
+    });
+
+    await setMcpServerEnabled(agentDir, "opengame-godot", true);
+    expect(JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"))).toMatchObject({
+      mcpServers: { "opengame-godot": GODOT_SERVER },
+    });
+  });
+
+  it("discovers and toggles any configured MCP server without replacing its definition", async () => {
+    const agentDir = await mkdtemp(path.join(tmpdir(), "open-game-pi-agent-"));
+    await writeFile(path.join(agentDir, "mcp.json"), `{
+  "mcpServers": {
+    "figma": {
+      // Preserve user-managed fields.
+      "url": "https://example.com/mcp",
+    },
+  },
+}\n`);
+
+    expect(await listMcpServers(agentDir)).toEqual([
+      { id: "figma", enabled: true },
+      { id: "opengame-godot", enabled: true },
+    ]);
+
+    await setMcpServerEnabled(agentDir, "figma", false);
+    const disabled = await readFile(path.join(agentDir, "mcp.json"), "utf8");
+    expect(disabled).toContain("// Preserve user-managed fields.");
+    expect(parse(disabled, [], { allowTrailingComma: true })).toMatchObject({
+      mcpServers: { figma: { url: "https://example.com/mcp", disabled: true } },
+    });
+
+    await setMcpServerEnabled(agentDir, "figma", true);
+    expect(parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"), [], { allowTrailingComma: true })).toMatchObject({
+      mcpServers: { figma: { url: "https://example.com/mcp" } },
+    });
+  });
+
 });
 
 const GODOT_SERVER = {

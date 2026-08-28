@@ -1,0 +1,157 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { LocalPluginStore } from "../src/daemon/local-plugins.js";
+
+const directories: string[] = [];
+afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+
+describe("local plugins", () => {
+  it("installs a validated copy, updates it from the same source, and removes it", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const source = path.join(root, "character-writer");
+    await writePlugin(source, {
+      name: "character-writer",
+      version: "1.0.0",
+      description: "Write game characters",
+      skills: "./skills/",
+    });
+    const store = new LocalPluginStore(dataDirectory);
+
+    const installed = await store.install(source);
+
+    expect(installed).toMatchObject({
+      id: "local:character-writer",
+      displayName: "Character Writer",
+      version: "1.0.0",
+      marketplace: { id: "personal", displayName: "Personal" },
+      source: { type: "local" },
+      installed: true,
+      enabled: true,
+      skills: [{ id: "skills/writer/SKILL.md", name: "Writer" }],
+    });
+    await writePluginManifest(source, {
+      name: "character-writer",
+      version: "1.1.0",
+      description: "Updated character workflows",
+      skills: "./skills/",
+    });
+    expect(await store.read(installed.id)).toMatchObject({ version: "1.0.0" });
+    expect(await store.install(source)).toMatchObject({ version: "1.1.0", description: "Updated character workflows" });
+
+    await store.remove(installed.id);
+    expect(await store.list()).toEqual({ plugins: [], errors: [] });
+    await expect(store.read(installed.id)).resolves.toBeUndefined();
+  });
+
+  it("rejects missing resources and paths outside the bundle", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const source = path.join(root, "broken-plugin");
+    await writePluginManifest(source, {
+      name: "broken-plugin",
+      version: "1.0.0",
+      description: "Broken plugin",
+      skills: "./missing/",
+    });
+    const store = new LocalPluginStore(dataDirectory);
+
+    await expect(store.install(source)).rejects.toThrow("Plugin resource not found: ./missing/");
+    await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+      name: "broken-plugin",
+      version: "1.0.0",
+      description: "Broken plugin",
+      skills: "./../skills/",
+    }));
+    await expect(store.install(source)).rejects.toThrow("Plugin manifest is invalid");
+  });
+
+  it("rejects versions that are not safe SemVer values", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "invalid-version");
+    await writePluginManifest(source, {
+      name: "invalid-version",
+      version: "1/2",
+      description: "Invalid version",
+    });
+
+    await expect(new LocalPluginStore(path.join(root, "data")).install(source)).rejects.toThrow("Plugin manifest is invalid");
+  });
+
+  it("requires unique display names across installed and reserved plugins", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const first = path.join(root, "first-plugin");
+    const second = path.join(root, "second-plugin");
+    const reserved = path.join(root, "reserved-plugin");
+    await writePluginManifest(first, {
+      name: "first-plugin", version: "1.0.0", description: "First", interface: { displayName: "Shared Name" },
+    });
+    await writePluginManifest(second, {
+      name: "second-plugin", version: "1.0.0", description: "Second", interface: { displayName: "shared name" },
+    });
+    await writePluginManifest(reserved, {
+      name: "reserved-plugin", version: "1.0.0", description: "Reserved", interface: { displayName: "Godot" },
+    });
+    const store = new LocalPluginStore(dataDirectory, {
+      tools: () => [],
+      connections: async () => [],
+      reservedPluginDisplayNames: () => ["Godot"],
+    });
+
+    await store.install(first);
+    await expect(store.install(second)).rejects.toThrow("Plugin display name is already in use: shared name");
+    await expect(store.install(reserved)).rejects.toThrow("Plugin display name is already in use: Godot");
+  });
+
+  it("keeps healthy plugins when one installed copy is damaged", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const first = path.join(root, "first-plugin");
+    const second = path.join(root, "second-plugin");
+    await writePluginManifest(first, { name: "first-plugin", version: "1.0.0", description: "First" });
+    await writePluginManifest(second, { name: "second-plugin", version: "1.0.0", description: "Second" });
+    const store = new LocalPluginStore(dataDirectory);
+    await Promise.all([store.install(first), store.install(second)]);
+    await rm(path.join(dataDirectory, "plugins", "personal", "first-plugin", "1.0.0", ".opengame-plugin", "plugin.json"));
+
+    const result = await store.list();
+
+    expect(result.plugins.map((plugin) => plugin.id)).toEqual(["local:second-plugin"]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("first-plugin");
+  });
+
+  it("rejects deeply nested bundles", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const store = new LocalPluginStore(dataDirectory);
+    const nested = path.join(root, "deep-plugin");
+    await writePluginManifest(nested, { name: "deep-plugin", version: "1.0.0", description: "Too deep" });
+    let directory = nested;
+    for (let index = 0; index < 66; index += 1) {
+      directory = path.join(directory, "nested");
+      await mkdir(directory);
+    }
+    await expect(store.install(nested)).rejects.toThrow("nested too deeply");
+  });
+});
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "open-game-local-plugin-"));
+  directories.push(directory);
+  return directory;
+}
+
+async function writePlugin(source: string, manifest: Record<string, unknown>): Promise<void> {
+  await writePluginManifest(source, manifest);
+  await mkdir(path.join(source, "skills", "writer"), { recursive: true });
+  await writeFile(path.join(source, "skills", "writer", "SKILL.md"), "# Writer\n", "utf8");
+}
+
+async function writePluginManifest(source: string, manifest: Record<string, unknown>): Promise<void> {
+  await mkdir(path.join(source, ".opengame-plugin"), { recursive: true });
+  await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}

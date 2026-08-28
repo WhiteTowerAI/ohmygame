@@ -190,6 +190,12 @@ export interface PromptReference {
   path: string;
 }
 
+export interface PluginMention {
+  name: string;
+  displayName: string;
+  marketplaceId: string;
+}
+
 export type PromptImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 export interface PromptImage {
@@ -200,6 +206,7 @@ export interface PromptImage {
 export interface PendingPrompt {
   turnId: string;
   prompt: string;
+  mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
 }
@@ -230,7 +237,7 @@ export interface PlanState {
 }
 
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; images?: PromptImage[] }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[] }
   | {
       id: string;
       turnId: string;
@@ -378,6 +385,7 @@ export interface ConversationAgentSettings {
 }
 export interface PromptRequest {
   prompt: string;
+  mentions?: PluginMention[];
   references?: PromptReference[];
   images?: PromptImage[];
   mode?: PromptMode;
@@ -388,6 +396,20 @@ export interface ReviseLastPromptRequest { prompt: string }
 export interface PromptResponse {
   turnId: string;
   queued: boolean;
+}
+
+export interface ConversationCapabilities {
+  plugins: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    description: string;
+    marketplaceId: string;
+  }>;
+  skills: Array<{
+    name: string;
+    description: string;
+  }>;
 }
 
 export interface WorkspaceFile {
@@ -449,29 +471,6 @@ export const VIDEO_DURATIONS = [6, 10] as const;
 
 export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition | VideoToolDefinition;
 
-export interface ToolSettings {
-  installedTools: ToolDefinition["id"][];
-  enabledTools: ToolDefinition["id"][];
-}
-
-export type PiPackageResourceType = "extension" | "skill" | "prompt" | "theme";
-export type PiPackageCompatibility = "compatible" | "not-verified" | "not-applicable";
-
-export interface PiPackageSummary {
-  name: string;
-  sourceType: "npm" | "git" | "local" | "url";
-  description?: string;
-  resourceTypes: PiPackageResourceType[];
-  compatibility: PiPackageCompatibility;
-  installed: boolean;
-  installSpec: string;
-}
-
-export interface PiPackageCatalog {
-  packages: PiPackageSummary[];
-  hasMore: boolean;
-}
-
 export interface RunImageToolRequest {
   prompt: string;
   size?: ImageSize;
@@ -522,7 +521,7 @@ export interface RuntimeEventData {
   "preview.ready": { url: string };
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
-  "agent.started": { prompt: string; images?: PromptImage[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; revision?: "last-turn" };
   "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
@@ -532,7 +531,7 @@ export interface RuntimeEventData {
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
-  "prompt.queued": { prompt: string; references: PromptReference[]; images?: PromptImage[] };
+  "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: CommunityGame };

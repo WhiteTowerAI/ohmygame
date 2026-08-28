@@ -3,13 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type ToolSettings, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, createPiSession, loadConversation, type RuntimeModel, type SessionFactory } from "./agent.js";
+import { AgentManager, createPiSession, loadConversation, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager } from "./conversations.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
@@ -26,9 +26,13 @@ import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { InvalidToolSettingsError, ToolSettingsStore } from "./tool-settings.js";
 import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
-import { PiPackageCatalogService } from "./pi-packages.js";
+import { BuiltInPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
+import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
+import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
+import { enabledComponentIds, resolvePluginSkillPaths } from "./plugin-runtime.js";
+import { listMcpServers, setMcpServerEnabled } from "./pi-agent.js";
+import { hasPluginMentionToken, type PluginSettings } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -41,7 +45,6 @@ export interface AppOptions {
   publishFetch?: typeof fetch;
   portalUrl?: string;
   portalFetch?: typeof fetch;
-  piPackageFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
@@ -89,6 +92,20 @@ const promptSchema = {
     properties: {
       prompt: { type: "string" },
       mode: { enum: ["normal", "planning"] },
+      mentions: {
+        type: "array",
+        maxItems: 20,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "displayName", "marketplaceId"],
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 200 },
+            displayName: { type: "string", minLength: 1, maxLength: 200 },
+            marketplaceId: { type: "string", minLength: 1, maxLength: 200 },
+          },
+        },
+      },
       references: {
         type: "array",
         maxItems: 20,
@@ -247,26 +264,6 @@ const addToolResultSchema = {
   },
 } as const;
 
-const toolSettingsSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["installedTools", "enabledTools"],
-    properties: {
-      installedTools: {
-        type: "array",
-        uniqueItems: true,
-        items: { type: "string", enum: ["generate-image", "image-to-3d", "generate-video"] },
-      },
-      enabledTools: {
-        type: "array",
-        uniqueItems: true,
-        items: { type: "string", enum: ["generate-image", "image-to-3d", "generate-video"] },
-      },
-    },
-  },
-} as const;
-
 const modelAuthLoginSchema = {
   body: {
     type: "object",
@@ -386,10 +383,47 @@ export function createApp(options: AppOptions = {}) {
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
-  const piPackages = new PiPackageCatalogService(options.piPackageFetch, undefined, piAgentDirectory);
-  const toolSettings = new ToolSettingsStore(dataDirectory, tools.list().map((tool) => tool.id));
+  const pluginSettings = new PluginSettingsStore(dataDirectory);
+  const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
+  const localPlugins = new LocalPluginStore(dataDirectory, {
+    tools: () => tools.list().map((tool) => tool.id),
+    connections: async () => (await mcpServers.list()).map((server) => server.id),
+    reservedPluginDisplayNames: () => builtInPlugins(tools.list()).map((plugin) => plugin.displayName),
+  });
+  const plugins = new PluginCatalogService([
+    new BuiltInPluginAdapter(() => tools.list(), async () => {
+      const godot = (await mcpServers.list()).find((server) => server.id === "opengame-godot");
+      return godot?.enabled ?? true;
+    }),
+    new LocalPluginAdapter(localPlugins),
+  ], pluginSettings);
+  const pluginDetails = () => [
+    ...builtInPlugins(tools.list()),
+    ...localPlugins.installed(),
+  ];
+  const syncPluginConnections = async (
+    details = pluginDetails(),
+    additionalManagedConnections: readonly string[] = [],
+  ) => {
+    const managedConnections = new Set([
+      ...details.flatMap((plugin) => plugin.connections.map((connection) => connection.id)),
+      ...additionalManagedConnections,
+    ]);
+    const enabledConnections = enabledComponentIds(details, pluginSettings, "connection");
+    for (const server of await mcpServers.list()) {
+      if (!managedConnections.has(server.id)) continue;
+      await setMcpServerEnabled(piAgentDirectory, server.id, enabledConnections.has(server.id));
+    }
+  };
   let agents: AgentManager;
   agents = new AgentManager(events, {
+    ...(options.createSession ? {} : {
+      loadSkills: (project) => loadPiSkills(
+        project.workspacePath,
+        piAgentDirectory,
+        () => resolvePluginSkillPaths(localPlugins, pluginSettings),
+      ),
+    }),
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
       const selected = conversations.model(project, conversation);
@@ -400,15 +434,30 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
-        createAgentTools(project, tools, projects, (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal)),
+        createAgentTools(
+          project,
+          tools,
+          projects,
+          (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal),
+          async (sourcePath) => {
+            const installed = await localPlugins.install(sourcePath);
+            await syncPluginConnections();
+            invalidatePluginSessions();
+            return await plugins.read(installed.id) ?? installed;
+          },
+        ),
         modelRuntime,
         model,
         piAgentDirectory,
+        () => resolvePluginSkillPaths(localPlugins, pluginSettings),
       );
     }),
-    activeToolNames: (mode, session) => {
+    activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return mode === "planning" ? planningPiToolNames() : activePiToolNames(toolSettings.get(), registered);
+      if (mode === "planning") return planningPiToolNames();
+      const enabled = enabledComponentIds(pluginDetails(), pluginSettings, "tool");
+      const enabledTools = tools.list().flatMap((tool) => enabled.has(tool.id) ? [tool.id] : []);
+      return activePiToolNames(enabledTools, registered);
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -417,6 +466,9 @@ export function createApp(options: AppOptions = {}) {
       });
     },
   });
+  const invalidatePluginSessions = () => {
+    for (const project of projects.all()) agents.invalidateProjectSessions(project.id);
+  };
   const app = Fastify({
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
@@ -427,7 +479,9 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), toolSettings.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    await localPlugins.list();
+    await syncPluginConnections();
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -448,64 +502,66 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  app.get("/tools", async () => tools.list());
-
-  app.get<{ Querystring: { query?: string; page?: string; pageSize?: string } }>("/pi-packages", async (request) => {
-    return piPackages.list(
-      request.query.query,
-      request.query.page ? Number(request.query.page) : 1,
-      request.query.pageSize ? Number(request.query.pageSize) : undefined,
-    );
+  app.post("/plugins/authoring-session", async (_request, reply) => {
+    const project = await projects.ensureInternalWorkspace("Plugin Creator");
+    const conversation = await conversations.create(project);
+    return reply.code(201).send({ projectId: project.id, conversationId: conversation.summary.id });
   });
 
-  app.get("/pi-packages/installed", async () => piPackages.listInstalled());
+  app.get("/plugins", async () => plugins.list());
 
-  app.post<{ Body: { name: string } }>("/pi-packages/install", {
+  app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
+    const plugin = await plugins.read(request.params.pluginId);
+    return plugin ?? reply.code(404).send({ error: "Plugin not found" });
+  });
+
+  app.put<{ Params: { pluginId: string }; Body: PluginSettings }>("/plugins/:pluginId/settings", {
     schema: {
       body: {
         type: "object",
         additionalProperties: false,
-        required: ["name"],
-        properties: { name: { type: "string", minLength: 1, maxLength: 214 } },
+        required: ["enabled", "components"],
+        properties: {
+          enabled: { type: "boolean" },
+          components: { type: "object", additionalProperties: { type: "boolean" } },
+        },
       },
     },
   }, async (request, reply) => {
+    const plugin = await plugins.read(request.params.pluginId);
+    if (!plugin || !plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
-      await piPackages.install(request.body.name);
-      return reply.code(204).send();
+      await pluginSettings.update(plugin, request.body);
+      await syncPluginConnections();
+      invalidatePluginSessions();
+      return plugins.read(plugin.id);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : "Pi package installation failed" });
-    }
-  });
-
-  app.delete<{ Body: { source: string } }>("/pi-packages", {
-    schema: {
-      body: {
-        type: "object",
-        additionalProperties: false,
-        required: ["source"],
-        properties: { source: { type: "string", minLength: 1, maxLength: 2_000 } },
-      },
-    },
-  }, async (request, reply) => {
-    try {
-      await piPackages.remove(request.body.source);
-      return reply.code(204).send();
-    } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : "Pi package removal failed" });
-    }
-  });
-
-  app.get("/tool-settings", async () => toolSettings.get());
-
-  app.put<{ Body: ToolSettings }>("/tool-settings", { schema: toolSettingsSchema }, async (request, reply) => {
-    try {
-      return await toolSettings.update(request.body);
-    } catch (cause) {
-      if (cause instanceof InvalidToolSettingsError) return reply.code(400).send({ error: cause.message });
+      if (cause instanceof InvalidPluginSettingsError) return reply.code(400).send({ error: cause.message });
       throw cause;
     }
   });
+
+  app.delete<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
+    const plugin = await plugins.read(request.params.pluginId);
+    if (!plugin || plugin.source.type !== "local") return reply.code(404).send({ error: "Local plugin not found" });
+    const remaining = pluginDetails().filter((candidate) => candidate.id !== plugin.id);
+    const removedConnections = plugin.connections.map((connection) => connection.id);
+    try {
+      await syncPluginConnections(remaining, removedConnections);
+      await localPlugins.remove(request.params.pluginId);
+      await pluginSettings.remove(request.params.pluginId).catch((cause) => {
+        app.log.warn({ err: cause, pluginId: request.params.pluginId }, "Could not remove stale plugin settings");
+      });
+      invalidatePluginSessions();
+      return reply.code(204).send();
+    } catch (cause) {
+      await syncPluginConnections().catch(() => undefined);
+      if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.get("/tools", async () => tools.list());
 
   app.post<{ Params: { toolId: string }; Body: RunToolRequest }>(
     "/tools/:toolId/runs",
@@ -946,6 +1002,26 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/capabilities",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const [catalog, skills] = await Promise.all([
+        plugins.list(),
+        agents.skills(project, conversation),
+      ]);
+      return {
+        plugins: catalog.plugins
+          .filter((plugin) => plugin.enabled)
+          .map(({ id, name, displayName, description, marketplace }) => ({ id, name, displayName, description, marketplaceId: marketplace.id })),
+        skills,
+      } satisfies ConversationCapabilities;
+    },
+  );
+
   app.patch<{ Params: { projectId: string; conversationId: string }; Body: RenameConversationRequest }>(
     "/projects/:projectId/conversations/:conversationId",
     { schema: renameConversationSchema },
@@ -1034,6 +1110,15 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length) return reply.code(400).send({ error: "Prompt or image is required" });
+      let mentions;
+      try {
+        mentions = await plugins.validateMentions(request.body.mentions ?? []);
+        if (mentions.some((mention) => !hasPluginMentionToken(request.body.prompt, mention))) {
+          return reply.code(400).send({ error: "Plugin mention is missing from the prompt" });
+        }
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
       let references;
       try {
         references = await Promise.all((request.body.references ?? []).map(async (reference) => ({
@@ -1047,7 +1132,7 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
-        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? [], request.body.mode ?? "normal");
+        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? [], request.body.mode ?? "normal", mentions);
         if (turn.queued) await turn.result;
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });

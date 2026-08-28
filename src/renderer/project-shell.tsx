@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, AgentReasoningLevel, ConversationSummary, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -27,6 +27,7 @@ import {
   createConversation,
   getConversation,
   getConversationContextUsage,
+  getConversationCapabilities,
   getProject,
   listConversations,
   publishProject,
@@ -60,7 +61,9 @@ interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
   initialPrompt?: { prompt: string; images: PromptImage[]; mode: PromptMode };
+  initialDraft?: string;
   onInitialPromptHandled?: () => void;
+  onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
   onHome: () => void;
 }
@@ -68,12 +71,15 @@ interface ProjectShellProps {
 const DEFAULT_AGENT_WIDTH = 430;
 const MIN_AGENT_WIDTH = 320;
 const AGENT_WIDTH_STORAGE_KEY = "open-game-agent-width";
+const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
 export function ProjectShell({
   projectId,
   conversationId,
   initialPrompt,
+  initialDraft,
   onInitialPromptHandled,
+  onInitialDraftHandled,
   onOpenConversation,
   onHome,
 }: ProjectShellProps) {
@@ -89,6 +95,7 @@ export function ProjectShell({
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [modelChanging, setModelChanging] = useState(false);
+  const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [chatReference, setChatReference] = useState<ChatReference>();
   const modelCatalog = useAgentModels();
   const initialPromptAttempted = useRef(false);
@@ -102,6 +109,21 @@ export function ProjectShell({
   useEffect(() => {
     setChatReference(undefined);
   }, [conversationId]);
+
+  useEffect(() => {
+    const current = state.conversation;
+    if (!current || state.connection !== "open") {
+      setCapabilities(EMPTY_CAPABILITIES);
+      return;
+    }
+    let disposed = false;
+    void getConversationCapabilities(projectId, current.id).then((next) => {
+      if (!disposed) setCapabilities(next);
+    }).catch(() => {
+      if (!disposed) setCapabilities(EMPTY_CAPABILITIES);
+    });
+    return () => { disposed = true; };
+  }, [projectId, state.conversation?.id, state.connection]);
 
   function resizeAgent(clientX: number): void {
     const shell = workspaceShell.current;
@@ -312,12 +334,12 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  async function submitPrompt(nextPrompt: string, images: PromptImage[], mode: PromptMode): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode);
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions);
       setChatReference(undefined);
       return true;
     } catch (error) {
@@ -370,7 +392,7 @@ export function ProjectShell({
     if (!project || !conversation || !feedback.trim()) return false;
     try {
       await refinePlan(project.id, conversation.id);
-      return submitPrompt(feedback.trim(), [], "planning");
+      return submitPrompt(feedback.trim(), [], [], "planning");
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
@@ -614,9 +636,16 @@ export function ProjectShell({
             reasoningLevel={state.settings.reasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
-              ...items.flatMap((item) => item.type === "userMessage" && item.text.trim() ? [item.text] : []),
-              ...state.pendingPrompts.flatMap((item) => item.prompt.trim() ? [item.prompt] : []),
+              ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
+                ? [{ prompt: item.text, mentions: item.mentions ?? [] }]
+                : []),
+              ...state.pendingPrompts.flatMap((item) => item.prompt.trim()
+                ? [{ prompt: item.prompt, mentions: item.mentions }]
+                : []),
             ]}
+            capabilities={capabilities}
+            initialDraft={initialDraft}
+            onInitialDraftHandled={onInitialDraftHandled}
             onSubmit={submitPrompt}
             reference={chatReference}
             onClearReference={() => setChatReference(undefined)}
