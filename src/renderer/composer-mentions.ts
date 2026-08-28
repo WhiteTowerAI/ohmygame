@@ -12,6 +12,24 @@ export interface ComposerMentionQuery {
   query: string;
 }
 
+export interface SkillInvocation {
+  name: string;
+  prompt: string;
+}
+
+export function parseSkillInvocation(value: string): SkillInvocation | undefined {
+  const match = value.match(/^\$([a-zA-Z0-9][a-zA-Z0-9._-]*)(?:\s+([\s\S]*))?$/);
+  return match ? { name: match[1]!, prompt: match[2] ?? "" } : undefined;
+}
+
+export function formatSkillInvocation(name: string | undefined, prompt: string): string {
+  return name ? `$${name}${prompt ? ` ${prompt}` : ""}` : prompt;
+}
+
+export function skillDisplayName(name: string): string {
+  return name.split(/[._-]+/).filter(Boolean).map((part) => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ");
+}
+
 export function mentionQuery(value: string, cursor: number): ComposerMentionQuery | undefined {
   const before = value.slice(0, cursor);
   const match = before.match(/(^|\s)([@$])([^\s@$]*)$/);

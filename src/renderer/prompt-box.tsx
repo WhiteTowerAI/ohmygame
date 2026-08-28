@@ -13,6 +13,7 @@ interface PromptBoxProps {
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   overlay?: ReactNode;
   content?: ReactNode;
+  prefix?: ReactNode;
   leading?: ReactNode;
   actions: ReactNode;
   onCommandKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
@@ -31,6 +32,7 @@ export function PromptBox({
   textareaRef,
   overlay,
   content,
+  prefix,
   leading,
   actions,
   onCommandKeyDown,
@@ -49,44 +51,47 @@ export function PromptBox({
     <form className={`prompt-box prompt-box-${variant}`} onSubmit={submit}>
       {overlay}
       {content}
-      <textarea
-        ref={textareaRef}
-        aria-label="Prompt"
-        disabled={disabled}
-        onChange={(event) => {
-          onChange(event.target.value);
-          onSelectionChange?.(event.currentTarget.selectionStart);
-        }}
-        onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart)}
-        onInput={(event) => resizeTextarea(event.currentTarget)}
-        onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-          if (onCommandKeyDown?.(event)) return;
-          const historyDirection = promptHistoryDirection(
-            event.key,
-            event.currentTarget.selectionStart,
-            event.currentTarget.selectionEnd,
-            value.length,
-          );
-          if (historyDirection === "previous" && onHistoryPrevious) {
-            event.preventDefault();
-            onHistoryPrevious();
-            return;
-          }
-          if (historyDirection === "next" && onHistoryNext) {
-            event.preventDefault();
-            onHistoryNext();
-            return;
-          }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-        placeholder={placeholder}
-        rows={1}
-        value={value}
-      />
+      <div className="prompt-box-input">
+        {prefix}
+        <textarea
+          ref={textareaRef}
+          aria-label="Prompt"
+          disabled={disabled}
+          onChange={(event) => {
+            onChange(event.target.value);
+            onSelectionChange?.(event.currentTarget.selectionStart);
+          }}
+          onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart)}
+          onInput={(event) => resizeTextarea(event.currentTarget)}
+          onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (onCommandKeyDown?.(event)) return;
+            const historyDirection = promptHistoryDirection(
+              event.key,
+              event.currentTarget.selectionStart,
+              event.currentTarget.selectionEnd,
+              value.length,
+            );
+            if (historyDirection === "previous" && onHistoryPrevious) {
+              event.preventDefault();
+              onHistoryPrevious();
+              return;
+            }
+            if (historyDirection === "next" && onHistoryNext) {
+              event.preventDefault();
+              onHistoryNext();
+              return;
+            }
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={placeholder}
+          rows={1}
+          value={value}
+        />
+      </div>
       <div className="prompt-box-toolbar">
         <div className="prompt-box-leading">{leading}</div>
         <div className="prompt-box-actions">{actions}</div>

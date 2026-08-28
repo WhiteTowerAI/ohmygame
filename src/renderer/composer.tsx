@@ -1,4 +1,4 @@
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Square, WandSparkles } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
@@ -10,7 +10,7 @@ import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCom
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import type { ChatReference } from "./chat-reference.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
-import { activePluginMentions, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { activePluginMentions, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 
 interface ComposerProps {
   conversationReady: boolean;
@@ -69,7 +69,9 @@ export function Composer({
   reference,
   onClearReference,
 }: ComposerProps) {
-  const [prompt, setPrompt] = useState(initialDraft ?? "");
+  const initialSkill = parseSkillInvocation(initialDraft ?? "");
+  const [prompt, setPrompt] = useState(initialSkill?.prompt ?? initialDraft ?? "");
+  const [selectedSkill, setSelectedSkill] = useState(initialSkill?.name);
   const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
@@ -93,10 +95,11 @@ export function Composer({
   useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
   useEffect(() => {
     if (!initialDraft) return;
-    setMentionCursor(initialDraft.length);
+    const cursor = initialSkill?.prompt.length ?? initialDraft.length;
+    setMentionCursor(cursor);
     requestAnimationFrame(() => {
       textarea.current?.focus();
-      textarea.current?.setSelectionRange(initialDraft.length, initialDraft.length);
+      textarea.current?.setSelectionRange(cursor, cursor);
     });
     onInitialDraftHandled?.();
   }, []);
@@ -105,13 +108,14 @@ export function Composer({
   }, [mentionKey]);
 
   async function submit() {
-    const value = prompt.trim();
+    const value = formatSkillInvocation(selectedSkill, prompt.trim());
     if (!conversationReady || (!value && images.length === 0) || stopping) return;
     const submitted = await onSubmit(value, activePluginMentions(value, pluginMentions), promptImages(images), planning ? "planning" : "normal");
     if (submitted) {
       setHistory((current) => recordPrompt(current, value));
       setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
       setPrompt("");
+      setSelectedSkill(undefined);
       setPluginMentions([]);
       setMentionCursor(0);
       setImages([]);
@@ -121,15 +125,17 @@ export function Composer({
   }
 
   function browseHistory(direction: "previous" | "next") {
-    const result = direction === "previous" ? previousPrompt(history, prompt) : nextPrompt(history);
+    const result = direction === "previous" ? previousPrompt(history, formatSkillInvocation(selectedSkill, prompt)) : nextPrompt(history);
     if (!result) return;
+    const skill = parseSkillInvocation(result.prompt);
     setHistory(result.history);
-    setPrompt(result.prompt);
+    setPrompt(skill?.prompt ?? result.prompt);
+    setSelectedSkill(skill?.name);
     setPluginMentions(mentionHistory.get(result.prompt) ?? []);
-    setMentionCursor(result.prompt.length);
+    const cursor = skill?.prompt.length ?? result.prompt.length;
+    setMentionCursor(cursor);
     requestAnimationFrame(() => {
-      const end = result.prompt.length;
-      textarea.current?.setSelectionRange(end, end);
+      textarea.current?.setSelectionRange(cursor, cursor);
     });
   }
 
@@ -138,20 +144,30 @@ export function Composer({
     setPluginMentions((current) => activePluginMentions(value, current));
     setHistory((current) => current.index === current.entries.length
       ? current
-      : { ...current, index: current.entries.length, draft: value });
+      : { ...current, index: current.entries.length, draft: formatSkillInvocation(selectedSkill, value) });
   }
 
   function selectMention(mention: ComposerMention) {
     if (!activeMention) return;
+    if (mention.type === "skill") {
+      const suffix = prompt.slice(activeMention.end).replace(/^\s+/, "");
+      setPrompt(`${prompt.slice(0, activeMention.start)}${suffix}`);
+      setSelectedSkill(mention.value.name);
+      setMentionCursor(activeMention.start);
+      setSelectedMention(0);
+      requestAnimationFrame(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(activeMention.start, activeMention.start);
+      });
+      return;
+    }
     const inserted = insertMention(prompt, activeMention, mention);
     changePrompt(inserted.value);
-    if (mention.type === "plugin") {
-      const selected = toPluginMention(mention.value);
-      setPluginMentions((current) => [
-        ...current.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
-        selected,
-      ]);
-    }
+    const selected = toPluginMention(mention.value);
+    setPluginMentions((current) => [
+      ...current.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
+      selected,
+    ]);
     setMentionCursor(inserted.cursor);
     setSelectedMention(0);
     requestAnimationFrame(() => {
@@ -160,11 +176,11 @@ export function Composer({
     });
   }
 
-  const showStop = running && !prompt.trim() && images.length === 0;
+  const showStop = running && !selectedSkill && !prompt.trim() && images.length === 0;
   const awaitingApproval = planMode === "awaiting_approval";
   const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
-  const showPlanCommand = canTogglePlanning && matchesPlanCommand(prompt);
-  const showCompactCommand = conversationReady && !running && !stopping && matchesCompactCommand(prompt);
+  const showPlanCommand = !selectedSkill && canTogglePlanning && matchesPlanCommand(prompt);
+  const showCompactCommand = !selectedSkill && conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
   const inputDisabled = !conversationReady || planInputLocked;
 
@@ -197,6 +213,7 @@ export function Composer({
     if (planning && planMode === "planning" && !await onCancelPlan()) return;
     setPlanning((value) => !value);
     setPrompt("");
+    setSelectedSkill(undefined);
     setPluginMentions([]);
     setMentionCursor(0);
     textarea.current?.focus();
@@ -224,6 +241,11 @@ export function Composer({
 
   function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
     setMentionCursor(event.currentTarget.selectionStart);
+    if (selectedSkill && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault();
+      setSelectedSkill(undefined);
+      return true;
+    }
     if (mentions.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -293,7 +315,7 @@ export function Composer({
                 <Square size={14} fill="currentColor" />
               </button>
             ) : (
-              <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!prompt.trim() && images.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
+              <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!selectedSkill && !prompt.trim() && images.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
                 <ArrowUp size={17} />
               </button>
             )}
@@ -308,6 +330,21 @@ export function Composer({
           <ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />
         </>}
         disabled={inputDisabled}
+        prefix={selectedSkill ? (
+          <button
+            className="composer-skill-reference"
+            type="button"
+            title="Remove skill"
+            aria-label={`Remove ${skillDisplayName(selectedSkill)} skill`}
+            onClick={() => {
+              setSelectedSkill(undefined);
+              textarea.current?.focus();
+            }}
+          >
+            <WandSparkles size={15} aria-hidden="true" />
+            <span>{skillDisplayName(selectedSkill)}</span>
+          </button>
+        ) : null}
         leading={(
           <>
             <ImagePickerButton
@@ -341,7 +378,7 @@ export function Composer({
             }}
           />
         ) : null}
-        placeholder={awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
+        placeholder={selectedSkill ? "" : awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
         textareaRef={textarea}
         onSelectionChange={setMentionCursor}
         value={prompt}

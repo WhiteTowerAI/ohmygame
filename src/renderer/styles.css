@@ -5217,9 +5217,16 @@ textarea:focus-visible {
   box-shadow: 0 10px 26px rgb(0 0 0 / 38%), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+.prompt-box-input {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+}
+
 .prompt-box textarea {
   display: block;
-  width: 100%;
+  width: auto;
+  flex: 1;
   min-width: 0;
   min-height: 32px;
   max-height: 132px;
@@ -5243,6 +5250,25 @@ textarea:focus-visible {
 .prompt-box textarea::placeholder {
   color: #7e838d;
   opacity: 1;
+}
+
+.composer-skill-reference {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.composer-skill-reference:hover {
+  color: color-mix(in srgb, var(--accent) 78%, white);
 }
 
 .prompt-box-toolbar {

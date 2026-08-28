@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, insertMention, matchingMentions, mentionQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { activePluginMentions, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 
 const capabilities: ConversationCapabilities = {
@@ -35,5 +35,16 @@ describe("composer mentions", () => {
     const mention = toPluginMention(capabilities.plugins[0]);
     expect(activePluginMentions("Use @Image Generation", [mention])).toEqual([mention]);
     expect(activePluginMentions("Use images", [mention])).toEqual([]);
+  });
+
+  it("separates a leading skill from its prompt without changing the wire text", () => {
+    expect(parseSkillInvocation("$plugin-creator Create a plugin")).toEqual({
+      name: "plugin-creator",
+      prompt: "Create a plugin",
+    });
+    expect(parseSkillInvocation("Use $plugin-creator")).toBeUndefined();
+    expect(formatSkillInvocation("plugin-creator", "Create a plugin")).toBe("$plugin-creator Create a plugin");
+    expect(formatSkillInvocation(undefined, "Create a plugin")).toBe("Create a plugin");
+    expect(skillDisplayName("plugin-creator")).toBe("Plugin Creator");
   });
 });
