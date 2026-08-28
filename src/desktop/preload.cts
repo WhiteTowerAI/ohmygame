@@ -16,6 +16,7 @@ if (process.isMainFrame) {
       token: argument("open-game-daemon-token"),
     }),
     openExternal: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
+    browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("open-game:browse-plugin-directory", pluginId) as Promise<void>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("open-game:capture-page", bounds) as Promise<Uint8Array>,
     openPlaytest: (projectId: string, chapterId: string) =>

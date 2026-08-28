@@ -8,7 +8,7 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("plugin catalog API", () => {
-  it("creates an accessible authoring workspace without listing it as a project", async () => {
+  it("creates a visible project for each plugin authoring session", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-authoring-")) });
     apps.push(app);
     await app.ready();
@@ -23,11 +23,12 @@ describe("plugin catalog API", () => {
     ]);
 
     expect(created.statusCode).toBe(201);
-    expect(next.json().projectId).toBe(projectId);
+    expect(next.json().projectId).not.toBe(projectId);
     expect(next.json().conversationId).not.toBe(conversationId);
     expect(project.statusCode).toBe(200);
+    expect(project.json()).toMatchObject({ id: projectId, name: "New Plugin", type: "general" });
     expect(conversation.statusCode).toBe(200);
-    expect(projects.json()).toEqual([]);
+    expect(projects.json()).toHaveLength(2);
   });
 
   it("lists and reads OpenGame plugins without exposing Pi runtime packages", async () => {

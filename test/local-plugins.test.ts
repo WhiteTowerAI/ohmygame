@@ -40,10 +40,15 @@ describe("local plugins", () => {
     });
     expect(await store.read(installed.id)).toMatchObject({ version: "1.0.0" });
     expect(await store.install(source)).toMatchObject({ version: "1.1.0", description: "Updated character workflows" });
+    await expect(store.directoryPath(installed.id)).resolves.toBe(source);
+
+    await rm(source, { recursive: true });
+    await expect(store.directoryPath(installed.id)).resolves.toContain(path.join("plugins", "personal", "character-writer", "1.1.0"));
 
     await store.remove(installed.id);
     expect(await store.list()).toEqual({ plugins: [], errors: [] });
     await expect(store.read(installed.id)).resolves.toBeUndefined();
+    await expect(store.directoryPath(installed.id)).resolves.toBeUndefined();
   });
 
   it("rejects missing resources and paths outside the bundle", async () => {

@@ -644,7 +644,7 @@ export function ProjectShell({
                 : []),
             ]}
             capabilities={capabilities}
-            initialDraft={initialDraft}
+            initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
             onInitialDraftHandled={onInitialDraftHandled}
             onSubmit={submitPrompt}
             reference={chatReference}

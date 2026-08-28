@@ -467,7 +467,7 @@ export function createApp(options: AppOptions = {}) {
     },
   });
   const invalidatePluginSessions = () => {
-    for (const project of projects.all()) agents.invalidateProjectSessions(project.id);
+    for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
   const app = Fastify({
     logger: options.logger ?? false,
@@ -503,7 +503,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.post("/plugins/authoring-session", async (_request, reply) => {
-    const project = await projects.ensureInternalWorkspace("Plugin Creator");
+    const project = await projects.create("New Plugin", "general");
     const conversation = await conversations.create(project);
     return reply.code(201).send({ projectId: project.id, conversationId: conversation.summary.id });
   });
@@ -513,6 +513,11 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
     const plugin = await plugins.read(request.params.pluginId);
     return plugin ?? reply.code(404).send({ error: "Plugin not found" });
+  });
+
+  app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId/directory", async (request, reply) => {
+    const directoryPath = await localPlugins.directoryPath(request.params.pluginId);
+    return directoryPath ? { path: directoryPath } : reply.code(404).send({ error: "Local plugin not found" });
   });
 
   app.put<{ Params: { pluginId: string }; Body: PluginSettings }>("/plugins/:pluginId/settings", {

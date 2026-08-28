@@ -5,6 +5,7 @@ import {
   Gamepad2,
   Image as ImageIcon,
   LoaderCircle,
+  FolderOpen,
   Package,
   Plus,
   Plug,
@@ -150,11 +151,11 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
           error={error}
           onBack={() => setView({ type: "catalog" })}
           onRetry={() => void openPlugin(view.pluginId)}
-          onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
           onToggleComponent={(type, component, enabled) => detail && void updatePlugin(detail, {
             enabled: detail.enabled,
             components: { ...componentSettings(detail).components, [pluginComponentKey(type, component.id)]: enabled },
           })}
+          onBrowse={() => detail && void browsePlugin(detail)}
           onRemove={() => detail && void removePlugin(detail)}
         /> : <>
           <header className="plugins-heading"><h1>Plugins</h1><p>Install plugins and choose what your agent can use.</p></header>
@@ -192,6 +193,15 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
       setError(errorMessage(cause));
     } finally {
       setUpdating(undefined);
+    }
+  }
+
+  async function browsePlugin(plugin: PluginDetail): Promise<void> {
+    setError(undefined);
+    try {
+      await window.openGameDesktop?.browsePluginDirectory(plugin.id);
+    } catch (cause) {
+      setError(errorMessage(cause));
     }
   }
 }
@@ -243,7 +253,7 @@ function ManagePlugins({ plugins, updating, error, onBack, onOpenPlugin, onToggl
   </section>;
 }
 
-function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRetry, onTogglePlugin, onToggleComponent, onRemove }: {
+function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRetry, onToggleComponent, onBrowse, onRemove }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
   tools: ToolDefinition[];
@@ -251,8 +261,8 @@ function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRet
   error?: string;
   onBack: () => void;
   onRetry: () => void;
-  onTogglePlugin: (enabled: boolean) => void;
   onToggleComponent: (type: ConfigurablePluginComponentType, component: PluginComponentSummary, enabled: boolean) => void;
+  onBrowse: () => void;
   onRemove: () => void;
 }): ReactNode {
   return <section className="plugin-detail">
@@ -263,10 +273,10 @@ function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRet
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
         <div><h1>{plugin.displayName}</h1><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
-        <span className="plugin-detail-actions">
-          <PluginSwitch checked={plugin.enabled} disabled={updating} label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.displayName}`} onClick={() => onTogglePlugin(!plugin.enabled)} />
-          {plugin.source.type === "local" ? <button type="button" disabled={updating} onClick={onRemove}><Trash2 size={13} />Remove</button> : null}
-        </span>
+        {plugin.source.type === "local" ? <span className="plugin-detail-actions">
+          {window.openGameDesktop ? <button type="button" disabled={updating} onClick={onBrowse}><FolderOpen size={13} />Browse directory</button> : null}
+          <button type="button" disabled={updating} onClick={onRemove}><Trash2 size={13} />Remove</button>
+        </span> : null}
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
       <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} updating={updating} type="skill" onToggle={onToggleComponent} />

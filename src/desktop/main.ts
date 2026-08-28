@@ -30,6 +30,18 @@ ipcMain.handle("open-game:open-auth-url", async (_event, url: unknown) => {
 ipcMain.handle("open-game:take-auth-callback", () => oauth.takeCallback());
 ipcMain.handle("open-game:auth-callback-url", () => oauth.callbackUrl());
 ipcMain.handle("open-game:cancel-auth", () => oauth.cancel());
+ipcMain.handle("open-game:browse-plugin-directory", async (event, pluginId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
+  if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
+  const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/directory`, {
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) throw new Error("Plugin directory is not available");
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid plugin directory");
+  const error = await shell.openPath(result.path);
+  if (error) throw new Error(error);
+});
 ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());

@@ -40,18 +40,6 @@ describe("ProjectManager", () => {
     expect(await readdir(project.workspacePath)).toEqual([]);
   });
 
-  it("reuses one hidden internal workspace", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
-    const manager = new ProjectManager(dataDirectory);
-
-    const first = await manager.ensureInternalWorkspace("Plugin Creator");
-    const second = await manager.ensureInternalWorkspace("Plugin Creator");
-
-    expect(second.id).toBe(first.id);
-    expect(manager.list()).toEqual([]);
-    expect(manager.all()).toEqual([first]);
-  });
-
   it("persists project types and preserves them when duplicating", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);

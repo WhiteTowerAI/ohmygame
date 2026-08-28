@@ -172,6 +172,19 @@ export class LocalPluginStore {
     return record ? this.#installedPath(record.name, record.version) : undefined;
   }
 
+  async directoryPath(id: string): Promise<string | undefined> {
+    const name = localPluginName(id);
+    if (!name) return undefined;
+    const record = (await this.#readIndex()).find((item) => item.name === name);
+    if (!record) return undefined;
+    try {
+      if ((await lstat(record.sourcePath)).isDirectory()) return record.sourcePath;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+    return this.#installedPath(record.name, record.version);
+  }
+
   #mutate<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#mutations.then(operation);
     this.#mutations = result.then(() => undefined, () => undefined);
