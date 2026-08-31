@@ -66,7 +66,6 @@ export class PluginSettingsStore {
     return {
       ...plugin,
       enabled: settings.enabled,
-      tools: decorate("tool", plugin.tools),
       skills: decorate("skill", plugin.skills),
       connections: decorate("connection", plugin.connections),
     };
@@ -124,7 +123,6 @@ export function componentEntries(plugin: PluginDetail): Array<[string, PluginCom
   const groups: Array<[ConfigurablePluginComponentType, PluginComponentSummary[]]> = [
     ["skill", plugin.skills],
     ["connection", plugin.connections],
-    ["tool", plugin.tools],
   ];
   return groups.flatMap(([type, items]) => items.map((item): [string, PluginComponentSummary] => [pluginComponentKey(type, item.id), item]));
 }
@@ -151,7 +149,7 @@ function parseStoredPluginSettings(value: unknown): StoredPluginSettings | undef
     plugins: Object.fromEntries(Object.entries(plugins).map(([id, value]) => {
       const legacy = value as LegacyPluginSettings;
       const components = Object.fromEntries(Object.entries(legacy.components).flatMap(([key, enabled]) => {
-        if (key.startsWith("tool:") || key.startsWith("skill:") || key.startsWith("connection:")) return [[key, enabled]];
+        if (key.startsWith("skill:") || key.startsWith("connection:")) return [[key, enabled]];
         if (key.startsWith("mcpServer:")) return [[`connection:${key.slice("mcpServer:".length)}`, enabled]];
         return [];
       }));

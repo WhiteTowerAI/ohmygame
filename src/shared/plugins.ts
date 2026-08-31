@@ -1,20 +1,8 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import type { PluginMention, ToolDefinition } from "./contracts.js";
+import type { PluginMention } from "./contracts.js";
 
 export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
-export const BUILT_IN_TOOL_PLUGIN_ID_PREFIX = "opengame:tool:";
-
-export function builtInToolPluginId(toolId: ToolDefinition["id"]): string {
-  return `${BUILT_IN_TOOL_PLUGIN_ID_PREFIX}${toolId}`;
-}
-
-export function toolIdFromBuiltInPluginId(pluginId: string): ToolDefinition["id"] | undefined {
-  if (!pluginId.startsWith(BUILT_IN_TOOL_PLUGIN_ID_PREFIX)) return undefined;
-  const toolId = pluginId.slice(BUILT_IN_TOOL_PLUGIN_ID_PREFIX.length);
-  if (toolId === "generate-image" || toolId === "generate-video" || toolId === "image-to-3d") return toolId;
-  return undefined;
-}
 
 export type PluginSource =
   | { type: "builtIn" }
@@ -96,7 +84,7 @@ export interface PluginComponentSummary {
   enabled: boolean;
 }
 
-export type ConfigurablePluginComponentType = "tool" | "skill" | "connection";
+export type ConfigurablePluginComponentType = "skill" | "connection";
 
 export interface PluginSettings {
   enabled: boolean;
@@ -109,7 +97,6 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 
 export interface PluginDetail extends PluginSummary {
   skills: PluginComponentSummary[];
-  tools: PluginComponentSummary[];
   connections: PluginComponentSummary[];
 }
 
@@ -143,7 +130,6 @@ export const PluginManifestSchema = Type.Object({
   version: SemVerSchema,
   description: Type.String({ minLength: 1 }),
   skills: Type.Optional(RelativePathSchema),
-  tools: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   interface: Type.Optional(InterfaceSchema),
 }, { additionalProperties: false });

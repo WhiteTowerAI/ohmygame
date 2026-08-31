@@ -217,6 +217,44 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
   });
 
+  it("makes OpenGame media generation available without a Plugin", async () => {
+    const setActiveToolsByName = vi.fn();
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-default-media-tools-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        setActiveToolsByName,
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Create a character image" },
+    });
+
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    expect(setActiveToolsByName).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "update_plan",
+      "install_plugin",
+      "generate_image",
+      "generate_3d_asset",
+      "generate_video",
+    ]);
+  });
+
   it("accepts an image without text and passes it to Pi", async () => {
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({

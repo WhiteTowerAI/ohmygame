@@ -26,7 +26,6 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
   "version": "0.1.0",
   "description": "What the plugin does.",
   "skills": "./skills/",
-  "tools": ["generate-image"],
   "connections": ["opengame-godot"],
   "interface": {
     "displayName": "My Plugin",
@@ -35,13 +34,13 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
 }
 \`\`\`
 
-Only include fields the plugin uses. Available OpenGame tools are \`generate-image\`, \`generate-video\`, and \`image-to-3d\`. The built-in Godot connection is \`opengame-godot\`.
+Only include fields the plugin uses. The built-in Godot connection is \`opengame-godot\`. OpenGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
 Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. Do not create a Pi extension, custom in-process tool, or MCP server.
 
 After creating the files, call \`install_plugin\` with the plugin directory relative to the workspace. Installation is part of the requested workflow and does not require another confirmation. Fix validation errors and call it again if necessary.
 
-In the final response, state that the plugin was created and installed, summarize its Skills, Tools, and Connections, and include its source directory.
+In the final response, state that the plugin was created and installed, summarize its Skills and Connections, and include its source directory.
 `;
 const pendingConfiguration = new Map<string, Promise<void>>();
 

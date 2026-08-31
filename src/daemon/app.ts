@@ -30,7 +30,7 @@ import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
 import { BuiltInPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
-import { enabledComponentIds, resolvePluginSkillPaths } from "./plugin-runtime.js";
+import { enabledConnectionIds, resolvePluginSkillPaths } from "./plugin-runtime.js";
 import { listMcpServers, setMcpServerEnabled } from "./pi-agent.js";
 import { hasPluginMentionToken, type PluginSettings } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -386,19 +386,18 @@ export function createApp(options: AppOptions = {}) {
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
   const localPlugins = new LocalPluginStore(dataDirectory, {
-    tools: () => tools.list().map((tool) => tool.id),
     connections: async () => (await mcpServers.list()).map((server) => server.id),
-    reservedPluginDisplayNames: () => builtInPlugins(tools.list()).map((plugin) => plugin.displayName),
+    reservedPluginDisplayNames: () => builtInPlugins().map((plugin) => plugin.displayName),
   });
   const plugins = new PluginCatalogService([
-    new BuiltInPluginAdapter(() => tools.list(), async () => {
+    new BuiltInPluginAdapter(async () => {
       const godot = (await mcpServers.list()).find((server) => server.id === "opengame-godot");
       return godot?.enabled ?? true;
     }),
     new LocalPluginAdapter(localPlugins),
   ], pluginSettings);
   const pluginDetails = () => [
-    ...builtInPlugins(tools.list()),
+    ...builtInPlugins(),
     ...localPlugins.installed(),
   ];
   const syncPluginConnections = async (
@@ -409,7 +408,7 @@ export function createApp(options: AppOptions = {}) {
       ...details.flatMap((plugin) => plugin.connections.map((connection) => connection.id)),
       ...additionalManagedConnections,
     ]);
-    const enabledConnections = enabledComponentIds(details, pluginSettings, "connection");
+    const enabledConnections = enabledConnectionIds(details, pluginSettings);
     for (const server of await mcpServers.list()) {
       if (!managedConnections.has(server.id)) continue;
       await setMcpServerEnabled(piAgentDirectory, server.id, enabledConnections.has(server.id));
@@ -455,9 +454,7 @@ export function createApp(options: AppOptions = {}) {
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
       if (mode === "planning") return planningPiToolNames();
-      const enabled = enabledComponentIds(pluginDetails(), pluginSettings, "tool");
-      const enabledTools = tools.list().flatMap((tool) => enabled.has(tool.id) ? [tool.id] : []);
-      return activePiToolNames(enabledTools, registered);
+      return activePiToolNames(tools.list().map((tool) => tool.id), registered);
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;

@@ -2,15 +2,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ToolDefinition } from "../src/shared/contracts.js";
 import { BuiltInPluginAdapter, LocalPluginAdapter, PluginCatalogService, godotPlugin } from "../src/daemon/plugin-catalog.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import type { PluginDetail } from "../src/shared/plugins.js";
-
-const imageTool: ToolDefinition = {
-  id: "generate-image", name: "Generate image", description: "Generate an image", category: "images", outputKind: "image",
-  inputKind: "prompt", sizes: ["1024x1024"], defaultSize: "1024x1024",
-};
 
 describe("plugin catalog", () => {
   it("combines built-in and personal plugins behind one catalog", async () => {
@@ -18,14 +12,13 @@ describe("plugin catalog", () => {
     const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
-      new BuiltInPluginAdapter(() => [imageTool], async () => true),
+      new BuiltInPluginAdapter(async () => true),
       new LocalPluginAdapter({ list: async () => ({ plugins: [personal], errors: [] }), read: async (id) => id === personal.id ? personal : undefined }),
     ], settings);
 
     const result = await catalog.list();
 
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
-      "opengame:tool:generate-image",
       "opengame:godot",
       "local:character-workflow",
     ]);
@@ -77,7 +70,6 @@ function localPlugin(): PluginDetail {
     installed: true,
     enabled: true,
     skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }],
-    tools: [{ id: "generate-image", name: "Generate Image", enabled: true }],
     connections: [],
   };
 }

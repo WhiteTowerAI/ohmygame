@@ -1,7 +1,6 @@
-import type { PluginMention, ToolDefinition } from "../shared/contracts.js";
+import type { PluginMention } from "../shared/contracts.js";
 import { GODOT_MCP_SERVER_ID } from "../shared/mcp.js";
 import {
-  builtInToolPluginId,
   OPENGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
   type PluginCatalog,
@@ -73,7 +72,6 @@ export class BuiltInPluginAdapter implements PluginCatalogAdapter {
   readonly marketplace = OPENGAME_MARKETPLACE;
 
   constructor(
-    private readonly listTools: () => ToolDefinition[],
     private readonly godotEnabled: () => Promise<boolean>,
   ) {}
 
@@ -86,7 +84,7 @@ export class BuiltInPluginAdapter implements PluginCatalogAdapter {
   }
 
   private async details(): Promise<PluginDetail[]> {
-    return builtInPlugins(this.listTools(), await this.godotEnabled());
+    return builtInPlugins(await this.godotEnabled());
   }
 }
 
@@ -110,43 +108,8 @@ export class LocalPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
-function toolPlugin(tool: ToolDefinition): PluginDetail {
-  const metadata = builtInToolPluginMetadata(tool);
-  return {
-    id: builtInToolPluginId(tool.id),
-    name: metadata.name,
-    displayName: metadata.displayName,
-    description: metadata.description,
-    marketplace: OPENGAME_MARKETPLACE,
-    source: { type: "builtIn" },
-    installed: true,
-    enabled: true,
-    skills: [],
-    connections: [],
-    tools: [{ id: tool.id, name: metadata.displayName, description: metadata.description, enabled: true }],
-  };
-}
-
-export function builtInPlugins(tools: ToolDefinition[], godotEnabled = true): PluginDetail[] {
-  return [...tools.map(toolPlugin), godotPlugin(godotEnabled)];
-}
-
-function builtInToolPluginMetadata(tool: ToolDefinition): { name: string; displayName: string; description: string } {
-  if (tool.id === "generate-image") return {
-    name: "image-generation",
-    displayName: "Image Generation",
-    description: "Create and edit images for your game.",
-  };
-  if (tool.id === "generate-video") return {
-    name: "video-generation",
-    displayName: "Video Generation",
-    description: "Generate videos from prompts and reference images.",
-  };
-  return {
-    name: "3d-generation",
-    displayName: "3D Generation",
-    description: "Turn reference images into textured 3D assets.",
-  };
+export function builtInPlugins(godotEnabled = true): PluginDetail[] {
+  return [godotPlugin(godotEnabled)];
 }
 
 export function godotPlugin(connectionEnabled = true): PluginDetail {
@@ -160,13 +123,12 @@ export function godotPlugin(connectionEnabled = true): PluginDetail {
     installed: true,
     enabled: true,
     skills: [],
-    tools: [],
     connections: [{ id: GODOT_MCP_SERVER_ID, name: "Godot", enabled: connectionEnabled }],
   };
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, tools: _tools, connections: _connections, ...summary } = plugin;
+  const { skills: _skills, connections: _connections, ...summary } = plugin;
   return summary;
 }
 

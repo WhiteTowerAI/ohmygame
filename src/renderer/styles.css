@@ -1778,21 +1778,6 @@ button.home-nav-item:hover {
   border-radius: 9px;
 }
 
-.plugin-row-icon-images {
-  background: #1c302b;
-  color: var(--accent);
-}
-
-.plugin-row-icon-3d {
-  background: #2b261e;
-  color: #eebc70;
-}
-
-.plugin-row-icon-video {
-  background: #252832;
-  color: #aeb5c4;
-}
-
 .plugin-row-copy {
   display: grid;
   min-width: 0;

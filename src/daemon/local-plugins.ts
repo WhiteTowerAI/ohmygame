@@ -22,7 +22,6 @@ interface LocalPluginRecord {
 }
 
 export interface PluginCapabilityRegistry {
-  tools(): readonly string[];
   connections(): Promise<readonly string[]>;
   reservedPluginDisplayNames(): readonly string[];
 }
@@ -245,7 +244,6 @@ async function inspectLocalPlugin(pluginRoot: string, capabilities?: PluginCapab
   if (!isPluginManifest(value)) throw new LocalPluginError("Plugin manifest is invalid");
   const manifest = value;
   const skills = manifest.skills ? await skillComponents(pluginRoot, manifest.skills) : [];
-  const tools = await referencedComponents(manifest.tools, capabilities?.tools(), "Tool");
   const connections = await referencedComponents(manifest.connections, await capabilities?.connections(), "Connection");
   return {
     id: `${LOCAL_PLUGIN_ID_PREFIX}${manifest.name}`,
@@ -258,7 +256,6 @@ async function inspectLocalPlugin(pluginRoot: string, capabilities?: PluginCapab
     installed: true,
     enabled: true,
     skills,
-    tools,
     connections,
   };
 }

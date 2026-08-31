@@ -101,7 +101,6 @@ describe("local plugins", () => {
       name: "reserved-plugin", version: "1.0.0", description: "Reserved", interface: { displayName: "Godot" },
     });
     const store = new LocalPluginStore(dataDirectory, {
-      tools: () => [],
       connections: async () => [],
       reservedPluginDisplayNames: () => ["Godot"],
     });

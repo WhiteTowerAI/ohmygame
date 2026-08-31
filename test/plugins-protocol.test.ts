@@ -19,13 +19,12 @@ describe("plugin protocol", () => {
     })).toBe(true);
   });
 
-  it("accepts executable capabilities and display metadata", () => {
+  it("accepts skills, connections, and display metadata", () => {
     expect(isPluginManifest({
       name: "godot-tools",
       version: "0.1.0-alpha.1",
       description: "Godot workflows and tools",
       skills: "./skills/",
-      tools: ["generate-image"],
       connections: ["opengame-godot"],
       interface: {
         displayName: "Godot",
@@ -50,6 +49,7 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, mcpServers: "./mcp.json" })).toBe(false);
     expect(isPluginManifest({ ...base, apps: "./apps.json" })).toBe(false);
     expect(isPluginManifest({ ...base, hooks: "./hooks.json" })).toBe(false);
+    expect(isPluginManifest({ ...base, tools: ["generate-image"] })).toBe(false);
     expect(isPluginManifest({ ...base, interface: { logo: "./logo.png" } })).toBe(false);
   });
 
@@ -62,10 +62,10 @@ describe("plugin protocol", () => {
 
   it("keeps catalog state outside the author manifest", () => {
     const plugin: PluginSummary = {
-      id: "opengame:tool:generate-image",
-      name: "image-generation",
-      displayName: "Image Generation",
-      description: "Create and edit images for your game",
+      id: "opengame:godot",
+      name: "godot",
+      displayName: "Godot",
+      description: "Connect the agent to the Godot editor",
       marketplace: { id: "opengame", displayName: "OpenGame" },
       source: { type: "builtIn" },
       installed: true,

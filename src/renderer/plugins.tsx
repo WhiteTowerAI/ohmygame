@@ -1,9 +1,7 @@
 import {
   ArrowLeft,
-  Box,
   ChevronRight,
   Gamepad2,
-  Image as ImageIcon,
   LoaderCircle,
   FolderOpen,
   Package,
@@ -12,21 +10,18 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
-  Video,
   WandSparkles,
 } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { ToolDefinition } from "../shared/contracts.js";
 import {
   pluginComponentKey,
-  toolIdFromBuiltInPluginId,
   type ConfigurablePluginComponentType,
   type PluginComponentSummary,
   type PluginDetail,
   type PluginSettings,
   type PluginSummary,
 } from "../shared/plugins.js";
-import { listPlugins, listTools, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { listPlugins, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -38,7 +33,6 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   onAddPlugin: () => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
-  const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [view, setView] = useState<PluginsView>({ type: "catalog" });
   const [detail, setDetail] = useState<PluginDetail>();
@@ -56,9 +50,8 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
     setError(undefined);
     try {
       await waitForRuntime();
-      const [catalog, availableTools] = await Promise.all([listPlugins(), listTools()]);
+      const catalog = await listPlugins();
       setPlugins(catalog.plugins);
-      setTools(availableTools);
       setCatalogWarning(catalog.errors.map((entry) => entry.message).join("\n") || undefined);
       setPhase("ready");
     } catch (cause) {
@@ -146,7 +139,6 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
         /> : view.type === "detail" ? <PluginDetailView
           phase={detailPhase}
           plugin={detail}
-          tools={tools}
           updating={updating === detail?.id}
           error={error}
           onBack={() => setView({ type: "catalog" })}
@@ -253,10 +245,9 @@ function ManagePlugins({ plugins, updating, error, onBack, onOpenPlugin, onToggl
   </section>;
 }
 
-function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRetry, onToggleComponent, onBrowse, onRemove }: {
+function PluginDetailView({ phase, plugin, updating, error, onBack, onRetry, onToggleComponent, onBrowse, onRemove }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
-  tools: ToolDefinition[];
   updating: boolean;
   error?: string;
   onBack: () => void;
@@ -280,7 +271,6 @@ function PluginDetailView({ phase, plugin, tools, updating, error, onBack, onRet
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
       <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} updating={updating} type="skill" onToggle={onToggleComponent} />
-      <ComponentSection title="Tools" items={plugin.tools} icon={(item) => <ToolIcon tool={tools.find((tool) => tool.id === item.id)} />} updating={updating} type="tool" onToggle={onToggleComponent} />
       <ComponentSection title="Connections" items={plugin.connections} icon={() => <Plug size={15} />} updating={updating} type="connection" onToggle={onToggleComponent} />
     </> : null}
   </section>;
@@ -318,7 +308,6 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
   return {
     enabled: plugin.enabled,
     components: Object.fromEntries([
-      ...plugin.tools.map((item) => [pluginComponentKey("tool", item.id), item.enabled]),
       ...plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item.enabled]),
       ...plugin.connections.map((item) => [pluginComponentKey("connection", item.id), item.enabled]),
     ]),
@@ -326,23 +315,14 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, tools: _tools, connections: _connections, ...summary } = plugin;
+  const { skills: _skills, connections: _connections, ...summary } = plugin;
   return summary;
 }
 
 function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id">; large?: boolean }): ReactNode {
   const size = large ? 22 : 17;
-  const toolId = toolIdFromBuiltInPluginId(plugin.id);
-  if (toolId === "generate-image") return <span className={`plugin-row-icon plugin-row-icon-images${large ? " plugin-row-icon-large" : ""}`}><ImageIcon size={size} /></span>;
-  if (toolId === "generate-video") return <span className={`plugin-row-icon plugin-row-icon-video${large ? " plugin-row-icon-large" : ""}`}><Video size={size} /></span>;
-  if (toolId === "image-to-3d") return <span className={`plugin-row-icon plugin-row-icon-3d${large ? " plugin-row-icon-large" : ""}`}><Box size={size} /></span>;
   const godot = plugin.id === "opengame:godot";
   return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <Gamepad2 size={size} /> : plugin.id.startsWith("local:") ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
-}
-
-function ToolIcon({ tool }: { tool?: ToolDefinition }): ReactNode {
-  const output = tool?.outputKind;
-  return output === "model" ? <Box size={15} /> : output === "video" ? <Video size={15} /> : <ImageIcon size={15} />;
 }
 
 function pluginSearchText(plugin: PluginSummary): string {

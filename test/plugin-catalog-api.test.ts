@@ -42,9 +42,6 @@ describe("plugin catalog API", () => {
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
-        { id: "opengame:tool:generate-image", installed: true },
-        { id: "opengame:tool:image-to-3d", installed: true },
-        { id: "opengame:tool:generate-video", installed: true },
         { id: "opengame:godot", installed: true },
       ],
       errors: [],

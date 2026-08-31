@@ -96,7 +96,6 @@ export function createAgentTools(
       const plugin = await installPlugin(sourcePath);
       const counts = [
         plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        plugin.tools.length ? `${plugin.tools.length} Tool${plugin.tools.length === 1 ? "" : "s"}` : undefined,
         plugin.connections.length ? `${plugin.connections.length} Connection${plugin.connections.length === 1 ? "" : "s"}` : undefined,
       ].filter(Boolean).join(" · ") || "No components";
       return {
