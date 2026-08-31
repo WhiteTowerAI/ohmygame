@@ -22,7 +22,7 @@ import {
   Tablet,
   X,
 } from "./icons.js";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
@@ -40,7 +40,6 @@ interface CodingWorkspaceProps {
   workspaceRevision: number;
   onPublish: () => void;
   onRestart: () => void;
-  collapsedActions?: ReactNode;
 }
 
 export function CodingWorkspace({
@@ -50,7 +49,6 @@ export function CodingWorkspace({
   workspaceRevision,
   onPublish,
   onRestart,
-  collapsedActions,
 }: CodingWorkspaceProps) {
   const supportsPreview = project?.type === "web-game";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
@@ -144,7 +142,6 @@ export function CodingWorkspace({
   return (
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
-        {collapsedActions}
         <nav className="workspace-tabs" aria-label="Workspace views">
           {supportsPreview ? (
             <>
@@ -809,14 +806,27 @@ function PreviewState({ status, error }: { status?: ProjectState["preview"]["sta
         </div>
       );
     case "waiting":
+    case undefined:
+      return <PreviewEmptyState />;
     case "stopped":
     case "ready":
-    case undefined:
       return null;
     default:
       status satisfies never;
       return null;
   }
+}
+
+function PreviewEmptyState() {
+  return (
+    <div className="preview-empty-state">
+      <div className="preview-empty-mark" aria-hidden="true">
+        <span /><span /><span /><span />
+      </div>
+      <p className="preview-empty-title">Your game preview will appear here</p>
+      <p className="preview-empty-description">Describe your idea in the agent panel to generate a playable first build.</p>
+    </div>
+  );
 }
 
 function errorMessage(error: unknown): string {

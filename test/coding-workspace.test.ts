@@ -1,8 +1,31 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { normalizePreviewPath, workspaceFileTree } from "../src/renderer/coding-workspace.js";
+import { CodingWorkspace, normalizePreviewPath, workspaceFileTree } from "../src/renderer/coding-workspace.js";
 import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
 
 describe("preview path", () => {
+  it("shows the initial preview guidance while the workspace is empty", () => {
+    const html = renderToStaticMarkup(createElement(CodingWorkspace, {
+      project: {
+        id: "project-1",
+        name: "Untitled project",
+        type: "web-game",
+        updatedAt: new Date(0).toISOString(),
+        workspacePath: "/tmp/project-1",
+        preview: { status: "waiting" },
+      },
+      agentBusy: false,
+      publishing: false,
+      workspaceRevision: 0,
+      onPublish: () => undefined,
+      onRestart: () => undefined,
+    }));
+
+    expect(html).toContain("Your game preview will appear here");
+    expect(html).toContain("Describe your idea in the agent panel");
+  });
+
   it("normalizes paths relative to the preview origin", () => {
     expect(normalizePreviewPath("")).toBe("/");
     expect(normalizePreviewPath("level-editor")).toBe("/level-editor");

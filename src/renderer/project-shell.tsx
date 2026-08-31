@@ -548,6 +548,8 @@ export function ProjectShell({
         <div className="workspace-resize-shield" />
       ) : null}
 
+      {agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : null}
+
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
           title={project?.name ?? "Loading project"}
@@ -699,11 +701,9 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           onPublish={publish}
           onRestart={restartPreview}
-          collapsedActions={agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : undefined}
         />
       ) : <InteractiveDramaWorkspace
         projectId={project.id}
-        collapsedActions={agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : undefined}
       />}
     </main>
   );

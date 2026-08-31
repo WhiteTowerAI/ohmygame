@@ -83,7 +83,7 @@ export const CircleDot = forwardRef<SVGSVGElement, IconProps>(function CircleDot
 });
 
 export const Square = forwardRef<SVGSVGElement, IconProps>(function Square({ size = 24, ...props }, ref) {
-  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props }, createElement("rect", { x: "7", y: "7", width: "10", height: "10", rx: "1", fill: "currentColor" }));
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props }, createElement("rect", { x: "3.5", y: "3.5", width: "17", height: "17", rx: "1.5", fill: "currentColor" }));
 });
 
 export const Hand = forwardRef<SVGSVGElement, IconProps>(function Hand({ size = 24, ...props }, ref) {
