@@ -8,6 +8,8 @@ import {
   isPluginVersion,
   type PluginComponentSummary,
   type PluginDetail,
+  type PluginMarketplaceRef,
+  type PluginSource,
 } from "../shared/plugins.js";
 
 const LOCAL_PLUGIN_ID_PREFIX = "local:";
@@ -24,6 +26,12 @@ interface LocalPluginRecord {
 export interface PluginCapabilityRegistry {
   connections(): Promise<readonly string[]>;
   reservedPluginDisplayNames(): readonly string[];
+}
+
+export interface PluginBundleIdentity {
+  idPrefix: string;
+  marketplace: PluginMarketplaceRef;
+  source: PluginSource;
 }
 
 export class LocalPluginError extends Error {
@@ -81,7 +89,7 @@ export class LocalPluginStore {
     if (pathsOverlap(source, this.#pluginsDirectory)) {
       throw new LocalPluginError("Plugin source must be outside OpenGame's managed plugin directory");
     }
-    const inspected = await inspectLocalPlugin(source, this.capabilities);
+    const inspected = await inspectPluginBundle(source, localIdentity, this.capabilities);
     const currentRecords = await this.#readIndex();
     const previousRecord = currentRecords.find((record) => record.name === inspected.name);
     if (previousRecord && path.resolve(previousRecord.sourcePath) !== source) {
@@ -106,7 +114,7 @@ export class LocalPluginStore {
     let committed = false;
     try {
       await cp(source, temporary, { recursive: true, errorOnExist: true, force: false });
-      await inspectLocalPlugin(temporary, this.capabilities);
+      await inspectPluginBundle(temporary, localIdentity, this.capabilities);
       await mkdir(path.dirname(destination), { recursive: true });
       try {
         await rename(destination, backup);
@@ -192,7 +200,7 @@ export class LocalPluginStore {
 
   async #readRecord(record: LocalPluginRecord): Promise<PluginDetail> {
     try {
-      return await inspectLocalPlugin(this.#installedPath(record.name, record.version), this.capabilities);
+      return await inspectPluginBundle(this.#installedPath(record.name, record.version), localIdentity, this.capabilities);
     } catch (cause) {
       if (cause instanceof LocalPluginError) throw cause;
       throw new LocalPluginError(`Could not read local plugin ${record.name}: ${errorMessage(cause)}`);
@@ -229,7 +237,17 @@ export class LocalPluginStore {
   }
 }
 
-async function inspectLocalPlugin(pluginRoot: string, capabilities?: PluginCapabilityRegistry): Promise<PluginDetail> {
+const localIdentity: PluginBundleIdentity = {
+  idPrefix: LOCAL_PLUGIN_ID_PREFIX,
+  marketplace: PERSONAL_MARKETPLACE,
+  source: { type: "local" },
+};
+
+export async function inspectPluginBundle(
+  pluginRoot: string,
+  identity: PluginBundleIdentity,
+  capabilities?: PluginCapabilityRegistry,
+): Promise<PluginDetail> {
   await validateBundle(pluginRoot);
   const manifestPath = path.join(pluginRoot, PLUGIN_MANIFEST_PATH);
   let value: unknown;
@@ -246,13 +264,13 @@ async function inspectLocalPlugin(pluginRoot: string, capabilities?: PluginCapab
   const skills = manifest.skills ? await skillComponents(pluginRoot, manifest.skills) : [];
   const connections = await referencedComponents(manifest.connections, await capabilities?.connections(), "Connection");
   return {
-    id: `${LOCAL_PLUGIN_ID_PREFIX}${manifest.name}`,
+    id: `${identity.idPrefix}${manifest.name}`,
     name: manifest.name,
     displayName: manifest.interface?.displayName ?? displayName(manifest.name),
     description: manifest.interface?.shortDescription ?? manifest.description,
     version: manifest.version,
-    marketplace: PERSONAL_MARKETPLACE,
-    source: { type: "local" },
+    marketplace: identity.marketplace,
+    source: identity.source,
     installed: true,
     enabled: true,
     skills,

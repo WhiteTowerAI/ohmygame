@@ -27,7 +27,8 @@ import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
-import { BuiltInPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
+import { BuiltInPluginAdapter, BundledPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
+import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
 import { enabledConnectionIds, resolvePluginSkillPaths } from "./plugin-runtime.js";
@@ -53,6 +54,7 @@ export interface AppOptions {
   meshyApiKey?: string;
   meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
+  bundledPluginsDirectory?: string;
 }
 
 const createProjectSchema = {
@@ -384,20 +386,23 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
+  const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
   const localPlugins = new LocalPluginStore(dataDirectory, {
     connections: async () => (await mcpServers.list()).map((server) => server.id),
-    reservedPluginDisplayNames: () => builtInPlugins().map((plugin) => plugin.displayName),
+    reservedPluginDisplayNames: () => [...builtInPlugins(), ...bundledPlugins.list()].map((plugin) => plugin.displayName),
   });
   const plugins = new PluginCatalogService([
     new BuiltInPluginAdapter(async () => {
       const godot = (await mcpServers.list()).find((server) => server.id === "opengame-godot");
       return godot?.enabled ?? true;
     }),
+    new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
   ], pluginSettings);
   const pluginDetails = () => [
     ...builtInPlugins(),
+    ...bundledPlugins.list(),
     ...localPlugins.installed(),
   ];
   const syncPluginConnections = async (
@@ -420,7 +425,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkillPaths(localPlugins, pluginSettings),
+        () => resolvePluginSkillPaths([bundledPlugins, localPlugins], pluginSettings),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -448,7 +453,7 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkillPaths(localPlugins, pluginSettings),
+        () => resolvePluginSkillPaths([bundledPlugins, localPlugins], pluginSettings),
       );
     }),
     activeToolNames: (project, mode, session) => {
@@ -476,7 +481,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
     await localPlugins.list();
     await syncPluginConnections();
   });

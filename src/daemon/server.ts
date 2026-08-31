@@ -34,6 +34,7 @@ try {
   app = createApp({
     dataDirectory,
     piAgentDirectory,
+    bundledPluginsDirectory: process.env.OPEN_GAME_BUNDLED_PLUGINS_DIR,
     accessToken: process.env.OPEN_GAME_DAEMON_TOKEN,
     allowedOrigins: (process.env.OPEN_GAME_ALLOWED_ORIGINS ?? "")
       .split(",")

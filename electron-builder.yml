@@ -13,6 +13,8 @@ files:
   - dist/renderer/**/*
 
 extraResources:
+  - from: plugins
+    to: plugins
   - from: .runtime/node
     to: runtime/node
   - from: .runtime/desktop-config.json

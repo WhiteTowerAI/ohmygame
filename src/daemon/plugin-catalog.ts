@@ -108,6 +108,20 @@ export class LocalPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
+export class BundledPluginAdapter implements PluginCatalogAdapter {
+  readonly marketplace = OPENGAME_MARKETPLACE;
+
+  constructor(private readonly plugins: { list(): PluginDetail[]; read(id: string): PluginDetail | undefined }) {}
+
+  async list(): Promise<PluginCatalogResult> {
+    return { plugins: this.plugins.list().map(pluginSummary) };
+  }
+
+  async read(id: string): Promise<PluginDetail | undefined> {
+    return this.plugins.read(id);
+  }
+}
+
 export function builtInPlugins(godotEnabled = true): PluginDetail[] {
   return [godotPlugin(godotEnabled)];
 }

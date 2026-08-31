@@ -104,6 +104,7 @@ try {
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: path.join(app.getPath("userData"), "pi-agent"),
+    bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

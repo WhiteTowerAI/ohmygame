@@ -17,7 +17,7 @@ describe("plugin runtime", () => {
       installedPath: async () => "/managed/plugin/0.1.0",
     } as unknown as LocalPluginStore;
 
-    const skillPaths = await resolvePluginSkillPaths(local, settings);
+    const skillPaths = await resolvePluginSkillPaths([local], settings);
 
     expect(skillPaths).toEqual([]);
   });
