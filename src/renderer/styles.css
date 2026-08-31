@@ -1121,10 +1121,8 @@ button.home-nav-item-active:hover {
 .home-category-control {
   display: inline-flex;
   height: 32px;
+  gap: 8px;
   margin-bottom: 12px;
-  overflow: hidden;
-  border-radius: 16px;
-  background: var(--home-surface);
 }
 
 .home-category-control button {
@@ -1135,7 +1133,8 @@ button.home-nav-item-active:hover {
   gap: 4px;
   padding: 0 12px;
   border: 0;
-  background: transparent;
+  border-radius: 16px;
+  background: var(--home-surface);
   color: #a8adb7;
   font: inherit;
   font-size: 12px;
@@ -1149,8 +1148,6 @@ button.home-nav-item-active:hover {
 .home-category-control button:nth-child(1) { width: 88px; }
 .home-category-control button:nth-child(2) { width: 120px; }
 .home-category-control button:nth-child(3) { width: 72px; }
-.home-category-control button:nth-child(4) { width: 48px; }
-.home-category-control button:nth-child(5) { width: 60px; }
 
 .home-notice {
   margin: 10px 2px 0;
