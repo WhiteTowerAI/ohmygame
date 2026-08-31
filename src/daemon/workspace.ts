@@ -2,7 +2,7 @@ import { isUtf8 } from "node:buffer";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import { readAssetPrompts } from "./asset-metadata.js";
+import { readAssetMetadata } from "./asset-metadata.js";
 
 const IGNORED_DIRECTORIES = new Set([".data", ".git", "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
@@ -27,10 +27,12 @@ export class WorkspaceError extends Error {}
 export async function listWorkspaceFiles(workspacePath: string): Promise<WorkspaceFile[]> {
   const files: WorkspaceFile[] = [];
   await visit(workspacePath, "", files);
-  const prompts = await readAssetPrompts(workspacePath);
+  const metadata = await readAssetMetadata(workspacePath);
   for (const file of files) {
-    const prompt = prompts[file.path];
+    const prompt = metadata.prompts[file.path];
     if (prompt) file.prompt = prompt;
+    const previewPath = metadata.previews[file.path];
+    if (previewPath) file.previewPath = previewPath;
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }

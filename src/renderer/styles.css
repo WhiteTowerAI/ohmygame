@@ -1938,8 +1938,9 @@ button.home-nav-item-active:hover {
 .library-asset-card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: #121317; font: inherit; text-align: left; cursor: pointer; transition: 120ms ease; transition-property: border-color, background-color; }
 .library-asset-card:hover { border-color: color-mix(in srgb, var(--home-accent) 28%, var(--border-strong)); background: var(--surface-hover); }
 .library-asset-card:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; }
-.library-asset-thumbnail { display: grid; width: 100%; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: #181a20; color: #7c828e; }
-.library-asset-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.library-asset-thumbnail { position: relative; display: grid; width: 100%; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: #181a20; color: #7c828e; }
+.library-asset-thumbnail :is(img, video) { width: 100%; height: 100%; object-fit: cover; }
+.library-asset-type { position: absolute; bottom: 9px; left: 9px; display: inline-flex; height: 22px; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid rgb(255 255 255 / 12%); border-radius: 999px; background: rgb(12 13 16 / 72%); color: rgb(255 255 255 / 88%); font-size: 10px; font-weight: 500; line-height: 1; pointer-events: none; backdrop-filter: blur(8px); }
 .library-asset-info { display: grid; min-width: 0; gap: 3px; padding: 9px 11px 10px; }
 .library-asset-info strong, .library-asset-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-asset-info strong { color: #d0d3da; font-size: 12px; font-weight: 500; line-height: 16px; }

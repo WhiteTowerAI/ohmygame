@@ -95,7 +95,7 @@ describe("ProjectManager", () => {
     const manager = new ProjectManager(dataDirectory);
     const project = await manager.create("Game");
 
-    await expect(manager.addGeneratedAsset(project.id, "image-run.webp", Buffer.from("image"), "A forest shrine"))
+    await expect(manager.addGeneratedAsset(project.id, "image-run.webp", Buffer.from("image"), { prompt: "A forest shrine" }))
       .resolves.toBe("assets/generated/image-run.webp");
     expect(await readFile(path.join(project.workspacePath, "assets", "generated", "image-run.webp"), "utf8")).toBe("image");
     expect(await manager.generatedAssetPrompt(project.id, "assets/generated/image-run.webp")).toBe("A forest shrine");
@@ -108,8 +108,8 @@ describe("ProjectManager", () => {
     const project = await manager.create("Game");
 
     await Promise.all([
-      manager.addGeneratedAsset(project.id, "first.webp", Buffer.from("first"), "First prompt"),
-      manager.addGeneratedAsset(project.id, "second.webp", Buffer.from("second"), "Second prompt"),
+      manager.addGeneratedAsset(project.id, "first.webp", Buffer.from("first"), { prompt: "First prompt" }),
+      manager.addGeneratedAsset(project.id, "second.webp", Buffer.from("second"), { prompt: "Second prompt" }),
     ]);
 
     expect(await manager.generatedAssetPrompt(project.id, "assets/generated/first.webp")).toBe("First prompt");

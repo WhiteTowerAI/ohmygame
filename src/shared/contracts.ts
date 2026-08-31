@@ -417,6 +417,7 @@ export interface WorkspaceFile {
   size: number;
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
+  previewPath?: string;
 }
 
 export interface WorkspaceFileContent {

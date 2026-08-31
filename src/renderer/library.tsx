@@ -1,4 +1,4 @@
-import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, RefreshCw, Search, X } from "./icons.js";
+import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, Play, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import { listProjects, listWorkspaceFiles, waitForRuntime } from "./api.js";
@@ -173,8 +173,26 @@ function LibraryAssetDialog({ asset, onClose, onOpenProject }: { asset: LibraryA
 
 function LibraryAssetThumbnail({ asset }: { asset: LibraryAsset }) {
   const [visible, setVisible] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const target = useRef<HTMLDivElement>(null);
-  const image = useWorkspaceAssetUrl(visible && asset.mediaType === "image" ? asset.projectId : undefined, asset.path);
+  const previewPath = asset.mediaType === "image" || asset.mediaType === "video"
+    ? asset.path
+    : asset.mediaType === "model"
+    ? asset.previewPath
+    : undefined;
+  const preview = useWorkspaceAssetUrl(visible && previewPath ? asset.projectId : undefined, previewPath ?? asset.path);
+  const showPreview = Boolean(preview.url) && !previewFailed;
+  const FallbackIcon = asset.mediaType === "video"
+    ? Film
+    : asset.mediaType === "audio"
+    ? Music2
+    : asset.mediaType === "model"
+    ? Box
+    : preview.error || previewFailed
+    ? X
+    : ImageIcon;
+  const TypeIcon = asset.mediaType === "video" ? Play : asset.mediaType === "model" ? Box : undefined;
+  const typeLabel = asset.mediaType === "video" ? "Video" : asset.mediaType === "model" ? "3D" : undefined;
 
   useEffect(() => {
     const node = target.current;
@@ -193,7 +211,10 @@ function LibraryAssetThumbnail({ asset }: { asset: LibraryAsset }) {
 
   return (
     <div className={`library-asset-thumbnail library-asset-${asset.mediaType}`} ref={target}>
-      {image.url ? <img src={image.url} alt="" /> : asset.mediaType === "video" ? <Film size={28} /> : asset.mediaType === "audio" ? <Music2 size={28} /> : asset.mediaType === "model" ? <Box size={28} /> : image.error ? <X size={22} /> : <ImageIcon size={28} />}
+      {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
+      {showPreview && asset.mediaType !== "video" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
+      {!showPreview ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
+      {TypeIcon && typeLabel ? <span className="library-asset-type" aria-hidden="true"><TypeIcon size={11} />{typeLabel}</span> : null}
     </div>
   );
 }

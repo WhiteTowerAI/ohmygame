@@ -58,6 +58,7 @@ interface StoredToolRun extends ToolRun {
   version: 1;
   requestId?: string;
   prompt?: string;
+  preview?: { fileName: string; mediaType: "image/png" | "image/jpeg" };
 }
 
 export class ToolRunError extends Error {
@@ -137,6 +138,10 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const generated = await this.model3DGenerator.generate({ image: input.image }, signal);
       signal?.throwIfAborted();
+      const preview = {
+        fileName: `preview.${input.image.mediaType === "image/png" ? "png" : "jpg"}`,
+        mediaType: input.image.mediaType as "image/png" | "image/jpeg",
+      };
       const run: StoredToolRun = {
         version: 1,
         id,
@@ -144,9 +149,11 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files: [{ name: "model.glb", mediaType: generated.mediaType }],
         requestId: generated.requestId,
+        preview,
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
+      await writeFile(path.join(temporary, preview.fileName), Buffer.from(input.image.data, "base64"));
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -198,7 +205,7 @@ export class ToolRunner {
     }
   }
 
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string } | undefined> {
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
     if (!isRunId(runId) || !["output.png", "output.jpg", "output.webp", "model.glb", "output.mp4"].includes(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
@@ -206,7 +213,10 @@ export class ToolRunner {
       const file = run.files.find((candidate) => candidate.name === fileName);
       const filePath = path.join(directory, fileName);
       if (run.version !== 1 || run.id !== runId || !file || !(await stat(filePath)).isFile()) return undefined;
-      return { bytes: await readFile(filePath), mediaType: file.mediaType, ...(run.prompt ? { prompt: run.prompt } : {}) };
+      const preview = run.preview
+        ? { bytes: await readFile(path.join(directory, run.preview.fileName)), mediaType: run.preview.mediaType }
+        : undefined;
+      return { bytes: await readFile(filePath), mediaType: file.mediaType, ...(run.prompt ? { prompt: run.prompt } : {}), ...(preview ? { preview } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
@@ -227,7 +237,7 @@ function isPromptImage(value: unknown): value is RunImageTo3DToolRequest["image"
   return (image.mediaType === "image/png" || image.mediaType === "image/jpeg") && typeof image.data === "string" && image.data.length > 0;
 }
 
-function publicRun({ version: _, requestId: __, prompt: ___, ...run }: StoredToolRun): ToolRun {
+function publicRun({ version: _, requestId: __, prompt: ___, preview: ____, ...run }: StoredToolRun): ToolRun {
   return run;
 }
 

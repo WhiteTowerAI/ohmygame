@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
-import { readAssetPrompts, writeAssetPrompt } from "./asset-metadata.js";
+import { readAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 
 interface ProjectMetadata {
@@ -154,7 +154,12 @@ export class ProjectManager {
     }
   }
 
-  async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array, prompt?: string): Promise<string> {
+  async addGeneratedAsset(
+    id: string,
+    fileName: string,
+    contents: Uint8Array,
+    metadata: { prompt?: string; preview?: { bytes: Uint8Array; extension: "png" | "jpg" } } = {},
+  ): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(fileName)) throw new Error(`Invalid asset name: ${fileName}`);
@@ -173,11 +178,30 @@ export class ProjectManager {
     } finally {
       await rm(temporary, { force: true });
     }
-    const normalizedPrompt = prompt?.trim();
-    if (normalizedPrompt) {
-      const assetPath = relativePath.split(path.sep).join("/");
+    const assetPath = relativePath.split(path.sep).join("/");
+    const normalizedPrompt = metadata.prompt?.trim();
+    let previewPath: string | undefined;
+    if (metadata.preview) {
+      const dataDirectory = path.join(project.workspacePath, ".data");
+      const previewDirectory = path.join(dataDirectory, "asset-previews");
+      await ensureDirectory(dataDirectory, true);
+      await ensureDirectory(previewDirectory, true);
+      previewPath = `.data/asset-previews/${path.parse(fileName).name}.${metadata.preview.extension}`;
+      const previewDestination = path.join(project.workspacePath, ...previewPath.split("/"));
+      const previewTemporary = `${previewDestination}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(previewTemporary, metadata.preview.bytes, { flag: "wx" });
+        await rename(previewTemporary, previewDestination);
+      } finally {
+        await rm(previewTemporary, { force: true });
+      }
+    }
+    if (normalizedPrompt || previewPath) {
       const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve())
-        .then(() => writeAssetPrompt(project.workspacePath, assetPath, normalizedPrompt));
+        .then(() => writeAssetMetadata(project.workspacePath, assetPath, {
+          ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+          ...(previewPath ? { previewPath } : {}),
+        }));
       this.#assetMetadataWrites.set(id, write);
       try {
         await write;
@@ -192,7 +216,7 @@ export class ProjectManager {
   async generatedAssetPrompt(id: string, assetPath: string): Promise<string | undefined> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    return (await readAssetPrompts(project.workspacePath))[assetPath];
+    return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
   }
 
   async story(id: string): Promise<StoryDocument> {

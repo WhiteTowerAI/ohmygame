@@ -156,7 +156,7 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
       const fileName = `image-${run.id}.${extension}`;
-      const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, input.prompt);
+      const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, { prompt: input.prompt });
       return {
         content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
         details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
@@ -184,7 +184,15 @@ export function createAgentTools(
       if (!file) throw new Error("Generated 3D model could not be read");
       signal?.throwIfAborted();
       const sourcePrompt = await projects.generatedAssetPrompt(project.id, input.imagePath);
-      const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, sourcePrompt);
+      const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
+        ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
+        ...(file.preview ? {
+          preview: {
+            bytes: file.preview.bytes,
+            extension: file.preview.mediaType === "image/png" ? "png" : "jpg",
+          },
+        } : {}),
+      });
       return {
         content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
         details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
@@ -217,7 +225,7 @@ export function createAgentTools(
       const file = await tools.file(run.id, output.name);
       if (!file) throw new Error("Generated video could not be read");
       signal?.throwIfAborted();
-      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, input.prompt);
+      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, { prompt: input.prompt });
       return {
         content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
         details: { artifact: { type: "video", path: relativePath, mediaType: output.mediaType } },

@@ -31,10 +31,11 @@ describe("workspace inspection", () => {
     await writeFile(path.join(workspace, ".data", "assets.json"), JSON.stringify({
       version: 1,
       prompts: { "assets/generated/image.webp": "A forest shrine" },
+      previews: { "assets/generated/image.webp": ".data/asset-previews/image.jpg" },
     }));
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
-      { path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine" },
+      { path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".data/asset-previews/image.jpg" },
     ]);
   });
 

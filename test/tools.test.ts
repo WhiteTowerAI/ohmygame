@@ -105,6 +105,15 @@ describe("tool runner", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toEqual({ path: expectedPath });
     expect(await readFile(path.join(project.workspacePath, expectedPath), "utf8")).toBe("glb");
+    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json();
+    expect(files).toContainEqual(expect.objectContaining({
+      path: expectedPath,
+      previewPath: `.data/asset-previews/model-${run.id}.jpg`,
+    }));
+    expect(await readFile(path.join(project.workspacePath, ".data", "asset-previews", `model-${run.id}.jpg`), "utf8")).toBe("image");
+    const preview = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=${encodeURIComponent(`.data/asset-previews/model-${run.id}.jpg`)}` });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["content-type"]).toBe("image/jpeg");
   });
 
   it("runs the image tool and persists its output outside projects", async () => {
