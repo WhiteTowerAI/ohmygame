@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, refinePlan, removeLocalPlugin, removePendingPrompt, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, refinePlan, removeLocalPlugin, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -411,6 +411,20 @@ describe("renderer project API", () => {
       "/api/projects/project-1/files/content?path=src%2Fmy%20file.ts",
       "/api/projects/project-1/files/raw?path=public%2Fcover%20image.png",
     ]);
+  });
+
+  it("renames and deletes workspace assets", async () => {
+    installWindow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ path: "assets/new name.glb" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renameAsset("project-1", "assets/old name.glb", "new name");
+    await deleteAsset("project-1", "assets/new name.glb");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/assets?path=assets%2Fold%20name.glb", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "new name" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/assets?path=assets%2Fnew%20name.glb", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("downloads workspace assets with desktop authorization", async () => {

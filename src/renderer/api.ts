@@ -281,6 +281,17 @@ export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFi
   return request(`/projects/${projectId}/files`);
 }
 
+export async function renameAsset(projectId: string, filePath: string, name: string): Promise<{ path: string }> {
+  return request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteAsset(projectId: string, filePath: string): Promise<void> {
+  await request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+}
+
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
   return request(`/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`);
 }

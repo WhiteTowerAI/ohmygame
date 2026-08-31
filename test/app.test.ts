@@ -122,6 +122,28 @@ describe("daemon", () => {
     expect(media.rawPayload).toEqual(Buffer.from([1, 2, 3]));
   });
 
+  it("renames and deletes workspace assets", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(project.workspacePath, "old name.png"), Buffer.from([1, 2, 3]));
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/projects/${project.id}/assets?path=${encodeURIComponent("old name.png")}`,
+      payload: { name: "new name" },
+    });
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/projects/${project.id}/assets?path=${encodeURIComponent("new name.png")}`,
+    });
+
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json()).toEqual({ path: "new name.png" });
+    expect(removed.statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([]);
+  });
+
   it("rejects unsafe workspace file paths", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
     apps.push(app);

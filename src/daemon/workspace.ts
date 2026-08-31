@@ -72,13 +72,13 @@ export async function validateWorkspaceFile(workspacePath: string, requestedPath
 export async function getWorkspaceMedia(
   workspacePath: string,
   requestedPath: string,
-): Promise<{ absolutePath: string; contentType: string; size: number }> {
-  const { absolutePath } = await resolveFile(workspacePath, requestedPath);
+): Promise<{ absolutePath: string; relativePath: string; contentType: string; size: number }> {
+  const { absolutePath, relativePath } = await resolveFile(workspacePath, requestedPath);
   const fileStat = await stat(absolutePath);
   if (!fileStat.isFile()) throw new WorkspaceError("Path is not a file");
   const media = mediaInfo(requestedPath);
   if (!media) throw new WorkspaceError("File is not a supported media asset");
-  return { absolutePath, contentType: media.contentType, size: fileStat.size };
+  return { absolutePath, relativePath, contentType: media.contentType, size: fileStat.size };
 }
 
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<void> {

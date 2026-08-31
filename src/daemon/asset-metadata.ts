@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const ASSET_METADATA_FILE = path.join(".data", "assets.json");
@@ -27,8 +27,39 @@ export async function writeAssetMetadata(
   const metadata = await readAssetMetadata(workspacePath);
   if (values.prompt) metadata.prompts[assetPath] = values.prompt;
   if (values.previewPath) metadata.previews[assetPath] = values.previewPath;
+  await writeMetadata(workspacePath, metadata);
+}
+
+export async function renameAssetMetadata(workspacePath: string, from: string, to: string): Promise<void> {
+  const metadata = await readAssetMetadata(workspacePath);
+  if (!metadata.prompts[from] && !metadata.previews[from]) return;
+  if (metadata.prompts[from]) metadata.prompts[to] = metadata.prompts[from];
+  if (metadata.previews[from]) metadata.previews[to] = metadata.previews[from];
+  delete metadata.prompts[from];
+  delete metadata.previews[from];
+  await writeMetadata(workspacePath, metadata);
+}
+
+export async function deleteAssetMetadata(workspacePath: string, assetPath: string): Promise<string | undefined> {
+  const metadata = await readAssetMetadata(workspacePath);
+  const previewPath = metadata.previews[assetPath];
+  if (!metadata.prompts[assetPath] && !previewPath) return undefined;
+  delete metadata.prompts[assetPath];
+  delete metadata.previews[assetPath];
+  await writeMetadata(workspacePath, metadata);
+  return previewPath;
+}
+
+async function writeMetadata(workspacePath: string, metadata: AssetMetadata): Promise<void> {
   const destination = path.join(workspacePath, ASSET_METADATA_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
+  const directory = path.dirname(destination);
+  try {
+    await mkdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const stats = await lstat(directory);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error(`Unsafe asset metadata path: ${directory}`);
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
@@ -50,7 +81,7 @@ function parseAssetMetadata(value: unknown): AssetMetadata | undefined {
     Boolean(assetPath) && typeof prompt === "string" && Boolean(prompt.trim())
   ))) return undefined;
   if (previews !== undefined && (previews === null || typeof previews !== "object" || !Object.entries(previews).every(([assetPath, previewPath]) => (
-      Boolean(assetPath) && typeof previewPath === "string" && Boolean(previewPath)
+      Boolean(assetPath) && typeof previewPath === "string" && /^\.data\/asset-previews\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg)$/.test(previewPath)
   )))) return undefined;
   return { version: 1, prompts: prompts as Record<string, string>, previews: (previews ?? {}) as Record<string, string> };
 }

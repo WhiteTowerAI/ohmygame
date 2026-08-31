@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
+import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 
 describe("ProjectManager", () => {
   it("migrates an existing workspace without metadata", async () => {
@@ -114,6 +115,31 @@ describe("ProjectManager", () => {
 
     expect(await manager.generatedAssetPrompt(project.id, "assets/generated/first.webp")).toBe("First prompt");
     expect(await manager.generatedAssetPrompt(project.id, "assets/generated/second.webp")).toBe("Second prompt");
+  });
+
+  it("renames and deletes assets with their metadata and previews", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Game");
+    await manager.addGeneratedAsset(project.id, "model-old.glb", Buffer.from("model"), {
+      prompt: "A forest shrine",
+      preview: { bytes: Buffer.from("preview"), extension: "png" },
+    });
+
+    await expect(manager.renameAsset(project.id, "assets/generated/model-old.glb", "forest shrine"))
+      .resolves.toBe("assets/generated/forest shrine.glb");
+    expect(await listWorkspaceFiles(project.workspacePath)).toContainEqual(expect.objectContaining({
+      path: "assets/generated/forest shrine.glb",
+      prompt: "A forest shrine",
+      previewPath: ".data/asset-previews/model-old.png",
+    }));
+    await expect(access(path.join(project.workspacePath, "assets", "generated", "model-old.glb"))).rejects.toThrow();
+    await expect(manager.renameAsset(project.id, "assets/generated/forest shrine.glb", "../outside"))
+      .rejects.toThrow("Invalid asset name");
+
+    await manager.deleteAsset(project.id, "assets/generated/forest shrine.glb");
+    expect(await listWorkspaceFiles(project.workspacePath)).not.toContainEqual(expect.objectContaining({ mediaType: "model" }));
+    await expect(access(path.join(project.workspacePath, ".data", "asset-previews", "model-old.png"))).rejects.toThrow();
   });
 
   it("stores one derived cover outside the workspace", async () => {

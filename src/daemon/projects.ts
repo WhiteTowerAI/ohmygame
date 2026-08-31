@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
-import { readAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
+import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
+import { getWorkspaceMedia } from "./workspace.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -12,6 +13,12 @@ interface ProjectMetadata {
   type: ProjectType;
   updatedAt: string;
   publication?: PublicationState;
+}
+
+export class ProjectAssetError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+  }
 }
 
 interface LoadedMetadata {
@@ -197,17 +204,10 @@ export class ProjectManager {
       }
     }
     if (normalizedPrompt || previewPath) {
-      const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve())
-        .then(() => writeAssetMetadata(project.workspacePath, assetPath, {
-          ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
-          ...(previewPath ? { previewPath } : {}),
-        }));
-      this.#assetMetadataWrites.set(id, write);
-      try {
-        await write;
-      } finally {
-        if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
-      }
+      await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
+        ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+        ...(previewPath ? { previewPath } : {}),
+      }));
     }
     await this.touch(id);
     return relativePath.split(path.sep).join("/");
@@ -217,6 +217,69 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
+  }
+
+  async renameAsset(id: string, assetPath: string, name: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    const normalizedName = name.trim();
+    if (!validAssetName(normalizedName)) throw new ProjectAssetError("Invalid asset name", 400);
+    const source = await getWorkspaceMedia(project.workspacePath, assetPath);
+    const extension = path.extname(source.absolutePath);
+    const destination = path.join(path.dirname(source.absolutePath), `${normalizedName}${extension}`);
+    if (destination === source.absolutePath) return assetPath;
+    try {
+      await lstat(destination);
+      throw new ProjectAssetError("An asset with that name already exists", 409);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const renamedPath = path.posix.join(path.posix.dirname(source.relativePath), `${normalizedName}${extension}`);
+    await rename(source.absolutePath, destination);
+    try {
+      await this.#writeAssetMetadata(id, () => renameAssetMetadata(project.workspacePath, source.relativePath, renamedPath));
+    } catch (error) {
+      await rename(destination, source.absolutePath);
+      throw error;
+    }
+    await this.touch(id);
+    return renamedPath;
+  }
+
+  async deleteAsset(id: string, assetPath: string): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    const asset = await getWorkspaceMedia(project.workspacePath, assetPath);
+    const removed = `${asset.absolutePath}.${randomUUID()}.removed`;
+    await rename(asset.absolutePath, removed);
+    let previewPath: string | undefined;
+    try {
+      await this.#writeAssetMetadata(id, async () => {
+        previewPath = await deleteAssetMetadata(project.workspacePath, asset.relativePath);
+      });
+    } catch (error) {
+      await rename(removed, asset.absolutePath);
+      throw error;
+    }
+    await rm(removed);
+    if (previewPath) {
+      const dataDirectory = path.join(project.workspacePath, ".data");
+      const previewDirectory = path.join(dataDirectory, "asset-previews");
+      await ensureDirectory(dataDirectory);
+      await ensureDirectory(previewDirectory);
+      await rm(path.join(project.workspacePath, ...previewPath.split("/")), { force: true });
+    }
+    await this.touch(id);
+  }
+
+  async #writeAssetMetadata(id: string, operation: () => Promise<void>): Promise<void> {
+    const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve()).then(operation);
+    this.#assetMetadataWrites.set(id, write);
+    try {
+      await write;
+    } finally {
+      if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
+    }
   }
 
   async story(id: string): Promise<StoryDocument> {
@@ -381,6 +444,11 @@ async function ensureDirectory(target: string, create = false): Promise<void> {
 
 function isProjectId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validAssetName(value: string): boolean {
+  return value.length > 0 && value.length <= 200 && value !== "." && value !== ".." &&
+    !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f]/.test(value);
 }
 
 function validPublication(value: unknown): value is PublicationState {

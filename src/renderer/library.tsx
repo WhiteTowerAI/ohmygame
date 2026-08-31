@@ -1,7 +1,7 @@
-import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, Play, RefreshCw, Search, X } from "./icons.js";
+import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
-import { listProjects, listWorkspaceFiles, waitForRuntime } from "./api.js";
+import { deleteAsset, listProjects, listWorkspaceFiles, renameAsset, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ModelPreview } from "./model-preview.js";
 import type { SidebarPage } from "./routes.js";
@@ -33,6 +33,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
+  const [actionError, setActionError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<LibraryAsset>();
@@ -63,6 +64,30 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
   useEffect(() => { void load(); }, []);
 
+  async function runAssetAction(action: () => Promise<unknown>): Promise<void> {
+    setActionError(undefined);
+    try {
+      await action();
+      await load();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
+  }
+
+  function rename(asset: LibraryAsset): boolean {
+    const extension = fileExtension(asset.path);
+    const name = window.prompt(`Rename asset (${extension} is preserved)`, fileStem(asset.path))?.trim();
+    if (!name || name === fileStem(asset.path)) return false;
+    void runAssetAction(() => renameAsset(asset.projectId, asset.path, name));
+    return true;
+  }
+
+  function remove(asset: LibraryAsset): boolean {
+    if (!window.confirm(`Delete “${fileName(asset.path)}” from ${asset.projectName}? This may break references in the project and cannot be undone.`)) return false;
+    void runAssetAction(() => deleteAsset(asset.projectId, asset.path));
+    return true;
+  }
+
   const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
 
   return (
@@ -85,36 +110,94 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
               </label>
             </div>
           </header>
+          {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
           {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
           {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
           {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
-          {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <LibraryAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} />)}</div> : null}
+          {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <LibraryAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />)}</div> : null}
       </section>
-      {selectedAsset ? <LibraryAssetDialog asset={selectedAsset} onClose={() => setSelectedAsset(undefined)} onOpenProject={() => onOpenProject(selectedAsset.projectId)} /> : null}
+      {selectedAsset ? <LibraryAssetDialog
+        asset={selectedAsset}
+        onClose={() => setSelectedAsset(undefined)}
+        onOpenProject={() => onOpenProject(selectedAsset.projectId)}
+        onRename={() => { if (rename(selectedAsset)) setSelectedAsset(undefined); }}
+        onDelete={() => { if (remove(selectedAsset)) setSelectedAsset(undefined); }}
+      /> : null}
     </main>
   );
 }
 
-function LibraryAssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () => void }) {
+function LibraryAssetCard({ asset, onOpen, onRename, onDelete }: { asset: LibraryAsset; onOpen: () => void; onRename: () => void; onDelete: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const card = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!card.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
   return (
-    <button className="library-asset-card" type="button" onClick={onOpen} title={`${asset.prompt ?? asset.path}\n${asset.projectName}`}>
-      <LibraryAssetThumbnail asset={asset} />
-      <div className="library-asset-info"><strong>{asset.prompt ?? fileName(asset.path)}</strong><span>{mediaTypeLabel(asset.mediaType)} · {asset.projectName}</span></div>
-    </button>
+    <article className="library-asset-card" ref={card}>
+      <button className="library-asset-card-open" type="button" onClick={onOpen} title={`${asset.prompt ?? asset.path}\n${asset.projectName}`}>
+        <LibraryAssetThumbnail asset={asset} />
+        <span className="library-asset-info"><strong>{asset.prompt ?? fileName(asset.path)}</strong><span>{mediaTypeLabel(asset.mediaType)} · {asset.projectName}</span></span>
+      </button>
+      <div className="library-asset-actions">
+        <button className="library-asset-menu" type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
+        {menuOpen ? <div className="library-asset-actions-menu" role="menu">
+          <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button>
+          <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button>
+        </div> : null}
+      </div>
+    </article>
   );
 }
 
-function LibraryAssetDialog({ asset, onClose, onOpenProject }: { asset: LibraryAsset; onClose: () => void; onOpenProject: () => void }) {
+function LibraryAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete }: {
+  asset: LibraryAsset;
+  onClose: () => void;
+  onOpenProject: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const dialog = useRef<HTMLElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const menuOpenRef = useRef(menuOpen);
   const preview = useWorkspaceAssetUrl(asset.projectId, asset.path);
   onCloseRef.current = onClose;
+  menuOpenRef.current = menuOpen;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!actions.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     dialog.current?.focus();
     const handleKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (menuOpenRef.current) {
+          setMenuOpen(false);
+          return;
+        }
         onCloseRef.current();
         return;
       }
@@ -151,8 +234,18 @@ function LibraryAssetDialog({ asset, onClose, onOpenProject }: { asset: LibraryA
     <div className="library-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="library-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="library-dialog-title" tabIndex={-1}>
         <header className="library-dialog-header">
-          <div><h2 id="library-dialog-title">{fileName(asset.path)}</h2><p>{asset.projectName}</p></div>
-          <button type="button" onClick={onClose} aria-label="Close asset preview"><X size={17} /></button>
+          <div className="library-dialog-title">
+            <h2 id="library-dialog-title" title={asset.prompt ?? fileName(asset.path)}>{asset.prompt ?? fileName(asset.path)}</h2>
+            <p><span title={fileName(asset.path)}>{fileName(asset.path)}</span><span>{asset.projectName}</span></p>
+          </div>
+          <div className="library-dialog-header-actions" ref={actions}>
+            <button type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
+            {menuOpen ? <div className="library-dialog-actions-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button>
+              <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button>
+            </div> : null}
+            <button type="button" onClick={onClose} aria-label="Close asset preview"><X size={17} /></button>
+          </div>
         </header>
         <div className={`library-dialog-preview library-dialog-${asset.mediaType}`}>
           {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />Loading asset</span> : null}
@@ -163,7 +256,12 @@ function LibraryAssetDialog({ asset, onClose, onOpenProject }: { asset: LibraryA
           {preview.url && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} minHeight={420} /> : null}
         </div>
         <footer className="library-dialog-footer">
-          <dl><div><dt>Path</dt><dd title={asset.path}>{asset.path}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.size)}</dd></div></dl>
+          <dl>
+            <div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
+            <div><dt>Size</dt><dd>{fileSize(asset.size)}</dd></div>
+            <div><dt>Project</dt><dd title={asset.projectName}>{asset.projectName}</dd></div>
+            <div className="library-dialog-path"><dt>Path</dt><dd title={asset.path}>{asset.path}</dd></div>
+          </dl>
           <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button>
         </footer>
       </section>
@@ -245,6 +343,18 @@ function compareAssets(left: LibraryAsset, right: LibraryAsset): number {
 
 function fileName(filePath: string): string {
   return filePath.split("/").at(-1) ?? filePath;
+}
+
+function fileExtension(filePath: string): string {
+  const name = fileName(filePath);
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index) : "";
+}
+
+function fileStem(filePath: string): string {
+  const name = fileName(filePath);
+  const extension = fileExtension(filePath);
+  return extension ? name.slice(0, -extension.length) : name;
 }
 
 function mediaTypeLabel(mediaType: LibraryAsset["mediaType"]): string {

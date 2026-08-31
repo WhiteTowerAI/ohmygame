@@ -17,7 +17,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
-import { isRunnableWorkspace, ProjectManager } from "./projects.js";
+import { isRunnableWorkspace, ProjectAssetError, ProjectManager } from "./projects.js";
 import { ApiSettingsStore } from "./api-settings.js";
 import { ImageSettingsStore } from "./image-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -74,6 +74,23 @@ const renameProjectSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+  },
+} as const;
+
+const assetPathQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["path"],
+  properties: { path: { type: "string", minLength: 1, maxLength: 1_000 } },
+} as const;
+
+const renameAssetSchema = {
+  querystring: assetPathQuerySchema,
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["name"],
+    properties: { name: { type: "string", minLength: 1, maxLength: 200 } },
   },
 } as const;
 
@@ -724,6 +741,36 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return listWorkspaceFiles(project.workspacePath);
   });
+
+  app.patch<{ Params: { projectId: string }; Querystring: { path: string }; Body: { name: string } }>(
+    "/projects/:projectId/assets",
+    { schema: renameAssetSchema },
+    async (request, reply) => {
+      if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return { path: await projects.renameAsset(request.params.projectId, request.query.path, request.body.name) };
+      } catch (cause) {
+        if (cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.delete<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/assets",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+      try {
+        await projects.deleteAsset(request.params.projectId, request.query.path);
+        return reply.code(204).send();
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
 
   app.get<{ Params: { projectId: string }; Querystring: { path?: string } }>(
     "/projects/:projectId/files/content",
