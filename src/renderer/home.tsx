@@ -1,5 +1,5 @@
-import { ArrowUp, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Globe2, LoaderCircle, RefreshCw } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { createConversation, createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
@@ -141,20 +141,26 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <WindowDragRegion />
         <div className="home-start">
           <h1>What are we making today?</h1>
-          <div className="home-category-control" role="tablist" aria-label="Game category">
+          <fieldset className="home-category-control">
+            <legend className="visually-hidden">Project type</legend>
             {PROJECT_TYPES.map(({ label, value }) => (
-              <button
+              <label
                 className={value === projectType ? "is-active" : ""}
                 key={value}
-                role="tab"
-                aria-selected={value === projectType}
-                type="button"
-                onClick={() => setProjectType(value)}
               >
+                <input
+                  className="visually-hidden"
+                  type="radio"
+                  name="home-project-type"
+                  value={value}
+                  checked={value === projectType}
+                  onChange={() => setProjectType(value)}
+                />
+                <ProjectTypeIcon type={value} />
                 {label}
-              </button>
+              </label>
             ))}
-          </div>
+          </fieldset>
           <PromptBox
             actions={(
               <>
@@ -182,6 +188,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             leading={(
               <>
                 <ImagePickerButton disabled={creating} onImages={(next) => { setCreateError(undefined); setImages((items) => [...items, ...next]); }} onError={setCreateError} />
+                <ProjectTypeSelector disabled={creating} value={projectType} onChange={setProjectType} />
                 {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
               </>
             )}
@@ -254,6 +261,123 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         </section>
       </section>
     </main>
+  );
+}
+
+function ProjectTypeIcon({ type }: { type: ProjectType }) {
+  if (type === "web-game") return <Globe2 size={14} aria-hidden="true" />;
+  if (type === "interactive-drama") return <Clapperboard size={14} aria-hidden="true" />;
+  return <span className="home-category-godot-icon" aria-hidden="true" />;
+}
+
+function ProjectTypeSelector({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: ProjectType;
+  disabled?: boolean;
+  onChange: (value: ProjectType) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const current = PROJECT_TYPES.find((option) => option.value === value)!;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }, [open]);
+
+  return (
+    <div className="home-project-type-selector" ref={root}>
+      <button
+        ref={trigger}
+        className="home-project-type-trigger"
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={disabled}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      >
+        <ProjectTypeIcon type={current.value} />
+        <span>{current.label}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+
+      {open ? (
+        <div
+          ref={menu}
+          className="home-project-type-menu"
+          id={menuId}
+          role="menu"
+          aria-label="Project type"
+          onKeyDown={(event) => {
+            if (event.key === "Tab") {
+              setOpen(false);
+              return;
+            }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+            const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[nextIndex]?.focus();
+          }}
+        >
+          {PROJECT_TYPES.map((option) => {
+            const selected = option.value === value;
+            return (
+              <button
+                className={selected ? "is-active" : undefined}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <ProjectTypeIcon type={option.value} />
+                <span>{option.label}</span>
+                {selected ? <Check size={13} aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
