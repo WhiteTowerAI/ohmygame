@@ -154,7 +154,7 @@ function assistant(turnId: string, id: string, text: string, status: Extract<Thr
 }
 
 function project(): ProjectState {
-  return { id: "project-1", name: "Untitled project", type: "general", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1", preview: { status: "waiting" } };
+  return { id: "project-1", name: "Untitled project", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1", preview: { status: "waiting" } };
 }
 
 function conversation(): ConversationSummary {

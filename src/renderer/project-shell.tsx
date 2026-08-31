@@ -216,7 +216,7 @@ export function ProjectShell({
         });
         subscribe(detail.cursor, selected.id);
 
-        if (project.type === "general" && project.preview.status === "stopped") {
+        if (project.type === "web-game" && project.preview.status === "stopped") {
           void startPreview(project.id).catch((error) => {
             if (!disposed) dispatch({ type: "notice", message: errorMessage(error) });
           });
@@ -310,7 +310,7 @@ export function ProjectShell({
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
-    if (project?.type !== "general" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
+    if (project?.type !== "web-game" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     if (takePendingPublish(sessionStorage, project.id)) void publish();
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
@@ -691,7 +691,7 @@ export function ProjectShell({
         onLostPointerCapture={finishAgentResize}
       />
 
-      {!project ? <section className="viewer-pane" /> : project.type === "general" ? (
+      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}

@@ -2,7 +2,7 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "general" | "interactive-drama";
+export type ProjectType = "web-game" | "godot-game" | "interactive-drama";
 
 export interface AgentContextUsage {
   tokens: number | null;

@@ -15,9 +15,9 @@ describe("ProjectManager", () => {
 
     await manager.load();
 
-    expect(manager.get(id)).toMatchObject({ id, name: "Untitled project", type: "general", workspacePath: workspace });
+    expect(manager.get(id)).toMatchObject({ id, name: "Untitled project", type: "web-game", workspacePath: workspace });
     expect(await readFile(path.join(workspace, "keep.txt"), "utf8")).toBe("user data");
-    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", id, "project.json"), "utf8"))).toMatchObject({ version: 1, id, type: "general" });
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", id, "project.json"), "utf8"))).toMatchObject({ version: 1, id, type: "web-game" });
   });
 
   it("does not overwrite invalid project metadata", async () => {
@@ -53,6 +53,14 @@ describe("ProjectManager", () => {
     expect(restored.get(project.id)?.type).toBe("interactive-drama");
   });
 
+  it("supports Web Game and Godot project types", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+
+    expect((await manager.create("Web", "web-game")).type).toBe("web-game");
+    expect((await manager.create("Godot", "godot-game")).type).toBe("godot-game");
+  });
+
   it("creates and atomically updates an Interactive Drama story", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);
@@ -72,13 +80,13 @@ describe("ProjectManager", () => {
     expect((await manager.story(project.id)).chapters[0]?.title).toBe("The Stopover");
   });
 
-  it("rejects stories for general projects and invalid story documents", async () => {
+  it("rejects stories for Web Game projects and invalid story documents", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);
-    const general = await manager.create("Game");
+    const webGame = await manager.create("Game");
     const story = await manager.create("Story", "interactive-drama");
 
-    await expect(manager.story(general.id)).rejects.toThrow("Interactive Drama");
+    await expect(manager.story(webGame.id)).rejects.toThrow("Interactive Drama");
     await expect(manager.setStory(story.id, { version: 1, chapters: [] })).rejects.toThrow("Invalid story document");
   });
 

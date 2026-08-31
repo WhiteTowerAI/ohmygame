@@ -17,6 +17,7 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(201);
     const project = response.json();
     expect(project.name).toBe("First");
+    expect(project.type).toBe("web-game");
     expect(await readdir(project.workspacePath)).toEqual([]);
     expect(project.preview).toEqual({ status: "waiting" });
   });
@@ -32,6 +33,18 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+  });
+
+  it("creates a Godot project and rejects the removed general type", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    apps.push(app);
+
+    const godot = await app.inject({ method: "POST", url: "/projects", payload: { name: "Platformer", type: "godot-game" } });
+    const general = await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } });
+
+    expect(godot.statusCode).toBe(201);
+    expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
+    expect(general.statusCode).toBe(400);
   });
 
   it("loads and updates an Interactive Drama story", async () => {

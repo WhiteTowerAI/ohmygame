@@ -1,6 +1,6 @@
 import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import type { ProjectState } from "../shared/contracts.js";
 import { createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
@@ -10,12 +10,12 @@ import { WindowDragRegion } from "./window-drag-region.js";
 interface ProjectsPageProps {
   onNavigate: (page: SidebarPage) => void;
   onOpenProject: (projectId: string) => void;
-  workspace?: ProjectType;
+  workspace?: "games" | "interactive-drama";
 }
 
 type ProjectSort = "updated" | "name";
 
-export function ProjectsPage({ onNavigate, onOpenProject, workspace = "general" }: ProjectsPageProps) {
+export function ProjectsPage({ onNavigate, onOpenProject, workspace = "games" }: ProjectsPageProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -49,7 +49,7 @@ export function ProjectsPage({ onNavigate, onOpenProject, workspace = "general" 
     return () => document.removeEventListener("mousedown", close);
   }, [sortOpen]);
 
-  const workspaceProjects = useMemo(() => filterProjectsByType(projects, workspace), [projects, workspace]);
+  const workspaceProjects = useMemo(() => filterProjectsByWorkspace(projects, workspace), [projects, workspace]);
   const visibleProjects = useMemo(() => filterAndSortProjects(workspaceProjects, query, sort), [workspaceProjects, query, sort]);
 
   async function create(): Promise<void> {
@@ -57,7 +57,7 @@ export function ProjectsPage({ onNavigate, onOpenProject, workspace = "general" 
     setActionError(undefined);
     setCreating(true);
     try {
-      const project = await createProject({ type: workspace });
+      const project = await createProject({ type: workspace === "interactive-drama" ? "interactive-drama" : "web-game" });
       onOpenProject(project.id);
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -152,8 +152,10 @@ export function filterAndSortProjects(projects: ProjectState[], query: string, s
       : right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export function filterProjectsByType(projects: ProjectState[], type: ProjectType): ProjectState[] {
-  return projects.filter((project) => project.type === type);
+export function filterProjectsByWorkspace(projects: ProjectState[], workspace: "games" | "interactive-drama"): ProjectState[] {
+  return projects.filter((project) => workspace === "interactive-drama"
+    ? project.type === "interactive-drama"
+    : project.type !== "interactive-drama");
 }
 
 function ProjectState({ children, error = false }: { children: React.ReactNode; error?: boolean }) {

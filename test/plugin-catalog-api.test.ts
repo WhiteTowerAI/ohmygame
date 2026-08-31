@@ -26,7 +26,7 @@ describe("plugin catalog API", () => {
     expect(next.json().projectId).not.toBe(projectId);
     expect(next.json().conversationId).not.toBe(conversationId);
     expect(project.statusCode).toBe(200);
-    expect(project.json()).toMatchObject({ id: projectId, name: "New Plugin", type: "general" });
+    expect(project.json()).toMatchObject({ id: projectId, name: "New Plugin", type: "web-game" });
     expect(conversation.statusCode).toBe(200);
     expect(projects.json()).toHaveLength(2);
   });

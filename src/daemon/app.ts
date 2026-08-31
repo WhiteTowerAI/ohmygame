@@ -63,7 +63,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["general", "interactive-drama"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
     },
   },
 } as const;
@@ -505,7 +505,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.post("/plugins/authoring-session", async (_request, reply) => {
-    const project = await projects.create("New Plugin", "general");
+    const project = await projects.create("New Plugin", "web-game");
     const conversation = await conversations.create(project);
     return reply.code(201).send({ projectId: project.id, conversationId: conversation.summary.id });
   });

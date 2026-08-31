@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
-import { filterAndSortProjects, filterProjectsByType } from "../src/renderer/projects.js";
+import { filterAndSortProjects, filterProjectsByWorkspace } from "../src/renderer/projects.js";
 
 const PROJECTS: ProjectState[] = [
   project("forest", "Forest Adventure", "2026-08-23T10:00:00Z"),
@@ -23,11 +23,12 @@ describe("project filtering and sorting", () => {
 
   it("filters projects by their persisted type", () => {
     const interactiveDrama = project("story", "The Stopover", "2026-08-25T11:00:00Z", "interactive-drama");
-    expect(filterProjectsByType([...PROJECTS, interactiveDrama], "general")).toEqual(PROJECTS);
-    expect(filterProjectsByType([...PROJECTS, interactiveDrama], "interactive-drama")).toEqual([interactiveDrama]);
+    const godotGame = project("godot", "Platformer", "2026-08-25T12:00:00Z", "godot-game");
+    expect(filterProjectsByWorkspace([...PROJECTS, godotGame, interactiveDrama], "games")).toEqual([...PROJECTS, godotGame]);
+    expect(filterProjectsByWorkspace([...PROJECTS, godotGame, interactiveDrama], "interactive-drama")).toEqual([interactiveDrama]);
   });
 });
 
-function project(id: string, name: string, updatedAt: string, type: ProjectState["type"] = "general"): ProjectState {
+function project(id: string, name: string, updatedAt: string, type: ProjectState["type"] = "web-game"): ProjectState {
   return { id, name, type, updatedAt, workspacePath: `/projects/${id}`, preview: { status: "waiting" } };
 }

@@ -119,7 +119,7 @@ async function createProject(): Promise<ProjectState> {
   return {
     id: path.basename(directory),
     name: "Project",
-    type: "general",
+    type: "web-game",
     updatedAt: new Date(0).toISOString(),
     workspacePath: path.join(directory, "workspace"),
     preview: { status: "waiting" },

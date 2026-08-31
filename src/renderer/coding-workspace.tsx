@@ -52,7 +52,8 @@ export function CodingWorkspace({
   onRestart,
   collapsedActions,
 }: CodingWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("preview");
+  const supportsPreview = project?.type === "web-game";
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
   const [viewport, setViewport] = useState<PreviewViewport>("fit");
   const [previewPath, setPreviewPath] = useState("/");
   const [knownPaths, setKnownPaths] = useState<string[]>(["/"]);
@@ -145,14 +146,18 @@ export function CodingWorkspace({
       <header className="pane-header viewer-header window-drag-handle">
         {collapsedActions}
         <nav className="workspace-tabs" aria-label="Workspace views">
-          <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
-          <span className="workspace-tab-divider" aria-hidden="true" />
+          {supportsPreview ? (
+            <>
+              <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
+              <span className="workspace-tab-divider" aria-hidden="true" />
+            </>
+          ) : null}
           <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
           <span className="workspace-tab-divider" aria-hidden="true" />
           <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Assets" onClick={() => setActiveTab("assets")} />
         </nav>
         <div className="viewer-controls-slot">
-          {activeTab === "preview" ? (
+          {supportsPreview && activeTab === "preview" ? (
             <PreviewControls
               path={previewPath}
               paths={knownPaths}
@@ -182,7 +187,7 @@ export function CodingWorkspace({
         </div>
       </header>
 
-      {activeTab === "preview" ? (
+      {supportsPreview && activeTab === "preview" ? (
         <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
       ) : activeTab === "code" ? (
         <CodeView

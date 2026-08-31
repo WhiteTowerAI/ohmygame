@@ -1,6 +1,6 @@
-import { ArrowUp, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Shapes } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { createConversation, createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
@@ -24,7 +24,11 @@ interface HomeProps {
 }
 
 const RECENT_PROJECT_LIMIT = 4;
-const GAME_CATEGORIES = ["Web Game", "Interactive Drama", "Godot", "3D", "All"] as const;
+const PROJECT_TYPES = [
+  { label: "Web Game", value: "web-game" },
+  { label: "Interactive Drama", value: "interactive-drama" },
+  { label: "Godot", value: "godot-game" },
+] as const satisfies ReadonlyArray<{ label: string; value: ProjectType }>;
 const WHATS_NEW = [
   { title: "Playable Canvas is here", image: playableCanvas, page: "home" as SidebarPage },
   { title: "Cozy Town Starter Kit", image: cozyTown, page: "library" as SidebarPage },
@@ -46,7 +50,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string>();
-  const [category, setCategory] = useState<(typeof GAME_CATEGORIES)[number]>("Web Game");
+  const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const whatsNewRef = useRef<HTMLDivElement>(null);
   const modelCatalog = useAgentModels();
@@ -87,7 +91,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     setCreating(true);
     setCreateError(undefined);
     try {
-      const project = await createProject({ type: "general" });
+      const project = await createProject({ type: projectType });
       const conversation = await createConversation(project.id, model, reasoningLevel);
       onCreate(project.id, conversation.id, nextPrompt, promptImages(images), planning ? "planning" : "normal");
     } catch (error) {
@@ -127,8 +131,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     }
   }
 
-  const generalProjects = projects.filter((project) => project.type === "general");
-  const visibleProjects = showAllProjects ? generalProjects : generalProjects.slice(0, RECENT_PROJECT_LIMIT);
+  const visibleProjects = showAllProjects ? projects : projects.slice(0, RECENT_PROJECT_LIMIT);
 
   return (
     <main className="home-shell">
@@ -139,17 +142,16 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <div className="home-start">
           <h1>What are we making today?</h1>
           <div className="home-category-control" role="tablist" aria-label="Game category">
-            {GAME_CATEGORIES.map((item) => (
+            {PROJECT_TYPES.map(({ label, value }) => (
               <button
-                className={item === category ? "is-active" : ""}
-                key={item}
+                className={value === projectType ? "is-active" : ""}
+                key={value}
                 role="tab"
-                aria-selected={item === category}
+                aria-selected={value === projectType}
                 type="button"
-                onClick={() => setCategory(item)}
+                onClick={() => setProjectType(value)}
               >
-                {item}
-                {item === "All" ? <Shapes size={12} aria-hidden="true" /> : null}
+                {label}
               </button>
             ))}
           </div>
@@ -223,7 +225,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
               <button type="button" onClick={() => void loadProjects()}>
                 <RefreshCw size={14} />Retry
               </button>
-            ) : generalProjects.length > RECENT_PROJECT_LIMIT ? (
+            ) : projects.length > RECENT_PROJECT_LIMIT ? (
               <button className="home-show-all" type="button" onClick={() => setShowAllProjects((current) => !current)}>
                 {showAllProjects ? "Show less" : "Show all"}
               </button>
@@ -232,10 +234,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
           {phase === "loading" ? <ProjectGridSkeleton /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
-          {phase === "ready" && generalProjects.length === 0 ? (
+          {phase === "ready" && projects.length === 0 ? (
             <p className="home-project-state">No projects yet</p>
           ) : null}
-          {phase === "ready" && generalProjects.length > 0 ? (
+          {phase === "ready" && projects.length > 0 ? (
             <div className="home-project-grid">
               {visibleProjects.map((project, index) => (
                 <ProjectCard

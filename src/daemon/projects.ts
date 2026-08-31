@@ -48,7 +48,7 @@ export class ProjectManager {
     }
   }
 
-  async create(name?: string, type: ProjectType = "general"): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "web-game"): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
     const workspacePath = path.join(projectDirectory, "workspace");
@@ -256,13 +256,13 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "general" || parsed.type === "interactive-drama") &&
+      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama") &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
       const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
         ? parsed.updatedAt
         : fallbackUpdatedAt;
-      const type = parsed.type ?? "general";
+      const type = parsed.type ?? "web-game";
       return {
         metadata: {
           version: 1,
@@ -278,7 +278,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return { metadata: { version: 1, id, name: "Untitled project", type: "general", updatedAt: fallbackUpdatedAt }, missing: true };
+    return { metadata: { version: 1, id, name: "Untitled project", type: "web-game", updatedAt: fallbackUpdatedAt }, missing: true };
   }
 }
 
