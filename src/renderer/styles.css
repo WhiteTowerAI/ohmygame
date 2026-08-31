@@ -1335,7 +1335,7 @@ button.home-nav-item-active:hover {
 
 .home-carousel-controls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .home-section-heading .home-carousel-controls button {
@@ -1346,13 +1346,23 @@ button.home-nav-item-active:hover {
   place-items: center;
   border: 1px solid var(--home-border);
   border-radius: 50%;
-  background: var(--home-surface);
+  background: color-mix(in srgb, var(--home-surface) 72%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: 120ms ease;
+  transition-property: background-color, border-color, color, opacity;
+}
+
+.home-section-heading .home-carousel-controls button:hover:not(:disabled),
+.home-section-heading .home-carousel-controls button:focus-visible {
+  border-color: color-mix(in srgb, var(--home-accent) 38%, var(--home-border));
+  background: var(--home-sidebar-hover);
   color: var(--home-accent);
 }
 
-.home-section-heading .home-carousel-controls button:hover {
-  border-color: #58602f;
-  color: var(--home-accent-hover);
+.home-section-heading .home-carousel-controls button:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .home-project-heading {
@@ -1407,6 +1417,7 @@ button.home-nav-item-active:hover {
   height: 76px;
   align-items: center;
   gap: 12px;
+  padding-right: 34px;
 }
 
 .home-discover .project-card-preview {
@@ -1424,7 +1435,18 @@ button.home-nav-item-active:hover {
 
 .home-discover .project-card-name { font-size: 12px; line-height: 16px; }
 .home-discover .project-card-time { font-size: 10px; line-height: 13px; }
-.home-discover .project-card-actions { right: 6px; bottom: 31px; }
+
+.home-discover .project-card-actions {
+  top: 8px;
+  right: 8px;
+  bottom: auto;
+}
+
+.home-discover .project-card-actions-menu {
+  top: 34px;
+  right: 0;
+  bottom: auto;
+}
 
 .project-card,
 .community-game-card {
@@ -1489,6 +1511,10 @@ button.home-nav-item-active:hover {
   margin-top: 10px;
 }
 
+.projects-grid .project-card-meta {
+  padding-right: 38px;
+}
+
 .project-card-copy,
 .community-game-card-copy {
   display: flex;
@@ -1498,8 +1524,8 @@ button.home-nav-item-active:hover {
 
 .project-card-menu {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   place-items: center;
   border: 0;
@@ -1508,25 +1534,32 @@ button.home-nav-item-active:hover {
   cursor: pointer;
   flex: 0 0 auto;
   color: var(--text-muted);
+  opacity: 0.62;
+}
+
+.project-card:hover .project-card-menu,
+.project-card:focus-within .project-card-menu,
+.project-card-menu[aria-expanded="true"] {
+  color: var(--text);
+  opacity: 1;
 }
 
 .project-card-menu:hover,
 .project-card-menu[aria-expanded="true"] {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .project-card-actions {
   position: absolute;
-  right: 0;
-  bottom: 8px;
+  right: 6px;
+  bottom: 34px;
 }
 
 .project-card-actions-menu {
   position: absolute;
   z-index: 5;
   right: 0;
-  bottom: 34px;
+  top: 34px;
   display: flex;
   width: 108px;
   flex-direction: column;

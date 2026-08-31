@@ -51,6 +51,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
+  const [whatsNewScroll, setWhatsNewScroll] = useState({ canGoBack: false, canGoForward: false });
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const whatsNewRef = useRef<HTMLDivElement>(null);
   const modelCatalog = useAgentModels();
@@ -81,6 +82,27 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selected.reasoningLevels);
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [model, modelCatalog.models, modelCatalog.defaultReasoningLevel, reasoningLevel]);
+  useEffect(() => {
+    const carousel = whatsNewRef.current;
+    if (!carousel) return;
+    const updateScrollState = () => {
+      const maxScrollLeft = carousel.scrollWidth - carousel.clientWidth;
+      const canGoBack = carousel.scrollLeft > 1;
+      const canGoForward = carousel.scrollLeft < maxScrollLeft - 1;
+      setWhatsNewScroll((current) => (
+        current.canGoBack === canGoBack && current.canGoForward === canGoForward
+          ? current
+          : { canGoBack, canGoForward }
+      ));
+    };
+    updateScrollState();
+    carousel.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState);
+    return () => {
+      carousel.removeEventListener("scroll", updateScrollState);
+      window.removeEventListener("resize", updateScrollState);
+    };
+  }, []);
   async function submitPrompt() {
     if (matchesPlanCommand(prompt)) {
       togglePlanning();
@@ -207,10 +229,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           <div className="home-section-heading">
             <h2 id="whats-new-heading">What's New</h2>
             <div className="home-carousel-controls">
-              <button type="button" aria-label="Previous What's New items" onClick={() => whatsNewRef.current?.scrollBy({ left: -244, behavior: "smooth" })}>
+              <button type="button" aria-label="Previous What's New items" disabled={!whatsNewScroll.canGoBack} onClick={() => whatsNewRef.current?.scrollBy({ left: -244, behavior: "smooth" })}>
                 <ChevronLeft size={14} />
               </button>
-              <button type="button" aria-label="Next What's New items" onClick={() => whatsNewRef.current?.scrollBy({ left: 244, behavior: "smooth" })}>
+              <button type="button" aria-label="Next What's New items" disabled={!whatsNewScroll.canGoForward} onClick={() => whatsNewRef.current?.scrollBy({ left: 244, behavior: "smooth" })}>
                 <ChevronRight size={14} />
               </button>
             </div>

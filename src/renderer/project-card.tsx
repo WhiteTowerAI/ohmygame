@@ -43,7 +43,7 @@ export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardP
         <span className="project-card-meta">
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
-            <span className="project-card-time">{projectTime(project.updatedAt)}</span>
+            <span className="project-card-time" title={projectTimestamp(project.updatedAt)}>{projectTime(project.updatedAt)}</span>
           </span>
         </span>
       </button>
@@ -95,13 +95,32 @@ export function ProjectCover({ projectId, fallback }: { projectId: string; fallb
   );
 }
 
-export function projectTime(value: string): string {
-  const elapsed = Date.now() - new Date(value).getTime();
+export function projectTime(value: string, now = new Date()): string {
+  const updatedAt = new Date(value);
+  const elapsed = now.getTime() - updatedAt.getTime();
   if (!Number.isFinite(elapsed) || elapsed < 60_000) return "Edited just now";
   const minutes = Math.floor(elapsed / 60_000);
   if (minutes < 60) return `Edited ${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `Edited ${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `Edited ${days}d ago`;
+  if (days < 7) return `Edited ${days}d ago`;
+  const includeYear = updatedAt.getFullYear() !== now.getFullYear();
+  return `Edited ${updatedAt.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(includeYear ? { year: "numeric" } : {}),
+  })}`;
+}
+
+function projectTimestamp(value: string): string | undefined {
+  const updatedAt = new Date(value);
+  if (!Number.isFinite(updatedAt.getTime())) return undefined;
+  return updatedAt.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

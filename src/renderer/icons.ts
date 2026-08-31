@@ -34,7 +34,6 @@ import {
   MagicWandIcon,
   MagnifierIcon,
   MaximizeIcon,
-  MenuDotsIcon,
   MinusIcon,
   MonitorIcon,
   MoveToFolderIcon,
@@ -86,6 +85,14 @@ export const Square = forwardRef<SVGSVGElement, IconProps>(function Square({ siz
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props }, createElement("rect", { x: "3.5", y: "3.5", width: "17", height: "17", rx: "1.5", fill: "currentColor" }));
 });
 
+export const MoreHorizontal = forwardRef<SVGSVGElement, IconProps>(function MoreHorizontal({ size = 24, ...props }, ref) {
+  return createElement(
+    "svg",
+    { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props },
+    [6, 12, 18].map((cx) => createElement("circle", { key: cx, cx, cy: 12, r: 1.8, fill: "currentColor" })),
+  );
+});
+
 export const Hand = forwardRef<SVGSVGElement, IconProps>(function Hand({ size = 24, ...props }, ref) {
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M18 11V7.5a1.5 1.5 0 0 0-3 0V10m0-2.5V6a1.5 1.5 0 0 0-3 0v4m0-3V5.5a1.5 1.5 0 0 0-3 0V11m0-3.5a1.5 1.5 0 0 0-3 0V13l-1.2-1.2a1.7 1.7 0 0 0-2.4 2.4l4 4A6 6 0 0 0 10.6 20H13a5 5 0 0 0 5-5v-4Z", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
 });
@@ -128,7 +135,6 @@ export {
   LayersIcon as Layers3,
   LightbulbIcon as Lightbulb,
   MaximizeIcon as Maximize,
-  MenuDotsIcon as MoreHorizontal,
   MinusIcon as Minus,
   MonitorIcon as Monitor,
   MoveToFolderIcon as FolderInput,
