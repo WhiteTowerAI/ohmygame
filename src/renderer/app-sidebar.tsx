@@ -1,5 +1,5 @@
-import { ArrowDownToLine, Box, Folder, Gamepad2, House, Library, MoreHorizontal, Plug, RefreshCw, Shapes, UserRound } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
 import { SettingsDialog } from "./settings-dialog.js";
@@ -11,7 +11,7 @@ interface AppSidebarProps {
   onNavigate: (page: SidebarPage) => void;
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 232;
+const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 208;
 const MAX_SIDEBAR_WIDTH = 272;
 const SIDEBAR_WIDTH_STORAGE_KEY = "open-game-sidebar-width";
@@ -111,17 +111,17 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <span className="home-sidebar-traffic-green" />
       </div>
       <nav aria-label="Main navigation">
-        <div className="home-nav-label">WORKSPACE</div>
-        <NavigationItem active={active === "home"} icon={<House size={16} />} label="Home" onClick={() => onNavigate("home")} />
-        <NavigationItem active={active === "projects"} icon={<Folder size={16} />} label="Projects" onClick={() => onNavigate("projects")} />
-        <NavigationItem active={active === "library"} icon={<Library size={16} />} label="Library" onClick={() => onNavigate("library")} />
-        <div className="home-nav-label home-nav-label-spaced">AGENT</div>
-        <NavigationItem active={active === "plugins"} icon={<Plug size={16} />} label="Plugins" onClick={() => onNavigate("plugins")} />
+        <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
+        <NavigationItem active={active === "projects"} icon="project" label="Project" onClick={() => onNavigate("projects")} />
+        <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
+        <div className="home-nav-label home-nav-label-spaced">EXPANSIONS</div>
+        <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
-        <NavigationItem active={active === "interactive-drama"} icon={<Box size={16} />} label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
-        <NavigationItem active={active === "asset-studio"} icon={<Shapes size={16} />} label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
-        <div className="home-nav-label home-nav-label-spaced">DISCOVER</div>
-        <NavigationItem active={active === "community"} icon={<Gamepad2 size={16} />} label="Community" onClick={() => onNavigate("community")} />
+        <NavigationItem active={active === "asset-studio"} icon="asset-studio" label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
+        <NavigationItem active={active === "interactive-drama"} icon="asset-studio" label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
+        <div className="home-nav-label home-nav-label-spaced">EXPLORE</div>
+        <NavigationItem active={active === "community"} icon="games" label="Games" onClick={() => onNavigate("community")} />
+        <NavigationItem active={active === "marketplace"} icon="marketplace" label="Marketplace" onClick={() => onNavigate("marketplace")} />
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
@@ -230,11 +230,11 @@ function NavigationItem({
   onClick,
 }: {
   active: boolean;
-  icon: ReactNode;
+  icon: "home" | "project" | "library" | "plugins" | "asset-studio" | "games" | "marketplace";
   label: string;
   onClick: () => void;
 }) {
-  const content = <>{icon}<span>{label}</span></>;
+  const content = <><span className={`home-nav-icon home-nav-icon-${icon}`} aria-hidden="true" /><span>{label}</span></>;
   return (
     <button
       className={`home-nav-item${active ? " home-nav-item-active" : ""}`}

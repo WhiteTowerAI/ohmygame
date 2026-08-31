@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, ipcMain, session, shell, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, nativeTheme, session, shell, type BrowserWindow } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
@@ -97,6 +97,7 @@ app.on("before-quit", (event) => {
 
 try {
   await app.whenReady();
+  nativeTheme.themeSource = "dark";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   daemon = await startDaemon({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
@@ -123,6 +124,7 @@ try {
     preloadPath: path.join(moduleDirectory, "preload.cjs"),
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
+    sidebarVibrancy: true,
   });
   updater.subscribe((state) => mainWindow?.webContents.send("open-game:update-state", state));
   if (app.isPackaged) void updater.check();

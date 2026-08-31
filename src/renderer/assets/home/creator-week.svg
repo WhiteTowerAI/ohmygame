@@ -1,0 +1,17 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="232" height="130.5" viewBox="0 0 232 130.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Card / Promotion / Image" clip-path="url(#clip0_0_219)">
+<path id="Vector" d="M232 0H0V130.5H232V0Z" fill="#F0B624"/>
+<path id="Vector_2" d="M20 15.66L26 32.625L40 35.235L30 48.285L32 66.555L20 57.42L8 66.555L10 48.285L0 35.235L14 32.625L20 15.66Z" fill="#FF5A84" fill-opacity="0.65"/>
+<path id="Vector_3" d="M210 5.22L215 19.575L227 22.185L218 32.625L220 48.285L210 40.455L200 48.285L202 32.625L193 22.185L205 19.575L210 5.22Z" fill="#6A25DB" fill-opacity="0.75"/>
+<path id="Vector_4" d="M178 28.71H54C49.5817 28.71 46 33.3841 46 39.15V93.96C46 99.7259 49.5817 104.4 54 104.4H178C182.418 104.4 186 99.7259 186 93.96V39.15C186 33.3841 182.418 28.71 178 28.71Z" fill="#2D174B"/>
+<path id="Vector_5" d="M68 28.71V104.4M164 28.71V104.4" stroke="#F0B624" stroke-opacity="0.5" stroke-dasharray="4 4"/>
+<path id="Vector_6" d="M116 91.35C126.493 91.35 135 80.2489 135 66.555C135 52.8611 126.493 41.76 116 41.76C105.507 41.76 97 52.8611 97 66.555C97 80.2489 105.507 91.35 116 91.35Z" fill="#FF5A84"/>
+<path id="Vector_7" d="M107 67.86L113 75.69L126 56.115" stroke="#FFF4D2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_8" d="M14 101.79L29 84.825M202 107.01L218 87.435M32 113.535L42 105.705M190 23.49L181 13.05" stroke="#FFF4D2" stroke-width="3" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0_0_219">
+<rect width="232" height="130.5" fill="white"/>
+</clipPath>
+</defs>
+</svg>

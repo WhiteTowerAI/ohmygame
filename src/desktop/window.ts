@@ -9,6 +9,7 @@ interface CreateWindowOptions {
   rendererUrl?: string;
   rendererFile?: string;
   rendererHash?: string;
+  sidebarVibrancy?: boolean;
 }
 
 export async function createDesktopWindow(options: CreateWindowOptions): Promise<BrowserWindow> {
@@ -27,7 +28,13 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   const macWindowOptions = process.platform === "darwin"
     ? {
         titleBarStyle: "hiddenInset" as const,
-        trafficLightPosition: { x: 18, y: 18 },
+        ...(options.sidebarVibrancy ? {
+          trafficLightPosition: { x: 24, y: 18 },
+          backgroundColor: "#00000000",
+          transparent: true,
+          vibrancy: "sidebar" as const,
+          visualEffectState: "active" as const,
+        } : {}),
       }
     : {};
   const window = new BrowserWindow({

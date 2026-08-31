@@ -5,6 +5,7 @@ const electron = vi.hoisted(() => ({ windows: [] as unknown[], openExternal: vi.
 vi.mock("electron", () => ({
   shell: { openExternal: electron.openExternal },
   BrowserWindow: class {
+    readonly options: Record<string, unknown>;
     readonly webContents = {
       setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => { action: string }) => {
         this.onWindowOpen = handler;
@@ -18,7 +19,10 @@ vi.mock("electron", () => ({
     onNavigate?: (event: { preventDefault(): void }, url: string) => void;
     onWindowOpen?: (details: { url: string }) => { action: string };
 
-    constructor() { electron.windows.push(this); }
+    constructor(options: Record<string, unknown>) {
+      this.options = options;
+      electron.windows.push(this);
+    }
     show() {}
   },
 }));
@@ -87,5 +91,31 @@ describe("desktop window", () => {
     const navigation = { preventDefault: vi.fn() };
     window.onNavigate?.(navigation, "http://127.0.0.1:43120/#/playtest/project/chapter");
     expect(navigation.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("limits sidebar window effects to windows that request them", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      sidebarVibrancy: true,
+    });
+
+    const plain = electron.windows[0] as { options: Record<string, unknown> };
+    const sidebar = electron.windows[1] as { options: Record<string, unknown> };
+    if (process.platform === "darwin") {
+      expect(plain.options.transparent).toBeUndefined();
+      expect(plain.options.vibrancy).toBeUndefined();
+      expect(sidebar.options.transparent).toBe(true);
+      expect(sidebar.options.vibrancy).toBe("sidebar");
+    } else {
+      expect(plain.options.transparent).toBeUndefined();
+      expect(sidebar.options.transparent).toBeUndefined();
+    }
   });
 });

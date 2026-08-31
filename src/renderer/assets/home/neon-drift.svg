@@ -1,0 +1,19 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="232" height="130.5" viewBox="0 0 232 130.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Card / Trending / Image" clip-path="url(#clip0_0_184)">
+<path id="Vector" d="M232 0H0V130.5H232V0Z" fill="#061A3D"/>
+<path id="Vector_2" opacity="0.22" d="M0 107.01C48 54.81 78 44.37 116 62.64C154 80.91 183 67.86 232 18.27" stroke="#00D5FF" stroke-width="20" stroke-linecap="round"/>
+<path id="Vector_3" d="M0 107.01C48 54.81 78 44.37 116 62.64C154 80.91 183 67.86 232 18.27" stroke="#2FE8FF" stroke-width="2" stroke-dasharray="6 7"/>
+<path id="Vector_4" d="M18 123.975L64 52.2L94 123.975H18Z" fill="#7A45FF" fill-opacity="0.28"/>
+<path id="Vector_5" d="M148 130.5L187 49.59L225 130.5H148Z" fill="#EA4EA6" fill-opacity="0.22"/>
+<path id="Vector_6" d="M90 73.08L126 65.25L145 84.825L107 92.655L90 73.08Z" fill="#F4F7FF"/>
+<path id="Vector_7" d="M97 70.47L121 66.555L132 76.995L106 82.215L97 70.47Z" fill="#B8F21F"/>
+<path id="Vector_8" d="M105 96.57C107.761 96.57 110 93.6487 110 90.045C110 86.4413 107.761 83.52 105 83.52C102.239 83.52 100 86.4413 100 90.045C100 93.6487 102.239 96.57 105 96.57Z" fill="#071833" stroke="#00D5FF" stroke-width="2"/>
+<path id="Vector_9" d="M135 91.35C137.761 91.35 140 88.4287 140 84.825C140 81.2213 137.761 78.3 135 78.3C132.239 78.3 130 81.2213 130 84.825C130 88.4287 132.239 91.35 135 91.35Z" fill="#071833" stroke="#00D5FF" stroke-width="2"/>
+<path id="Vector_10" d="M80 63.945H55M74 74.385H45M157 52.2H181" stroke="#00D5FF" stroke-width="2" stroke-linecap="round"/>
+</g>
+<defs>
+<clipPath id="clip0_0_184">
+<rect width="232" height="130.5" fill="white"/>
+</clipPath>
+</defs>
+</svg>

@@ -1,4 +1,4 @@
-import { ArrowUp, Image, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Shapes } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -11,6 +11,11 @@ import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerIma
 import { ProjectCard } from "./project-card.js";
 import type { SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import playableCanvas from "./assets/home/playable-canvas.svg";
+import cozyTown from "./assets/home/cozy-town.svg";
+import dialogueDirector from "./assets/home/dialogue-director.svg";
+import creatorWeek from "./assets/home/creator-week.svg";
+import neonDrift from "./assets/home/neon-drift.svg";
 
 interface HomeProps {
   onNavigate: (page: SidebarPage) => void;
@@ -19,6 +24,14 @@ interface HomeProps {
 }
 
 const RECENT_PROJECT_LIMIT = 4;
+const GAME_CATEGORIES = ["Web Game", "Interactive Drama", "Godot", "3D", "All"] as const;
+const WHATS_NEW = [
+  { title: "Playable Canvas is here", image: playableCanvas, page: "home" as SidebarPage },
+  { title: "Cozy Town Starter Kit", image: cozyTown, page: "library" as SidebarPage },
+  { title: "Dialogue Director", image: dialogueDirector, page: "interactive-drama" as SidebarPage },
+  { title: "Creator Week rewards", image: creatorWeek, page: "community" as SidebarPage },
+  { title: "Neon Drift", image: neonDrift, page: "community" as SidebarPage },
+];
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -33,7 +46,9 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string>();
+  const [category, setCategory] = useState<(typeof GAME_CATEGORIES)[number]>("Web Game");
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const whatsNewRef = useRef<HTMLDivElement>(null);
   const modelCatalog = useAgentModels();
 
   async function loadProjects() {
@@ -122,7 +137,22 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       <section className="home-content">
         <WindowDragRegion />
         <div className="home-start">
-          <h1>Open Game</h1>
+          <h1>What are we making today?</h1>
+          <div className="home-category-control" role="tablist" aria-label="Game category">
+            {GAME_CATEGORIES.map((item) => (
+              <button
+                className={item === category ? "is-active" : ""}
+                key={item}
+                role="tab"
+                aria-selected={item === category}
+                type="button"
+                onClick={() => setCategory(item)}
+              >
+                {item}
+                {item === "All" ? <Shapes size={12} aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
           <PromptBox
             actions={(
               <>
@@ -156,7 +186,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             onChange={setPrompt}
             onSubmit={() => void submitPrompt()}
             overlay={matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={togglePlanning} /> : null}
-            placeholder={planning ? "Describe what to plan" : "Ask your agent to build anything"}
+            placeholder={planning ? "Describe what to plan" : "Describe the game you want to create..."}
             textareaRef={promptRef}
             value={prompt}
             variant="home"
@@ -167,16 +197,24 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <section className="home-discover" aria-labelledby="whats-new-heading">
           <div className="home-section-heading">
             <h2 id="whats-new-heading">What's New</h2>
+            <div className="home-carousel-controls">
+              <button type="button" aria-label="Previous What's New items" onClick={() => whatsNewRef.current?.scrollBy({ left: -244, behavior: "smooth" })}>
+                <ChevronLeft size={14} />
+              </button>
+              <button type="button" aria-label="Next What's New items" onClick={() => whatsNewRef.current?.scrollBy({ left: 244, behavior: "smooth" })}>
+                <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
-          <div className="home-whats-new-grid">
-            <button className="home-whats-new-item" type="button" onClick={() => onNavigate("asset-studio")}>
-              <span className="home-whats-new-icon"><Image size={23} /></span>
-              <span className="home-whats-new-copy">
-                <strong>Image generation</strong>
-                <span>Create game-ready images</span>
-                <span className="home-whats-new-action">Try now <span aria-hidden="true">→</span></span>
-              </span>
-            </button>
+          <div className="home-whats-new-grid" ref={whatsNewRef}>
+            {WHATS_NEW.map(({ title, image, page }) => (
+              <button className="home-whats-new-item" key={title} type="button" onClick={() => onNavigate(page)}>
+                <span className="home-whats-new-icon"><img src={image} alt="" /></span>
+                <span className="home-whats-new-copy">
+                  <strong>{title}</strong>
+                </span>
+              </button>
+            ))}
           </div>
 
           <div className="home-section-heading home-project-heading">
