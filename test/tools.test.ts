@@ -131,6 +131,7 @@ describe("tool runner", () => {
       files: [{ name: "output.webp", mediaType: "image/webp" }],
     });
     expect(run).not.toHaveProperty("requestId");
+    expect(run).not.toHaveProperty("prompt");
 
     const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/output.webp` });
     expect(file.statusCode).toBe(200);
@@ -143,6 +144,7 @@ describe("tool runner", () => {
       version: 1,
       id: run.id,
       requestId: "openai-request-1",
+      prompt: "A forest game background",
     });
   });
 
@@ -167,6 +169,8 @@ describe("tool runner", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toEqual({ path: expectedPath });
     expect(await readFile(path.join(project.workspacePath, expectedPath), "utf8")).toBe("image");
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json())
+      .toContainEqual(expect.objectContaining({ path: expectedPath, prompt: "gem" }));
 
     const repeated = await app.inject({
       method: "POST",

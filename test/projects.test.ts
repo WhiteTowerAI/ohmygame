@@ -95,10 +95,25 @@ describe("ProjectManager", () => {
     const manager = new ProjectManager(dataDirectory);
     const project = await manager.create("Game");
 
-    await expect(manager.addGeneratedAsset(project.id, "image-run.webp", Buffer.from("image")))
+    await expect(manager.addGeneratedAsset(project.id, "image-run.webp", Buffer.from("image"), "A forest shrine"))
       .resolves.toBe("assets/generated/image-run.webp");
     expect(await readFile(path.join(project.workspacePath, "assets", "generated", "image-run.webp"), "utf8")).toBe("image");
+    expect(await manager.generatedAssetPrompt(project.id, "assets/generated/image-run.webp")).toBe("A forest shrine");
     await expect(manager.addGeneratedAsset(project.id, "../outside.webp", Buffer.from("image"))).rejects.toThrow("Invalid asset name");
+  });
+
+  it("preserves prompts when generated assets finish concurrently", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Game");
+
+    await Promise.all([
+      manager.addGeneratedAsset(project.id, "first.webp", Buffer.from("first"), "First prompt"),
+      manager.addGeneratedAsset(project.id, "second.webp", Buffer.from("second"), "Second prompt"),
+    ]);
+
+    expect(await manager.generatedAssetPrompt(project.id, "assets/generated/first.webp")).toBe("First prompt");
+    expect(await manager.generatedAssetPrompt(project.id, "assets/generated/second.webp")).toBe("Second prompt");
   });
 
   it("stores one derived cover outside the workspace", async () => {

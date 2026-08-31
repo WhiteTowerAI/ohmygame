@@ -23,6 +23,21 @@ describe("workspace inspection", () => {
     ]);
   });
 
+  it("adds stored prompts to generated media without listing metadata", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
+    await mkdir(path.join(workspace, "assets", "generated"), { recursive: true });
+    await mkdir(path.join(workspace, ".data"));
+    await writeFile(path.join(workspace, "assets", "generated", "image.webp"), "image");
+    await writeFile(path.join(workspace, ".data", "assets.json"), JSON.stringify({
+      version: 1,
+      prompts: { "assets/generated/image.webp": "A forest shrine" },
+    }));
+
+    await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
+      { path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine" },
+    ]);
+  });
+
   it("reads bounded text and reports binary files", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
     await writeFile(path.join(workspace, "large.txt"), "x".repeat(300 * 1024));

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
+import { readAssetPrompts, writeAssetPrompt } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 
 interface ProjectMetadata {
@@ -23,6 +24,7 @@ const STORY_FILE = "story.json";
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
+  readonly #assetMetadataWrites = new Map<string, Promise<void>>();
   readonly #projectsDirectory: string;
 
   constructor(dataDirectory: string) {
@@ -152,7 +154,7 @@ export class ProjectManager {
     }
   }
 
-  async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
+  async addGeneratedAsset(id: string, fileName: string, contents: Uint8Array, prompt?: string): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(fileName)) throw new Error(`Invalid asset name: ${fileName}`);
@@ -171,8 +173,26 @@ export class ProjectManager {
     } finally {
       await rm(temporary, { force: true });
     }
+    const normalizedPrompt = prompt?.trim();
+    if (normalizedPrompt) {
+      const assetPath = relativePath.split(path.sep).join("/");
+      const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve())
+        .then(() => writeAssetPrompt(project.workspacePath, assetPath, normalizedPrompt));
+      this.#assetMetadataWrites.set(id, write);
+      try {
+        await write;
+      } finally {
+        if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
+      }
+    }
     await this.touch(id);
     return relativePath.split(path.sep).join("/");
+  }
+
+  async generatedAssetPrompt(id: string, assetPath: string): Promise<string | undefined> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return (await readAssetPrompts(project.workspacePath))[assetPath];
   }
 
   async story(id: string): Promise<StoryDocument> {

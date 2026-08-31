@@ -607,7 +607,7 @@ export function createApp(options: AppOptions = {}) {
       const prefix = extension === ".glb" ? "model" : extension === ".mp4" || extension === ".webm" ? "video" : "image";
       const fileName = `${prefix}-${request.body.runId}${extension}`;
       return reply.code(201).send({
-        path: await projects.addGeneratedAsset(project.id, fileName, file.bytes),
+        path: await projects.addGeneratedAsset(project.id, fileName, file.bytes, file.prompt),
       });
     },
   );

@@ -68,33 +68,28 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   return (
     <main className="home-shell">
       <AppSidebar active="library" onNavigate={onNavigate} />
-      <div className="library-page">
-        <aside className="library-rail" aria-label="Library filters">
-          <section className="library-filter-section">
-            <h2>MEDIA TYPES</h2>
-            <div>
-              {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
-                <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
-                  <Icon size={16} /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        </aside>
-        <section className="library-content">
+      <section className="library-page library-content">
           <header className="library-header window-drag-handle">
-            <div><h1>Library</h1><p>{libraryCountLabel(visibleAssets.length)}</p></div>
-            <label className="library-search" htmlFor="library-search-input">
-              <Search size={14} aria-hidden="true" />
-              <input id="library-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search in all assets" />
-            </label>
+            <h1>Library</h1>
+            <div className="library-toolbar">
+              <nav className="library-filters" aria-label="Media types">
+                {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
+                  <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
+                    <Icon size={15} /><span>{label}</span>
+                  </button>
+                ))}
+              </nav>
+              <label className="library-search" htmlFor="library-search-input">
+                <Search size={14} aria-hidden="true" />
+                <input id="library-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search assets" />
+              </label>
+            </div>
           </header>
           {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
           {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
           {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
           {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <LibraryAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} />)}</div> : null}
-        </section>
-      </div>
+      </section>
       {selectedAsset ? <LibraryAssetDialog asset={selectedAsset} onClose={() => setSelectedAsset(undefined)} onOpenProject={() => onOpenProject(selectedAsset.projectId)} /> : null}
     </main>
   );
@@ -102,9 +97,9 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
 
 function LibraryAssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () => void }) {
   return (
-    <button className="library-asset-card" type="button" onClick={onOpen} title={`${asset.path}\n${asset.projectName}`}>
+    <button className="library-asset-card" type="button" onClick={onOpen} title={`${asset.prompt ?? asset.path}\n${asset.projectName}`}>
       <LibraryAssetThumbnail asset={asset} />
-      <div className="library-asset-info"><strong>{fileName(asset.path)}</strong><span>{asset.projectName}</span></div>
+      <div className="library-asset-info"><strong>{asset.prompt ?? fileName(asset.path)}</strong><span>{mediaTypeLabel(asset.mediaType)} · {asset.projectName}</span></div>
     </button>
   );
 }
@@ -207,7 +202,7 @@ export function filterLibraryAssets(assets: LibraryAsset[], media: MediaFilter, 
   const normalizedQuery = query.trim().toLowerCase();
   return assets.filter((asset) => (
     (media === "all" || asset.mediaType === media) &&
-    (!normalizedQuery || `${asset.path} ${asset.projectName}`.toLowerCase().includes(normalizedQuery))
+    (!normalizedQuery || `${asset.path} ${asset.prompt ?? ""} ${asset.projectName}`.toLowerCase().includes(normalizedQuery))
   ));
 }
 
@@ -231,14 +226,15 @@ function fileName(filePath: string): string {
   return filePath.split("/").at(-1) ?? filePath;
 }
 
+function mediaTypeLabel(mediaType: LibraryAsset["mediaType"]): string {
+  if (mediaType === "model") return "3D model";
+  return mediaType[0]?.toUpperCase() + mediaType.slice(1);
+}
+
 function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function libraryCountLabel(count: number): string {
-  return `${count} ${count === 1 ? "asset" : "assets"}`;
 }
 
 function errorMessage(error: unknown): string {

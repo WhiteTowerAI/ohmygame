@@ -57,6 +57,7 @@ const generateVideo: ToolDefinition = {
 interface StoredToolRun extends ToolRun {
   version: 1;
   requestId?: string;
+  prompt?: string;
 }
 
 export class ToolRunError extends Error {
@@ -112,6 +113,7 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files: [{ name: imageFileName(generated.mediaType), mediaType: generated.mediaType }],
         requestId: generated.requestId,
+        prompt,
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, imageFileName(generated.mediaType)), generated.bytes);
@@ -181,6 +183,7 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files: [{ name: "output.mp4", mediaType: generated.mediaType }],
         requestId: generated.requestId,
+        prompt,
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
@@ -195,7 +198,7 @@ export class ToolRunner {
     }
   }
 
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string } | undefined> {
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string } | undefined> {
     if (!isRunId(runId) || !["output.png", "output.jpg", "output.webp", "model.glb", "output.mp4"].includes(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
@@ -203,7 +206,7 @@ export class ToolRunner {
       const file = run.files.find((candidate) => candidate.name === fileName);
       const filePath = path.join(directory, fileName);
       if (run.version !== 1 || run.id !== runId || !file || !(await stat(filePath)).isFile()) return undefined;
-      return { bytes: await readFile(filePath), mediaType: file.mediaType };
+      return { bytes: await readFile(filePath), mediaType: file.mediaType, ...(run.prompt ? { prompt: run.prompt } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
@@ -224,7 +227,7 @@ function isPromptImage(value: unknown): value is RunImageTo3DToolRequest["image"
   return (image.mediaType === "image/png" || image.mediaType === "image/jpeg") && typeof image.data === "string" && image.data.length > 0;
 }
 
-function publicRun({ version: _, requestId: __, ...run }: StoredToolRun): ToolRun {
+function publicRun({ version: _, requestId: __, prompt: ___, ...run }: StoredToolRun): ToolRun {
   return run;
 }
 
