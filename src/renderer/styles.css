@@ -1544,7 +1544,6 @@ button.home-nav-item:hover {
   scrollbar-width: thin;
 }
 
-.library-filter-section + .library-filter-section { margin-top: 28px; }
 .library-filter-section h2 {
   margin: 0 4px 6px;
   color: var(--text-faint);
@@ -6624,7 +6623,6 @@ textarea:focus-visible {
   .library-page { grid-template-columns: 1fr; }
   .library-rail { display: flex; gap: 24px; overflow-x: auto; padding: 14px 18px; border-right: 0; border-bottom: 1px solid var(--border); }
   .library-filter-section { flex: 0 0 auto; }
-  .library-filter-section + .library-filter-section { margin-top: 0; }
   .library-filter-section > div { display: flex; }
   .library-filter-section button { width: auto; }
   .library-content { overflow: visible; padding: 0 18px 30px; }

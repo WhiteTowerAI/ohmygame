@@ -1,4 +1,4 @@
-import { Box, ExternalLink, Film, Folder, Image as ImageIcon, Layers3, LoaderCircle, Music2, RefreshCw, Search, X } from "lucide-react";
+import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import { listProjects, listWorkspaceFiles, waitForRuntime } from "./api.js";
@@ -31,11 +31,9 @@ const MEDIA_FILTERS: readonly { id: MediaFilter; label: string; icon: typeof Lay
 
 export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
-  const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
-  const [projectFilter, setProjectFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<LibraryAsset>();
 
@@ -56,8 +54,6 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         throw results[0]?.status === "rejected" ? results[0].reason : new Error("Could not load project assets");
       }
       setAssets(loaded.sort(compareAssets));
-      const projectIds = new Set(loaded.map((asset) => asset.projectId));
-      setProjects(loadedProjects.filter((project) => projectIds.has(project.id)));
       setPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -66,33 +62,24 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   }
 
   useEffect(() => { void load(); }, []);
-  useEffect(() => {
-    if (projectFilter !== "all" && !projects.some((project) => project.id === projectFilter)) setProjectFilter("all");
-  }, [projectFilter, projects]);
 
-  const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, projectFilter, query), [assets, mediaFilter, projectFilter, query]);
+  const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
 
   return (
     <main className="home-shell">
       <AppSidebar active="library" onNavigate={onNavigate} />
       <div className="library-page">
         <aside className="library-rail" aria-label="Library filters">
-          <LibraryFilterSection title="MEDIA TYPES">
-            {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
-              <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
-                <Icon size={16} /><span>{label}</span>
-              </button>
-            ))}
-          </LibraryFilterSection>
-          {projects.length ? (
-            <LibraryFilterSection title="PROJECTS">
-              {projects.map((project) => (
-                <button className={projectFilter === project.id ? "is-active" : undefined} type="button" key={project.id} aria-pressed={projectFilter === project.id} onClick={() => setProjectFilter(projectFilter === project.id ? "all" : project.id)} title={project.name}>
-                  <Folder size={16} /><span>{project.name}</span>
+          <section className="library-filter-section">
+            <h2>MEDIA TYPES</h2>
+            <div>
+              {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
+                <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
+                  <Icon size={16} /><span>{label}</span>
                 </button>
               ))}
-            </LibraryFilterSection>
-          ) : null}
+            </div>
+          </section>
         </aside>
         <section className="library-content">
           <header className="library-header window-drag-handle">
@@ -111,10 +98,6 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       {selectedAsset ? <LibraryAssetDialog asset={selectedAsset} onClose={() => setSelectedAsset(undefined)} onOpenProject={() => onOpenProject(selectedAsset.projectId)} /> : null}
     </main>
   );
-}
-
-function LibraryFilterSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="library-filter-section"><h2>{title}</h2><div>{children}</div></section>;
 }
 
 function LibraryAssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () => void }) {
@@ -220,11 +203,10 @@ function LibraryAssetThumbnail({ asset }: { asset: LibraryAsset }) {
   );
 }
 
-export function filterLibraryAssets(assets: LibraryAsset[], media: MediaFilter, projectId: string, query: string): LibraryAsset[] {
+export function filterLibraryAssets(assets: LibraryAsset[], media: MediaFilter, query: string): LibraryAsset[] {
   const normalizedQuery = query.trim().toLowerCase();
   return assets.filter((asset) => (
     (media === "all" || asset.mediaType === media) &&
-    (projectId === "all" || asset.projectId === projectId) &&
     (!normalizedQuery || `${asset.path} ${asset.projectName}`.toLowerCase().includes(normalizedQuery))
   ));
 }

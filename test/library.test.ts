@@ -8,13 +8,13 @@ const ASSETS: LibraryAsset[] = [
 ];
 
 describe("library filters", () => {
-  it("combines media and project filters", () => {
-    expect(filterLibraryAssets(ASSETS, "image", "forest", "")).toEqual([ASSETS[0]]);
-    expect(filterLibraryAssets(ASSETS, "audio", "runner", "")).toEqual([]);
+  it("filters by media type", () => {
+    expect(filterLibraryAssets(ASSETS, "image", "")).toEqual([ASSETS[0]]);
+    expect(filterLibraryAssets(ASSETS, "audio", "")).toEqual([ASSETS[1]]);
   });
 
   it("searches paths and project names case-insensitively", () => {
-    expect(filterLibraryAssets(ASSETS, "all", "all", "HERO")).toEqual([ASSETS[0]]);
-    expect(filterLibraryAssets(ASSETS, "all", "all", "neon")).toEqual([ASSETS[2]]);
+    expect(filterLibraryAssets(ASSETS, "all", "HERO")).toEqual([ASSETS[0]]);
+    expect(filterLibraryAssets(ASSETS, "all", "neon")).toEqual([ASSETS[2]]);
   });
 });
