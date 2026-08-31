@@ -81,6 +81,7 @@ body {
   --home-border: #2c3137;
   --home-canvas: #0e1012;
   --home-sidebar: rgb(5 7 9 / 55%);
+  --home-sidebar-hover: rgb(255 255 255 / 5%);
   --home-surface: #1a1d20;
   display: grid;
   grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr);
@@ -195,7 +196,7 @@ body {
 
 .home-sidebar-account:hover,
 .home-sidebar-account:focus-within {
-  background: rgb(255 255 255 / 5%);
+  background: var(--home-sidebar-hover);
 }
 
 .home-sidebar-sign-in-main,
@@ -1061,7 +1062,7 @@ button.home-nav-item {
 }
 
 button.home-nav-item:hover {
-  background: var(--surface-hover);
+  background: var(--home-sidebar-hover);
   color: var(--text);
 }
 
@@ -5405,8 +5406,8 @@ textarea:focus-visible {
 }
 
 .prompt-box-home:focus-within {
-  border-color: color-mix(in srgb, var(--home-accent) 42%, var(--home-border));
-  box-shadow: 0 10px 26px rgb(0 0 0 / 38%), inset 0 0 0 1px color-mix(in srgb, var(--home-accent) 16%, transparent);
+  border-color: var(--home-border);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
 }
 
 .prompt-box-input {
