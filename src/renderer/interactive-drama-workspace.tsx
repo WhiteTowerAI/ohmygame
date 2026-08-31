@@ -13,7 +13,7 @@ import {
   Plus,
   Trash2,
   X,
-} from "lucide-react";
+} from "./icons.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,

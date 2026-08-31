@@ -1,4 +1,4 @@
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "./icons.js";
 import { createElement, useEffect, useRef, useState } from "react";
 
 type ModelViewerElement = HTMLElement & { loaded?: boolean };

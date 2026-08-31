@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, Gamepad2, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Gamepad2, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { getCommunityGame, listCommunityGames, waitForRuntime } from "./api.js";

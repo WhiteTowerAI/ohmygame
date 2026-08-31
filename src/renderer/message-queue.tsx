@@ -1,4 +1,4 @@
-import { CornerDownRight, Trash2 } from "lucide-react";
+import { CornerDownRight, Trash2 } from "./icons.js";
 import type { PendingPrompt } from "../shared/contracts.js";
 
 interface MessageQueueProps {

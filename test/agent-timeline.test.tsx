@@ -56,7 +56,7 @@ describe("AgentTimeline", () => {
     );
 
     expect(html).toContain("Working for");
-    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("lucide-loader-circle");
+    expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("solar-refresh-linear");
     expect(html).toContain("Thinking");
     expect(html).toContain("Read package.json");
     expect(html).not.toContain("tool-activity-group");
@@ -66,7 +66,7 @@ describe("AgentTimeline", () => {
   it("spins only the initial Thinking header", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("lucide-loader-circle spin");
+    expect(html).toContain("solar-refresh-linear spin");
   });
 
   it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {
@@ -273,7 +273,7 @@ describe("AgentTimeline", () => {
       assistant("response", "Done.", "final_answer"),
     ]} />);
 
-    expect(html).toContain('class="lucide lucide-chevron-right work-chevron"');
+    expect(html).toContain("solar-alt-arrow-right-linear work-chevron");
   });
 
   it("renders a failed stream as a connection activity inside Worked", () => {
@@ -340,7 +340,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Reconnecting 1/3");
     expect(html.match(/OpenAI Responses stream ended before a terminal response event/g)).toHaveLength(1);
     expect(html.match(/connection-activity-details/g)).toHaveLength(1);
-    expect(html).toContain("lucide-loader-circle spin");
+    expect(html).toContain("solar-refresh-linear spin");
   });
 
   it("stops animating reconnecting after later activity appears", () => {
@@ -388,7 +388,7 @@ describe("AgentTimeline", () => {
 
     expect(html).not.toContain("Reconnecting 1/3");
     expect(html).not.toContain("Connection error");
-    expect(html).not.toContain("lucide-loader-circle spin");
+    expect(html).not.toContain("solar-refresh-linear spin");
     expect(html).toContain("Done.");
   });
 
@@ -568,7 +568,7 @@ describe("AgentTimeline", () => {
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Custom tools: Fetch asset");
-    expect(html).toContain("lucide-plug");
+    expect(html).toContain("solar-plug-circle-linear");
   });
 
   it("groups consecutive calls by their MCP integration", () => {
@@ -611,7 +611,7 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html).toContain("Used Custom tools 2 times");
-    expect(html).toContain("lucide-plug");
+    expect(html).toContain("solar-plug-circle-linear");
   });
 
   it("keeps tools on both sides of commentary while waiting", () => {

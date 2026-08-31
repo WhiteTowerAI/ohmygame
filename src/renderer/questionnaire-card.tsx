@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ThreadItem } from "../shared/contracts.js";
 import { InlineAnswer } from "./inline-answer.js";

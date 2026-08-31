@@ -1,4 +1,4 @@
-import { CircleX, FileText, Lightbulb } from "lucide-react";
+import { CircleX, FileText, Lightbulb } from "./icons.js";
 
 interface PlanModeIndicatorProps {
   disabled?: boolean;

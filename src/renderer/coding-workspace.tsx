@@ -21,7 +21,7 @@ import {
   Smartphone,
   Tablet,
   X,
-} from "lucide-react";
+} from "./icons.js";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";

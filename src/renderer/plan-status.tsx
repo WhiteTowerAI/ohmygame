@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Circle, CircleDot } from "lucide-react";
+import { Check, ChevronDown, Circle, CircleDot } from "./icons.js";
 import type { PlanState } from "../shared/contracts.js";
 
 interface PlanStatusProps {

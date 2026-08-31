@@ -1,4 +1,4 @@
-import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, RefreshCw, Search, X } from "lucide-react";
+import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Music2, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import { listProjects, listWorkspaceFiles, waitForRuntime } from "./api.js";

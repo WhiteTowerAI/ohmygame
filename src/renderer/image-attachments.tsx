@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Plus, X } from "./icons.js";
 import { useRef } from "react";
 import type { PromptImage, PromptImageMediaType } from "../shared/contracts.js";
 

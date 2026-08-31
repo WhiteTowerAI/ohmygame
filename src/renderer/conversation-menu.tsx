@@ -1,4 +1,4 @@
-import { Check, FilePenLine, History, LoaderCircle, X } from "lucide-react";
+import { Check, FilePenLine, History, LoaderCircle, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 

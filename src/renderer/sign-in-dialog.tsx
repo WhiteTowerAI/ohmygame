@@ -1,4 +1,4 @@
-import { LoaderCircle, X } from "lucide-react";
+import { LoaderCircle, X } from "./icons.js";
 import { useEffect, useRef } from "react";
 
 export type SignInProvider = "google" | "github";

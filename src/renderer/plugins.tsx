@@ -11,7 +11,7 @@ import {
   SlidersHorizontal,
   Trash2,
   WandSparkles,
-} from "lucide-react";
+} from "./icons.js";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   pluginComponentKey,

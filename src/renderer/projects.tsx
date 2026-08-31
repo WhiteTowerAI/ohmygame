@@ -1,4 +1,4 @@
-import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "lucide-react";
+import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";

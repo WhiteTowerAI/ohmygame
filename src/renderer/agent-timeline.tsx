@@ -13,8 +13,8 @@ import {
   Wifi,
   WifiOff,
   X,
-  type LucideIcon,
-} from "lucide-react";
+  type IconComponent,
+} from "./icons.js";
 import { isValidElement, useEffect, useState, type ImgHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -328,7 +328,7 @@ function ToolActivityGroup({ tools, current, thinking }: { tools: ToolItem[]; cu
   );
 }
 
-type ToolIcon = LucideIcon | typeof GodotIcon;
+type ToolIcon = IconComponent | typeof GodotIcon;
 
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;

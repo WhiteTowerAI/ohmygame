@@ -17,6 +17,10 @@
   --danger: #f17a73;
   --warning: #d9af63;
   --radius: 6px;
+  --composer-accent: #b8f21f;
+  --composer-accent-hover: #c8ff3d;
+  --composer-border: #2c3137;
+  --composer-surface: #1a1d20;
 }
 
 @font-face {
@@ -76,13 +80,13 @@ body {
 }
 
 .home-shell {
-  --home-accent: #b8f21f;
-  --home-accent-hover: #c8ff3d;
-  --home-border: #2c3137;
+  --home-accent: var(--composer-accent);
+  --home-accent-hover: var(--composer-accent-hover);
+  --home-border: var(--composer-border);
   --home-canvas: #0e1012;
   --home-sidebar: rgb(5 7 9 / 55%);
   --home-sidebar-hover: rgb(255 255 255 / 5%);
-  --home-surface: #1a1d20;
+  --home-surface: var(--composer-surface);
   display: grid;
   grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr);
   width: 100%;
@@ -4209,7 +4213,7 @@ textarea:focus-visible {
   border-radius: 12px;
   background: #23252b;
   color: #e7e9ec;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -4274,7 +4278,7 @@ textarea:focus-visible {
   background: transparent;
   color: #e7e9ec;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -4331,8 +4335,8 @@ textarea:focus-visible {
 
 .assistant-message {
   margin: 0;
-  color: #d8dbe0;
-  font-size: 12px;
+  color: #e6e8eb;
+  font-size: 13px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -5463,17 +5467,19 @@ textarea:focus-visible {
 .composer-plan-mode button:hover:not(:disabled) .composer-plan-icon { display: none; }
 .composer-plan-mode button:hover:not(:disabled) .composer-plan-close { display: block; }
 
-.prompt-box-home {
+.prompt-box-home,
+.prompt-box-project {
   min-height: 148px;
   padding: 15px 15px 12px 17px;
-  border: .5px solid var(--home-border);
-  background: var(--home-surface);
+  border: .5px solid var(--composer-border);
+  background: var(--composer-surface);
   backdrop-filter: blur(20px);
   box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
 }
 
 .prompt-box-project {
   min-height: 88px;
+  padding: 12px;
 }
 
 .prompt-box:focus-within {
@@ -5481,8 +5487,9 @@ textarea:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.prompt-box-home:focus-within {
-  border-color: var(--home-border);
+.prompt-box-home:focus-within,
+.prompt-box-project:focus-within {
+  border-color: var(--composer-border);
   box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
 }
 
@@ -5507,13 +5514,12 @@ textarea:focus-visible {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
 .prompt-box-home textarea {
   min-height: 64px;
-  font-size: 13px;
 }
 
 .prompt-box textarea::placeholder {
@@ -5700,9 +5706,12 @@ textarea:focus-visible {
   color: var(--accent-ink);
 }
 
-.prompt-box-home .send-button {
+.prompt-box-home .send-button,
+.prompt-box-project .send-button,
+.prompt-box-project .stop-button {
   border-radius: 50%;
-  background: var(--home-accent);
+  border-color: transparent;
+  background: var(--composer-accent);
   color: #131610;
 }
 
@@ -5710,8 +5719,10 @@ textarea:focus-visible {
   background: #5bddaf;
 }
 
-.prompt-box-home .send-button:hover:not(:disabled) {
-  background: var(--home-accent-hover);
+.prompt-box-home .send-button:hover:not(:disabled),
+.prompt-box-project .send-button:hover:not(:disabled),
+.prompt-box-project .stop-button:hover:not(:disabled) {
+  background: var(--composer-accent-hover);
 }
 
 .stop-button {
@@ -5767,9 +5778,9 @@ textarea:focus-visible {
   text-align: left;
 }
 
-.model-selector-current strong,
-.model-selector-model-copy strong {
+.model-selector-name {
   overflow: hidden;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5854,11 +5865,13 @@ textarea:focus-visible {
   bottom: auto;
 }
 
-.prompt-box-home .model-selector-current small {
+.prompt-box-home .model-selector-current small,
+.prompt-box-project .model-selector-current small {
   display: none;
 }
 
-.prompt-box-home .model-selector-trigger {
+.prompt-box-home .model-selector-trigger,
+.prompt-box-project .model-selector-trigger {
   gap: 3px;
   padding: 0 3px 0 10px;
   color: #b1b3bc;

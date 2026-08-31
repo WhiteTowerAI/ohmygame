@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { listModels, notifyAgentModelsChanged, waitForRuntime } from "./api.js";
@@ -71,7 +71,7 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
         title="Model"
       >
         <span className="model-selector-current">
-          <strong>{current?.name ?? (value ? value.id : "Default model")}</strong>
+          <span className="model-selector-name">{current?.name ?? (value ? value.id : "Default model")}</span>
           {current ? <small>{current.providerName}</small> : null}
         </span>
         <ChevronDown aria-hidden="true" size={12} />
@@ -110,7 +110,7 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
                     title={`${model.provider}/${model.id}`}
                   >
                     <span className="model-selector-model-copy">
-                      <strong>{model.name}</strong>
+                      <span className="model-selector-name">{model.name}</span>
                       <small>{model.providerName}</small>
                     </span>
                     {selected ? <Check aria-hidden="true" size={13} /> : null}

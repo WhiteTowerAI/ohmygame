@@ -1,4 +1,4 @@
-import { ArrowRight, Pencil } from "lucide-react";
+import { ArrowRight, Pencil } from "./icons.js";
 import type { KeyboardEvent } from "react";
 
 interface InlineAnswerBaseProps {

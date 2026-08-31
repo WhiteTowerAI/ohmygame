@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, LoaderCircle } from "lucide-react";
+import { ArrowLeft, ExternalLink, LoaderCircle } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   Model3DGenerationSettings,

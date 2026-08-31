@@ -7,7 +7,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   X,
-} from "lucide-react";
+} from "./icons.js";
 import {
   useEffect,
   useReducer,

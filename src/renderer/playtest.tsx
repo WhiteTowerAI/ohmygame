@@ -1,4 +1,4 @@
-import { RotateCcw } from "lucide-react";
+import { RotateCcw } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { StoryChapter, StoryNode } from "../shared/contracts.js";
 import { getNextNode, getStartNode, validatePlayableChapter } from "../shared/story.js";

@@ -1,4 +1,4 @@
-import { Box, ChevronRight, Download, FolderInput, Image, LoaderCircle, RefreshCw, Search, Sparkles, Upload, Video, X } from "lucide-react";
+import { Box, ChevronRight, Download, FolderInput, Image, LoaderCircle, RefreshCw, Search, Sparkles, Upload, Video, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { VIDEO_ASPECT_RATIOS, VIDEO_DURATIONS, VIDEO_RESOLUTIONS, type ImageModel, type ImageSize, type ProjectState, type PromptImage, type ToolDefinition, type ToolRun, type VideoAspectRatio, type VideoResolution } from "../shared/contracts.js";
 import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, listImageModels, listProjects, listTools, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";

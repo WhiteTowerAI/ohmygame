@@ -1,4 +1,4 @@
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, X } from "./icons.js";
 import { useState } from "react";
 import { InlineAnswer } from "./inline-answer.js";
 

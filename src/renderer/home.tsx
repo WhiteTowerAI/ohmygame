@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Globe2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Globe2, LoaderCircle, RefreshCw } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";

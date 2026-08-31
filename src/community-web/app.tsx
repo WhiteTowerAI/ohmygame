@@ -1,4 +1,4 @@
-import { ArrowLeft, Gamepad2, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Gamepad2, LoaderCircle, RefreshCw } from "../renderer/icons.js";
 import { useEffect, useState } from "react";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
 import { getCommunityGame, listCommunityGames } from "./api.js";

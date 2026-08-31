@@ -1,4 +1,4 @@
-import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound } from "lucide-react";
+import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
@@ -132,12 +132,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
             <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
           </button>
-          {updateButton ?? (
-            <button className="home-sidebar-account-menu" type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={() => {
-              setAccountError(undefined);
-              setAccountMenuOpen((open) => !open);
-            }}><MoreHorizontal size={16} /></button>
-          )}
+          {updateButton}
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {

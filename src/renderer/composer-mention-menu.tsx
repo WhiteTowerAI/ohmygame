@@ -1,4 +1,4 @@
-import { Package, WandSparkles } from "lucide-react";
+import { Package, WandSparkles } from "./icons.js";
 import type { ComposerMention } from "./composer-mentions.js";
 
 export function ComposerMentionMenu({ items, selected, onSelect }: {

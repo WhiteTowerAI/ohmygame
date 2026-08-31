@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
