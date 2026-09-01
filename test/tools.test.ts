@@ -149,12 +149,13 @@ describe("tool runner", () => {
 
     const runDirectory = path.join(dataDirectory, "tools", "runs", run.id);
     expect(await readdir(runDirectory)).toEqual(["output.webp", "run.json"]);
-    expect(JSON.parse(await readFile(path.join(runDirectory, "run.json"), "utf8"))).toMatchObject({
+    const storedRun = JSON.parse(await readFile(path.join(runDirectory, "run.json"), "utf8"));
+    expect(storedRun).toMatchObject({
       version: 1,
       id: run.id,
-      requestId: "openai-request-1",
       prompt: "A forest game background",
     });
+    expect(storedRun).not.toHaveProperty("requestId");
   });
 
   it("adds a generated result to a project workspace", async () => {
@@ -189,6 +190,43 @@ describe("tool runner", () => {
     expect(repeated.json()).toEqual({ path: expectedPath });
   });
 
+  it("persists multiple Asset Studio images without project-name collisions", async () => {
+    const dataDirectory = await temporaryData();
+    let sequence = 0;
+    const generate = vi.fn<ImageGenerator["generate"]>().mockImplementation(async () => ({
+      bytes: Buffer.from(`image-${++sequence}`),
+      mediaType: "image/webp",
+    }));
+    const app = createApp({ dataDirectory, imageGenerator: { generate } });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Game" } })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "Four icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined);
+    const run = response.json();
+    expect(run.files).toEqual([
+      { name: "output-1.webp", mediaType: "image/webp" },
+      { name: "output-2.webp", mediaType: "image/webp" },
+    ]);
+
+    for (const file of run.files) {
+      const added = await app.inject({
+        method: "POST",
+        url: `/projects/${project.id}/tool-results`,
+        payload: { runId: run.id, fileName: file.name },
+      });
+      expect(added.statusCode).toBe(201);
+      expect(added.json().path).toBe(`assets/generated/image-${run.id}${file.name === "output-1.webp" ? "-1" : "-2"}.webp`);
+    }
+  });
+
   it("validates requests and reports missing configuration", async () => {
     const app = createApp({ dataDirectory: await temporaryData() });
     apps.push(app);
@@ -204,6 +242,16 @@ describe("tool runner", () => {
       method: "POST",
       url: "/tools/generate-image/runs",
       payload: { prompt: "image", size: "800x600" },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "image", size: "1024x1024", resolution: "1K", aspectRatio: "1:1" },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "image", resolution: "1K" },
     })).statusCode).toBe(400);
 
     const unconfigured = await app.inject({

@@ -1,5 +1,5 @@
-import type { ImageProtocol, ImageSize } from "../shared/contracts.js";
-import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type GeneratedImageMediaType } from "./openai-image.js";
+import type { ImageProtocol } from "../shared/contracts.js";
+import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type GeneratedImageMediaType, type ImageGenerationInput } from "./openai-image.js";
 
 export interface ImageSource {
   baseUrl: string;
@@ -7,7 +7,7 @@ export interface ImageSource {
 }
 
 export interface ImageProtocolAdapter {
-  generate(source: ImageSource, model: string, input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage>;
+  generate(source: ImageSource, model: string, input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -23,7 +23,7 @@ export function createImageProtocolAdapters(request: Fetch = fetch): Record<Imag
   };
 }
 
-async function generateGemini(source: ImageSource, model: string, input: { prompt: string; size: ImageSize }, signal: AbortSignal | undefined, request: Fetch): Promise<GeneratedImage> {
+async function generateGemini(source: ImageSource, model: string, input: ImageGenerationInput, signal: AbortSignal | undefined, request: Fetch): Promise<GeneratedImage> {
   const endpoint = geminiEndpoint(source.baseUrl, model);
   const timeout = AbortSignal.timeout(130_000);
   let response: Response;
@@ -32,8 +32,11 @@ async function generateGemini(source: ImageSource, model: string, input: { promp
       method: "POST",
       headers: { authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: input.prompt }] }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: aspectRatio(input.size) } },
+        contents: [{ role: "user", parts: [
+          { text: input.prompt },
+          ...(input.image ? [{ inlineData: { mimeType: input.image.mediaType, data: input.image.data } }] : []),
+        ] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: input.aspectRatio ?? aspectRatio(input.size) } },
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
@@ -73,7 +76,7 @@ function imageMediaType(value: unknown): GeneratedImageMediaType | undefined {
   return value === "image/png" || value === "image/jpeg" || value === "image/webp" ? value : undefined;
 }
 
-function aspectRatio(size: ImageSize): "1:1" | "16:9" | "9:16" {
+function aspectRatio(size?: ImageGenerationInput["size"]): "1:1" | "16:9" | "9:16" {
   if (size === "1536x1024") return "16:9";
   if (size === "1024x1536") return "9:16";
   return "1:1";

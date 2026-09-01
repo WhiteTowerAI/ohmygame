@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlanState, ProjectState, QuestionnaireResult, ToolDefinition } from "../shared/contracts.js";
+import type { PlanState, ProjectState, QuestionnaireResult, RunVideoToolRequest, ToolDefinition } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -213,13 +213,14 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const source = input.imagePath ? await getWorkspaceMedia(project.workspacePath, input.imagePath) : undefined;
       if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg") throw new Error("Video generation requires a PNG or JPEG image");
-      const run = await tools.run("generate-video", {
+      const request: RunVideoToolRequest = {
         prompt: input.prompt,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
         resolution: input.resolution,
-        ...(source ? { image: { mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") } } : {}),
-      }, signal);
+        ...(source ? { image: { mediaType: source.contentType as "image/png" | "image/jpeg", data: (await readFile(source.absolutePath)).toString("base64") } } : {}),
+      };
+      const run = await tools.run("generate-video", request, signal);
       const output = run.files[0];
       if (!output) throw new Error("Video generator returned no output");
       const file = await tools.file(run.id, output.name);

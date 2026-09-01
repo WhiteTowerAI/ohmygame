@@ -54,6 +54,29 @@ describe("OpenAI image generator", () => {
     });
   });
 
+  it("uses multipart image edits when a reference is provided", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      data: [{ b64_json: Buffer.from("edited").toString("base64") }],
+    }));
+    const generator = new OpenAIImageGenerator("key", "https://images.example/v1", request);
+
+    await generator.generate({
+      prompt: "Turn this into concept art",
+      resolution: "1K",
+      aspectRatio: "3:2",
+      image: { mediaType: "image/png", data: Buffer.from("reference").toString("base64") },
+    });
+
+    const [url, init] = request.mock.calls[0];
+    expect(url).toBe("https://images.example/v1/images/edits");
+    expect(init?.headers).toEqual({ authorization: "Bearer key" });
+    expect(init?.body).toBeInstanceOf(FormData);
+    const form = init?.body as FormData;
+    expect(form.get("prompt")).toBe("Turn this into concept art");
+    expect(form.get("size")).toBe("1536x1024");
+    expect(form.get("image")).toBeInstanceOf(Blob);
+  });
+
   it("requires configuration and rejects empty image responses", async () => {
     await expect(new OpenAIImageGenerator(undefined).generate({ prompt: "image", size: "1024x1024" }))
       .rejects.toEqual(new ImageGenerationError("Image generation is not configured", 503));

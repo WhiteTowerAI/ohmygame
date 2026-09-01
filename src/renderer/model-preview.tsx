@@ -71,7 +71,7 @@ export function ModelPreview({ source, label, minHeight = 320 }: { source: strin
   }, [componentReady, source]);
 
   if (!componentReady) {
-    return <span className={componentError ? "tool-dialog-error" : "tool-project-state"} role={componentError ? "alert" : undefined}>
+    return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
       {!componentError ? <LoaderCircle className="spin" size={16} /> : null}
       {componentError ? "Could not load the 3D viewer" : "Loading 3D viewer"}
     </span>;

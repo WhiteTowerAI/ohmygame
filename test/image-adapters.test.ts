@@ -24,6 +24,27 @@ describe("image protocol adapters", () => {
     });
   });
 
+  it("passes an Asset Studio reference image and aspect ratio to Gemini", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/webp", data: Buffer.from("webp").toString("base64") } }] } }],
+    }));
+    const adapter = createImageProtocolAdapters(request)["gemini-generate-content"];
+
+    await adapter.generate(
+      { baseUrl: "https://portal.open-game.ai/v1", apiKey: "key" },
+      "gemini-2.5-flash-image",
+      { prompt: "A game icon", resolution: "1K", aspectRatio: "4:3", image: { mediaType: "image/webp", data: "cmVmZXJlbmNl" } },
+    );
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      contents: [{ role: "user", parts: [
+        { text: "A game icon" },
+        { inlineData: { mimeType: "image/webp", data: "cmVmZXJlbmNl" } },
+      ] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "4:3" } },
+    });
+  });
+
   it("maps Gemini errors and empty image responses", async () => {
     const rejected = createImageProtocolAdapters(async () => Response.json({ error: { message: "quota exceeded" } }, { status: 429 }))["gemini-generate-content"];
     await expect(rejected.generate({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "key" }, "gemini-2.5-flash-image", { prompt: "image", size: "1024x1024" }))

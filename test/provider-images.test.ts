@@ -67,6 +67,20 @@ describe("ProviderImages", () => {
     await expect(images.generate({ prompt: "A game icon", size: "invalid" as never }))
       .rejects.toMatchObject({ message: "Image size is not supported by the selected model", statusCode: 400 });
   });
+
+  it("validates Asset Studio resolution and aspect-ratio combinations", async () => {
+    const images = new ProviderImages(
+      async () => runtime(),
+      portal(),
+      () => ({ provider: "opengame", id: "gpt-image-2" }),
+      vi.fn(),
+    );
+
+    await expect(images.generate({ prompt: "A game icon", resolution: "4K", aspectRatio: "1:1" }))
+      .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
+    await expect(images.generate({ prompt: "A game icon", resolution: "1K", aspectRatio: "16:9" }))
+      .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
+  });
 });
 
 function runtime(): ModelRuntime {

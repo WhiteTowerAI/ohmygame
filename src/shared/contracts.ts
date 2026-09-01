@@ -90,6 +90,9 @@ export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
   sizes: readonly ImageSize[];
+  generationOptions: readonly ImageGenerationOption[];
+  supportsReferenceImage: boolean;
+  maxOutputs: ImageOutputCount;
   protocol: ImageProtocol;
 }
 
@@ -430,6 +433,17 @@ export interface WorkspaceFileContent {
 
 export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
+export const IMAGE_RESOLUTIONS = ["512", "1K", "2K", "4K"] as const;
+export type ImageResolution = (typeof IMAGE_RESOLUTIONS)[number];
+export const IMAGE_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:2"] as const;
+export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];
+export const IMAGE_OUTPUT_COUNTS = [1, 2, 3, 4] as const;
+export type ImageOutputCount = (typeof IMAGE_OUTPUT_COUNTS)[number];
+
+export interface ImageGenerationOption {
+  resolution: ImageResolution;
+  aspectRatio: ImageAspectRatio;
+}
 
 interface BaseToolDefinition {
   id: "generate-image" | "image-to-3d" | "generate-video";
@@ -473,10 +487,25 @@ export const VIDEO_DURATIONS = [6, 10] as const;
 
 export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition | VideoToolDefinition;
 
-export interface RunImageToolRequest {
+interface RunLegacyImageToolRequest {
   prompt: string;
   size?: ImageSize;
+  resolution?: never;
+  aspectRatio?: never;
+  outputs?: never;
+  image?: never;
 }
+
+interface RunStudioImageToolRequest {
+  prompt: string;
+  size?: never;
+  resolution: ImageResolution;
+  aspectRatio: ImageAspectRatio;
+  outputs?: ImageOutputCount;
+  image?: PromptImage;
+}
+
+export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
 
 export interface RunImageTo3DToolRequest {
   image: PromptImage;

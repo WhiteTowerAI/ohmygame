@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_SIZES, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
@@ -220,54 +220,26 @@ const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 
 const toolRunSchema = {
   body: {
-    anyOf: [
-      {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      size: { type: "string", enum: [...IMAGE_SIZES] },
+      resolution: { type: "string", enum: [...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS] },
+      aspectRatio: { type: "string", enum: [...IMAGE_ASPECT_RATIOS] },
+      outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
+      duration: { type: "integer", minimum: 1, maximum: 15 },
+      image: {
         type: "object",
         additionalProperties: false,
-        required: ["prompt"],
+        required: ["mediaType", "data"],
         properties: {
-          prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-          size: { type: "string", enum: [...IMAGE_SIZES] },
+          mediaType: { enum: ["image/png", "image/jpeg", "image/webp"] },
+          data: { type: "string", minLength: 1 },
         },
       },
-      {
-        type: "object",
-        additionalProperties: false,
-        required: ["image"],
-        properties: {
-          image: {
-            type: "object",
-            additionalProperties: false,
-            required: ["mediaType", "data"],
-            properties: {
-              mediaType: { enum: ["image/png", "image/jpeg"] },
-              data: { type: "string", minLength: 1 },
-            },
-          },
-        },
-      },
-      {
-        type: "object",
-        additionalProperties: false,
-        not: { required: ["size"] },
-        required: ["prompt"],
-        properties: {
-          prompt: { type: "string", minLength: 1, maxLength: 32_000 },
-          duration: { type: "integer", minimum: 1, maximum: 15 },
-          aspectRatio: { type: "string", enum: ["16:9", "9:16", "1:1"] },
-          resolution: { type: "string", enum: ["720p", "1080p"] },
-          image: {
-            type: "object",
-            additionalProperties: false,
-            required: ["mediaType", "data"],
-            properties: {
-              mediaType: { enum: ["image/png", "image/jpeg"] },
-              data: { type: "string", minLength: 1 },
-            },
-          },
-        },
-      },
-    ],
+    },
   },
 } as const;
 
@@ -622,7 +594,8 @@ export function createApp(options: AppOptions = {}) {
       if (!file) return reply.code(404).send({ error: "Tool output not found" });
       const extension = path.extname(request.body.fileName).toLowerCase();
       const prefix = extension === ".glb" ? "model" : extension === ".mp4" || extension === ".webm" ? "video" : "image";
-      const fileName = `${prefix}-${request.body.runId}${extension}`;
+      const outputSuffix = request.body.fileName.match(/^output(-[1-4])?\./)?.[1] ?? "";
+      const fileName = `${prefix}-${request.body.runId}${outputSuffix}${extension}`;
       return reply.code(201).send({
         path: await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
           ...(file.prompt ? { prompt: file.prompt } : {}),

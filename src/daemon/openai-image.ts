@@ -1,4 +1,4 @@
-import type { ImageSize } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 
 export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
 
@@ -8,8 +8,16 @@ export interface GeneratedImage {
   requestId?: string;
 }
 
+export interface ImageGenerationInput {
+  prompt: string;
+  size?: ImageSize;
+  resolution?: ImageResolution;
+  aspectRatio?: ImageAspectRatio;
+  image?: PromptImage;
+}
+
 export interface ImageGenerator {
-  generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage>;
+  generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -27,27 +35,31 @@ export class OpenAIImageGenerator implements ImageGenerator {
     private readonly request: Fetch = fetch,
   ) {}
 
-  async generate(input: { prompt: string; size: ImageSize; model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
+  async generate(input: ImageGenerationInput & { model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
     if (!this.apiKey) throw new ImageGenerationError("Image generation is not configured", 503);
-    const endpoint = imageEndpoint(this.baseUrl);
+    const endpoint = imageEndpoint(this.baseUrl, Boolean(input.image));
     const timeout = AbortSignal.timeout(130_000);
+    const size = openAIImageSize(input);
 
     let response: Response;
     try {
+      const body = input.image
+        ? editForm(input, size)
+        : JSON.stringify({
+            model: input.model ?? "gpt-image-2",
+            prompt: input.prompt,
+            size,
+            quality: "medium",
+            output_format: "webp",
+            n: 1,
+          });
       response = await this.request(endpoint, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
+          ...(!input.image ? { "content-type": "application/json" } : {}),
         },
-        body: JSON.stringify({
-          model: input.model ?? "gpt-image-2",
-          prompt: input.prompt,
-          size: input.size,
-          quality: "medium",
-          output_format: "webp",
-          n: 1,
-        }),
+        body,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
     } catch (cause) {
@@ -99,15 +111,38 @@ function contentType(value: string | null): GeneratedImageMediaType | undefined 
   return type === "image/png" || type === "image/jpeg" || type === "image/webp" ? type : undefined;
 }
 
-function imageEndpoint(baseUrl: string): string {
+function imageEndpoint(baseUrl: string, edit: boolean): string {
   try {
     const url = new URL(baseUrl);
     if (url.search || url.hash) throw new Error("Unexpected URL components");
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/images/generations`;
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/images/${edit ? "edits" : "generations"}`;
     return url.toString();
   } catch {
     throw new ImageGenerationError("OpenAI base URL is not valid", 503);
   }
+}
+
+function openAIImageSize(input: ImageGenerationInput): ImageSize {
+  if (input.size) return input.size;
+  if (input.resolution !== "1K") throw new ImageGenerationError("Image resolution is not supported by the selected model", 400);
+  if (input.aspectRatio === "1:1") return "1024x1024";
+  if (input.aspectRatio === "3:2") return "1536x1024";
+  throw new ImageGenerationError("Image aspect ratio is not supported by the selected model", 400);
+}
+
+function editForm(input: ImageGenerationInput & { model?: string }, size: ImageSize): FormData {
+  const image = input.image;
+  if (!image) throw new ImageGenerationError("A reference image is required", 400);
+  const form = new FormData();
+  form.set("model", input.model ?? "gpt-image-2");
+  form.set("prompt", input.prompt);
+  form.set("size", size);
+  form.set("quality", "medium");
+  form.set("output_format", "webp");
+  form.set("n", "1");
+  const extension = image.mediaType === "image/png" ? "png" : image.mediaType === "image/jpeg" ? "jpg" : "webp";
+  form.set("image", new Blob([Buffer.from(image.data, "base64")], { type: image.mediaType }), `reference.${extension}`);
+  return form;
 }
 
 function openAIError(status: number, error?: { code?: unknown; message?: unknown }): ImageGenerationError {

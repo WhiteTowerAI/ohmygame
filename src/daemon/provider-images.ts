@@ -1,8 +1,8 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ImageModel, ImageModelRef, ImageSize } from "../shared/contracts.js";
+import type { ImageModel, ImageModelRef } from "../shared/contracts.js";
 import { imageModelDefinition, imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
-import { ImageGenerationError, type GeneratedImage, type ImageGenerator } from "./openai-image.js";
+import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import type { PortalConnection } from "./portal-connection.js";
 
 export class ProviderImages implements ImageGenerator {
@@ -30,11 +30,16 @@ export class ProviderImages implements ImageGenerator {
     }
   }
 
-  async generate(input: { prompt: string; size: ImageSize }, signal?: AbortSignal): Promise<GeneratedImage> {
+  async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
     const selected = this.selected();
     const definition = selected ? imageModelDefinition(selected.id) : undefined;
     if (!selected || !definition) throw new ImageGenerationError("Image generation is not configured", 503);
-    if (!definition.sizes.includes(input.size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
+    if (input.size && !definition.sizes.includes(input.size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
+    if (input.resolution || input.aspectRatio) {
+      const supported = definition.generationOptions.some((option) => option.resolution === input.resolution && option.aspectRatio === input.aspectRatio);
+      if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
+    }
+    if (input.image && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     let source: ImageSource | undefined;
     if (selected.provider === "opengame") {
       const portal = this.portal.imageSource();

@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  IMAGE_ASPECT_RATIOS,
+  IMAGE_OUTPUT_COUNTS,
+  IMAGE_RESOLUTIONS,
   IMAGE_SIZES,
   VIDEO_ASPECT_RATIOS,
   VIDEO_DURATIONS,
   VIDEO_RESOLUTIONS,
+  type ImageAspectRatio,
+  type ImageOutputCount,
+  type ImageResolution,
   type VideoAspectRatio,
   type VideoResolution,
   type ImageSize,
@@ -88,36 +94,61 @@ export class ToolRunner {
   }
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
-    if (toolId === imageTo3D.id) return this.#runImageTo3D(input as RunImageTo3DToolRequest, signal);
-    if (toolId === generateVideo.id) return this.#runVideo(input as RunVideoToolRequest, signal);
+    if (toolId === imageTo3D.id) {
+      assertOnlyKeys(input, ["image"]);
+      return this.#runImageTo3D(input as RunImageTo3DToolRequest, signal);
+    }
+    if (toolId === generateVideo.id) {
+      assertOnlyKeys(input, ["prompt", "image", "duration", "aspectRatio", "resolution"]);
+      return this.#runVideo(input as RunVideoToolRequest, signal);
+    }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
+    assertOnlyKeys(input, ["prompt", "size", "resolution", "aspectRatio", "outputs", "image"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
   async #runImage(input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
+    const usesStudioOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || input.image !== undefined;
+    if (input.size !== undefined && usesStudioOptions) throw new ToolRunError("Image size cannot be combined with Asset Studio options", 400);
+    if (usesStudioOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
+      throw new ToolRunError("Resolution and aspect ratio are required for Asset Studio images", 400);
+    }
     const size = input.size ?? "1024x1024";
     if (!isImageSize(size)) throw new ToolRunError("Unsupported image size", 400);
+    const resolution = input.resolution;
+    const aspectRatio = input.aspectRatio;
+    const outputs = input.outputs ?? 1;
+    if (resolution !== undefined && !isImageResolution(resolution)) throw new ToolRunError("Unsupported image resolution", 400);
+    if (aspectRatio !== undefined && !isImageAspectRatio(aspectRatio)) throw new ToolRunError("Unsupported image aspect ratio", 400);
+    if (!isImageOutputCount(outputs)) throw new ToolRunError("Unsupported image output count", 400);
+    if (input.image && !isPromptImage(input.image, true)) throw new ToolRunError("A PNG, JPEG, or WebP image is required", 400);
 
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     try {
       signal?.throwIfAborted();
-      const generated = await this.imageGenerator.generate({ prompt, size }, signal);
+      const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
+        prompt,
+        ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(input.image ? { image: input.image } : {}) } : { size }),
+      }, signal)));
       signal?.throwIfAborted();
+      const files = generated.map((image, index) => ({
+        name: imageFileName(image.mediaType, outputs > 1 ? index + 1 : undefined),
+        mediaType: image.mediaType,
+      }));
       const run: StoredToolRun = {
         version: 1,
         id,
         toolId: generateImage.id,
         createdAt: new Date().toISOString(),
-        files: [{ name: imageFileName(generated.mediaType), mediaType: generated.mediaType }],
-        requestId: generated.requestId,
+        files,
         prompt,
       };
       await mkdir(temporary, { recursive: true });
-      await writeFile(path.join(temporary, imageFileName(generated.mediaType)), generated.bytes);
+      await Promise.all(generated.map((image, index) => writeFile(path.join(temporary, files[index]!.name), image.bytes)));
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -206,7 +237,7 @@ export class ToolRunner {
   }
 
   async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
-    if (!isRunId(runId) || !["output.png", "output.jpg", "output.webp", "model.glb", "output.mp4"].includes(fileName)) return undefined;
+    if (!isRunId(runId) || !/^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
       const run = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8")) as StoredToolRun;
@@ -231,24 +262,42 @@ function videoSize(aspectRatio: VideoAspectRatio, resolution: VideoResolution): 
   return large ? "1920x1080" : "1280x720";
 }
 
-function isPromptImage(value: unknown): value is RunImageTo3DToolRequest["image"] {
+function isPromptImage(value: unknown, allowWebP = false): value is RunImageTo3DToolRequest["image"] {
   if (!value || typeof value !== "object") return false;
   const image = value as { mediaType?: unknown; data?: unknown };
-  return (image.mediaType === "image/png" || image.mediaType === "image/jpeg") && typeof image.data === "string" && image.data.length > 0;
+  return (image.mediaType === "image/png" || image.mediaType === "image/jpeg" || (allowWebP && image.mediaType === "image/webp")) && typeof image.data === "string" && image.data.length > 0;
 }
 
 function publicRun({ version: _, requestId: __, prompt: ___, preview: ____, ...run }: StoredToolRun): ToolRun {
   return run;
 }
 
+function assertOnlyKeys(input: RunToolRequest, allowed: readonly string[]): void {
+  const unexpected = Object.keys(input).find((key) => !allowed.includes(key));
+  if (unexpected) throw new ToolRunError(`Unexpected ${unexpected} option`, 400);
+}
+
 function isImageSize(value: unknown): value is ImageSize {
   return typeof value === "string" && IMAGE_SIZES.includes(value as ImageSize);
+}
+
+function isImageResolution(value: unknown): value is ImageResolution {
+  return typeof value === "string" && IMAGE_RESOLUTIONS.includes(value as ImageResolution);
+}
+
+function isImageAspectRatio(value: unknown): value is ImageAspectRatio {
+  return typeof value === "string" && IMAGE_ASPECT_RATIOS.includes(value as ImageAspectRatio);
+}
+
+function isImageOutputCount(value: unknown): value is ImageOutputCount {
+  return typeof value === "number" && IMAGE_OUTPUT_COUNTS.includes(value as ImageOutputCount);
 }
 
 function isRunId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function imageFileName(mediaType: string): string {
-  return mediaType === "image/png" ? "output.png" : mediaType === "image/jpeg" ? "output.jpg" : "output.webp";
+function imageFileName(mediaType: string, index?: number): string {
+  const suffix = index ? `-${index}` : "";
+  return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : `output${suffix}.webp`;
 }
