@@ -11,7 +11,6 @@ import type {
 } from "../shared/contracts.js";
 import {
   cancelModelAuth,
-  connectPortal,
   disconnectModelProvider,
   getOpenAIEndpointSettings,
   getModel3DGenerationSettings,
@@ -32,11 +31,18 @@ export type ModelsView = { page: "providers" } | { page: "provider"; provider: P
 const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "meshy"];
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
+  const openProvider = (provider: ProviderSummary): void => {
+    if (provider.kind === "portal") {
+      void openExternal("https://portal.open-game.ai");
+      return;
+    }
+    onViewChange({ page: "provider", provider });
+  };
   if (view.page === "providers") {
-    return <ProviderList onProvider={(provider) => onViewChange({ page: "provider", provider })} />;
+    return <ProviderList onProvider={openProvider} />;
   }
   if (view.provider.kind === "custom") return <CustomProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
-  if (view.provider.kind === "portal") return <PortalProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
+  if (view.provider.kind === "portal") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
@@ -180,7 +186,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider }: { detai
         <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
       </span>
       {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
-      <button className={featured && provider.status !== "connected" ? "is-primary" : undefined} type="button" disabled={provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
+      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.kind !== "portal" && provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
     </div>
   );
 }
@@ -192,38 +198,6 @@ function ProviderMark({ provider }: { provider: ProviderSummary }) {
   const icon = PROVIDER_ICONS[provider.id];
   if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
-}
-
-function PortalProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
-  const auth = useAuth();
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string>();
-
-  async function retry(): Promise<void> {
-    setRetrying(true);
-    setRetryError(undefined);
-    try {
-      const accessToken = await auth.requestAccessToken();
-      if (!accessToken) return;
-      await connectPortal(accessToken);
-      onBack();
-    } catch (cause) {
-      setRetryError(errorMessage(cause));
-    } finally {
-      setRetrying(false);
-    }
-  }
-
-  return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={onBack} />
-      <div className="settings-auth-status"><span className="settings-status-dot" /><span><strong>{providerStatus(provider)}</strong>{provider.error ? <small>{provider.error}</small> : null}</span></div>
-      <div className="settings-form-actions">
-        {provider.status === "connected" ? <button className="settings-secondary-button" type="button" onClick={() => void openExternal("https://portal.open-game.ai")}>Manage</button> : provider.status === "error" ? <button className="settings-primary-button" type="button" onClick={() => void retry()} disabled={retrying}>{retrying ? "Retrying…" : "Retry"}</button> : <button className="settings-primary-button" type="button" onClick={auth.openSignIn}>{providerAction(provider)}</button>}
-      </div>
-      {retryError ? <p className="settings-error" role="status">{retryError}</p> : null}
-    </section>
-  );
 }
 
 function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
@@ -475,6 +449,7 @@ function providerStatus(provider: ProviderSummary): string {
 }
 
 function providerAction(provider: ProviderSummary): string {
+  if (provider.kind === "portal") return "Open Portal";
   if (provider.status === "connected") return "Manage";
   if (provider.status === "connecting") return "Checking…";
   if (provider.status === "error") return "Retry";
