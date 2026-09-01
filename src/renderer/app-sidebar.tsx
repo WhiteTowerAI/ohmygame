@@ -1,4 +1,4 @@
-import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound } from "./icons.js";
+import { ArrowDownToLine, LogOut, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { SidebarPage } from "./routes.js";
@@ -138,14 +138,16 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
                 setAccountMenuOpen(false);
                 setSettingsOpen(true);
               }}>
-                Settings
+                <Wrench size={16} />
+                <span>Settings</span>
               </button>
               <button className="home-sidebar-account-sign-out" type="button" role="menuitem" onClick={() => void auth.signOut().then(() => {
                 setAccountMenuOpen(false);
               }).catch((error) => {
                 setAccountError(errorMessage(error));
               })}>
-                Sign out
+                <LogOut size={16} />
+                <span>Sign out</span>
               </button>
               {accountError ? <p className="home-sidebar-account-error" role="alert">{accountError}</p> : null}
             </div>
@@ -164,7 +166,8 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
                 setAccountMenuOpen(false);
                 setSettingsOpen(true);
               }}>
-                Settings
+                <Wrench size={16} />
+                <span>Settings</span>
               </button>
             </div>
           ) : null}
