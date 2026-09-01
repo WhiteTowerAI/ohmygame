@@ -2,8 +2,8 @@ import { ArrowLeft, ExternalLink, Gamepad2, LoaderCircle, RefreshCw, X } from ".
 import { useEffect, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { getCommunityGame, listCommunityGames, waitForRuntime } from "./api.js";
-import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
+import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 export function Community({
   onNavigate,
@@ -33,43 +33,42 @@ export function Community({
   useEffect(() => { void load(); }, []);
 
   return (
-    <main className="home-shell">
-      <AppSidebar active="community" onNavigate={onNavigate} />
-      <section className="community-shell">
-        <header className="community-header window-drag-handle">
-          <h1>Community</h1>
+    <SidebarPageLayout active="community" onNavigate={onNavigate}>
+      <SidebarPageHeader
+        title="Games"
+        actions={(
           <button className="icon-button quiet-button" type="button" onClick={() => void load()} title="Refresh" aria-label="Refresh">
             <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
           </button>
-        </header>
+        )}
+      />
 
-        <section className="community-content">
-          {phase === "loading" ? <div className="community-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
-          {phase === "error" ? <div className="community-state community-error"><X size={20} />{error}</div> : null}
-          {phase === "ready" && games.length === 0 ? <div className="community-state">No published games yet</div> : null}
-          {phase === "ready" && games.length > 0 ? (
-            <div className="home-project-grid">
-              {games.map((game, index) => (
-                <article className="community-game-card" key={game.id}>
-                  <button className="community-game-card-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
-                    <span className={`community-game-card-preview project-card-preview-${index % 4} community-game-preview`} aria-hidden="true">
-                      <Gamepad2 size={28} />
+      <section className="community-content">
+        {phase === "loading" ? <div className="community-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
+        {phase === "error" ? <div className="community-state community-error"><X size={20} />{error}</div> : null}
+        {phase === "ready" && games.length === 0 ? <div className="community-state">No published games yet</div> : null}
+        {phase === "ready" && games.length > 0 ? (
+          <div className="home-project-grid">
+            {games.map((game, index) => (
+              <article className="community-game-card" key={game.id}>
+                <button className="community-game-card-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
+                  <span className={`community-game-card-preview project-card-preview-${index % 4} community-game-preview`} aria-hidden="true">
+                    <Gamepad2 size={28} />
+                  </span>
+                  <span className="community-game-card-meta">
+                    <span className="home-project-avatar" aria-hidden="true"><Gamepad2 size={14} /></span>
+                    <span className="community-game-card-copy">
+                      <span className="community-game-card-name" title={game.title}>{game.title}</span>
+                      <span className="community-game-card-time">{publishedTime(game.publishedAt)}</span>
                     </span>
-                    <span className="community-game-card-meta">
-                      <span className="home-project-avatar" aria-hidden="true"><Gamepad2 size={14} /></span>
-                      <span className="community-game-card-copy">
-                        <span className="community-game-card-name" title={game.title}>{game.title}</span>
-                        <span className="community-game-card-time">{publishedTime(game.publishedAt)}</span>
-                      </span>
-                    </span>
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </section>
+                  </span>
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
-    </main>
+    </SidebarPageLayout>
   );
 }
 

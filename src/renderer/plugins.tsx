@@ -22,9 +22,8 @@ import {
   type PluginSummary,
 } from "../shared/plugins.js";
 import { listPlugins, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
-import { AppSidebar } from "./app-sidebar.js";
 import type { SidebarPage } from "./routes.js";
-import { WindowDragRegion } from "./window-drag-region.js";
+import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 type PluginsView = { type: "catalog" } | { type: "manage" } | { type: "detail"; pluginId: string };
 
@@ -124,54 +123,51 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   const installed = visible.filter((plugin) => plugin.installed);
   const available = visible.filter((plugin) => !plugin.installed);
 
-  return <main className="home-shell">
-    <AppSidebar active="plugins" onNavigate={onNavigate} />
-    <section className="plugins-content">
-      <WindowDragRegion />
-      <div className="plugins-main">
-        {view.type === "manage" ? <ManagePlugins
-          plugins={plugins.filter((plugin) => plugin.installed)}
-          updating={updating}
-          error={error}
-          onBack={() => setView({ type: "catalog" })}
+  return <SidebarPageLayout active="plugins" onNavigate={onNavigate}>
+    <SidebarPageHeader title="Plugins">
+      {view.type === "catalog" ? (
+        <form className="plugins-search" onSubmit={(event: FormEvent) => { event.preventDefault(); setSearchQuery(query.trim()); }}>
+          <Search size={15} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
+        </form>
+      ) : null}
+    </SidebarPageHeader>
+    {view.type === "manage" ? <ManagePlugins
+      plugins={plugins.filter((plugin) => plugin.installed)}
+      updating={updating}
+      error={error}
+      onBack={() => setView({ type: "catalog" })}
+      onOpenPlugin={(id) => void openPlugin(id)}
+      onToggle={(plugin) => void toggleSummary(plugin)}
+    /> : view.type === "detail" ? <PluginDetailView
+      phase={detailPhase}
+      plugin={detail}
+      updating={updating === detail?.id}
+      error={error}
+      onBack={() => setView({ type: "catalog" })}
+      onRetry={() => void openPlugin(view.pluginId)}
+      onToggleComponent={(type, component, enabled) => detail && void updatePlugin(detail, {
+        enabled: detail.enabled,
+        components: { ...componentSettings(detail).components, [pluginComponentKey(type, component.id)]: enabled },
+      })}
+      onBrowse={() => detail && void browsePlugin(detail)}
+      onRemove={() => detail && void removePlugin(detail)}
+    /> : <>
+      {phase === "ready" && (error || catalogWarning) ? <p className="plugins-inline-error" role="alert">{error ?? catalogWarning}</p> : null}
+      {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
+      {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
+      {phase === "ready" ? <>
+        <InstalledPlugins
+          plugins={installed}
+          adding={adding}
+          onAdd={() => void addPlugin()}
+          onManage={() => setView({ type: "manage" })}
           onOpenPlugin={(id) => void openPlugin(id)}
-          onToggle={(plugin) => void toggleSummary(plugin)}
-        /> : view.type === "detail" ? <PluginDetailView
-          phase={detailPhase}
-          plugin={detail}
-          updating={updating === detail?.id}
-          error={error}
-          onBack={() => setView({ type: "catalog" })}
-          onRetry={() => void openPlugin(view.pluginId)}
-          onToggleComponent={(type, component, enabled) => detail && void updatePlugin(detail, {
-            enabled: detail.enabled,
-            components: { ...componentSettings(detail).components, [pluginComponentKey(type, component.id)]: enabled },
-          })}
-          onBrowse={() => detail && void browsePlugin(detail)}
-          onRemove={() => detail && void removePlugin(detail)}
-        /> : <>
-          <header className="plugins-heading"><h1>Plugins</h1><p>Install plugins and choose what your agent can use.</p></header>
-          {phase === "ready" && (error || catalogWarning) ? <p className="plugins-inline-error" role="alert">{error ?? catalogWarning}</p> : null}
-          <form className="plugins-search" onSubmit={(event: FormEvent) => { event.preventDefault(); setSearchQuery(query.trim()); }}>
-            <Search size={15} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
-          </form>
-          {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
-          {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
-          {phase === "ready" ? <>
-            <InstalledPlugins
-              plugins={installed}
-              adding={adding}
-              onAdd={() => void addPlugin()}
-              onManage={() => setView({ type: "manage" })}
-              onOpenPlugin={(id) => void openPlugin(id)}
-            />
-            <ExplorePlugins plugins={available} onOpenPlugin={(id) => void openPlugin(id)} />
-          </> : null}
-        </>}
-      </div>
-    </section>
-  </main>;
+        />
+        <ExplorePlugins plugins={available} onOpenPlugin={(id) => void openPlugin(id)} />
+      </> : null}
+    </>}
+  </SidebarPageLayout>;
 
   async function toggleSummary(plugin: PluginSummary): Promise<void> {
     if (updating) return;
@@ -236,7 +232,7 @@ function ManagePlugins({ plugins, updating, error, onBack, onOpenPlugin, onToggl
 }): ReactNode {
   return <section className="plugins-manage" aria-labelledby="plugins-manage-title">
     <button className="plugins-back" type="button" onClick={onBack}><ArrowLeft size={14} />Back to Plugins</button>
-    <header className="plugins-heading"><h1 id="plugins-manage-title">Manage plugins</h1><p>Choose which installed capabilities your agent can use.</p></header>
+    <h2 className="plugins-manage-title" id="plugins-manage-title">Manage plugins</h2>
     {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
     <div className="plugins-manage-list">{plugins.map((plugin) => <div className="plugin-row plugin-manage-heading" key={plugin.id}>
       <button className="plugin-row-main" type="button" onClick={() => onOpenPlugin(plugin.id)}><PluginIcon plugin={plugin} /><span className="plugin-row-copy"><strong>{plugin.displayName}</strong><span>{plugin.description}</span></span></button>
@@ -263,7 +259,7 @@ function PluginDetailView({ phase, plugin, updating, error, onBack, onRetry, onT
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
-        <div><h1>{plugin.displayName}</h1><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
+        <div><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
         {plugin.source.type === "local" ? <span className="plugin-detail-actions">
           {window.openGameDesktop ? <button type="button" disabled={updating} onClick={onBrowse}><FolderOpen size={13} />Browse directory</button> : null}
           <button type="button" disabled={updating} onClick={onRemove}><Trash2 size={13} />Remove</button>

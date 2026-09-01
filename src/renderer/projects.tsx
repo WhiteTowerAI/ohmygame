@@ -2,11 +2,10 @@ import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "./i
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
-import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import type { SidebarPage } from "./routes.js";
-import { WindowDragRegion } from "./window-drag-region.js";
+import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 interface ProjectsPageProps {
   onNavigate: (page: SidebarPage) => void;
@@ -77,12 +76,10 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   }
 
   return (
-    <main className="home-shell">
-      <AppSidebar active="projects" onNavigate={onNavigate} />
-      <section className="projects-content">
-        <WindowDragRegion />
-        <header className="projects-header window-drag-handle">
-          <h1>Projects</h1>
+    <SidebarPageLayout active="projects" onNavigate={onNavigate}>
+      <SidebarPageHeader
+        title="Projects"
+        actions={(
           <div className="projects-controls">
             <label className="projects-search" htmlFor="projects-search-input">
               <Search size={14} aria-hidden="true" />
@@ -100,35 +97,35 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
               ) : null}
             </div>
           </div>
-        </header>
+        )}
+      />
 
-        {phase === "loading" ? <ProjectState><LoaderCircle className="spin" size={18} />Loading projects</ProjectState> : null}
-        {phase === "error" ? <ProjectState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></ProjectState> : null}
-        {phase === "ready" ? (
-          <div className="projects-grid">
-            <button className="project-card project-card-new" type="button" onClick={() => setCreateOpen(true)}>
-              <span className="project-card-new-art"><FolderPlus size={24} /></span>
-              <span className="project-card-copy"><strong>New project</strong><span>Start from an idea</span></span>
-            </button>
-            {visibleProjects.map((project, index) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                fallback={index % 4}
-                onOpen={() => onOpenProject(project.id)}
-                actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
-              />
-            ))}
-          </div>
-        ) : null}
-        {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
-        {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
-      </section>
+      {phase === "loading" ? <ProjectState><LoaderCircle className="spin" size={18} />Loading projects</ProjectState> : null}
+      {phase === "error" ? <ProjectState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></ProjectState> : null}
+      {phase === "ready" ? (
+        <div className="projects-grid">
+          <button className="project-card project-card-new" type="button" onClick={() => setCreateOpen(true)}>
+            <span className="project-card-new-art"><FolderPlus size={24} /></span>
+            <span className="project-card-copy"><strong>New project</strong><span>Start from an idea</span></span>
+          </button>
+          {visibleProjects.map((project, index) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              fallback={index % 4}
+              onOpen={() => onOpenProject(project.id)}
+              actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
+            />
+          ))}
+        </div>
+      ) : null}
+      {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
+      {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
       {createOpen ? <ProjectCreateDialog onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpenProject(project.id);
       }} /> : null}
-    </main>
+    </SidebarPageLayout>
   );
 }
 

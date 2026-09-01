@@ -2,9 +2,9 @@ import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, Mor
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import { deleteAsset, listProjects, listWorkspaceFiles, renameAsset, waitForRuntime } from "./api.js";
-import { AppSidebar } from "./app-sidebar.js";
 import { ModelPreview } from "./model-preview.js";
 import type { SidebarPage } from "./routes.js";
+import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 interface LibraryPageProps {
@@ -91,31 +91,27 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
 
   return (
-    <main className="home-shell">
-      <AppSidebar active="library" onNavigate={onNavigate} />
-      <section className="library-page library-content">
-          <header className="library-header window-drag-handle">
-            <h1>Library</h1>
-            <div className="library-toolbar">
-              <nav className="library-filters" aria-label="Media types">
-                {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
-                  <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
-                    <Icon size={15} /><span>{label}</span>
-                  </button>
-                ))}
-              </nav>
-              <label className="library-search" htmlFor="library-search-input">
-                <Search size={14} aria-hidden="true" />
-                <input id="library-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search assets" />
-              </label>
-            </div>
-          </header>
-          {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
-          {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
-          {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
-          {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
-          {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <LibraryAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />)}</div> : null}
-      </section>
+    <SidebarPageLayout active="library" onNavigate={onNavigate}>
+      <SidebarPageHeader title="Library">
+        <div className="library-toolbar">
+          <nav className="library-filters" aria-label="Media types">
+            {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
+              <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => setMediaFilter(id)}>
+                <Icon size={15} /><span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <label className="library-search" htmlFor="library-search-input">
+            <Search size={14} aria-hidden="true" />
+            <input id="library-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search assets" />
+          </label>
+        </div>
+      </SidebarPageHeader>
+      {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
+      {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
+      {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
+      {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
+      {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <LibraryAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />)}</div> : null}
       {selectedAsset ? <LibraryAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedAsset(undefined)}
@@ -123,7 +119,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         onRename={() => { if (rename(selectedAsset)) setSelectedAsset(undefined); }}
         onDelete={() => { if (remove(selectedAsset)) setSelectedAsset(undefined); }}
       /> : null}
-    </main>
+    </SidebarPageLayout>
   );
 }
 

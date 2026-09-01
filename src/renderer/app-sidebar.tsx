@@ -112,7 +112,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       </div>
       <nav aria-label="Main navigation">
         <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
-        <NavigationItem active={active === "projects"} icon="project" label="Project" onClick={() => onNavigate("projects")} />
+        <NavigationItem active={active === "projects"} icon="project" label="Projects" onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
         <div className="home-nav-label home-nav-label-spaced">EXPANSIONS</div>
         <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
