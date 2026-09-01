@@ -109,8 +109,10 @@ export async function disconnectPortal(): Promise<void> {
   notifyAgentModelsChanged();
 }
 
+export const MODELS_CHANGED_EVENT = "open-game-models-changed";
+
 export function notifyAgentModelsChanged(): void {
-  window.dispatchEvent(new Event("open-game-models-changed"));
+  window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
 }
 
 export async function listProviders(): Promise<ProviderSummary[]> {

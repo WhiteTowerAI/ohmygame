@@ -16,6 +16,7 @@ import {
   getOpenAIEndpointSettings,
   getModel3DGenerationSettings,
   listProviders,
+  notifyAgentModelsChanged,
   respondToModelAuth,
   startModelProviderLogin,
   subscribeToModelAuth,
@@ -23,7 +24,6 @@ import {
   updateOpenAIEndpointSettings,
 } from "./api.js";
 import { useAuth } from "./auth.js";
-import { notifyAgentModelsChanged } from "./model-selector.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 

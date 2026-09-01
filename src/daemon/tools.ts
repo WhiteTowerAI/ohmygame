@@ -7,16 +7,19 @@ import {
   IMAGE_RESOLUTIONS,
   IMAGE_SIZES,
   VIDEO_ASPECT_RATIOS,
-  VIDEO_DURATIONS,
   VIDEO_RESOLUTIONS,
+  MODEL_3D_POSES,
+  MODEL_3D_QUALITIES,
+  MODEL_3D_TEXTURE_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
   type ImageResolution,
+  type PromptImage,
   type VideoAspectRatio,
   type VideoResolution,
   type ImageSize,
   type RunImageToolRequest,
-  type RunImageTo3DToolRequest,
+  type Run3DToolRequest,
   type RunVideoToolRequest,
   type RunToolRequest,
   type ToolDefinition,
@@ -39,10 +42,10 @@ const generateImage: ToolDefinition = {
 
 const imageTo3D: ToolDefinition = {
   id: "image-to-3d",
-  name: "Image to 3D",
-  description: "Turn a reference image into a textured 3D model.",
+  name: "3D Generator",
+  description: "Generate a 3D model from a text prompt or reference image.",
   category: "3d",
-  inputKind: "image",
+  inputKind: "image-prompt",
   outputKind: "model",
 };
 
@@ -55,9 +58,10 @@ const generateVideo: ToolDefinition = {
   inputKind: "image-prompt",
   outputKind: "video",
   defaultDuration: VIDEO_DEFAULT_DURATION,
+  minDuration: 4,
+  maxDuration: 15,
   aspectRatios: VIDEO_ASPECT_RATIOS,
   resolutions: VIDEO_RESOLUTIONS,
-  durations: VIDEO_DURATIONS,
 };
 
 interface StoredToolRun extends ToolRun {
@@ -95,8 +99,8 @@ export class ToolRunner {
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === imageTo3D.id) {
-      assertOnlyKeys(input, ["image"]);
-      return this.#runImageTo3D(input as RunImageTo3DToolRequest, signal);
+      assertOnlyKeys(input, ["prompt", "image", "model", "quality", "texture", "textureResolution", "pbr", "pose"]);
+      return this.#run3D(input as Run3DToolRequest, signal);
     }
     if (toolId === generateVideo.id) {
       assertOnlyKeys(input, ["prompt", "image", "duration", "aspectRatio", "resolution"]);
@@ -160,19 +164,40 @@ export class ToolRunner {
     }
   }
 
-  async #runImageTo3D(input: RunImageTo3DToolRequest, signal?: AbortSignal): Promise<ToolRun> {
-    if (!isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
+  async #run3D(input: Run3DToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+    const prompt = input.prompt?.trim();
+    const hasImage = input.image !== undefined;
+    if (Boolean(prompt) === hasImage) throw new ToolRunError("Provide either a prompt or a reference image", 400);
+    if (prompt && prompt.length > 800) throw new ToolRunError("3D prompt must not exceed 800 characters", 400);
+    if (hasImage && !isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
+    if (input.model !== undefined && input.model !== "meshy-7") throw new ToolRunError("Unsupported 3D model", 400);
+    if (input.quality !== undefined && !MODEL_3D_QUALITIES.includes(input.quality)) throw new ToolRunError("Unsupported 3D quality", 400);
+    if (input.textureResolution !== undefined && !MODEL_3D_TEXTURE_RESOLUTIONS.includes(input.textureResolution)) throw new ToolRunError("Unsupported texture resolution", 400);
+    if (input.pose !== undefined && !MODEL_3D_POSES.includes(input.pose)) throw new ToolRunError("Unsupported 3D pose", 400);
+    if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
+    if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     try {
       signal?.throwIfAborted();
-      const generated = await this.model3DGenerator.generate({ image: input.image }, signal);
+      const options = {
+        model: input.model,
+        quality: input.quality,
+        texture: input.texture,
+        textureResolution: input.textureResolution,
+        pbr: input.pbr,
+        pose: input.pose,
+      };
+      const generated = await this.model3DGenerator.generate(
+        prompt ? { ...options, prompt } : { ...options, image: input.image! },
+        signal,
+      );
       signal?.throwIfAborted();
-      const preview = {
+      const preview = input.image ? {
         fileName: `preview.${input.image.mediaType === "image/png" ? "png" : "jpg"}`,
         mediaType: input.image.mediaType as "image/png" | "image/jpeg",
-      };
+      } : undefined;
       const run: StoredToolRun = {
         version: 1,
         id,
@@ -180,11 +205,12 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files: [{ name: "model.glb", mediaType: generated.mediaType }],
         requestId: generated.requestId,
-        preview,
+        ...(prompt ? { prompt } : {}),
+        ...(preview ? { preview } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
-      await writeFile(path.join(temporary, preview.fileName), Buffer.from(input.image.data, "base64"));
+      if (preview && input.image) await writeFile(path.join(temporary, preview.fileName), Buffer.from(input.image.data, "base64"));
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -202,17 +228,17 @@ export class ToolRunner {
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     if (input.image && !isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
     const duration = input.duration ?? VIDEO_DEFAULT_DURATION;
-    if (!Number.isInteger(duration) || duration < 1 || duration > 15) throw new ToolRunError("Unsupported video duration", 400);
+    if (!Number.isInteger(duration) || duration < 4 || duration > 15) throw new ToolRunError("Unsupported video duration", 400);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     try {
       signal?.throwIfAborted();
-      const aspectRatio = input.aspectRatio ?? "16:9";
-      const resolution = input.resolution ?? "720p";
+      const aspectRatio = input.image ? "adaptive" : input.aspectRatio ?? "adaptive";
+      const resolution = input.resolution ?? "768P";
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
-      const generated = await this.videoGenerator.generate({ prompt, image: input.image, duration, size: videoSize(aspectRatio, resolution) }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, image: input.image, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       const run: StoredToolRun = {
         version: 1,
@@ -255,14 +281,7 @@ export class ToolRunner {
   }
 }
 
-function videoSize(aspectRatio: VideoAspectRatio, resolution: VideoResolution): string {
-  const large = resolution === "1080p";
-  if (aspectRatio === "9:16") return large ? "1080x1920" : "720x1280";
-  if (aspectRatio === "1:1") return large ? "1080x1080" : "720x720";
-  return large ? "1920x1080" : "1280x720";
-}
-
-function isPromptImage(value: unknown, allowWebP = false): value is RunImageTo3DToolRequest["image"] {
+function isPromptImage(value: unknown, allowWebP = false): value is PromptImage {
   if (!value || typeof value !== "object") return false;
   const image = value as { mediaType?: unknown; data?: unknown };
   return (image.mediaType === "image/png" || image.mediaType === "image/jpeg" || (allowWebP && image.mediaType === "image/webp")) && typeof image.data === "string" && image.data.length > 0;

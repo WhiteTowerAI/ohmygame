@@ -13,7 +13,7 @@ describe("Portal MiniMax video adapter", () => {
       modelIds: ["MiniMax-H3"],
     }), request);
 
-    await expect(generator.generate({ prompt: "Animate", duration: 6 }))
+    await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "2K", aspectRatio: "21:9" }))
       .resolves.toMatchObject({ bytes: Buffer.from([1, 2, 3]), mediaType: "video/mp4", requestId: "task-1" });
     expect(request).toHaveBeenNthCalledWith(1, "https://portal.example/v1/videos", expect.objectContaining({ method: "POST" }));
     expect(request).toHaveBeenNthCalledWith(2, "https://portal.example/v1/videos/task-1", expect.objectContaining({
@@ -24,6 +24,8 @@ describe("Portal MiniMax video adapter", () => {
     expect(form.get("model")).toBe("MiniMax-H3");
     expect(form.get("prompt")).toBe("Animate");
     expect(form.get("seconds")).toBe("6");
+    expect(form.get("resolution")).toBe("2K");
+    expect(form.get("aspect_ratio")).toBe("21:9");
   });
 
   it("sends an image reference as input_reference", async () => {
@@ -36,10 +38,11 @@ describe("Portal MiniMax video adapter", () => {
       modelIds: ["MiniMax-H3"],
     }), request);
 
-    await expect(generator.generate({ prompt: "Animate", duration: 6, image: { mediaType: "image/png", data: "aW1hZ2U=" } }))
+    await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "768P", aspectRatio: "16:9", image: { mediaType: "image/png", data: "aW1hZ2U=" } }))
       .rejects.toThrow("blocked");
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.get("input_reference")).toBeInstanceOf(File);
+    expect(form.get("aspect_ratio")).toBe("adaptive");
   });
 
   it("downloads the completed video's direct URL without forwarding the API key", async () => {
@@ -57,7 +60,7 @@ describe("Portal MiniMax video adapter", () => {
       modelIds: ["MiniMax-H3"],
     }), request);
 
-    await expect(generator.generate({ prompt: "Animate", duration: 6 }))
+    await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "768P", aspectRatio: "adaptive" }))
       .resolves.toMatchObject({ bytes: Buffer.from([4, 5, 6]), requestId: "task-direct" });
     expect(request).toHaveBeenNthCalledWith(3, "https://files.example/video.mp4", { signal: undefined });
     expect(request.mock.calls[2]?.[1]?.headers).toBeUndefined();

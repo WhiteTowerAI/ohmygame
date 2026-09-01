@@ -122,15 +122,54 @@ function imageEndpoint(baseUrl: string, edit: boolean): string {
   }
 }
 
-function openAIImageSize(input: ImageGenerationInput): ImageSize {
+const OPENAI_IMAGE_SIZES: Record<Exclude<ImageResolution, "512">, Record<ImageAspectRatio, string>> = {
+  "1K": {
+    "1:1": "1024x1024",
+    "2:3": "1024x1536",
+    "3:2": "1536x1024",
+    "3:4": "960x1280",
+    "4:3": "1280x960",
+    "4:5": "1024x1280",
+    "5:4": "1280x1024",
+    "9:16": "864x1536",
+    "16:9": "1536x864",
+    "21:9": "1456x624",
+  },
+  "2K": {
+    "1:1": "2048x2048",
+    "2:3": "1344x2016",
+    "3:2": "2016x1344",
+    "3:4": "1536x2048",
+    "4:3": "2048x1536",
+    "4:5": "1600x2000",
+    "5:4": "2000x1600",
+    "9:16": "1152x2048",
+    "16:9": "2048x1152",
+    "21:9": "2016x864",
+  },
+  "4K": {
+    "1:1": "2880x2880",
+    "2:3": "2304x3456",
+    "3:2": "3456x2304",
+    "3:4": "2448x3264",
+    "4:3": "3264x2448",
+    "4:5": "2560x3200",
+    "5:4": "3200x2560",
+    "9:16": "2160x3840",
+    "16:9": "3840x2160",
+    "21:9": "3808x1632",
+  },
+};
+
+function openAIImageSize(input: ImageGenerationInput): string {
   if (input.size) return input.size;
-  if (input.resolution !== "1K") throw new ImageGenerationError("Image resolution is not supported by the selected model", 400);
-  if (input.aspectRatio === "1:1") return "1024x1024";
-  if (input.aspectRatio === "3:2") return "1536x1024";
-  throw new ImageGenerationError("Image aspect ratio is not supported by the selected model", 400);
+  if (!input.resolution || input.resolution === "512" || !input.aspectRatio) {
+    throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
+  }
+  return OPENAI_IMAGE_SIZES[input.resolution][input.aspectRatio];
 }
 
-function editForm(input: ImageGenerationInput & { model?: string }, size: ImageSize): FormData {
+function editForm(input: ImageGenerationInput & { model?: string }, size: string): FormData {
   const image = input.image;
   if (!image) throw new ImageGenerationError("A reference image is required", 400);
   const form = new FormData();

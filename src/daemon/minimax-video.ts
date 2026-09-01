@@ -1,4 +1,4 @@
-import type { PromptImage } from "../shared/contracts.js";
+import type { PromptImage, VideoAspectRatio, VideoResolution } from "../shared/contracts.js";
 
 const MODEL = "MiniMax-H3";
 const POLL_INTERVAL_MS = 5_000;
@@ -11,7 +11,7 @@ export interface GeneratedVideo {
 }
 
 export interface VideoGenerator {
-  generate(input: { prompt: string; image?: PromptImage; duration: number; size?: string }, signal?: AbortSignal): Promise<GeneratedVideo>;
+  generate(input: { prompt: string; image?: PromptImage; duration: number; resolution: VideoResolution; aspectRatio: VideoAspectRatio }, signal?: AbortSignal): Promise<GeneratedVideo>;
 }
 
 export interface VideoSource {
@@ -33,7 +33,7 @@ export class PortalVideoGenerator implements VideoGenerator {
     private readonly request: typeof fetch = fetch,
   ) {}
 
-  async generate(input: { prompt: string; image?: PromptImage; duration: number; size?: string }, signal?: AbortSignal): Promise<GeneratedVideo> {
+  async generate(input: { prompt: string; image?: PromptImage; duration: number; resolution: VideoResolution; aspectRatio: VideoAspectRatio }, signal?: AbortSignal): Promise<GeneratedVideo> {
     const source = this.source();
     if (!source || !source.modelIds.includes(MODEL)) throw new VideoGenerationError("The selected video model is not available", 503);
 
@@ -41,7 +41,8 @@ export class PortalVideoGenerator implements VideoGenerator {
     body.set("model", MODEL);
     body.set("prompt", input.prompt);
     body.set("seconds", String(input.duration));
-    if (input.size) body.set("size", input.size);
+    body.set("resolution", input.resolution);
+    body.set("aspect_ratio", input.image ? "adaptive" : input.aspectRatio);
     if (input.image) {
       body.set("input_reference", new Blob([Buffer.from(input.image.data, "base64")], { type: input.image.mediaType }), `reference.${input.image.mediaType === "image/png" ? "png" : "jpg"}`);
     }

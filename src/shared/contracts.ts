@@ -435,7 +435,7 @@ export const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 export const IMAGE_RESOLUTIONS = ["512", "1K", "2K", "4K"] as const;
 export type ImageResolution = (typeof IMAGE_RESOLUTIONS)[number];
-export const IMAGE_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:2"] as const;
+export const IMAGE_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] as const;
 export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];
 export const IMAGE_OUTPUT_COUNTS = [1, 2, 3, 4] as const;
 export type ImageOutputCount = (typeof IMAGE_OUTPUT_COUNTS)[number];
@@ -461,10 +461,10 @@ export interface ImageToolDefinition extends BaseToolDefinition {
   defaultSize: ImageSize;
 }
 
-export interface ImageTo3DToolDefinition extends BaseToolDefinition {
+export interface Model3DToolDefinition extends BaseToolDefinition {
   id: "image-to-3d";
   category: "3d";
-  inputKind: "image";
+  inputKind: "image-prompt";
   outputKind: "model";
 }
 
@@ -474,18 +474,25 @@ export interface VideoToolDefinition extends BaseToolDefinition {
   inputKind: "image-prompt";
   outputKind: "video";
   defaultDuration: number;
+  minDuration: number;
+  maxDuration: number;
   aspectRatios: readonly VideoAspectRatio[];
   resolutions: readonly VideoResolution[];
-  durations: readonly number[];
 }
 
-export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1"] as const;
+export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_RESOLUTIONS = ["720p", "1080p"] as const;
+export const VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
-export const VIDEO_DURATIONS = [6, 10] as const;
 
-export type ToolDefinition = ImageToolDefinition | ImageTo3DToolDefinition | VideoToolDefinition;
+export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
+export type Model3DQuality = (typeof MODEL_3D_QUALITIES)[number];
+export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
+export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
+export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
+export type Model3DPose = (typeof MODEL_3D_POSES)[number];
+
+export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
 
 interface RunLegacyImageToolRequest {
   prompt: string;
@@ -507,9 +514,19 @@ interface RunStudioImageToolRequest {
 
 export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
 
-export interface RunImageTo3DToolRequest {
-  image: PromptImage;
+interface Run3DToolOptions {
+  model?: "meshy-7";
+  quality?: Model3DQuality;
+  texture?: boolean;
+  textureResolution?: Model3DTextureResolution;
+  pbr?: boolean;
+  pose?: Model3DPose;
 }
+
+export type Run3DToolRequest = Run3DToolOptions & (
+  | { prompt: string; image?: never }
+  | { prompt?: never; image: PromptImage }
+);
 
 export interface RunVideoToolRequest {
   prompt: string;
@@ -519,7 +536,7 @@ export interface RunVideoToolRequest {
   resolution?: VideoResolution;
 }
 
-export type RunToolRequest = RunImageToolRequest | RunImageTo3DToolRequest | RunVideoToolRequest;
+export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest;
 
 export interface ToolRunFile {
   name: string;

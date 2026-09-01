@@ -1,9 +1,0 @@
-<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="280" height="280" viewBox="0 0 280 280" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle id="Preview Accent Glow" cx="140" cy="140" r="140" fill="url(#paint0_radial_0_8)"/>
-<defs>
-<radialGradient id="paint0_radial_0_8" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(140 140) scale(140)">
-<stop stop-color="#B8F21F" stop-opacity="0.1"/>
-<stop offset="1" stop-color="#B8F21F" stop-opacity="0"/>
-</radialGradient>
-</defs>
-</svg>

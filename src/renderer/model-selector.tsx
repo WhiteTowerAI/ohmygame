@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronRight } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
-import { listModels, notifyAgentModelsChanged, waitForRuntime } from "./api.js";
+import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 
 interface ModelSelectorProps {
   models: AgentModel[];
@@ -152,10 +152,6 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
 }
 
 const EMPTY_CATALOG: AgentModelCatalog = { models: [], defaultReasoningLevel: "medium" };
-const MODELS_CHANGED_EVENT = "open-game-models-changed";
-
-export { notifyAgentModelsChanged };
-
 export function useAgentModels(): AgentModelCatalog {
   const [catalog, setCatalog] = useState<AgentModelCatalog>(EMPTY_CATALOG);
   useEffect(() => {

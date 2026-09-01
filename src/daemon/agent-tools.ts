@@ -205,9 +205,9 @@ export function createAgentTools(
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
       imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG or JPEG image in the current project workspace" })),
-      duration: Type.Optional(Type.Integer({ minimum: 1, maximum: 15, description: "Video duration in seconds" })),
-      aspectRatio: Type.Optional(Type.Union([Type.Literal("16:9"), Type.Literal("9:16"), Type.Literal("1:1")], { description: "Video aspect ratio" })),
-      resolution: Type.Optional(Type.Union([Type.Literal("720p"), Type.Literal("1080p")], { description: "Video resolution" })),
+      duration: Type.Optional(Type.Integer({ minimum: 4, maximum: 15, description: "Video duration in seconds" })),
+      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("1:1"), Type.Literal("3:4"), Type.Literal("9:16")], { description: "Video aspect ratio; reference images always use adaptive" })),
+      resolution: Type.Optional(Type.Union([Type.Literal("768P"), Type.Literal("2K")], { description: "Video resolution" })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();

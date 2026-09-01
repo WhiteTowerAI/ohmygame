@@ -12,11 +12,20 @@ describe("ProviderImages", () => {
       vi.fn(async () => Response.json({ data: [{ id: "gpt-image-2" }, { id: "text-only" }] })),
     );
 
-    await expect(images.models()).resolves.toEqual([
+    const models = await images.models();
+    expect(models).toEqual([
       expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gpt-image-2" }),
       expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gemini-2.5-flash-image", name: "Nano Banana" }),
       expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2" }),
     ]);
+    const gemini = models.find((model) => model.id === "gemini-2.5-flash-image");
+    expect(gemini?.generationOptions).toHaveLength(10);
+    expect(gemini?.generationOptions.every((option) => option.resolution === "1K")).toBe(true);
+    expect(gemini?.generationOptions.map((option) => option.aspectRatio)).toEqual([
+      "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+    ]);
+    const gpt = models.find((model) => model.id === "gpt-image-2");
+    expect(new Set(gpt?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K", "4K"]));
   });
 
   it("uses the explicitly selected provider and model", async () => {
@@ -69,17 +78,20 @@ describe("ProviderImages", () => {
   });
 
   it("validates Asset Studio resolution and aspect-ratio combinations", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      data: [{ b64_json: Buffer.from("image").toString("base64") }],
+    }));
     const images = new ProviderImages(
       async () => runtime(),
       portal(),
       () => ({ provider: "opengame", id: "gpt-image-2" }),
-      vi.fn(),
+      request,
     );
 
-    await expect(images.generate({ prompt: "A game icon", resolution: "4K", aspectRatio: "1:1" }))
+    await expect(images.generate({ prompt: "A game icon", resolution: "512", aspectRatio: "1:1" }))
       .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
-    await expect(images.generate({ prompt: "A game icon", resolution: "1K", aspectRatio: "16:9" }))
-      .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
+    await expect(images.generate({ prompt: "A game icon", resolution: "4K", aspectRatio: "1:1" })).resolves.toMatchObject({ mediaType: "image/webp" });
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({ size: "2880x2880" });
   });
 });
 

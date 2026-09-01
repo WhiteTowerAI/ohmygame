@@ -1,4 +1,17 @@
-import type { PromptImage } from "../shared/contracts.js";
+import type { Model3DPose, Model3DQuality, Model3DTextureResolution, PromptImage } from "../shared/contracts.js";
+
+interface Model3DGenerationOptions {
+  model?: "meshy-7";
+  quality?: Model3DQuality;
+  texture?: boolean;
+  textureResolution?: Model3DTextureResolution;
+  pbr?: boolean;
+  pose?: Model3DPose;
+}
+
+type Text3DGenerationInput = Model3DGenerationOptions & { prompt: string; image?: never };
+type Image3DGenerationInput = Model3DGenerationOptions & { prompt?: never; image: PromptImage };
+export type Model3DGenerationInput = Text3DGenerationInput | Image3DGenerationInput;
 
 export interface Generated3DModel {
   bytes: Buffer;
@@ -7,7 +20,7 @@ export interface Generated3DModel {
 }
 
 export interface Model3DGenerator {
-  generate(input: { image: PromptImage }, signal?: AbortSignal): Promise<Generated3DModel>;
+  generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel>;
 }
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -30,60 +43,65 @@ export class Meshy3DGenerator implements Model3DGenerator {
     private readonly timeoutMs = 15 * 60_000,
   ) {}
 
-  async generate(input: { image: PromptImage }, signal?: AbortSignal): Promise<Generated3DModel> {
+  async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
     const { apiKey, apiUrl } = this.configuration();
     if (!apiKey) throw new Model3DGenerationError("3D generation is not configured", 503);
     const timeout = AbortSignal.timeout(this.timeoutMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    const endpoint = imageTo3DEndpoint(apiUrl);
+    const isText = isTextInput(input);
+    const endpoint = isText ? textTo3DEndpoint(apiUrl) : imageTo3DEndpoint(apiUrl);
     try {
-      const created = await this.jsonRequest(endpoint, apiKey, {
-        method: "POST",
-        body: JSON.stringify({
-          image_url: `data:${input.image.mediaType};base64,${input.image.data}`,
-          ai_model: "latest",
-          should_texture: true,
-          enable_pbr: true,
-        }),
-      }, requestSignal) as { result?: unknown };
-      if (typeof created.result !== "string" || !created.result) {
-        throw new Model3DGenerationError("Meshy returned no task ID");
+      const created = await this.createTask(endpoint, apiKey, isText ? textPreviewRequest(input) : imageRequest(input), requestSignal);
+      let task = await this.waitForTask(endpoint, apiKey, created, requestSignal);
+      let requestId = created;
+
+      if (isText && (input.texture ?? true)) {
+        requestId = await this.createTask(endpoint, apiKey, textRefineRequest(input, created), requestSignal);
+        task = await this.waitForTask(endpoint, apiKey, requestId, requestSignal);
       }
 
-      const taskUrl = `${endpoint}/${encodeURIComponent(created.result)}`;
-      while (true) {
-        const task = await this.jsonRequest(taskUrl, apiKey, { method: "GET" }, requestSignal) as {
-          status?: unknown;
-          task_error?: { message?: unknown };
-          model_urls?: { glb?: unknown };
-        };
-        if (task.status === "SUCCEEDED") {
-          if (typeof task.model_urls?.glb !== "string") {
-            throw new Model3DGenerationError("Meshy returned no GLB model");
-          }
-          const response = await this.fetch(task.model_urls.glb, {}, requestSignal);
-          const contentLength = Number(response.headers.get("content-length"));
-          if (Number.isFinite(contentLength) && contentLength > MAX_GLB_BYTES) {
-            throw new Model3DGenerationError("Meshy returned a model larger than 100 MB");
-          }
-          const bytes = await readLimitedBody(response, MAX_GLB_BYTES);
-          return {
-            bytes,
-            mediaType: "model/gltf-binary",
-            requestId: created.result,
-          };
-        }
-        if (task.status === "FAILED" || task.status === "CANCELED") {
-          const message = typeof task.task_error?.message === "string" ? task.task_error.message : "Meshy 3D generation failed";
-          throw new Model3DGenerationError(message, 400);
-        }
-        await delay(this.pollDelayMs, requestSignal);
+      if (typeof task.model_urls?.glb !== "string") throw new Model3DGenerationError("Meshy returned no GLB model");
+      const response = await this.fetch(task.model_urls.glb, {}, requestSignal);
+      const contentLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > MAX_GLB_BYTES) {
+        throw new Model3DGenerationError("Meshy returned a model larger than 100 MB");
       }
+      return {
+        bytes: await readLimitedBody(response, MAX_GLB_BYTES),
+        mediaType: "model/gltf-binary",
+        requestId,
+      };
     } catch (cause) {
       if (requestSignal.aborted && requestSignal.reason?.name === "TimeoutError") {
         throw new Model3DGenerationError("3D generation timed out", 504);
       }
       throw cause;
+    }
+  }
+
+  private async createTask(endpoint: string, apiKey: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+    const created = await this.jsonRequest(endpoint, apiKey, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }, signal) as { result?: unknown };
+    if (typeof created.result !== "string" || !created.result) throw new Model3DGenerationError("Meshy returned no task ID");
+    return created.result;
+  }
+
+  private async waitForTask(endpoint: string, apiKey: string, taskId: string, signal?: AbortSignal): Promise<{ model_urls?: { glb?: unknown } }> {
+    const taskUrl = `${endpoint}/${encodeURIComponent(taskId)}`;
+    while (true) {
+      const task = await this.jsonRequest(taskUrl, apiKey, { method: "GET" }, signal) as {
+        status?: unknown;
+        task_error?: { message?: unknown };
+        model_urls?: { glb?: unknown };
+      };
+      if (task.status === "SUCCEEDED") return task;
+      if (task.status === "FAILED" || task.status === "CANCELED") {
+        const message = typeof task.task_error?.message === "string" ? task.task_error.message : "Meshy 3D generation failed";
+        throw new Model3DGenerationError(message, 400);
+      }
+      await delay(this.pollDelayMs, signal);
     }
   }
 
@@ -118,23 +136,86 @@ export class Meshy3DGenerator implements Model3DGenerator {
 }
 
 function imageTo3DEndpoint(baseUrl: string): string {
+  return meshyEndpoint(baseUrl, "/openapi/v1/image-to-3d");
+}
+
+function textTo3DEndpoint(baseUrl: string): string {
+  return meshyEndpoint(baseUrl, "/openapi/v2/text-to-3d");
+}
+
+function meshyEndpoint(baseUrl: string, endpointPath: string): string {
   try {
     const url = new URL(baseUrl);
     if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/openapi/v1/image-to-3d`;
+    url.pathname = `${url.pathname.replace(/\/$/, "")}${endpointPath}`;
     return url.toString().replace(/\/$/, "");
   } catch {
     throw new Model3DGenerationError("Meshy base URL is not valid", 503);
   }
 }
 
+function imageRequest(input: Image3DGenerationInput): Record<string, unknown> {
+  const texture = input.texture ?? true;
+  return {
+    image_url: `data:${input.image.mediaType};base64,${input.image.data}`,
+    ai_model: input.model ?? "meshy-7",
+    model_type: "standard",
+    ultra_mode: input.quality === "ultra",
+    should_texture: texture,
+    texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
+    enable_pbr: texture && (input.pbr ?? true),
+    pose_mode: poseMode(input.pose),
+    image_enhancement: true,
+    should_remesh: false,
+    target_formats: ["glb"],
+  };
+}
+
+function textPreviewRequest(input: Text3DGenerationInput): Record<string, unknown> {
+  return {
+    mode: "preview",
+    prompt: input.prompt,
+    ai_model: input.model ?? "meshy-7",
+    model_type: "standard",
+    ultra_mode: input.quality === "ultra",
+    pose_mode: poseMode(input.pose),
+    should_remesh: false,
+    target_formats: ["glb"],
+  };
+}
+
+function textRefineRequest(input: Text3DGenerationInput, previewTaskId: string): Record<string, unknown> {
+  return {
+    mode: "refine",
+    preview_task_id: previewTaskId,
+    ai_model: input.model ?? "meshy-7",
+    enable_pbr: input.pbr ?? true,
+    texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
+    target_formats: ["glb"],
+  };
+}
+
+function poseMode(pose: Model3DPose | undefined): string {
+  return pose === "a-pose" || pose === "t-pose" ? pose : "";
+}
+
+function isTextInput(input: Model3DGenerationInput): input is Text3DGenerationInput {
+  return input.prompt !== undefined;
+}
+
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(resolve, milliseconds);
-    signal?.addEventListener("abort", () => {
+    const onAbort = () => {
       clearTimeout(timeout);
-      reject(signal.reason);
-    }, { once: true });
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

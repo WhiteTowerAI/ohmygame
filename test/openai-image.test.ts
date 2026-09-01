@@ -77,6 +77,32 @@ describe("OpenAI image generator", () => {
     expect(form.get("image")).toBeInstanceOf(Blob);
   });
 
+  it.each([
+    ["1K", "21:9", "1456x624"],
+    ["2K", "1:1", "2048x2048"],
+    ["2K", "16:9", "2048x1152"],
+    ["4K", "1:1", "2880x2880"],
+    ["4K", "16:9", "3840x2160"],
+  ] as const)("maps %s %s Asset Studio output to %s", async (resolution, aspectRatio, size) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      data: [{ b64_json: Buffer.from("image").toString("base64") }],
+    }));
+    const generator = new OpenAIImageGenerator("key", "https://images.example/v1", request);
+
+    await generator.generate({ prompt: "A game icon", resolution, aspectRatio });
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({ size });
+  });
+
+  it("rejects the unsupported 512px output tier", async () => {
+    const request = vi.fn<typeof fetch>();
+    const generator = new OpenAIImageGenerator("key", undefined, request);
+
+    await expect(generator.generate({ prompt: "A game icon", resolution: "512", aspectRatio: "1:1" }))
+      .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("requires configuration and rejects empty image responses", async () => {
     await expect(new OpenAIImageGenerator(undefined).generate({ prompt: "image", size: "1024x1024" }))
       .rejects.toEqual(new ImageGenerationError("Image generation is not configured", 503));
