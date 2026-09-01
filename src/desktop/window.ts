@@ -42,7 +42,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     height: 900,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: "#111214",
+    backgroundColor: "#171717",
     show: false,
     ...macWindowOptions,
     webPreferences: {

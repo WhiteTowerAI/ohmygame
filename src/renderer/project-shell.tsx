@@ -556,15 +556,6 @@ export function ProjectShell({
     onOpenProject(projectId);
   }
 
-  const collapsedNavigation = agentCollapsed ? <CollapsedWorkspaceActions
-    project={project}
-    onBeforeNavigate={confirmNavigation}
-    onHome={requestHome}
-    onOpenProject={requestProject}
-    onManageProjects={onManageProjects}
-    onExpand={() => setAgentCollapsed(false)}
-  /> : undefined;
-
   return (
     <main
       className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
@@ -575,14 +566,20 @@ export function ProjectShell({
         <div className="workspace-resize-shield" />
       ) : null}
 
-      {agentCollapsed && !project ? collapsedNavigation : null}
+      <WorkspaceNavigationActions
+        collapsed={agentCollapsed}
+        project={project}
+        onBeforeNavigate={confirmNavigation}
+        onHome={requestHome}
+        onOpenProject={requestProject}
+        onManageProjects={onManageProjects}
+        onExpand={() => setAgentCollapsed(false)}
+      />
 
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
           project={project}
-          showSwitcher={!agentCollapsed}
           onBeforeNavigate={confirmNavigation}
-          onHome={requestHome}
           onOpenProject={requestProject}
           onManageProjects={onManageProjects}
         >
@@ -728,7 +725,6 @@ export function ProjectShell({
       {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" ? (
         <CodingWorkspace
           project={project}
-          navigation={collapsedNavigation}
           agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
@@ -737,13 +733,13 @@ export function ProjectShell({
         />
       ) : <InteractiveDramaWorkspace
         projectId={project.id}
-        navigation={collapsedNavigation}
       />}
     </main>
   );
 }
 
-function CollapsedWorkspaceActions({ project, onBeforeNavigate, onHome, onOpenProject, onManageProjects, onExpand }: {
+function WorkspaceNavigationActions({ collapsed, project, onBeforeNavigate, onHome, onOpenProject, onManageProjects, onExpand }: {
+  collapsed: boolean;
   project?: ProjectState;
   onBeforeNavigate: () => boolean;
   onHome: () => void;
@@ -756,38 +752,34 @@ function CollapsedWorkspaceActions({ project, onBeforeNavigate, onHome, onOpenPr
       <button className="icon-button" type="button" onClick={onHome} title="Home" aria-label="Home">
         <House size={14} />
       </button>
-      {project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
-      <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
-        <PanelLeftOpen size={15} />
-      </button>
+      {collapsed && project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
+      {collapsed ? (
+        <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
+          <PanelLeftOpen size={15} />
+        </button>
+      ) : null}
     </div>
   );
 }
 
 function PaneHeader({
   project,
-  showSwitcher,
   onBeforeNavigate,
-  onHome,
   onOpenProject,
   onManageProjects,
   children,
 }: {
   project?: ProjectState;
-  showSwitcher: boolean;
   onBeforeNavigate: () => boolean;
-  onHome: () => void;
   onOpenProject: (projectId: string) => void;
   onManageProjects: () => void;
   children: ReactNode;
 }) {
   return (
     <header className="pane-header window-drag-handle">
+      <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
       <div className="project-heading">
-        <button className="icon-button pane-header-action" type="button" onClick={onHome} title="Home" aria-label="Home">
-          <House size={14} />
-        </button>
-        {project && showSwitcher
+        {project
           ? <ProjectSwitcher project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} />
           : <span className="project-name">Loading project</span>}
       </div>

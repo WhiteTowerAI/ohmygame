@@ -1,14 +1,15 @@
 :root {
   color: #f1f3f5;
-  background: #090a0c;
+  background: var(--canvas);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --surface: #0d0e11;
-  --surface-raised: #131519;
-  --surface-hover: #181a1f;
-  --border: #282b31;
-  --border-strong: #343840;
+  --canvas: #171717;
+  --surface: #1b1b1b;
+  --surface-raised: #282828;
+  --surface-hover: #303030;
+  --border: #303030;
+  --border-strong: #3a3a3a;
   --text: #f1f3f5;
   --text-muted: #8c919c;
   --text-faint: #676c76;
@@ -21,8 +22,8 @@
   --theme-accent-hover: #c8ff3d;
   --composer-accent: var(--theme-accent);
   --composer-accent-hover: var(--theme-accent-hover);
-  --composer-border: #2c3137;
-  --composer-surface: #1a1d20;
+  --composer-border: #343434;
+  --composer-surface: #282828;
   --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, white);
 }
 
@@ -86,8 +87,8 @@ body {
   --home-accent: var(--composer-accent);
   --home-accent-hover: var(--composer-accent-hover);
   --home-border: var(--composer-border);
-  --home-canvas: #0e1012;
-  --home-sidebar: rgb(5 7 9 / 55%);
+  --home-canvas: var(--canvas);
+  --home-sidebar: rgb(31 31 31 / 80%);
   --home-sidebar-hover: rgb(255 255 255 / 5%);
   --home-surface: var(--composer-surface);
   display: grid;
@@ -108,8 +109,10 @@ body {
   min-height: 0;
   flex-direction: column;
   padding: 24px 13px 11px;
-  border-right: 1px solid rgb(71 77 85 / 32%);
+  border-right: 1px solid rgb(255 255 255 / 6%);
   background: var(--home-sidebar);
+  box-shadow: 6px 0 16px rgb(0 0 0 / 6%);
+  color: #fff;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -222,11 +225,6 @@ body {
   cursor: pointer;
 }
 
-.home-sidebar-account-main:hover .home-sidebar-account-name,
-.home-sidebar-account-main:focus-visible .home-sidebar-account-name {
-  color: var(--text);
-}
-
 .home-sidebar-update {
   display: inline-flex;
   width: 32px;
@@ -240,7 +238,7 @@ body {
   border: 0;
   border-radius: 16px;
   background: #298ff2;
-  color: #fff;
+  color: inherit;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -280,7 +278,6 @@ body {
   place-items: center;
   border-radius: 50%;
   background: #1f2127;
-  color: var(--text-muted);
 }
 
 .home-sidebar-avatar,
@@ -298,10 +295,13 @@ body {
   object-fit: cover;
 }
 
+.home-sidebar-avatar {
+  color: #fff;
+}
+
 .home-sidebar-account-name {
   min-width: 0;
   overflow: hidden;
-  color: var(--text);
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -318,13 +318,12 @@ body {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--text-muted);
+  color: inherit;
   cursor: pointer;
 }
 
 .home-sidebar-account-menu:hover {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .home-sidebar-account-popover {
@@ -353,7 +352,7 @@ body {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #f3f4f6;
+  color: inherit;
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -362,7 +361,6 @@ body {
 
 .home-sidebar-account-popover button:hover {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .home-sidebar-account-popover .home-sidebar-account-sign-out {
@@ -375,6 +373,7 @@ body {
 
 .home-sidebar-account-error {
   margin: 5px 9px 3px;
+  color: var(--danger);
   color: var(--danger);
   font-size: 10px;
   line-height: 1.4;
@@ -987,7 +986,7 @@ body {
 
 .home-nav-label {
   margin: 0 11px 8px;
-  color: #9ca3af;
+  color: inherit;
   font-size: 10px;
   font-weight: 600;
 }
@@ -1003,7 +1002,7 @@ body {
   gap: 12px;
   padding: 0 11px;
   border-radius: var(--radius);
-  color: #a8adb7;
+  color: inherit;
   font-size: 13px;
   font-weight: 500;
 }
@@ -1013,14 +1012,14 @@ body {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
-  background: #98a5b6;
+  background: currentColor;
   mask-position: center;
   mask-repeat: no-repeat;
   mask-size: contain;
   -webkit-mask-position: center;
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-size: contain;
-  opacity: .7;
+  opacity: 1;
   transition: background-color 120ms ease, opacity 120ms ease;
 }
 
@@ -1040,17 +1039,10 @@ body {
 .home-nav-item-active .home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); }
 .home-nav-item-active .home-nav-icon-games { mask-image: url("./assets/sidebar/fill/games.svg"); -webkit-mask-image: url("./assets/sidebar/fill/games.svg"); }
 
-.home-nav-item:hover .home-nav-icon {
-  background: #f3f4f6;
-  opacity: 1;
-}
-
 .home-nav-item-active .home-nav-icon,
 .home-nav-item-active:hover .home-nav-icon {
-  background: var(--home-accent);
   mask-size: 112%;
   -webkit-mask-size: 112%;
-  opacity: 1;
 }
 
 button.home-nav-item {
@@ -1064,13 +1056,11 @@ button.home-nav-item {
 
 button.home-nav-item:hover {
   background: var(--home-sidebar-hover);
-  color: var(--text);
 }
 
 button.home-nav-item-active,
 button.home-nav-item-active:hover {
   background: color-mix(in srgb, var(--home-accent) 15%, transparent);
-  color: #f3f4f6;
   font-weight: 600;
 }
 
@@ -2077,7 +2067,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-switch[aria-checked="true"] span {
-  background: #0d0e11;
+  background: var(--canvas);
   transform: translateX(16px);
 }
 
@@ -2807,7 +2797,7 @@ button {
   grid-template-columns: clamp(320px, var(--agent-width, 430px), 65vw) 5px minmax(0, 1fr);
   min-height: 100dvh;
   height: 100dvh;
-  background: #090a0c;
+  background: var(--canvas);
 }
 
 .desktop-macos .workspace-shell {
@@ -3031,7 +3021,7 @@ button {
   height: 100dvh;
   grid-template-rows: 50px minmax(0, 1fr);
   overflow: hidden;
-  background: #0d0e11;
+  background: var(--surface);
 }
 
 .story-playtest-header {
@@ -3094,7 +3084,7 @@ button {
   min-width: 0;
   min-height: 0;
   grid-template-rows: minmax(0, 1fr);
-  background: #0d0e11;
+  background: var(--surface);
 }
 
 .story-player-stage {
@@ -3723,8 +3713,8 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-.desktop-macos .agent-pane > .pane-header {
-  padding-left: 88px;
+.agent-pane > .pane-header {
+  padding-left: calc(var(--workspace-navigation-left) + 36px);
 }
 
 .pane-header-actions {
@@ -3876,11 +3866,32 @@ button {
   border: 0;
   background: transparent;
   color: #9ca1aa;
+  app-region: no-drag;
 }
 
 .workspace-navigation-actions .icon-button:hover {
   background: var(--surface-hover);
   color: #e5e7eb;
+}
+
+.workspace-navigation-drag-exclusion {
+  position: absolute;
+  top: 0;
+  left: var(--workspace-navigation-left);
+  width: 28px;
+  height: 50px;
+  pointer-events: none;
+  app-region: no-drag;
+}
+
+.viewer-header > .workspace-navigation-drag-exclusion,
+.interactive-drama-header > .workspace-navigation-drag-exclusion {
+  display: none;
+}
+
+.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-drama-header) > .workspace-navigation-drag-exclusion {
+  display: block;
+  width: 102px;
 }
 
 .workspace-shell-agent-collapsed .viewer-header {
@@ -5913,7 +5924,7 @@ button {
 .viewer-pane {
   display: flex;
   flex-direction: column;
-  background: #090a0c;
+  background: var(--canvas);
 }
 
 .viewer-header {
@@ -6333,7 +6344,7 @@ button {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: #090a0c;
+  background: var(--canvas);
 }
 
 .community-player-header {
@@ -6404,7 +6415,7 @@ button {
   overflow: hidden;
   border: 1px solid #1f2227;
   border-radius: var(--radius);
-  background: #0d0e11;
+  background: var(--canvas);
 }
 
 .preview-frame-wrap {
@@ -6427,7 +6438,7 @@ button {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #0d0e11;
+  background: var(--canvas);
 }
 
 .preview-starting {
@@ -6618,7 +6629,7 @@ button {
   margin: 0;
   padding: 14px 16px;
   overflow: auto;
-  background: #090a0c;
+  background: var(--canvas);
   color: #d7d9dc;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
@@ -6727,7 +6738,7 @@ button {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: #090a0c;
+  background: var(--canvas);
 }
 
 .asset-preview {
