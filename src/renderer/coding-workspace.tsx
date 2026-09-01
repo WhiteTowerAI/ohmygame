@@ -35,6 +35,7 @@ type PreviewViewport = "fit" | "tablet" | "mobile";
 
 interface CodingWorkspaceProps {
   project?: ProjectState;
+  navigation?: React.ReactNode;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision: number;
@@ -44,6 +45,7 @@ interface CodingWorkspaceProps {
 
 export function CodingWorkspace({
   project,
+  navigation,
   agentBusy,
   publishing,
   workspaceRevision,
@@ -142,6 +144,7 @@ export function CodingWorkspace({
   return (
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
+        {navigation}
         <nav className="workspace-tabs" aria-label="Workspace views">
           {supportsPreview ? (
             <>

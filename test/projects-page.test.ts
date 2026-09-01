@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
-import { filterAndSortProjects, filterProjectsByWorkspace } from "../src/renderer/projects.js";
+import { filterAndSortProjects } from "../src/renderer/projects.js";
 
 const PROJECTS: ProjectState[] = [
   project("forest", "Forest Adventure", "2026-08-23T10:00:00Z"),
@@ -19,13 +19,6 @@ describe("project filtering and sorting", () => {
 
   it("sorts names alphabetically", () => {
     expect(filterAndSortProjects(PROJECTS, "", "name").map(({ id }) => id)).toEqual(["arcade", "forest", "garden"]);
-  });
-
-  it("filters projects by their persisted type", () => {
-    const interactiveDrama = project("story", "The Stopover", "2026-08-25T11:00:00Z", "interactive-drama");
-    const godotGame = project("godot", "Platformer", "2026-08-25T12:00:00Z", "godot-game");
-    expect(filterProjectsByWorkspace([...PROJECTS, godotGame, interactiveDrama], "games")).toEqual([...PROJECTS, godotGame]);
-    expect(filterProjectsByWorkspace([...PROJECTS, godotGame, interactiveDrama], "interactive-drama")).toEqual([interactiveDrama]);
   });
 });
 

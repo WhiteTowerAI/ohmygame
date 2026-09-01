@@ -7,6 +7,7 @@ import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
 import { AssetStudioPage } from "./asset-studio.js";
+import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import type { PromptImage, PromptMode } from "../shared/contracts.js";
 import { createPluginAuthoringSession } from "./api.js";
 
@@ -32,7 +33,7 @@ export function App() {
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "interactive-drama") return <ProjectsPage workspace="interactive-drama" onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
@@ -47,6 +48,8 @@ export function App() {
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
+      onOpenProject={openProject}
+      onManageProjects={() => navigateToSidebarPage("projects")}
       onHome={goHome}
     />
   );

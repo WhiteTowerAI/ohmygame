@@ -39,6 +39,7 @@ interface ComposerProps {
   onSteerPending: (turnId: string) => Promise<boolean>;
   reference?: ChatReference;
   onClearReference?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function Composer({
@@ -68,6 +69,7 @@ export function Composer({
   onSteerPending,
   reference,
   onClearReference,
+  onDirtyChange,
 }: ComposerProps) {
   const initialSkill = parseSkillInvocation(initialDraft ?? "");
   const [prompt, setPrompt] = useState(initialSkill?.prompt ?? initialDraft ?? "");
@@ -91,8 +93,13 @@ export function Composer({
     planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
     activeMention,
   ).slice(0, 8) : [];
+  const dirty = Boolean(prompt || selectedSkill || images.length || reference);
 
   useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (!initialDraft) return;
     const cursor = initialSkill?.prompt.length ?? initialDraft.length;

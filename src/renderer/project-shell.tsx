@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { AgentModel, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -56,6 +56,7 @@ import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
+import { ProjectSwitcher } from "./project-switcher.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -65,6 +66,8 @@ interface ProjectShellProps {
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
+  onOpenProject: (projectId: string) => void;
+  onManageProjects: () => void;
   onHome: () => void;
 }
 
@@ -81,6 +84,8 @@ export function ProjectShell({
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
+  onOpenProject,
+  onManageProjects,
   onHome,
 }: ProjectShellProps) {
   const auth = useAuth();
@@ -97,6 +102,7 @@ export function ProjectShell({
   const [modelChanging, setModelChanging] = useState(false);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [chatReference, setChatReference] = useState<ChatReference>();
+  const [composerDirty, setComposerDirty] = useState(false);
   const modelCatalog = useAgentModels();
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
@@ -538,6 +544,27 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
+  function confirmNavigation(): boolean {
+    return !composerDirty || window.confirm("Discard the message you are composing?");
+  }
+
+  function requestHome(): void {
+    if (confirmNavigation()) onHome();
+  }
+
+  function requestProject(projectId: string): void {
+    onOpenProject(projectId);
+  }
+
+  const collapsedNavigation = agentCollapsed ? <CollapsedWorkspaceActions
+    project={project}
+    onBeforeNavigate={confirmNavigation}
+    onHome={requestHome}
+    onOpenProject={requestProject}
+    onManageProjects={onManageProjects}
+    onExpand={() => setAgentCollapsed(false)}
+  /> : undefined;
+
   return (
     <main
       className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
@@ -548,12 +575,16 @@ export function ProjectShell({
         <div className="workspace-resize-shield" />
       ) : null}
 
-      {agentCollapsed ? <CollapsedWorkspaceActions onHome={onHome} onExpand={() => setAgentCollapsed(false)} /> : null}
+      {agentCollapsed && !project ? collapsedNavigation : null}
 
       <section className="agent-pane" aria-label="Agent">
         <PaneHeader
-          title={project?.name ?? "Loading project"}
-          onHome={onHome}
+          project={project}
+          showSwitcher={!agentCollapsed}
+          onBeforeNavigate={confirmNavigation}
+          onHome={requestHome}
+          onOpenProject={requestProject}
+          onManageProjects={onManageProjects}
         >
           <button
             className="icon-button pane-header-action"
@@ -651,6 +682,7 @@ export function ProjectShell({
             onSubmit={submitPrompt}
             reference={chatReference}
             onClearReference={() => setChatReference(undefined)}
+            onDirtyChange={setComposerDirty}
             onCompact={compactCurrentConversation}
             onContextUsage={currentContextPercent}
             onCancelPlan={discardPlan}
@@ -696,6 +728,7 @@ export function ProjectShell({
       {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" ? (
         <CodingWorkspace
           project={project}
+          navigation={collapsedNavigation}
           agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
@@ -704,17 +737,26 @@ export function ProjectShell({
         />
       ) : <InteractiveDramaWorkspace
         projectId={project.id}
+        navigation={collapsedNavigation}
       />}
     </main>
   );
 }
 
-function CollapsedWorkspaceActions({ onHome, onExpand }: { onHome: () => void; onExpand: () => void }) {
+function CollapsedWorkspaceActions({ project, onBeforeNavigate, onHome, onOpenProject, onManageProjects, onExpand }: {
+  project?: ProjectState;
+  onBeforeNavigate: () => boolean;
+  onHome: () => void;
+  onOpenProject: (projectId: string) => void;
+  onManageProjects: () => void;
+  onExpand: () => void;
+}) {
   return (
     <div className="workspace-navigation-actions" role="toolbar" aria-label="Workspace navigation">
       <button className="icon-button" type="button" onClick={onHome} title="Home" aria-label="Home">
         <House size={14} />
       </button>
+      {project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
       <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
         <PanelLeftOpen size={15} />
       </button>
@@ -723,12 +765,20 @@ function CollapsedWorkspaceActions({ onHome, onExpand }: { onHome: () => void; o
 }
 
 function PaneHeader({
-  title,
+  project,
+  showSwitcher,
+  onBeforeNavigate,
   onHome,
+  onOpenProject,
+  onManageProjects,
   children,
 }: {
-  title: string;
+  project?: ProjectState;
+  showSwitcher: boolean;
+  onBeforeNavigate: () => boolean;
   onHome: () => void;
+  onOpenProject: (projectId: string) => void;
+  onManageProjects: () => void;
   children: ReactNode;
 }) {
   return (
@@ -737,7 +787,9 @@ function PaneHeader({
         <button className="icon-button pane-header-action" type="button" onClick={onHome} title="Home" aria-label="Home">
           <House size={14} />
         </button>
-        <span className="project-name" title={title}>{title}</span>
+        {project && showSwitcher
+          ? <ProjectSwitcher project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} />
+          : <span className="project-name">Loading project</span>}
       </div>
       <div className="pane-header-actions">{children}</div>
     </header>
