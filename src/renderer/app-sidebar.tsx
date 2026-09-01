@@ -1,14 +1,13 @@
 import { ArrowDownToLine, LogOut, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
-import type { SidebarPage } from "./routes.js";
-import { SettingsDialog } from "./settings-dialog.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 
 interface AppSidebarProps {
   active: SidebarPage;
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 240;
@@ -22,7 +21,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   const [resizing, setResizing] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountError, setAccountError] = useState<string>();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
   const sidebar = useRef<HTMLElement>(null);
   const account = useRef<HTMLDivElement>(null);
@@ -102,7 +100,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   }
 
   return (
-    <>
     <aside className={`home-sidebar${resizing ? " home-sidebar-resizing" : ""}`} ref={sidebar}>
       {resizing ? <div className="home-sidebar-resize-shield" /> : null}
       <div className="home-sidebar-traffic" aria-hidden="true">
@@ -136,7 +133,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
                 setAccountMenuOpen(false);
-                setSettingsOpen(true);
+                onNavigate("settings");
               }}>
                 <Wrench size={16} />
                 <span>Settings</span>
@@ -164,7 +161,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
                 setAccountMenuOpen(false);
-                setSettingsOpen(true);
+                onNavigate("settings");
               }}>
                 <Wrench size={16} />
                 <span>Settings</span>
@@ -202,8 +199,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         onLostPointerCapture={finishResize}
       />
     </aside>
-    {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
-    </>
   );
 }
 
@@ -215,7 +210,7 @@ function clampSidebarWidth(width: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
 }
 
-function readSidebarWidth(): number {
+export function readSidebarWidth(): number {
   const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
   return Number.isFinite(stored) && stored > 0 ? clampSidebarWidth(stored) : DEFAULT_SIDEBAR_WIDTH;
 }

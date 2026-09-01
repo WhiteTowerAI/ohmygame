@@ -6,7 +6,7 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import playableCanvas from "./assets/home/playable-canvas.svg";
 import cozyTown from "./assets/home/cozy-town.svg";
@@ -15,7 +15,7 @@ import creatorWeek from "./assets/home/creator-week.svg";
 import neonDrift from "./assets/home/neon-drift.svg";
 
 interface HomeProps {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode) => void;
   onOpen: (projectId: string) => void;
 }

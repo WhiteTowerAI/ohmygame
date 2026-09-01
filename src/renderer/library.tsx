@@ -3,12 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import { deleteAsset, listProjects, listWorkspaceFiles, renameAsset, waitForRuntime } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 interface LibraryPageProps {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string) => void;
 }
 

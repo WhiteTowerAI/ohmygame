@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityGameHash, conversationHash, parseAppRoute, playtestHash, projectHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityGameHash, conversationHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -23,6 +23,15 @@ describe("renderer routes", () => {
     });
     expect(projectHash("project 1")).toBe("#/projects/project%201");
     expect(conversationHash("project 1", "chat 1")).toBe("#/projects/project%201/conversations/chat%201");
+  });
+
+  it("parses and formats Settings routes", () => {
+    expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "account" });
+    for (const section of ["account", "providers", "about"] as const) {
+      expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
+      expect(settingsHash(section)).toBe(`#/settings/${section}`);
+    }
+    expect(parseAppRoute("#/settings/unknown")).toEqual({ page: "home" });
   });
 
   it("parses legacy Interactive Drama routes", () => {

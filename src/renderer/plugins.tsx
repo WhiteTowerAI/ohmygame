@@ -22,13 +22,13 @@ import {
   type PluginSummary,
 } from "../shared/plugins.js";
 import { listPlugins, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 type PluginsView = { type: "catalog" } | { type: "manage" } | { type: "detail"; pluginId: string };
 
 export function PluginsPage({ onNavigate, onAddPlugin }: {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onAddPlugin: () => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);

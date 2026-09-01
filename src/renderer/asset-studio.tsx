@@ -24,12 +24,12 @@ import {
 } from "../shared/contracts.js";
 import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, listImageModels, listProjects, MODELS_CHANGED_EVENT, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 interface AssetStudioPageProps {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
 }
 
 type StudioMode = "image" | "video" | "3d";

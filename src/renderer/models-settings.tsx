@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, LoaderCircle } from "./icons.js";
+import { ArrowLeft, ChevronDown, ExternalLink, LoaderCircle, Search } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   Model3DGenerationSettings,
@@ -26,6 +26,8 @@ import {
 import { useAuth } from "./auth.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
+
+const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "meshy"];
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   if (view.page === "providers") {
@@ -98,6 +100,8 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => {
     let active = true;
     void listProviders().then((loaded) => {
@@ -109,25 +113,70 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     });
     return () => { active = false; };
   }, []);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleProviders = normalizedQuery ? providers.filter((provider) => [
+    provider.name,
+    providerDescription(provider),
+  ].some((value) => value.toLowerCase().includes(normalizedQuery))) : providers;
+  const portalProviders = visibleProviders.filter((provider) => provider.kind === "portal");
+  const popularProviders = visibleProviders
+    .filter((provider) => provider.kind !== "portal" && POPULAR_PROVIDER_IDS.includes(provider.id))
+    .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
+  const moreProviders = visibleProviders.filter((provider) => provider.kind !== "portal" && !POPULAR_PROVIDER_IDS.includes(provider.id));
   return (
-    <section className="settings-panel">
-      <h3>Providers</h3>
-      <p className="settings-panel-intro">Connect services and manage their credentials.</p>
+    <section className="settings-panel settings-providers-panel">
+      <div className="settings-providers-heading">
+        <div>
+          <h3>Providers</h3>
+          <p className="settings-panel-intro">Connect services and manage their credentials.</p>
+        </div>
+        <label className="settings-provider-search">
+          <Search size={14} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
+        </label>
+      </div>
       <div className="settings-provider-list">
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
-        {providers.map((provider) => (
-          <div className="settings-provider-row" key={provider.id}>
-            <span className="settings-provider-copy">
-              <strong>{provider.name}</strong>
-              <span>{providerCapabilities(provider)} · <em className={provider.status === "connected" ? "settings-connected" : ""}>{providerStatus(provider)}</em></span>
-            </span>
-            <button type="button" onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
-          </div>
-        ))}
+        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match your search.</p> : null}
+        {portalProviders.length ? <ProviderGroup title="OpenGame" providers={portalProviders} featured onProvider={onProvider} /> : null}
+        {popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
+        {moreProviders.length ? (
+          <section className="settings-provider-group">
+            {normalizedQuery ? <h4>More providers</h4> : (
+              <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+                <span>More providers <small>({moreProviders.length})</small></span>
+                <ChevronDown size={14} />
+              </button>
+            )}
+            {normalizedQuery || moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
+          </section>
+        ) : null}
+        {error ? <p className="settings-error" role="alert">{error}</p> : null}
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
     </section>
+  );
+}
+
+function ProviderGroup({ featured = false, onProvider, providers, title }: { featured?: boolean; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
+  return (
+    <section className="settings-provider-group">
+      <h4>{title}</h4>
+      {providers.map((provider) => <ProviderRow provider={provider} featured={featured} onProvider={onProvider} key={provider.id} />)}
+    </section>
+  );
+}
+
+function ProviderRow({ featured = false, onProvider, provider }: { featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary }) {
+  return (
+    <div className={`settings-provider-row${featured ? " is-featured" : ""}`}>
+      <span className="settings-provider-copy">
+        <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
+        <span className="settings-provider-description">{providerDescription(provider)}</span>
+      </span>
+      {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
+      <button className={featured && provider.status !== "connected" ? "is-primary" : undefined} type="button" disabled={provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
+    </div>
   );
 }
 
@@ -395,7 +444,8 @@ function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) 
   return <div className="settings-back-heading"><button type="button" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button><h3>{title}</h3></div>;
 }
 
-function providerDescription(provider: ModelProviderSummary): string {
+function providerDescription(provider: ProviderSummary): string {
+  if (provider.kind === "portal") return "Unified access with your OpenGame account";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";
@@ -407,19 +457,14 @@ function providerStatus(provider: ProviderSummary): string {
   if (provider.status === "connected") return "Connected";
   if (provider.status === "connecting") return "Checking…";
   if (provider.status === "error") return "Connection failed";
-  return provider.kind === "pi" ? providerDescription(provider) : "Not configured";
-}
-
-function providerCapabilities(provider: ProviderSummary): string {
-  return provider.capabilities.map((capability) => capability === "3d" ? "3D" : `${capability[0]?.toUpperCase()}${capability.slice(1)}`).join(" · ");
+  return "Not configured";
 }
 
 function providerAction(provider: ProviderSummary): string {
   if (provider.status === "connected") return "Manage";
   if (provider.status === "connecting") return "Checking…";
-  if (provider.kind === "portal") return provider.status === "error" ? "Retry" : "Sign in";
-  if (provider.kind === "pi" && provider.methods.length === 1 && provider.methods[0]?.type === "oauth") return "Sign in";
-  return "Configure";
+  if (provider.status === "error") return "Retry";
+  return "Connect";
 }
 
 function notificationText(notification: ModelAuthNotification | undefined): string {

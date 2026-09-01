@@ -6,13 +6,13 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 const RECENT_DRAMA_LIMIT = 4;
 
 export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode) => void;
   onOpenProject: (projectId: string) => void;
 }) {

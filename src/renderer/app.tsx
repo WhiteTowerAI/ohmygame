@@ -5,9 +5,10 @@ import { LibraryPage } from "./library.js";
 import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityGameHash, conversationHash, parseAppRoute, projectHash, sidebarHash, type SidebarPage } from "./routes.js";
+import { communityGameHash, conversationHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetStudioPage } from "./asset-studio.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
+import { SettingsPage } from "./settings-page.js";
 import type { PromptImage, PromptMode } from "../shared/contracts.js";
 import { createPluginAuthoringSession } from "./api.js";
 
@@ -26,6 +27,9 @@ export function App() {
     };
   }, []);
 
+  if (route.page === "settings") {
+    return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} />;
+  }
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
@@ -101,10 +105,37 @@ export function App() {
     setRoute({ page: "community" });
   }
 
-  function navigateToSidebarPage(page: SidebarPage): void {
+  function navigateToSidebarPage(page: AppNavigationTarget): void {
+    if (page === "settings") {
+      const hash = settingsHash("account");
+      window.history.pushState({ ...historyState(), settingsEntry: true }, "", hash);
+      setRoute({ page: "settings", section: "account" });
+      return;
+    }
     const hash = sidebarHash(page);
     if (window.location.hash === hash) return;
     window.history.pushState(null, "", hash);
     setRoute({ page });
   }
+
+  function navigateToSettingsSection(section: SettingsSection): void {
+    window.history.replaceState(historyState(), "", settingsHash(section));
+    setRoute({ page: "settings", section });
+  }
+
+  function leaveSettings(): void {
+    const state = historyState();
+    if (state.settingsEntry === true) {
+      window.history.back();
+      return;
+    }
+    window.history.replaceState(null, "", "#/");
+    setRoute({ page: "home" });
+  }
+}
+
+function historyState(): Record<string, unknown> {
+  return window.history.state && typeof window.history.state === "object"
+    ? window.history.state as Record<string, unknown>
+    : {};
 }

@@ -2,14 +2,14 @@ import { ArrowLeft, ExternalLink, Gamepad2, LoaderCircle, RefreshCw, X } from ".
 import { useEffect, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import { getCommunityGame, listCommunityGames, waitForRuntime } from "./api.js";
-import type { SidebarPage } from "./routes.js";
+import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 export function Community({
   onNavigate,
   onOpenGame,
 }: {
-  onNavigate: (page: SidebarPage) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onOpenGame: (gameId: string) => void;
 }) {
   const [games, setGames] = useState<CommunityGame[]>([]);
