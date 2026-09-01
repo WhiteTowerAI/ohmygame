@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Community, CommunityGamePlayer } from "./community.js";
-import { EmptyPage } from "./empty-page.js";
 import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
 import { PluginsPage } from "./plugins.js";
@@ -37,7 +36,7 @@ export function App() {
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
-  if (route.page !== "project") return <EmptyPage page={route.page} onNavigate={navigateToSidebarPage} />;
+  if (route.page !== "project") return null;
   return (
     <ProjectShell
       key={route.projectId}

@@ -1029,16 +1029,16 @@ body {
 .home-nav-icon-library { mask-image: url("./assets/sidebar/library.svg"); -webkit-mask-image: url("./assets/sidebar/library.svg"); }
 .home-nav-icon-plugins { mask-image: url("./assets/sidebar/plugins.svg"); -webkit-mask-image: url("./assets/sidebar/plugins.svg"); }
 .home-nav-icon-asset-studio { mask-image: url("./assets/sidebar/asset-studio.svg"); -webkit-mask-image: url("./assets/sidebar/asset-studio.svg"); }
+.home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/interactive-drama.svg"); }
 .home-nav-icon-games { mask-image: url("./assets/sidebar/games.svg"); -webkit-mask-image: url("./assets/sidebar/games.svg"); }
-.home-nav-icon-marketplace { mask-image: url("./assets/sidebar/marketplace.svg"); -webkit-mask-image: url("./assets/sidebar/marketplace.svg"); }
 
 .home-nav-item-active .home-nav-icon-home { mask-image: url("./assets/sidebar/fill/home.svg"); -webkit-mask-image: url("./assets/sidebar/fill/home.svg"); }
 .home-nav-item-active .home-nav-icon-project { mask-image: url("./assets/sidebar/fill/project.svg"); -webkit-mask-image: url("./assets/sidebar/fill/project.svg"); }
 .home-nav-item-active .home-nav-icon-library { mask-image: url("./assets/sidebar/fill/library.svg"); -webkit-mask-image: url("./assets/sidebar/fill/library.svg"); }
 .home-nav-item-active .home-nav-icon-plugins { mask-image: url("./assets/sidebar/fill/plugins.svg"); -webkit-mask-image: url("./assets/sidebar/fill/plugins.svg"); }
 .home-nav-item-active .home-nav-icon-asset-studio { mask-image: url("./assets/sidebar/fill/asset-studio.svg"); -webkit-mask-image: url("./assets/sidebar/fill/asset-studio.svg"); }
+.home-nav-item-active .home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); }
 .home-nav-item-active .home-nav-icon-games { mask-image: url("./assets/sidebar/fill/games.svg"); -webkit-mask-image: url("./assets/sidebar/fill/games.svg"); }
-.home-nav-item-active .home-nav-icon-marketplace { mask-image: url("./assets/sidebar/fill/marketplace.svg"); -webkit-mask-image: url("./assets/sidebar/fill/marketplace.svg"); }
 
 .home-nav-item:hover .home-nav-icon {
   background: #f3f4f6;
@@ -1051,12 +1051,6 @@ body {
   mask-size: 112%;
   -webkit-mask-size: 112%;
   opacity: 1;
-}
-
-.home-nav-item-active .home-nav-icon-asset-studio,
-.home-nav-item-active:hover .home-nav-icon-asset-studio {
-  mask-size: 104%;
-  -webkit-mask-size: 104%;
 }
 
 button.home-nav-item {

@@ -5,11 +5,10 @@ export type SidebarPage =
   | "plugins"
   | "interactive-drama"
   | "asset-studio"
-  | "community"
-  | "marketplace";
+  | "community";
 
 const SIDEBAR_PAGES = new Set<SidebarPage>([
-  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "community", "marketplace",
+  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "community",
 ]);
 
 export type AppRoute =

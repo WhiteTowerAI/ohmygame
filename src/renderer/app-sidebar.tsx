@@ -118,10 +118,9 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
         <NavigationItem active={active === "asset-studio"} icon="asset-studio" label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
-        <NavigationItem active={active === "interactive-drama"} icon="asset-studio" label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
+        <NavigationItem active={active === "interactive-drama"} icon="interactive-drama" label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
         <div className="home-nav-label home-nav-label-spaced">EXPLORE</div>
         <NavigationItem active={active === "community"} icon="games" label="Games" onClick={() => onNavigate("community")} />
-        <NavigationItem active={active === "marketplace"} icon="marketplace" label="Marketplace" onClick={() => onNavigate("marketplace")} />
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
@@ -225,7 +224,7 @@ function NavigationItem({
   onClick,
 }: {
   active: boolean;
-  icon: "home" | "project" | "library" | "plugins" | "asset-studio" | "games" | "marketplace";
+  icon: "home" | "project" | "library" | "plugins" | "asset-studio" | "interactive-drama" | "games";
   label: string;
   onClick: () => void;
 }) {
