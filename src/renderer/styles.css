@@ -1019,8 +1019,7 @@ body {
   -webkit-mask-position: center;
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-size: contain;
-  opacity: 1;
-  transition: background-color 120ms ease, opacity 120ms ease;
+  transition: background-color 120ms ease;
 }
 
 .home-nav-icon-home { mask-image: url("./assets/sidebar/home.svg"); -webkit-mask-image: url("./assets/sidebar/home.svg"); }
@@ -1039,8 +1038,8 @@ body {
 .home-nav-item-active .home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); }
 .home-nav-item-active .home-nav-icon-games { mask-image: url("./assets/sidebar/fill/games.svg"); -webkit-mask-image: url("./assets/sidebar/fill/games.svg"); }
 
-.home-nav-item-active .home-nav-icon,
-.home-nav-item-active:hover .home-nav-icon {
+.home-nav-item-active .home-nav-icon {
+  background: var(--home-accent);
   mask-size: 112%;
   -webkit-mask-size: 112%;
 }
