@@ -34,6 +34,7 @@
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@fastify/multipart": "10.1.0",
     "@google/model-viewer": "^4.1.0",
+    "@lobehub/icons-static-svg": "1.94.0",
     "@solar-icons/react": "^2.1.0",
     "@supabase/supabase-js": "2.57.4",
     "@xyflow/react": "12.11.3",

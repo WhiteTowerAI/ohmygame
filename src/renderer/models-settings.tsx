@@ -24,6 +24,8 @@ import {
   updateOpenAIEndpointSettings,
 } from "./api.js";
 import { useAuth } from "./auth.js";
+import openGameLogo from "../../build/logo.svg";
+import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
@@ -97,6 +99,7 @@ function CustomProviderSettings({ provider, onBack }: { provider: ProviderSummar
 }
 
 function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+  const auth = useAuth();
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -123,6 +126,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     .filter((provider) => provider.kind !== "portal" && POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
   const moreProviders = visibleProviders.filter((provider) => provider.kind !== "portal" && !POPULAR_PROVIDER_IDS.includes(provider.id));
+  const portalAccount = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
   return (
     <section className="settings-panel settings-providers-panel">
       <div className="settings-providers-heading">
@@ -139,7 +143,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
         {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match your search.</p> : null}
-        {portalProviders.length ? <ProviderGroup title="OpenGame" providers={portalProviders} featured onProvider={onProvider} /> : null}
+        {portalProviders.length ? <ProviderGroup title="OpenGame" providers={portalProviders} featured detail={portalAccount} onProvider={onProvider} /> : null}
         {popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
         {moreProviders.length ? (
           <section className="settings-provider-group">
@@ -158,26 +162,36 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   );
 }
 
-function ProviderGroup({ featured = false, onProvider, providers, title }: { featured?: boolean; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
+function ProviderGroup({ detail, featured = false, onProvider, providers, title }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
   return (
     <section className="settings-provider-group">
       <h4>{title}</h4>
-      {providers.map((provider) => <ProviderRow provider={provider} featured={featured} onProvider={onProvider} key={provider.id} />)}
+      {providers.map((provider) => <ProviderRow provider={provider} detail={detail} featured={featured} onProvider={onProvider} key={provider.id} />)}
     </section>
   );
 }
 
-function ProviderRow({ featured = false, onProvider, provider }: { featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary }) {
+function ProviderRow({ detail, featured = false, onProvider, provider }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary }) {
   return (
     <div className={`settings-provider-row${featured ? " is-featured" : ""}`}>
+      <ProviderMark provider={provider} />
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
-        <span className="settings-provider-description">{providerDescription(provider)}</span>
+        <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
       </span>
       {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
       <button className={featured && provider.status !== "connected" ? "is-primary" : undefined} type="button" disabled={provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
     </div>
   );
+}
+
+function ProviderMark({ provider }: { provider: ProviderSummary }) {
+  if (provider.kind === "portal") {
+    return <span className="settings-provider-mark is-opengame" aria-hidden="true"><img src={openGameLogo} alt="" /></span>;
+  }
+  const icon = PROVIDER_ICONS[provider.id];
+  if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
+  return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
 }
 
 function PortalProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
@@ -445,7 +459,7 @@ function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) 
 }
 
 function providerDescription(provider: ProviderSummary): string {
-  if (provider.kind === "portal") return "Unified access with your OpenGame account";
+  if (provider.kind === "portal") return "Unified access to OpenGame models";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";
