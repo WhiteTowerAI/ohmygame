@@ -33,8 +33,10 @@ import { BuiltInPluginAdapter, BundledPluginAdapter, builtInPlugins, LocalPlugin
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
-import { enabledConnectionIds, resolvePluginSkillPaths } from "./plugin-runtime.js";
-import { listMcpServers, setMcpServerEnabled } from "./pi-agent.js";
+import { resolvePluginSkillPaths } from "./plugin-runtime.js";
+import { listMcpServers } from "./pi-agent.js";
+import { ConnectionError, ConnectionManager } from "./connections.js";
+import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, type PluginSettings } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
@@ -95,6 +97,45 @@ const renameAssetSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: 200 } },
+  },
+} as const;
+
+const connectionTransportSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "command", "args"],
+      properties: {
+        type: { const: "stdio" },
+        command: { type: "string", minLength: 1 },
+        args: { type: "array", items: { type: "string" } },
+        env: { type: "object", additionalProperties: { type: "string" } },
+        cwd: { type: "string", minLength: 1 },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "url"],
+      properties: {
+        type: { const: "http" },
+        url: { type: "string", minLength: 1 },
+        headers: { type: "object", additionalProperties: { type: "string" } },
+      },
+    },
+  ],
+} as const;
+
+const saveConnectionSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "transport"],
+    properties: {
+      id: { type: "string", minLength: 1 },
+      transport: connectionTransportSchema,
+    },
   },
 } as const;
 
@@ -409,6 +450,7 @@ export function createApp(options: AppOptions = {}) {
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
+  const connections = new ConnectionManager(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
   const localPlugins = new LocalPluginStore(dataDirectory, {
@@ -420,23 +462,20 @@ export function createApp(options: AppOptions = {}) {
     new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
   ], pluginSettings);
-  const pluginDetails = () => [
-    ...bundledPlugins.list(),
-    ...localPlugins.installed(),
-  ];
-  const syncPluginConnections = async (
-    details = pluginDetails(),
-    additionalManagedConnections: readonly string[] = [],
-  ) => {
-    const managedConnections = new Set([
-      ...details.flatMap((plugin) => plugin.connections.map((connection) => connection.id)),
-      ...additionalManagedConnections,
-    ]);
-    const enabledConnections = enabledConnectionIds(details, pluginSettings);
-    for (const server of await mcpServers.list()) {
-      if (!managedConnections.has(server.id)) continue;
-      await setMcpServerEnabled(piAgentDirectory, server.id, enabledConnections.has(server.id));
-    }
+  const withConnectionStatus = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => {
+    if (!plugin) return plugin;
+    const configured = new Map((await connections.list()).map((connection) => [connection.id, connection.enabled]));
+    return {
+      ...plugin,
+      connections: plugin.connections.map((connection) => {
+        const enabled = configured.get(connection.id);
+        return {
+          ...connection,
+          enabled: enabled ?? false,
+          status: enabled === undefined ? "not-configured" as const : enabled ? "enabled" as const : "disabled" as const,
+        };
+      }),
+    };
   };
   let agents: AgentManager;
   agents = new AgentManager(events, {
@@ -464,7 +503,6 @@ export function createApp(options: AppOptions = {}) {
           (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal),
           async (sourcePath) => {
             const installed = await localPlugins.install(sourcePath);
-            await syncPluginConnections();
             invalidatePluginSessions();
             return await plugins.read(installed.id) ?? installed;
           },
@@ -502,7 +540,6 @@ export function createApp(options: AppOptions = {}) {
   app.addHook("onReady", async () => {
     await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
     await localPlugins.list();
-    await syncPluginConnections();
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -523,6 +560,61 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  app.get("/settings/connections", async () => connections.list());
+
+  app.post<{ Body: SaveConnectionRequest }>("/settings/connections", { schema: saveConnectionSchema }, async (request, reply) => {
+    try {
+      const connection = await connections.save(request.body);
+      invalidatePluginSessions();
+      return reply.code(201).send(connection);
+    } catch (cause) {
+      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.put<{ Params: { connectionId: string }; Body: SaveConnectionRequest }>("/settings/connections/:connectionId", { schema: saveConnectionSchema }, async (request, reply) => {
+    try {
+      const connection = await connections.save(request.body, request.params.connectionId);
+      invalidatePluginSessions();
+      return connection;
+    } catch (cause) {
+      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.patch<{ Params: { connectionId: string }; Body: { enabled: boolean } }>("/settings/connections/:connectionId/enabled", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["enabled"],
+        properties: { enabled: { type: "boolean" } },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      await connections.setEnabled(request.params.connectionId, request.body.enabled);
+      invalidatePluginSessions();
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.delete<{ Params: { connectionId: string } }>("/settings/connections/:connectionId", async (request, reply) => {
+    try {
+      await connections.remove(request.params.connectionId);
+      invalidatePluginSessions();
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.post("/plugins/authoring-session", async (_request, reply) => {
     const project = await projects.create("New Plugin", "web-game");
     const conversation = await conversations.create(project);
@@ -532,7 +624,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/plugins", async () => plugins.list());
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
-    const plugin = await plugins.read(request.params.pluginId);
+    const plugin = await withConnectionStatus(await plugins.read(request.params.pluginId));
     return plugin ?? reply.code(404).send({ error: "Plugin not found" });
   });
 
@@ -558,9 +650,8 @@ export function createApp(options: AppOptions = {}) {
     if (!plugin || !plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
       await pluginSettings.update(plugin, request.body);
-      await syncPluginConnections();
       invalidatePluginSessions();
-      return plugins.read(plugin.id);
+      return withConnectionStatus(await plugins.read(plugin.id));
     } catch (cause) {
       if (cause instanceof InvalidPluginSettingsError) return reply.code(400).send({ error: cause.message });
       throw cause;
@@ -570,10 +661,7 @@ export function createApp(options: AppOptions = {}) {
   app.delete<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
     const plugin = await plugins.read(request.params.pluginId);
     if (!plugin || plugin.source.type !== "local") return reply.code(404).send({ error: "Local plugin not found" });
-    const remaining = pluginDetails().filter((candidate) => candidate.id !== plugin.id);
-    const removedConnections = plugin.connections.map((connection) => connection.id);
     try {
-      await syncPluginConnections(remaining, removedConnections);
       await localPlugins.remove(request.params.pluginId);
       await pluginSettings.remove(request.params.pluginId).catch((cause) => {
         app.log.warn({ err: cause, pluginId: request.params.pluginId }, "Could not remove stale plugin settings");
@@ -581,7 +669,6 @@ export function createApp(options: AppOptions = {}) {
       invalidatePluginSessions();
       return reply.code(204).send();
     } catch (cause) {
-      await syncPluginConnections().catch(() => undefined);
       if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }

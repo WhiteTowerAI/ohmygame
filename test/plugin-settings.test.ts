@@ -6,13 +6,13 @@ import { InvalidPluginSettingsError, PluginSettingsStore } from "../src/daemon/p
 import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin settings", () => {
-  it("persists the plugin switch separately from component switches", async () => {
+  it("persists the plugin switch separately from skill switches", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-"));
     const plugin = godotPlugin();
     const store = new PluginSettingsStore(directory);
     await store.load();
 
-    await store.update(plugin, { enabled: false, components: { "connection:opengame-godot": true } });
+    await store.update(plugin, { enabled: false, components: {} });
 
     const reloaded = new PluginSettingsStore(directory);
     await reloaded.load();
@@ -22,7 +22,7 @@ describe("plugin settings", () => {
     });
   });
 
-  it("migrates legacy MCP settings at the persistence boundary", async () => {
+  it("ignores legacy non-skill component settings", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-"));
     await writeFile(path.join(directory, "plugin-settings.json"), JSON.stringify({
       version: 1,
@@ -37,10 +37,7 @@ describe("plugin settings", () => {
 
     await store.load();
 
-    expect(store.decorate(godotPlugin())).toMatchObject({
-      enabled: true,
-      connections: [{ id: "opengame-godot", enabled: false }],
-    });
+    expect(store.decorate(godotPlugin())).toMatchObject({ enabled: true, connections: [{ enabled: true }] });
   });
 
   it("rejects component keys that do not belong to the plugin", async () => {
@@ -48,7 +45,7 @@ describe("plugin settings", () => {
     await store.load();
     await expect(store.update(godotPlugin(), {
       enabled: true,
-      components: { "connection:unknown": false },
+      components: { "skill:unknown": false },
     })).rejects.toBeInstanceOf(InvalidPluginSettingsError);
   });
 
@@ -61,7 +58,7 @@ describe("plugin settings", () => {
 
     await expect(store.update(plugin, {
       enabled: false,
-      components: { "connection:opengame-godot": false },
+      components: {},
     })).rejects.toThrow();
     expect(store.decorate(plugin)).toMatchObject({ enabled: true, connections: [{ enabled: true }] });
   });

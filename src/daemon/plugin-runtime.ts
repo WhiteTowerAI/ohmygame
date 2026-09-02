@@ -26,18 +26,3 @@ export async function resolvePluginSkillPaths(
   }
   return [...new Set(skillPaths)];
 }
-
-export function enabledConnectionIds(
-  plugins: readonly PluginDetail[],
-  settings: PluginSettingsStore,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const plugin of plugins) {
-    const resolved = settings.resolve(plugin);
-    if (!resolved.enabled) continue;
-    for (const connection of plugin.connections) {
-      if (resolved.components[pluginComponentKey("connection", connection.id)]) ids.add(connection.id);
-    }
-  }
-  return ids;
-}

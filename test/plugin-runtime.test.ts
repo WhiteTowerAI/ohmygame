@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PluginDetail } from "../src/shared/plugins.js";
 import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { enabledConnectionIds, resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
+import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 
 describe("plugin runtime", () => {
@@ -20,16 +20,6 @@ describe("plugin runtime", () => {
     const skillPaths = await resolvePluginSkillPaths([local], settings);
 
     expect(skillPaths).toEqual([]);
-  });
-
-  it("deduplicates connections required by multiple enabled plugins", async () => {
-    const settings = await settingsStore();
-    const first = localPlugin();
-    const second = { ...localPlugin(), id: "local:second", name: "second" };
-
-    expect([...enabledConnectionIds([first, second], settings)]).toEqual(["opengame-godot"]);
-    await settings.update(first, { enabled: false, components: { "skill:skills/review/SKILL.md": true, "connection:opengame-godot": true } });
-    expect([...enabledConnectionIds([first, second], settings)]).toEqual(["opengame-godot"]);
   });
 });
 

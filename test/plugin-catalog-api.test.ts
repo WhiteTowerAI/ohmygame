@@ -75,7 +75,7 @@ describe("plugin catalog API", () => {
     expect(detail.json()).not.toHaveProperty("tools");
   });
 
-  it("stores the Plugin switch separately from Connection access", async () => {
+  it("stores the Plugin switch without owning Connection access", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-api-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
@@ -84,7 +84,7 @@ describe("plugin catalog API", () => {
     const updated = await app.inject({
       method: "PUT",
       url: "/plugins/opengame%3Agodot/settings",
-      payload: { enabled: false, components: { "connection:opengame-godot": true } },
+      payload: { enabled: false, components: {} },
     });
 
     expect(updated.statusCode).toBe(200);

@@ -3,7 +3,6 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   pluginComponentKey,
-  type ConfigurablePluginComponentType,
   type PluginComponentSummary,
   type PluginDetail,
   type PluginSettings,
@@ -59,15 +58,14 @@ export class PluginSettingsStore {
 
   decorate(plugin: PluginDetail): PluginDetail {
     const settings = this.resolve(plugin);
-    const decorate = (type: ConfigurablePluginComponentType, items: PluginComponentSummary[]) => items.map((item) => ({
+    const skills = plugin.skills.map((item) => ({
       ...item,
-      enabled: settings.components[pluginComponentKey(type, item.id)] ?? item.enabled,
+      enabled: settings.components[pluginComponentKey("skill", item.id)] ?? item.enabled,
     }));
     return {
       ...plugin,
       enabled: settings.enabled,
-      skills: decorate("skill", plugin.skills),
-      connections: decorate("connection", plugin.connections),
+      skills,
     };
   }
 
@@ -120,11 +118,7 @@ export class PluginSettingsStore {
 }
 
 export function componentEntries(plugin: PluginDetail): Array<[string, PluginComponentSummary]> {
-  const groups: Array<[ConfigurablePluginComponentType, PluginComponentSummary[]]> = [
-    ["skill", plugin.skills],
-    ["connection", plugin.connections],
-  ];
-  return groups.flatMap(([type, items]) => items.map((item): [string, PluginComponentSummary] => [pluginComponentKey(type, item.id), item]));
+  return plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item]);
 }
 
 function cloneSettings(settings: PluginSettings): PluginSettings {
@@ -149,8 +143,7 @@ function parseStoredPluginSettings(value: unknown): StoredPluginSettings | undef
     plugins: Object.fromEntries(Object.entries(plugins).map(([id, value]) => {
       const legacy = value as LegacyPluginSettings;
       const components = Object.fromEntries(Object.entries(legacy.components).flatMap(([key, enabled]) => {
-        if (key.startsWith("skill:") || key.startsWith("connection:")) return [[key, enabled]];
-        if (key.startsWith("mcpServer:")) return [[`connection:${key.slice("mcpServer:".length)}`, enabled]];
+        if (key.startsWith("skill:")) return [[key, enabled]];
         return [];
       }));
       return [id, { enabled: legacy.enabled ?? Object.values(components).some(Boolean), components }];

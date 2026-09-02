@@ -84,7 +84,11 @@ export interface PluginComponentSummary {
   enabled: boolean;
 }
 
-export type ConfigurablePluginComponentType = "skill" | "connection";
+export interface PluginConnectionSummary extends PluginComponentSummary {
+  status?: "enabled" | "disabled" | "not-configured";
+}
+
+export type ConfigurablePluginComponentType = "skill";
 
 export interface PluginSettings {
   enabled: boolean;
@@ -98,7 +102,7 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 export interface PluginDetail extends PluginSummary {
   longDescription?: string;
   skills: PluginComponentSummary[];
-  connections: PluginComponentSummary[];
+  connections: PluginConnectionSummary[];
   defaultPrompts?: string[];
   projectTypes?: ProjectType[];
 }

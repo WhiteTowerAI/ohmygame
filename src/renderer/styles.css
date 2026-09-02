@@ -507,6 +507,41 @@ body {
   padding: 0;
 }
 
+.settings-connections-panel { gap: 24px; }
+.settings-connections-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.settings-connections-heading h3 { margin: 0; }
+.settings-connections-heading p { margin: 7px 0 0; color: #9ca5a8; font-size: 13px; }
+.settings-connection-list { display: grid; gap: 8px; }
+.settings-connection-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; min-height: 62px; padding: 10px 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(31, 35, 36, .52); }
+.settings-connection-row.is-disabled { opacity: .68; }
+.settings-connection-icon { display: grid; place-items: center; color: #fff; }
+.settings-connection-copy { display: grid; gap: 5px; min-width: 0; }
+.settings-connection-copy > span { display: flex; align-items: center; gap: 8px; }
+.settings-connection-copy strong { color: #fff; font-size: 13px; font-weight: 500; }
+.settings-connection-copy small { color: #aab2b4; font-size: 11px; }
+.settings-connection-transport { color: #aab2b4; font-size: 11px; }
+.settings-connection-action { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; color: #b0b8ba; background: transparent; cursor: pointer; }
+.settings-connection-action:hover { color: #fff; background: rgba(255,255,255,.08); }
+.settings-connection-action.is-danger:hover { color: #ff8c8c; }
+.settings-connection-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.38); }
+.settings-connection-editor { display: grid; gap: 16px; width: min(460px, 100%); padding: 22px; border: 1px solid #3a4446; border-radius: 16px; background: #282c2d; box-shadow: 0 18px 60px rgba(0,0,0,.42); }
+.settings-connection-editor header { display: flex; justify-content: space-between; gap: 16px; }
+.settings-connection-editor header h3 { margin: 0; color: #fff; }
+.settings-connection-editor header p { margin: 5px 0 0; color: #aab2b4; font-size: 12px; }
+.settings-connection-editor header button { border: 0; color: #b7c0c2; background: transparent; cursor: pointer; }
+.settings-connection-editor label { display: grid; gap: 7px; color: #fff; font-size: 12px; }
+.settings-connection-editor label small { color: #9ca5a8; font-size: 11px; font-weight: 400; }
+.settings-connection-editor input, .settings-connection-editor textarea { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #3b4547; border-radius: 8px; color: #fff; background: #1f2324; font: inherit; }
+.settings-connection-editor textarea { min-height: 68px; resize: vertical; }
+.settings-connection-types { display: flex; gap: 6px; }
+.settings-connection-types button { padding: 7px 10px; border: 1px solid #3a4446; border-radius: 8px; color: #aab2b4; background: transparent; cursor: pointer; }
+.settings-connection-types button.is-active { color: #fff; border-color: #b8f34a; background: rgba(184,243,74,.12); }
+.settings-connection-editor footer { display: flex; justify-content: flex-end; gap: 8px; }
+.settings-connection-editor .settings-primary-button, .settings-connection-editor .settings-secondary-button, .settings-connections-heading .settings-primary-button { display: inline-flex; align-items: center; gap: 6px; }
+.plugin-connection-status { padding: 0; border: 0; color: #aab2b4; background: transparent; font-size: 11px; cursor: pointer; }
+.plugin-connection-status:hover { color: #fff; }
+.plugin-connection-status.is-enabled { color: #b8f34a; }
+
 .settings-panel > h3,
 .settings-back-heading h3 {
   color: var(--text);

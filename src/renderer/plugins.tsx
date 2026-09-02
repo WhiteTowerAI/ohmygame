@@ -13,8 +13,8 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
-  type ConfigurablePluginComponentType,
   type PluginComponentSummary,
+  type PluginConnectionSummary,
   type PluginDetail,
   type PluginSettings,
   type PluginSummary,
@@ -149,9 +149,9 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       error={error}
       onRetry={() => void openPlugin(view.pluginId)}
       onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
-      onToggleComponent={(type, component, enabled) => detail && void updatePlugin(detail, {
+      onToggleComponent={(component, enabled) => detail && void updatePlugin(detail, {
         enabled: detail.enabled,
-        components: { ...componentSettings(detail).components, [pluginComponentKey(type, component.id)]: enabled },
+        components: { ...componentSettings(detail).components, [pluginComponentKey("skill", component.id)]: enabled },
       })}
       onBrowse={() => detail && void browsePlugin(detail)}
       onRemove={() => detail && void removePlugin(detail)}
@@ -308,7 +308,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   error?: string;
   onRetry: () => void;
   onTogglePlugin: (enabled: boolean) => void;
-  onToggleComponent: (type: ConfigurablePluginComponentType, component: PluginComponentSummary, enabled: boolean) => void;
+  onToggleComponent: (component: PluginComponentSummary, enabled: boolean) => void;
   onBrowse: () => void;
   onRemove: () => void;
   onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
@@ -446,10 +446,19 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </button>)}</div>
         {tryNotice ? <p role="status">{tryNotice}</p> : null}
       </section> : null}
-      <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} disabled={updating || !plugin.enabled} type="skill" onToggle={onToggleComponent} />
-      <ComponentSection title="Connections" items={plugin.connections} icon={() => <Plug size={15} />} disabled={updating || !plugin.enabled} type="connection" onToggle={onToggleComponent} />
+      <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} disabled={updating || !plugin.enabled} onToggle={onToggleComponent} />
+      <ConnectionSection items={plugin.connections} />
     </> : null}
   </section>;
+}
+
+function ConnectionSection({ items }: { items: PluginConnectionSummary[] }): ReactNode {
+  if (!items.length) return null;
+  return <section className="plugin-components"><h2>Connections</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
+    <span className="plugin-component-icon"><Plug size={15} /></span>
+    <span className="plugin-row-copy"><strong>{item.name}</strong><span>{item.status === "not-configured" ? "Not configured" : item.status === "disabled" ? "Disabled in Settings" : "Available"}</span></span>
+    <button className={`plugin-connection-status is-${item.status ?? "enabled"}`} type="button" onClick={() => { window.location.hash = "#/settings/connections" }}>{item.status === "not-configured" ? "Set up in Settings" : "Manage in Settings"}</button>
+  </div>)}</div></section>;
 }
 
 function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }: {
@@ -492,19 +501,18 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }:
   </div>;
 }
 
-function ComponentSection({ title, items, icon, disabled, type, onToggle }: {
+function ComponentSection({ title, items, icon, disabled, onToggle }: {
   title: string;
   items: PluginComponentSummary[];
   icon: (item: PluginComponentSummary) => ReactNode;
   disabled: boolean;
-  type: ConfigurablePluginComponentType;
-  onToggle: (type: ConfigurablePluginComponentType, component: PluginComponentSummary, enabled: boolean) => void;
+  onToggle: (component: PluginComponentSummary, enabled: boolean) => void;
 }): ReactNode {
   if (!items.length) return null;
   return <section className={`plugin-components${disabled ? " is-disabled" : ""}`}><h2>{title}</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
     <span className="plugin-component-icon">{icon(item)}</span>
     <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
-    <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(type, item, !item.enabled)} />
+    <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} />
   </div>)}</div></section>;
 }
 
@@ -525,7 +533,6 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
     enabled: plugin.enabled,
     components: Object.fromEntries([
       ...plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item.enabled]),
-      ...plugin.connections.map((item) => [pluginComponentKey("connection", item.id), item.enabled]),
     ]),
   };
 }

@@ -7,9 +7,9 @@ import {
   ensureOpenGamePiEnvironment,
   isOpenGameManagedPiPackage,
   listMcpServers,
-  setMcpServerEnabled,
   withRequiredPiPackages,
 } from "../src/daemon/pi-agent.js";
+import { ConnectionManager } from "../src/daemon/connections.js";
 
 describe("OpenGame Pi environment", () => {
   it("adds the MCP adapter without replacing existing packages", () => {
@@ -82,14 +82,14 @@ describe("OpenGame Pi environment", () => {
   it("disables Godot without removing its MCP definition", async () => {
     const agentDir = await mkdtemp(path.join(tmpdir(), "open-game-pi-agent-"));
     await ensureOpenGamePiEnvironment(agentDir);
-    await setMcpServerEnabled(agentDir, "opengame-godot", false);
+    await new ConnectionManager(agentDir).setEnabled("opengame-godot", false);
     await ensureOpenGamePiEnvironment(agentDir);
 
     expect(JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"))).toMatchObject({
       mcpServers: { "opengame-godot": { ...GODOT_SERVER, disabled: true } },
     });
 
-    await setMcpServerEnabled(agentDir, "opengame-godot", true);
+    await new ConnectionManager(agentDir).setEnabled("opengame-godot", true);
     expect(JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"))).toMatchObject({
       mcpServers: { "opengame-godot": GODOT_SERVER },
     });
@@ -111,14 +111,14 @@ describe("OpenGame Pi environment", () => {
       { id: "opengame-godot", enabled: true },
     ]);
 
-    await setMcpServerEnabled(agentDir, "figma", false);
+    await new ConnectionManager(agentDir).setEnabled("figma", false);
     const disabled = await readFile(path.join(agentDir, "mcp.json"), "utf8");
     expect(disabled).toContain("// Preserve user-managed fields.");
     expect(parse(disabled, [], { allowTrailingComma: true })).toMatchObject({
       mcpServers: { figma: { url: "https://example.com/mcp", disabled: true } },
     });
 
-    await setMcpServerEnabled(agentDir, "figma", true);
+    await new ConnectionManager(agentDir).setEnabled("figma", true);
     expect(parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"), [], { allowTrailingComma: true })).toMatchObject({
       mcpServers: { figma: { url: "https://example.com/mcp" } },
     });

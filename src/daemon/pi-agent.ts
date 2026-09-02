@@ -2,13 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+import { ConnectionManager } from "./connections.js";
 
 const MCP_ADAPTER_PACKAGE = "npm:pi-mcp-adapter@2.27.0";
-const GODOT_MCP_SERVER = {
-  command: "npx",
-  args: ["-y", "@coding-solo/godot-mcp@0.1.1"],
-};
 const PLUGIN_CREATOR_SKILL = `---
 name: plugin-creator
 description: Create or update an OpenGame plugin from a natural-language request, validate it, and install it for the user.
@@ -86,7 +82,7 @@ async function configure(agentDir: string): Promise<void> {
     settings.setPackages(requiredPackages);
     await settings.flush();
   }
-  await ensureGodotMcpConfig(agentDir);
+  await new ConnectionManager(agentDir).ensurePresets();
   await ensurePluginCreatorSkill(agentDir);
 }
 
@@ -102,56 +98,9 @@ async function ensurePluginCreatorSkill(agentDir: string): Promise<void> {
   await writeConfig(filePath, PLUGIN_CREATOR_SKILL);
 }
 
-async function ensureGodotMcpConfig(agentDir: string): Promise<void> {
-  const filePath = path.join(agentDir, "mcp.json");
-  let contents = "{}\n";
-  try {
-    contents = await readFile(filePath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  const config = parseMcpConfig(contents, filePath);
-  const existingServer = config.mcpServers?.["opengame-godot"];
-  const disabled = existingServer && typeof existingServer === "object" && !Array.isArray(existingServer)
-    ? (existingServer as Record<string, unknown>).disabled === true
-    : false;
-  const server = disabled ? { ...GODOT_MCP_SERVER, disabled: true } : GODOT_MCP_SERVER;
-  if (JSON.stringify(existingServer) === JSON.stringify(server)) return;
-
-  const edits = modify(contents, ["mcpServers", "opengame-godot"], server, {
-    formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
-  });
-
-  await writeConfig(filePath, applyEdits(contents, edits));
-}
-
 export async function listMcpServers(agentDir: string): Promise<PiMcpServer[]> {
   await ensureOpenGamePiEnvironment(agentDir);
-  const filePath = path.join(agentDir, "mcp.json");
-  const contents = await readFile(filePath, "utf8");
-  const config = parseMcpConfig(contents, filePath);
-  return Object.entries(config.mcpServers ?? {}).map(([id, value]) => ({
-    id,
-    enabled: !isDisabledMcpServer(value),
-  }));
-}
-
-export async function setMcpServerEnabled(agentDir: string, serverId: string, enabled: boolean): Promise<void> {
-  await ensureOpenGamePiEnvironment(agentDir);
-  const filePath = path.join(agentDir, "mcp.json");
-  const contents = await readFile(filePath, "utf8");
-  const config = parseMcpConfig(contents, filePath);
-  const current = config.mcpServers?.[serverId];
-  if (!current || typeof current !== "object" || Array.isArray(current)) {
-    throw new Error(`OpenGame Pi MCP server is not configured: ${serverId}`);
-  }
-  const edits = modify(contents, ["mcpServers", serverId, "disabled"], enabled ? undefined : true, {
-    formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
-  });
-  await writeConfig(filePath, applyEdits(contents, edits));
+  return (await new ConnectionManager(agentDir).list()).map(({ id, enabled }) => ({ id, enabled }));
 }
 
 async function writeConfig(filePath: string, contents: string): Promise<void> {
@@ -162,21 +111,4 @@ async function writeConfig(filePath: string, contents: string): Promise<void> {
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
-}
-
-function parseMcpConfig(contents: string, filePath: string): { mcpServers?: Record<string, unknown> } {
-  const errors: ParseError[] = [];
-  const parsed = parse(contents, errors, { allowTrailingComma: true }) as unknown;
-  if (errors.length || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`OpenGame Pi MCP config is invalid: ${filePath}`);
-  }
-  const mcpServers = (parsed as Record<string, unknown>).mcpServers;
-  if (mcpServers !== undefined && (!mcpServers || typeof mcpServers !== "object" || Array.isArray(mcpServers))) {
-    throw new Error(`OpenGame Pi MCP config has an invalid mcpServers field: ${filePath}`);
-  }
-  return { ...(mcpServers ? { mcpServers: mcpServers as Record<string, unknown> } : {}) };
-}
-
-function isDisabledMcpServer(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).disabled === true);
 }

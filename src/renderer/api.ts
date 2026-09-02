@@ -40,6 +40,7 @@ import {
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PluginCatalog, PluginDetail, PluginSettings } from "../shared/plugins.js";
+import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 
 const API_BASE = "/api";
 
@@ -212,6 +213,26 @@ export async function updatePluginSettings(id: string, settings: PluginSettings)
 
 export async function removeLocalPlugin(id: string): Promise<void> {
   await request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function listConnections(): Promise<Connection[]> {
+  return request("/settings/connections");
+}
+
+export async function createConnection(input: SaveConnectionRequest): Promise<Connection> {
+  return request("/settings/connections", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateConnection(id: string, input: SaveConnectionRequest): Promise<Connection> {
+  return request(`/settings/connections/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function setConnectionEnabled(id: string, enabled: boolean): Promise<void> {
+  await request(`/settings/connections/${encodeURIComponent(id)}/enabled`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+}
+
+export async function removeConnection(id: string): Promise<void> {
+  await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest): Promise<ToolRun> {

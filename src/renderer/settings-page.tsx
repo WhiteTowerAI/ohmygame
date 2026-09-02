@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, InfoCircle, Server, UserRound } from "./icons.js";
+import { ArrowLeft, InfoCircle, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -7,10 +7,12 @@ import type { SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import { ConnectionsSettings } from "./connections-settings.js";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
   { section: "providers", label: "Providers", icon: Server },
+  { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
 ];
 
@@ -58,6 +60,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
         <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
+          {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>
       </section>
