@@ -30,6 +30,7 @@
   --menu-hover: rgb(255 255 255 / 5%);
   --menu-shadow: 0 10px 28px rgb(0 0 0 / 32%);
   --menu-surface: var(--surface-raised);
+  --content-column-width: 820px;
 }
 
 @font-face {
@@ -496,7 +497,7 @@ body {
 }
 
 .settings-page-inner {
-  width: min(820px, 100%);
+  width: min(var(--content-column-width), 100%);
   margin: 0 auto;
   padding-top: 44px;
 }
@@ -1486,8 +1487,9 @@ button.home-nav-item-active:hover {
 }
 
 .sidebar-page-header-breadcrumb {
-  margin: 0 -16px;
-  padding: 16px 0 12px;
+  --breadcrumb-bleed: max(0px, calc((100vw - var(--sidebar-width, 232px) - 72px - 1100px) / 2));
+  margin: 0 calc(-1 * var(--breadcrumb-bleed) - 12px);
+  padding: 18px 0 10px;
   border-bottom: 0;
 }
 
@@ -1512,18 +1514,19 @@ button.home-nav-item-active:hover {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .sidebar-page-breadcrumb button {
-  padding: 4px 0;
+  padding: 2px 0;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 16px;
 }
 
 .sidebar-page-breadcrumb button:hover {
@@ -1531,13 +1534,17 @@ button.home-nav-item-active:hover {
 }
 
 .sidebar-page-breadcrumb > svg {
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
   color: var(--text-faint);
 }
 
 .sidebar-page-breadcrumb h1 {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2381,12 +2388,16 @@ button.home-nav-item-active:hover {
   padding: 0 12px;
   border: 0;
   border-radius: 7px;
-  background: var(--text);
-  color: var(--canvas);
+  background: var(--theme-accent);
+  color: var(--accent-ink);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   font-weight: 600;
+}
+
+.plugin-detail-primary:hover:not(:disabled) {
+  background: var(--theme-accent-hover);
 }
 
 .plugin-detail-primary:disabled {
@@ -2846,7 +2857,9 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-detail {
+  width: min(var(--content-column-width), 100%);
   min-height: 300px;
+  margin: 0 auto;
   padding-top: 36px;
 }
 
@@ -2856,7 +2869,6 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 14px;
   padding-bottom: 22px;
-  border-bottom: 1px solid var(--border);
 }
 
 .plugin-detail-hero h2 {
@@ -2868,7 +2880,7 @@ button.home-nav-item-active:hover {
 
 .plugin-detail-hero p {
   margin: 4px 0 6px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -2969,8 +2981,9 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-prompts > div {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface-raised);
 }
 
 .plugin-prompts button {
@@ -2984,7 +2997,7 @@ button.home-nav-item-active:hover {
   border: 0;
   border-bottom: 1px solid var(--border);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -2999,6 +3012,10 @@ button.home-nav-item-active:hover {
 .plugin-prompts button:focus-visible {
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.plugin-prompts button:focus-visible {
+  outline-offset: -2px;
 }
 
 .plugin-prompts button > svg {
@@ -3017,8 +3034,9 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-components > div {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface-raised);
 }
 
 .plugin-components.is-disabled > div {
@@ -3037,6 +3055,10 @@ button.home-nav-item-active:hover {
 
 .plugin-component-row:last-child {
   border-bottom: 0;
+}
+
+.plugin-component-row .plugin-row-copy > span {
+  color: var(--text-secondary);
 }
 
 .plugin-component-icon {
@@ -7628,7 +7650,7 @@ button {
 
   .sidebar-page { overflow: visible; padding: 0 18px 30px; }
   .sidebar-page-header { gap: 16px; padding: 30px 0 16px; }
-  .sidebar-page-header-breadcrumb { margin: 0; padding: 16px 0 12px; }
+  .sidebar-page-header-breadcrumb { margin: 0; }
   .sidebar-page-title-row { flex-wrap: wrap; gap: 14px; }
   .projects-controls { width: 100%; }
   .projects-search { width: 100%; }
