@@ -73,6 +73,10 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return conversation?.id === event.data.conversation.id
         ? { ...next, conversation: event.data.conversation }
         : next;
+    case "project.renamed":
+      return project?.id === event.data.project.id
+        ? { ...next, project: event.data.project }
+        : next;
     case "preview.starting":
       return project ? { ...next, project: { ...project, preview: { status: "starting" } } } : next;
     case "preview.ready":

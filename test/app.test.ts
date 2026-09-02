@@ -538,7 +538,7 @@ describe("daemon", () => {
     ]);
   });
 
-  it("replaces the provisional title after the current turn settles", async () => {
+  it("generates conversation and project names after the current turn settles", async () => {
     let finishTurn: (() => void) | undefined;
     const session: CodingSession = {
       messages: [],
@@ -550,12 +550,14 @@ describe("daemon", () => {
       subscribe: () => () => {},
     };
     const generateConversationTitle = vi.fn().mockResolvedValue("Build platform game");
+    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
     const model = { provider: "provider-one", id: "model-one", name: "Model One" };
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-generated-title-")),
       createSession: async () => session,
       createModelRuntime: async () => fakeModelRuntime([model]),
       generateConversationTitle,
+      generateProjectTitle,
     });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -572,13 +574,92 @@ describe("daemon", () => {
     });
 
     expect(response.statusCode).toBe(202);
+    await vi.waitFor(() => expect(finishTurn).toBeDefined());
     expect(generateConversationTitle).not.toHaveBeenCalled();
-    finishTurn?.();
+    finishTurn!();
+    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalled());
     await vi.waitFor(async () => {
       const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations` });
       expect(listed.json()[0].title).toBe("Build platform game");
+      const renamedProject = await app.inject({ method: "GET", url: `/projects/${project.id}` });
+      expect(renamedProject.json().name).toBe("Platform World");
     });
     expect(generateConversationTitle).toHaveBeenCalledWith(
+      { provider: model.provider, id: model.id },
+      "Build a small platform game",
+    );
+    expect(generateProjectTitle).toHaveBeenCalledWith(
+      { provider: model.provider, id: model.id },
+      "Build a small platform game",
+    );
+
+    finishTurn = undefined;
+    const namedProject = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "My game" },
+    })).json();
+    const namedConversation = (await app.inject({
+      method: "POST",
+      url: `/projects/${namedProject.id}/conversations`,
+      payload: { model: { provider: model.provider, id: model.id } },
+    })).json();
+    await app.inject({
+      method: "POST",
+      url: `/projects/${namedProject.id}/conversations/${namedConversation.id}/turns`,
+      payload: { prompt: "Add a forest level" },
+    });
+    await vi.waitFor(() => expect(finishTurn).toBeDefined());
+    finishTurn!();
+    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalledTimes(2));
+
+    expect(generateProjectTitle).toHaveBeenCalledTimes(1);
+    expect((await app.inject({ method: "GET", url: `/projects/${namedProject.id}` })).json().name).toBe("My game");
+  });
+
+  it("names an untitled project when its conversation was already named", async () => {
+    const session: CodingSession = {
+      messages: [],
+      prompt: async () => {},
+      abort: async () => {},
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const generateConversationTitle = vi.fn().mockResolvedValue("Generated conversation");
+    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
+    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-project-title-")),
+      createSession: async () => session,
+      createModelRuntime: async () => fakeModelRuntime([model]),
+      generateConversationTitle,
+      generateProjectTitle,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+      payload: { model: { provider: model.provider, id: model.id } },
+    })).json();
+    await app.inject({
+      method: "PATCH",
+      url: `/projects/${project.id}/conversations/${conversation.id}`,
+      payload: { title: "Manual conversation" },
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Build a small platform game" },
+    });
+
+    await vi.waitFor(async () => {
+      const renamed = await app.inject({ method: "GET", url: `/projects/${project.id}` });
+      expect(renamed.json().name).toBe("Platform World");
+    });
+    expect(generateConversationTitle).not.toHaveBeenCalled();
+    expect(generateProjectTitle).toHaveBeenCalledWith(
       { provider: model.provider, id: model.id },
       "Build a small platform game",
     );

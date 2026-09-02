@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
+import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -64,7 +65,7 @@ export class ProjectManager {
     const metadata: ProjectMetadata = {
       version: 1,
       id,
-      name: name?.trim() || "Untitled project",
+      name: name?.trim() || defaultProjectName(type),
       type,
       updatedAt: new Date().toISOString(),
     };
@@ -87,6 +88,16 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     const normalized = name.trim();
     if (!normalized) throw new Error("Project name must not be empty");
+    await this.#save(project, { name: normalized, updatedAt: new Date().toISOString() });
+    return project;
+  }
+
+  async renameIfCurrent(id: string, expectedName: string, name: string): Promise<ProjectState | undefined> {
+    const project = this.#projects.get(id);
+    if (!project || project.name !== expectedName) return undefined;
+    const normalized = name.trim();
+    if (!normalized) throw new Error("Project name must not be empty");
+    if (normalized === expectedName) return undefined;
     await this.#save(project, { name: normalized, updatedAt: new Date().toISOString() });
     return project;
   }

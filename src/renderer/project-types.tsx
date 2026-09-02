@@ -1,5 +1,6 @@
 import { Clapperboard, Globe2 } from "./icons.js";
 import type { ProjectType } from "../shared/contracts.js";
+export { defaultProjectName } from "../shared/project-names.js";
 
 export const PROJECT_TYPES = [
   { label: "Web Game", value: "web-game" },
@@ -15,8 +16,4 @@ export function ProjectTypeIcon({ type, size = 14 }: { type: ProjectType; size?:
 
 export function projectTypeLabel(type: ProjectType): string {
   return PROJECT_TYPES.find((option) => option.value === type)?.label ?? type;
-}
-
-export function defaultProjectName(type: ProjectType): string {
-  return type === "interactive-drama" ? "Untitled drama" : "Untitled project";
 }

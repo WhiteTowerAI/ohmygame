@@ -199,6 +199,21 @@ describe("ProjectManager", () => {
     expect(manager.get(project.id)).toBeUndefined();
   });
 
+  it("renames a project only while its expected name is current", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create();
+
+    await expect(manager.renameIfCurrent(project.id, "Untitled project", "Platform World"))
+      .resolves.toMatchObject({ name: "Platform World" });
+    await expect(manager.renameIfCurrent(project.id, "Untitled project", "Other name"))
+      .resolves.toBeUndefined();
+
+    const restored = new ProjectManager(dataDirectory);
+    await restored.load();
+    expect(restored.get(project.id)?.name).toBe("Platform World");
+  });
+
   it("restores runnable and non-runnable workspaces with distinct preview states", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);

@@ -133,6 +133,13 @@ describe("rendererReducer", () => {
     expect(state.conversation).toEqual(renamed);
   });
 
+  it("updates the active project name", () => {
+    const renamed = { ...project(), name: "Platform World" };
+    const state = event(initialized(), runtimeEvent(1, "project.renamed", { project: renamed }));
+
+    expect(state.project).toEqual(renamed);
+  });
+
   it("replaces all turns when another conversation loads", () => {
     const loaded = turn("other-turn", "inProgress", [user("other-turn", "Other")], "conversation-2");
     const state = rendererReducer(initialized(), {

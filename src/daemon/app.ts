@@ -6,13 +6,14 @@ import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
-import { generateConversationTitle, type ConversationTitleGenerator } from "./conversation-titles.js";
+import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
@@ -55,7 +56,8 @@ export interface AppOptions {
   meshyApiKey?: string;
   meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
-  generateConversationTitle?: ConversationTitleGenerator;
+  generateConversationTitle?: TitleGenerator;
+  generateProjectTitle?: TitleGenerator;
   bundledPluginsDirectory?: string;
 }
 
@@ -342,6 +344,7 @@ export function createApp(options: AppOptions = {}) {
   const events = new RuntimeEventBus();
   const projects = new ProjectManager(dataDirectory);
   const conversations = new ConversationManager();
+  const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder();
   const publisher = new RemotePublisher({
@@ -370,8 +373,10 @@ export function createApp(options: AppOptions = {}) {
     if (baseUrl) runtime.registerProvider("openai", { baseUrl });
     return runtime;
   })();
-  const generateTitle = options.generateConversationTitle ?? (async (model, prompt) =>
+  const generateConversationName = options.generateConversationTitle ?? (async (model, prompt) =>
     generateConversationTitle(await getModelRuntime(), model, prompt));
+  const generateProjectName = options.generateProjectTitle ?? (async (model, prompt) =>
+    generateProjectTitle(await getModelRuntime(), model, prompt));
   const conversationModel = (project: ProjectState, conversation: StoredConversation) => {
     const selected = conversations.model(project, conversation);
     if (selected) return selected;
@@ -387,6 +392,9 @@ export function createApp(options: AppOptions = {}) {
       { conversation },
       { conversationId: conversation.id },
     );
+  };
+  const publishProjectRenamed = (project: ProjectState) => {
+    events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
   const portal = new PortalConnection(
@@ -670,7 +678,9 @@ export function createApp(options: AppOptions = {}) {
     { schema: renameProjectSchema },
     async (request, reply) => {
       try {
-        return await projects.rename(request.params.projectId, request.body.name);
+        const project = await projects.rename(request.params.projectId, request.body.name);
+        publishProjectRenamed(project);
+        return project;
       } catch (cause) {
         return reply.code((cause as Error).message.startsWith("Project not found") ? 404 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -1200,24 +1210,44 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       const provisional = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
-      if (provisional) {
-        publishConversationRenamed(provisional);
+      if (provisional) publishConversationRenamed(provisional);
+      const expectedProjectName = isDefaultProjectName(project) && !projectsBeingNamed.has(project.id)
+        ? project.name
+        : undefined;
+      if (provisional || expectedProjectName) {
         const model = conversationModel(project, conversation);
         if (model) {
+          if (expectedProjectName) projectsBeingNamed.add(project.id);
           void (async () => {
             await turn.result?.catch(() => undefined);
-            const title = await generateTitle(model, request.body.prompt);
-            if (!title) return;
-            const updated = await conversations.renameIfCurrent(
-              project,
-              conversation.summary.id,
-              provisional.title,
-              title,
-            );
-            if (updated) publishConversationRenamed(updated);
-          })().catch((cause) => {
-            request.log.debug({ err: cause }, "conversation title generation failed");
-          });
+            if (provisional) {
+              try {
+                const title = await generateConversationName(model, request.body.prompt);
+                if (title) {
+                  const updated = await conversations.renameIfCurrent(
+                    project,
+                    conversation.summary.id,
+                    provisional.title,
+                    title,
+                  );
+                  if (updated) publishConversationRenamed(updated);
+                }
+              } catch (cause) {
+                request.log.debug({ err: cause }, "conversation title generation failed");
+              }
+            }
+            if (!expectedProjectName) return;
+            try {
+              const name = await generateProjectName(model, request.body.prompt);
+              if (!name) return;
+              const updated = await projects.renameIfCurrent(project.id, expectedProjectName, name);
+              if (updated) publishProjectRenamed(updated);
+            } catch (cause) {
+              request.log.debug({ err: cause }, "project title generation failed");
+            } finally {
+              projectsBeingNamed.delete(project.id);
+            }
+          })();
         }
       }
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
