@@ -134,17 +134,14 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const moreProviders = visibleProviders.filter((provider) => provider.kind !== "portal" && !POPULAR_PROVIDER_IDS.includes(provider.id));
   const portalAccount = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
   return (
-    <section className="settings-panel settings-providers-panel">
-      <div className="settings-providers-heading">
-        <div>
-          <h3>Providers</h3>
-          <p className="settings-panel-intro">Connect services and manage their credentials.</p>
-        </div>
+    <section className="settings-panel settings-overview-panel">
+      <header className="settings-panel-header">
+        <h3>Providers</h3>
         <label className="settings-provider-search">
           <Search size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
         </label>
-      </div>
+      </header>
       <div className="settings-provider-list">
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}

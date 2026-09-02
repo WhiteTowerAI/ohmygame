@@ -72,8 +72,8 @@ function AccountSettings() {
   const auth = useAuth();
   const [error, setError] = useState<string>();
   return (
-    <section className="settings-panel settings-account-panel">
-      <h3>Account</h3>
+    <section className="settings-panel settings-overview-panel settings-account-panel">
+      <header className="settings-panel-header"><h3>Account</h3></header>
       {auth.state.status === "signed-in" ? (
         <div className="settings-account-row">
           <div className="settings-account-profile">
@@ -113,8 +113,8 @@ function AboutSettings() {
             : status?.type === "error" ? status.message : "Not checked yet";
   const busy = status?.type === "checking" || status?.type === "downloading";
   return (
-    <section className="settings-panel">
-      <h3>About</h3>
+    <section className="settings-panel settings-overview-panel">
+      <header className="settings-panel-header"><h3>About</h3></header>
       <div className="settings-about-list">
         <div className="settings-about-row">
           <span>Version</span>
