@@ -1824,6 +1824,7 @@ button.home-nav-item-active:hover {
 }
 
 .projects-grid {
+  row-gap: 28px;
   padding-top: 24px;
 }
 
@@ -1961,7 +1962,7 @@ button.home-nav-item-active:hover {
   cursor: pointer;
   flex: 0 0 auto;
   color: var(--text-muted);
-  opacity: 0.62;
+  opacity: 0.78;
 }
 
 .project-card:hover .project-card-menu,
@@ -2026,6 +2027,36 @@ button.home-nav-item-active:hover {
   font-weight: 600;
 }
 
+.project-card-name {
+  font-weight: 500;
+}
+
+.project-card-details {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.project-card-details > svg {
+  flex: 0 0 auto;
+}
+
+.project-card-details > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-details i {
+  flex: 0 0 auto;
+  font-style: normal;
+}
+
 .project-card-time,
 .community-game-card-time {
   color: var(--text-muted);
@@ -2061,9 +2092,9 @@ button.home-nav-item-active:hover {
   width: 100%;
   aspect-ratio: 252 / 142;
   place-items: center;
-  border: 1px solid #618514;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #141906;
+  background: #171c0d;
   color: #b8f21f;
   transition: border-color 120ms ease, background 120ms ease;
 }

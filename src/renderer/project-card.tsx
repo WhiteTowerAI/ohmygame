@@ -2,6 +2,7 @@ import { MoreHorizontal } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { getProjectCover } from "./api.js";
+import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 
 export interface ProjectCardActions {
   onRename: () => void;
@@ -43,7 +44,12 @@ export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardP
         <span className="project-card-meta">
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
-            <span className="project-card-time" title={projectTimestamp(project.updatedAt)}>{projectTime(project.updatedAt)}</span>
+            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
+              <ProjectTypeIcon type={project.type} size={12} />
+              <span>{projectTypeLabel(project.type)}</span>
+              <i aria-hidden="true">·</i>
+              <span className="project-card-time">{projectTime(project.updatedAt)}</span>
+            </span>
           </span>
         </span>
       </button>
