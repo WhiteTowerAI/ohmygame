@@ -2944,11 +2944,11 @@ button {
   padding: 18px;
 }
 
-.asset-mode-switcher {
+.asset-mode-switcher,
+.asset-panel-switcher {
   display: grid;
   height: 34px;
   flex: 0 0 auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   padding: 4px;
   border: 1px solid #252c2e;
@@ -2956,7 +2956,11 @@ button {
   background: #1c2224;
 }
 
-.asset-mode-switcher button {
+.asset-mode-switcher { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.asset-panel-switcher { width: 230px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.asset-mode-switcher button,
+.asset-panel-switcher button {
   min-width: 0;
   padding: 0;
   border: 1px solid transparent;
@@ -2968,8 +2972,10 @@ button {
   font-weight: 500;
 }
 
-.asset-mode-switcher button:hover:not(:disabled) { color: #ebf0eb; }
-.asset-mode-switcher button.is-active { border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345); background: #252b2d; color: #ebf0eb; font-weight: 600; }
+.asset-mode-switcher button:hover:not(:disabled),
+.asset-panel-switcher button:hover:not(:disabled) { color: #ebf0eb; }
+.asset-mode-switcher button.is-active,
+.asset-panel-switcher button.is-active { border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345); background: #252b2d; color: #ebf0eb; font-weight: 600; }
 
 .asset-config-fields {
   display: flex;
@@ -3140,9 +3146,10 @@ button {
 .asset-generate-button:hover:not(:disabled) { background: var(--home-accent-hover); }
 .asset-generate-button:disabled { cursor: default; opacity: 0.4; }
 
-.asset-result-panel > header { display: flex; height: 50px; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 14px 0 16px; border-bottom: 1px solid #252c2e; }
+.asset-result-panel > header { position: relative; display: flex; height: 68px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0 14px; border-bottom: 1px solid #252c2e; }
 .asset-result-panel h1 { margin: 0; font-size: 13px; font-weight: 600; }
 .asset-result-actions { position: relative; }
+.asset-result-panel > header > .asset-result-actions { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); }
 .asset-result-actions > button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #899597; cursor: pointer; }
 .asset-result-actions > button:hover:not(:disabled),
 .asset-result-actions > button[aria-expanded="true"] { background: #22282a; color: #ebf0eb; }
@@ -3178,6 +3185,94 @@ button {
 .asset-result-preview .model-preview { min-height: 100% !important; }
 .asset-result-notice { position: absolute; right: 60px; top: 20px; max-width: min(360px, 50%); margin: 0; overflow: hidden; color: var(--home-accent); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .asset-result-notice.is-error { color: var(--danger); }
+
+.asset-result-canvas.asset-template-gallery {
+  display: block;
+  overflow-y: auto;
+  margin-top: -6px;
+  padding: 2px 0 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.asset-result-canvas.asset-history-view { margin-top: -6px; }
+
+.asset-template-list {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 12px;
+}
+
+.asset-template-card {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--home-border);
+  border-radius: 10px;
+  background: var(--home-surface);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-template-card:hover strong { color: var(--home-accent); }
+.asset-template-card.is-selected { border-color: color-mix(in srgb, var(--home-accent) 36%, var(--home-border)); }
+
+.asset-template-preview {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid #2a3032;
+  background: #222829;
+  color: #aeb8ba;
+}
+
+.asset-template-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+.asset-template-card-copy { display: flex; min-width: 0; min-height: 32px; align-items: center; padding: 5px 10px 6px; }
+.asset-template-card-copy strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+
+.asset-result-canvas.asset-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 210px;
+  align-content: start;
+  place-items: stretch;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.asset-history-item {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 0;
+  border: 1px solid #2d3436;
+  border-radius: 8px;
+  background: #191e1f;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-history-item:hover { border-color: #485153; background: #1d2223; }
+.asset-history-item.is-selected { border-color: color-mix(in srgb, var(--home-accent) 48%, #3a4345); }
+.asset-history-preview { display: grid; min-height: 0; overflow: hidden; place-items: center; border-bottom: 1px solid #2a3032; background: #0c1011; }
+.asset-history-preview > :is(img, video) { display: block; width: 100%; height: 100%; object-fit: contain; }
+.asset-history-preview .model-preview { width: 100%; min-height: 100% !important; }
+.asset-history-copy { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 11px; }
+.asset-history-copy strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.asset-history-copy small { flex: 0 0 auto; color: var(--text-muted); font-size: 9px; }
 
 @media (max-width: 980px) {
   .asset-studio-content { overflow: auto; }
@@ -7447,6 +7542,11 @@ button {
 }
 
 @media (max-width: 460px) {
+  .asset-template-list,
+  .asset-result-canvas.asset-history-grid { grid-template-columns: minmax(0, 1fr); }
+
+  .asset-panel-switcher { width: min(230px, calc(100vw - 150px)); }
+
   .model-selector-submenu {
     top: auto;
     right: 0;
