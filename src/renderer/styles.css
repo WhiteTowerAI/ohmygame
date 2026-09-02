@@ -2923,9 +2923,9 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid #2a3133;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: #141819;
+  background: var(--surface-raised);
 }
 
 .asset-result-panel {
@@ -2935,6 +2935,10 @@ button {
 }
 
 .asset-config-panel {
+  --asset-label: #d2d8d9;
+  --asset-control-text: #c2c9ca;
+  --asset-secondary: #b8c0c1;
+  --asset-muted: #929c9e;
   display: flex;
   flex-direction: column;
   padding: 18px;
@@ -2958,7 +2962,7 @@ button {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: #a0aaac;
+  color: var(--asset-control-text);
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;
@@ -2987,7 +2991,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #a0aaac;
+  color: var(--asset-secondary);
   font-size: 11px;
 }
 
@@ -3003,21 +3007,21 @@ button {
 .asset-field > label,
 .asset-option-group legend {
   padding: 0;
-  color: #a0aaac;
+  color: var(--asset-label);
   font-size: 11px;
   font-weight: 500;
 }
 
 .asset-3d-input { display: grid; gap: 7px; }
 .asset-3d-input-header { display: flex; min-height: 22px; align-items: center; justify-content: space-between; }
-.asset-3d-input-header > span { color: #a0aaac; font-size: 11px; font-weight: 500; }
+.asset-3d-input-header > span { color: var(--asset-label); font-size: 11px; font-weight: 500; }
 .asset-3d-input.is-text .asset-3d-input-body,
 .asset-3d-input.is-text .asset-prompt-wrap,
 .asset-3d-input.is-text textarea { height: 104px; }
 .asset-3d-input.is-image .asset-reference { height: 66px; }
 
 .asset-source-switch { display: flex; height: 22px; align-items: stretch; gap: 14px; margin: 0; padding: 0; border: 0; }
-.asset-source-switch label { position: relative; display: flex; align-items: center; color: #748083; cursor: pointer; font-size: 10px; font-weight: 500; }
+.asset-source-switch label { position: relative; display: flex; align-items: center; color: var(--asset-muted); cursor: pointer; font-size: 10px; font-weight: 500; }
 .asset-source-switch label:has(input:checked) { color: #ebf0eb; }
 .asset-source-switch input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
 .asset-source-switch label span::after { position: absolute; right: 0; bottom: 0; left: 0; height: 1px; background: var(--home-accent); content: ""; opacity: 0; }
@@ -3039,8 +3043,8 @@ button {
   font: inherit;
   font-size: 12px;
 }
-.asset-select-wrap svg { position: absolute; top: 13px; right: 11px; color: #a0aaac; pointer-events: none; }
-.asset-inline-state { display: flex; height: 40px; align-items: center; gap: 7px; margin: 0; color: #a0aaac; font-size: 11px; }
+.asset-select-wrap svg { position: absolute; top: 13px; right: 11px; color: var(--asset-control-text); pointer-events: none; }
+.asset-inline-state { display: flex; height: 40px; align-items: center; gap: 7px; margin: 0; color: var(--asset-secondary); font-size: 11px; }
 .asset-inline-error { display: flex; min-height: 40px; align-items: center; justify-content: space-between; gap: 8px; color: var(--danger); font-size: 10px; }
 .asset-inline-error span { min-width: 0; overflow-wrap: anywhere; }
 .asset-inline-error button { display: inline-flex; height: 26px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid #2a3133; border-radius: 6px; background: #1c2224; color: #ebf0eb; cursor: pointer; font: inherit; }
@@ -3062,8 +3066,8 @@ button {
   font-size: 12px;
   line-height: 1.45;
 }
-.asset-prompt-wrap textarea::placeholder { color: #748083; opacity: 1; }
-.asset-prompt-wrap > span { position: absolute; right: 10px; bottom: 8px; color: #748083; font-size: 9px; pointer-events: none; }
+.asset-prompt-wrap textarea::placeholder { color: var(--asset-muted); opacity: 1; }
+.asset-prompt-wrap > span { position: absolute; right: 10px; bottom: 8px; color: var(--asset-muted); font-size: 9px; pointer-events: none; }
 .asset-prompt-wrap textarea:focus,
 .asset-select-wrap select:focus { border-color: #4b5456; }
 
@@ -3078,19 +3082,19 @@ button {
 .asset-reference > button:first-child { display: flex; width: 100%; height: 100%; align-items: center; gap: 12px; padding: 0 10px; border: 0; background: transparent; color: #ebf0eb; cursor: pointer; text-align: left; }
 .asset-reference > button:first-child:hover:not(:disabled) { background: rgb(255 255 255 / 2.5%); }
 .asset-reference > button:first-child:disabled { cursor: default; opacity: 0.45; }
-.asset-reference-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: #22282a; color: #a0aaac; }
+.asset-reference-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: #22282a; color: var(--asset-control-text); }
 .asset-reference-copy { display: grid; min-width: 0; gap: 6px; }
 .asset-reference-copy strong,
 .asset-reference-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-reference-copy strong { font-size: 11px; font-weight: 500; }
-.asset-reference-copy small { color: #a0aaac; font-size: 10px; font-weight: 400; }
+.asset-reference-copy small { color: var(--asset-secondary); font-size: 10px; font-weight: 400; }
 .asset-reference img { width: 42px; height: 42px; flex: 0 0 auto; border-radius: 5px; object-fit: cover; }
 .asset-reference-clear { position: absolute; top: 7px; right: 7px; display: grid; width: 24px; height: 24px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: #2a3133; color: #8f9c9e; cursor: pointer; }
 .asset-reference-clear:hover:not(:disabled) { color: #ebf0eb; }
 
 .asset-option-group { min-width: 0; flex: 0 0 auto; margin: 0; padding: 0; border: 0; }
 .asset-option-group > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
-.asset-option-group button { min-width: 48px; height: 30px; padding: 0 13px; border: 1px solid #252c2e; border-radius: 7px; background: #1c2224; color: #a0aaac; cursor: pointer; font-size: 11px; font-weight: 500; }
+.asset-option-group button { min-width: 48px; height: 30px; padding: 0 13px; border: 1px solid #252c2e; border-radius: 7px; background: #1c2224; color: var(--asset-control-text); cursor: pointer; font-size: 11px; font-weight: 500; }
 .asset-option-group button:hover:not(:disabled) { border-color: #4b5456; color: #ebf0eb; }
 .asset-option-group button.is-active { border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345); background: #252b2d; color: #ebf0eb; font-weight: 600; }
 .asset-option-group button:disabled { cursor: default; opacity: 0.3; }
@@ -3102,7 +3106,7 @@ button {
 .asset-range-field { display: grid; flex: 0 0 auto; gap: 8px; }
 .asset-range-field > div:first-child,
 .asset-range-bounds { display: flex; align-items: center; justify-content: space-between; }
-.asset-range-field label { color: #a0aaac; font-size: 11px; font-weight: 500; }
+.asset-range-field label { color: var(--asset-label); font-size: 11px; font-weight: 500; }
 .asset-range-field output { color: #ebf0eb; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 500; }
 .asset-range-field input {
   --asset-range-progress: 0%;
@@ -3118,14 +3122,14 @@ button {
 .asset-range-field input::-webkit-slider-thumb { width: 14px; height: 14px; appearance: none; border: 3px solid #182000; border-radius: 50%; background: var(--home-accent); box-shadow: 0 0 0 1px var(--home-accent); }
 .asset-range-field input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1px var(--home-accent), 0 0 0 3px var(--focus-ring); }
 .asset-range-field input:disabled { cursor: default; opacity: 0.4; }
-.asset-range-bounds { margin-top: -4px; color: #748083; font-size: 9px; font-variant-numeric: tabular-nums; }
+.asset-range-bounds { margin-top: -4px; color: var(--asset-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
 
 .asset-3d-options { display: grid; gap: 20px; }
 .asset-settings-section { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid #252c2e; }
 .asset-settings-section h2 { margin: 0; color: #748083; font-size: 10px; font-weight: 600; }
 .asset-settings-section > div { display: grid; gap: 16px; }
 
-.asset-toggle-field { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; justify-content: space-between; color: #a0aaac; font-size: 11px; font-weight: 500; }
+.asset-toggle-field { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; justify-content: space-between; color: var(--asset-control-text); font-size: 11px; font-weight: 500; }
 .asset-toggle-field button { position: relative; width: 32px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: #303739; cursor: pointer; }
 .asset-toggle-field button > span { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #a0aaac; transition: transform 120ms ease; }
 .asset-toggle-field button[aria-checked="true"] { background: var(--home-accent); }
