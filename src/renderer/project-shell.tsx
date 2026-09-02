@@ -177,6 +177,10 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "agent.completed") setWorkspaceRevision((value) => value + 1);
+        if (event.type === "conversation.renamed") {
+          setConversations((current) => current.map((conversation) =>
+            conversation.id === event.data.conversation.id ? event.data.conversation : conversation));
+        }
         if (
           event.type === "agent.started" || event.type === "agent.completed" ||
           event.type === "agent.cancelled" || event.type === "agent.error"

@@ -538,6 +538,52 @@ describe("daemon", () => {
     ]);
   });
 
+  it("replaces the provisional title after the current turn settles", async () => {
+    let finishTurn: (() => void) | undefined;
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((_resolve, reject) => {
+        finishTurn = () => reject(new Error("Model request failed"));
+      }),
+      abort: async () => {},
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const generateConversationTitle = vi.fn().mockResolvedValue("Build platform game");
+    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-generated-title-")),
+      createSession: async () => session,
+      createModelRuntime: async () => fakeModelRuntime([model]),
+      generateConversationTitle,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+      payload: { model: { provider: model.provider, id: model.id } },
+    })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Build a small platform game" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(generateConversationTitle).not.toHaveBeenCalled();
+    finishTurn?.();
+    await vi.waitFor(async () => {
+      const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations` });
+      expect(listed.json()[0].title).toBe("Build platform game");
+    });
+    expect(generateConversationTitle).toHaveBeenCalledWith(
+      { provider: model.provider, id: model.id },
+      "Build a small platform game",
+    );
+  });
+
   it("lists Pi models and stores a conversation model without starting a session", async () => {
     const first = { provider: "provider-one", id: "model-one", name: "Model One", reasoning: true };
     const second = { provider: "provider-one", id: "model-two", name: "Model Two", reasoning: true };

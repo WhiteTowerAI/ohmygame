@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
@@ -11,7 +11,8 @@ import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
-import { ConversationManager } from "./conversations.js";
+import { ConversationManager, type StoredConversation } from "./conversations.js";
+import { generateConversationTitle, type ConversationTitleGenerator } from "./conversation-titles.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
@@ -54,6 +55,7 @@ export interface AppOptions {
   meshyApiKey?: string;
   meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
+  generateConversationTitle?: ConversationTitleGenerator;
   bundledPluginsDirectory?: string;
 }
 
@@ -368,6 +370,24 @@ export function createApp(options: AppOptions = {}) {
     if (baseUrl) runtime.registerProvider("openai", { baseUrl });
     return runtime;
   })();
+  const generateTitle = options.generateConversationTitle ?? (async (model, prompt) =>
+    generateConversationTitle(await getModelRuntime(), model, prompt));
+  const conversationModel = (project: ProjectState, conversation: StoredConversation) => {
+    const selected = conversations.model(project, conversation);
+    if (selected) return selected;
+    const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
+    const provider = settings.getDefaultProvider();
+    const id = settings.getDefaultModel();
+    return provider && id ? { provider, id } : undefined;
+  };
+  const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
+    events.publish(
+      conversation.projectId,
+      "conversation.renamed",
+      { conversation },
+      { conversationId: conversation.id },
+    );
+  };
   const modelAuth = new ModelAuthManager(getModelRuntime);
   const portal = new PortalConnection(
     getModelRuntime,
@@ -1071,6 +1091,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       try {
         const conversation = await conversations.rename(project, request.params.conversationId, request.body.title);
+        if (conversation) publishConversationRenamed(conversation);
         return conversation ?? reply.code(404).send({ error: "Conversation not found" });
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1178,7 +1199,27 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
-      conversations.setInitialTitle(project.id, conversation.summary.id, request.body.prompt);
+      const provisional = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
+      if (provisional) {
+        publishConversationRenamed(provisional);
+        const model = conversationModel(project, conversation);
+        if (model) {
+          void (async () => {
+            await turn.result?.catch(() => undefined);
+            const title = await generateTitle(model, request.body.prompt);
+            if (!title) return;
+            const updated = await conversations.renameIfCurrent(
+              project,
+              conversation.summary.id,
+              provisional.title,
+              title,
+            );
+            if (updated) publishConversationRenamed(updated);
+          })().catch((cause) => {
+            request.log.debug({ err: cause }, "conversation title generation failed");
+          });
+        }
+      }
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
   );

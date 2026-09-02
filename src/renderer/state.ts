@@ -69,6 +69,10 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   if (agentEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
+    case "conversation.renamed":
+      return conversation?.id === event.data.conversation.id
+        ? { ...next, conversation: event.data.conversation }
+        : next;
     case "preview.starting":
       return project ? { ...next, project: { ...project, preview: { status: "starting" } } } : next;
     case "preview.ready":

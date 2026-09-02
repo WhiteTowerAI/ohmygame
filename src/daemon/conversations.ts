@@ -5,6 +5,7 @@ import { parseReasoningLevel } from "../shared/reasoning.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
+const PROVISIONAL_TITLE_MAX_LENGTH = 36;
 const PLAN_STATE_ENTRY = "open-game-plan";
 
 export interface StoredConversation {
@@ -56,7 +57,47 @@ export class ConversationManager {
   }
 
   async rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
+    return this.#rename(project, conversationId, title);
+  }
+
+  async renameIfCurrent(
+    project: ProjectState,
+    conversationId: string,
+    expectedTitle: string,
+    title: string,
+  ): Promise<ConversationSummary | undefined> {
     const stored = await this.get(project, conversationId);
+    if (!stored) return undefined;
+    if (stored.summary.title !== expectedTitle) return undefined;
+    if (normalizeTitle(title) === expectedTitle) return undefined;
+    return this.#rename(project, conversationId, title, stored);
+  }
+
+  setInitialTitle(project: ProjectState, conversationId: string, prompt: string): ConversationSummary | undefined {
+    const pending = this.#pending.get(key(project.id, conversationId));
+    if (!pending || pending.titled) return undefined;
+    const title = normalizeTitle(prompt, PROVISIONAL_TITLE_MAX_LENGTH);
+    if (!title) return undefined;
+    pending.titled = true;
+    pending.manager.appendSessionInfo(title);
+    pending.stored = {
+      ...pending.stored,
+      summary: {
+        ...pending.stored.summary,
+        title,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    return pending.stored.summary;
+  }
+
+  async #rename(
+    project: ProjectState,
+    conversationId: string,
+    title: string,
+    stored?: StoredConversation,
+  ): Promise<ConversationSummary | undefined> {
+    stored ??= await this.get(project, conversationId);
     if (!stored) return undefined;
     const normalized = normalizeTitle(title);
     if (!normalized) throw new Error("Conversation title must not be empty");
@@ -72,20 +113,6 @@ export class ConversationManager {
       return pending.stored.summary;
     }
     return (await this.get(project, conversationId))?.summary;
-  }
-
-  setInitialTitle(projectId: string, conversationId: string, prompt: string): void {
-    const pending = this.#pending.get(key(projectId, conversationId));
-    if (!pending || pending.titled) return;
-    pending.titled = true;
-    pending.stored = {
-      ...pending.stored,
-      summary: {
-        ...pending.stored.summary,
-        title: defaultConversationTitle(prompt),
-        updatedAt: new Date().toISOString(),
-      },
-    };
   }
 
   open(project: ProjectState, stored: StoredConversation): SessionManager {
@@ -154,8 +181,9 @@ function sessionDirectory(project: ProjectState): string {
   return path.join(path.dirname(project.workspacePath), "session");
 }
 
-function normalizeTitle(value: string): string {
+function normalizeTitle(value: string, maxLength = TITLE_MAX_LENGTH): string {
   const title = value.replace(/\s+/g, " ").trim();
-  if (title.length <= TITLE_MAX_LENGTH) return title;
-  return `${title.slice(0, TITLE_MAX_LENGTH - 3).trimEnd()}...`;
+  const characters = [...title];
+  if (characters.length <= maxLength) return title;
+  return `${characters.slice(0, maxLength - 3).join("").trimEnd()}...`;
 }

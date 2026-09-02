@@ -126,6 +126,13 @@ describe("rendererReducer", () => {
     expect(state.lastEventId).toBe(1);
   });
 
+  it("updates the active conversation title", () => {
+    const renamed = { ...conversation(), title: "Build platform game" };
+    const state = event(initialized(), runtimeEvent(1, "conversation.renamed", { conversation: renamed }));
+
+    expect(state.conversation).toEqual(renamed);
+  });
+
   it("replaces all turns when another conversation loads", () => {
     const loaded = turn("other-turn", "inProgress", [user("other-turn", "Other")], "conversation-2");
     const state = rendererReducer(initialized(), {

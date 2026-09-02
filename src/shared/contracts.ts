@@ -565,6 +565,7 @@ export interface AddedProjectAsset {
 }
 
 export interface RuntimeEventData {
+  "conversation.renamed": { conversation: ConversationSummary };
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };
   "preview.error": { error: string };
@@ -589,6 +590,7 @@ export interface RuntimeEventData {
 export type RuntimeEventType = keyof RuntimeEventData;
 
 export const RUNTIME_EVENT_TYPES = [
+  "conversation.renamed",
   "preview.starting",
   "preview.ready",
   "preview.error",

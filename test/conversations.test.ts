@@ -61,9 +61,10 @@ describe("ConversationManager", () => {
     const conversations = new ConversationManager();
     const created = await conversations.create(project);
 
-    conversations.setInitialTitle(project.id, created.summary.id, "  Build   a game  ");
+    conversations.setInitialTitle(project, created.summary.id, "  Build   a game  ");
 
     expect((await conversations.get(project, created.summary.id))?.summary.title).toBe("Build a game");
+    expect(conversations.open(project, created).getSessionName()).toBe("Build a game");
   });
 
   it("does not replace a manually renamed pending title", async () => {
@@ -72,9 +73,56 @@ describe("ConversationManager", () => {
     const created = await conversations.create(project);
     await conversations.rename(project, created.summary.id, "New conversation");
 
-    conversations.setInitialTitle(project.id, created.summary.id, "Build a game");
+    conversations.setInitialTitle(project, created.summary.id, "Build a game");
 
     expect((await conversations.get(project, created.summary.id))?.summary.title).toBe("New conversation");
+  });
+
+  it("replaces a provisional title only while it is still current", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const created = await conversations.create(project);
+    const provisional = conversations.setInitialTitle(project, created.summary.id, "Build a platform game");
+
+    const generated = await conversations.renameIfCurrent(
+      project,
+      created.summary.id,
+      provisional!.title,
+      "Build platform game",
+    );
+
+    expect(generated?.title).toBe("Build platform game");
+    expect(conversations.open(project, created).getSessionName()).toBe("Build platform game");
+  });
+
+  it("persists the title with the first completed Pi turn", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const created = await conversations.create(project);
+    conversations.setInitialTitle(project, created.summary.id, "Build a platform game");
+    appendCompletedTurn(conversations.open(project, created), "Build a platform game", "Done");
+
+    const listed = await new ConversationManager().list(project);
+
+    expect(listed[0]?.title).toBe("Build a platform game");
+  });
+
+  it("does not replace a provisional title after a manual rename", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const created = await conversations.create(project);
+    const provisional = conversations.setInitialTitle(project, created.summary.id, "Build a platform game");
+    await conversations.rename(project, created.summary.id, "My game task");
+
+    const generated = await conversations.renameIfCurrent(
+      project,
+      created.summary.id,
+      provisional!.title,
+      "Build platform game",
+    );
+
+    expect(generated).toBeUndefined();
+    expect((await conversations.get(project, created.summary.id))?.summary.title).toBe("My game task");
   });
 
   it("uses persisted Pi metadata after a pending session receives messages", async () => {
