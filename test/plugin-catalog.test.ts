@@ -20,6 +20,7 @@ describe("plugin catalog", () => {
 
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
       "opengame:godot",
+      "opengame:plugin-starter",
       "local:character-workflow",
     ]);
     expect(result.errors).toEqual([]);

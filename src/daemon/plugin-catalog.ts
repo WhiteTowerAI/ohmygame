@@ -84,7 +84,7 @@ export class BuiltInPluginAdapter implements PluginCatalogAdapter {
   }
 
   private async details(): Promise<PluginDetail[]> {
-    return builtInPlugins(await this.godotEnabled());
+    return [...builtInPlugins(await this.godotEnabled()), pluginStarter()];
   }
 }
 
@@ -138,6 +138,21 @@ export function godotPlugin(connectionEnabled = true): PluginDetail {
     enabled: true,
     skills: [],
     connections: [{ id: GODOT_MCP_SERVER_ID, name: "Godot", enabled: connectionEnabled }],
+  };
+}
+
+function pluginStarter(): PluginDetail {
+  return {
+    id: "opengame:plugin-starter",
+    name: "plugin-starter",
+    displayName: "Plugin Starter",
+    description: "A starting point for custom game-making workflows.",
+    marketplace: OPENGAME_MARKETPLACE,
+    source: { type: "builtIn" },
+    installed: false,
+    enabled: false,
+    skills: [],
+    connections: [],
   };
 }
 

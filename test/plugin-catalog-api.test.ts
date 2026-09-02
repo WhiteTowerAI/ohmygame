@@ -43,6 +43,7 @@ describe("plugin catalog API", () => {
     expect(catalog.json()).toMatchObject({
       plugins: [
         { id: "opengame:godot", installed: true },
+        { id: "opengame:plugin-starter", installed: false },
         { id: "opengame:img2threejs", installed: true },
       ],
       errors: [],

@@ -4,15 +4,15 @@ import {
   Gamepad2,
   LoaderCircle,
   FolderOpen,
+  MoreHorizontal,
   Package,
   Plus,
   Plug,
   Search,
-  SlidersHorizontal,
   Trash2,
   WandSparkles,
 } from "./icons.js";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
   type ConfigurablePluginComponentType,
@@ -25,7 +25,7 @@ import { listPlugins, readPlugin, removeLocalPlugin, updatePluginSettings, waitF
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
-type PluginsView = { type: "catalog" } | { type: "manage" } | { type: "detail"; pluginId: string };
+type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
 export function PluginsPage({ onNavigate, onAddPlugin }: {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -37,7 +37,6 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   const [detail, setDetail] = useState<PluginDetail>();
   const [detailPhase, setDetailPhase] = useState<"loading" | "ready" | "error">("loading");
   const [query, setQuery] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [catalogWarning, setCatalogWarning] = useState<string>();
@@ -90,7 +89,7 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
     }
   }
 
-  async function removePlugin(plugin: PluginDetail): Promise<void> {
+  async function removePlugin(plugin: PluginSummary): Promise<void> {
     if (updating || plugin.source.type !== "local") return;
     setUpdating(plugin.id);
     setError(undefined);
@@ -118,7 +117,7 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
     }
   }
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const installed = visible.filter((plugin) => plugin.installed);
   const available = visible.filter((plugin) => !plugin.installed);
@@ -126,20 +125,16 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   return <SidebarPageLayout active="plugins" onNavigate={onNavigate}>
     <SidebarPageHeader title="Plugins">
       {view.type === "catalog" ? (
-        <form className="plugins-search" onSubmit={(event: FormEvent) => { event.preventDefault(); setSearchQuery(query.trim()); }}>
-          <Search size={15} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
-        </form>
+        <div className="plugins-toolbar">
+          <label className="plugins-search">
+            <Search size={15} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
+          </label>
+          <button className="plugins-add-button" type="button" disabled={adding} onClick={() => void addPlugin()}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Opening..." : "Add plugin"}</button>
+        </div>
       ) : null}
     </SidebarPageHeader>
-    {view.type === "manage" ? <ManagePlugins
-      plugins={plugins.filter((plugin) => plugin.installed)}
-      updating={updating}
-      error={error}
-      onBack={() => setView({ type: "catalog" })}
-      onOpenPlugin={(id) => void openPlugin(id)}
-      onToggle={(plugin) => void toggleSummary(plugin)}
-    /> : view.type === "detail" ? <PluginDetailView
+    {view.type === "detail" ? <PluginDetailView
       phase={detailPhase}
       plugin={detail}
       updating={updating === detail?.id}
@@ -159,10 +154,12 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
       {phase === "ready" ? <>
         <InstalledPlugins
           plugins={installed}
-          adding={adding}
-          onAdd={() => void addPlugin()}
-          onManage={() => setView({ type: "manage" })}
+          collapsible={!normalizedQuery}
+          busy={Boolean(updating)}
+          onBrowse={(plugin) => void browsePlugin(plugin)}
           onOpenPlugin={(id) => void openPlugin(id)}
+          onRemove={(plugin) => void removePlugin(plugin)}
+          onToggle={(plugin) => void toggleSummary(plugin)}
         />
         <ExplorePlugins plugins={available} onOpenPlugin={(id) => void openPlugin(id)} />
       </> : null}
@@ -184,7 +181,7 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
     }
   }
 
-  async function browsePlugin(plugin: PluginDetail): Promise<void> {
+  async function browsePlugin(plugin: Pick<PluginSummary, "id">): Promise<void> {
     setError(undefined);
     try {
       await window.openGameDesktop?.browsePluginDirectory(plugin.id);
@@ -194,51 +191,101 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   }
 }
 
-function InstalledPlugins({ plugins, adding, onAdd, onManage, onOpenPlugin }: {
+const INSTALLED_PLUGIN_LIMIT = 6;
+
+function InstalledPlugins({ plugins, collapsible, busy, onBrowse, onOpenPlugin, onRemove, onToggle }: {
   plugins: PluginSummary[];
-  adding: boolean;
-  onAdd: () => void;
-  onManage: () => void;
+  collapsible: boolean;
+  busy: boolean;
+  onBrowse: (plugin: PluginSummary) => void;
   onOpenPlugin: (id: string) => void;
+  onRemove: (plugin: PluginSummary) => void;
+  onToggle: (plugin: PluginSummary) => void;
 }): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  const limited = collapsible && !expanded && plugins.length > INSTALLED_PLUGIN_LIMIT;
+  const displayed = limited ? plugins.slice(0, INSTALLED_PLUGIN_LIMIT) : plugins;
   return <section className="plugins-installed" aria-labelledby="installed-plugins-title">
-    <header>
-      <h2 id="installed-plugins-title">Installed</h2>
-      <span className="plugins-installed-actions">
-        <button type="button" disabled={adding} onClick={onAdd}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Opening..." : "Add plugin"}</button>
-        {plugins.length ? <button type="button" onClick={onManage}><SlidersHorizontal size={13} />Manage</button> : null}
-      </span>
-    </header>
-    {plugins.length ? <div className="plugins-installed-scroll">
-      {plugins.map((plugin) => <button className="plugin-installed-card" type="button" key={plugin.id} onClick={() => onOpenPlugin(plugin.id)}><PluginIcon plugin={plugin} /><strong>{plugin.displayName}</strong></button>)}
+    <h2 id="installed-plugins-title">Installed</h2>
+    {plugins.length ? <div className="plugins-installed-grid">
+      {displayed.map((plugin) => <InstalledPluginCard
+        key={plugin.id}
+        plugin={plugin}
+        busy={busy}
+        onBrowse={() => onBrowse(plugin)}
+        onOpen={() => onOpenPlugin(plugin.id)}
+        onRemove={() => onRemove(plugin)}
+        onToggle={() => onToggle(plugin)}
+      />)}
     </div> : <p className="plugins-empty">No installed plugins match your search.</p>}
+    {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "Show less" : `Show more (${plugins.length - INSTALLED_PLUGIN_LIMIT})`}</button> : null}
   </section>;
 }
 
 function ExplorePlugins({ plugins, onOpenPlugin }: { plugins: PluginSummary[]; onOpenPlugin: (id: string) => void }): ReactNode {
   return <section className="plugins-explore" aria-labelledby="explore-plugins-title">
     <header className="plugins-section-heading"><h2 id="explore-plugins-title">Explore</h2><span>Discover more capabilities for your agent.</span></header>
-    {plugins.length ? <div className="plugins-explore-grid">{plugins.map((plugin) => <button className="plugin-row plugin-row-main" type="button" key={plugin.id} onClick={() => onOpenPlugin(plugin.id)}><PluginIcon plugin={plugin} /><span className="plugin-row-copy"><strong>{plugin.displayName}</strong><span>{plugin.description}</span></span><ChevronRight size={15} /></button>)}</div> : <p className="plugins-empty">No additional plugins available.</p>}
+    {plugins.length ? <div className="plugins-explore-grid">{plugins.map((plugin) => <ExplorePluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}</div> : <p className="plugins-empty">No additional plugins match your search.</p>}
   </section>;
 }
 
-function ManagePlugins({ plugins, updating, error, onBack, onOpenPlugin, onToggle }: {
-  plugins: PluginSummary[];
-  updating?: string;
-  error?: string;
-  onBack: () => void;
-  onOpenPlugin: (id: string) => void;
-  onToggle: (plugin: PluginSummary) => void;
+function ExplorePluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
+  return <article className="plugin-catalog-card is-trailing">
+    <button className="plugin-card-open" type="button" onClick={onOpen}>
+      <PluginIcon plugin={plugin} />
+      <span className="plugin-card-copy"><strong>{plugin.displayName}</strong><span>{plugin.description}</span></span>
+      <ChevronRight size={15} />
+    </button>
+  </article>;
+}
+
+function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggle }: {
+  plugin: PluginSummary;
+  busy: boolean;
+  onBrowse: () => void;
+  onOpen: () => void;
+  onRemove: () => void;
+  onToggle: () => void;
 }): ReactNode {
-  return <section className="plugins-manage" aria-labelledby="plugins-manage-title">
-    <button className="plugins-back" type="button" onClick={onBack}><ArrowLeft size={14} />Back to Plugins</button>
-    <h2 className="plugins-manage-title" id="plugins-manage-title">Manage plugins</h2>
-    {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
-    <div className="plugins-manage-list">{plugins.map((plugin) => <div className="plugin-row plugin-manage-heading" key={plugin.id}>
-      <button className="plugin-row-main" type="button" onClick={() => onOpenPlugin(plugin.id)}><PluginIcon plugin={plugin} /><span className="plugin-row-copy"><strong>{plugin.displayName}</strong><span>{plugin.description}</span></span></button>
-      <PluginSwitch checked={plugin.enabled} disabled={updating === plugin.id} label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.displayName}`} onClick={() => onToggle(plugin)} />
-    </div>)}</div>
-  </section>;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const card = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!card.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
+  return <article className={`plugin-catalog-card has-actions${plugin.enabled ? "" : " is-disabled"}`} ref={card}>
+    <button className="plugin-card-open" type="button" onClick={onOpen}>
+      <PluginIcon plugin={plugin} />
+      <span className="plugin-card-copy">
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.enabled ? null : <small>Disabled</small>}</span>
+        <span>{plugin.description}</span>
+      </span>
+    </button>
+    <div className="plugin-card-actions">
+      <button className="plugin-card-menu" type="button" disabled={busy} aria-label={`Plugin actions for ${plugin.displayName}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={16} /></button>
+      {menuOpen ? <div className="plugin-card-actions-menu" role="menu">
+        <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpen(); }}>Open details</button>
+        <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onToggle(); }}>{plugin.enabled ? "Disable" : "Enable"}</button>
+        {plugin.source.type === "local" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
+        {plugin.source.type === "local" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
+          setMenuOpen(false);
+          if (window.confirm(`Remove “${plugin.displayName}”?`)) onRemove();
+        }}>Remove</button> : null}
+      </div> : null}
+    </div>
+  </article>;
 }
 
 function PluginDetailView({ phase, plugin, updating, error, onBack, onRetry, onToggleComponent, onBrowse, onRemove }: {
