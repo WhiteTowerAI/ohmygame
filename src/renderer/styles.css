@@ -4372,6 +4372,11 @@ button {
   color: #e5e7eb;
 }
 
+.workspace-navigation-actions .workspace-home-button,
+.workspace-navigation-actions .workspace-home-button:hover {
+  color: #fff;
+}
+
 .workspace-navigation-drag-exclusion {
   position: absolute;
   top: 0;

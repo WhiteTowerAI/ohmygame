@@ -753,7 +753,7 @@ function WorkspaceNavigationActions({ collapsed, project, onBeforeNavigate, onHo
 }) {
   return (
     <div className="workspace-navigation-actions" role="toolbar" aria-label="Workspace navigation">
-      <button className="icon-button" type="button" onClick={onHome} title="Home" aria-label="Home">
+      <button className="icon-button workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
         <House size={14} />
       </button>
       {collapsed && project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
