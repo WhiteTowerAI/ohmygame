@@ -1862,7 +1862,14 @@ button.home-nav-item-active:hover {
 }
 
 .home-discover .project-card-name { font-size: 12px; line-height: 16px; }
-.home-discover .project-card-time { font-size: 10px; line-height: 13px; }
+.home-discover .project-card-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.home-discover .project-card-details i { display: none; }
+.home-discover .project-card-time { grid-column: 1 / -1; font-size: 10px; line-height: 13px; }
 
 .home-discover .project-card-actions {
   top: 8px;
@@ -2191,7 +2198,7 @@ button.home-nav-item-active:hover {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: var(--home-surface);
+  background: var(--surface-raised);
   color: var(--text-muted);
   font: inherit;
   font-size: 11px;
@@ -2201,8 +2208,8 @@ button.home-nav-item-active:hover {
 }
 
 .library-filters button:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
-.library-filters button.is-active { border-color: color-mix(in srgb, var(--home-accent) 30%, var(--border)); background: color-mix(in srgb, var(--home-accent) 14%, transparent); color: var(--text); }
-.library-filters button.is-active svg { color: var(--home-accent); }
+.library-filters button.is-active { border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--border)); background: color-mix(in srgb, var(--theme-accent) 14%, transparent); color: var(--text); }
+.library-filters button.is-active svg { color: var(--theme-accent); }
 .library-filters button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-filters button svg { flex: 0 0 auto; color: #858b97; }
 
@@ -2238,7 +2245,7 @@ button.home-nav-item-active:hover {
 }
 
 .library-asset-card { position: relative; min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: #121317; font: inherit; text-align: left; transition: 120ms ease; transition-property: border-color, background-color; }
-.library-asset-card:hover { border-color: color-mix(in srgb, var(--home-accent) 28%, var(--border-strong)); background: var(--surface-hover); }
+.library-asset-card:hover { border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--border-strong)); background: var(--surface-hover); }
 .library-asset-card-open { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .library-asset-card-open:focus-visible { outline-offset: -1px; }
 .library-asset-thumbnail { position: relative; display: grid; width: 100%; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: #181a20; color: #7c828e; }
