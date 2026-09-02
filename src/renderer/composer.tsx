@@ -26,7 +26,7 @@ interface ComposerProps {
   modelChanging: boolean;
   promptHistory: Array<{ prompt: string; mentions: PluginMention[] }>;
   capabilities: ConversationCapabilities;
-  initialDraft?: string;
+  initialDraft?: ComposerDraft;
   onInitialDraftHandled?: () => void;
   onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
@@ -40,6 +40,11 @@ interface ComposerProps {
   reference?: ChatReference;
   onClearReference?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+}
+
+export interface ComposerDraft {
+  prompt: string;
+  mentions: PluginMention[];
 }
 
 export function Composer({
@@ -71,10 +76,10 @@ export function Composer({
   onClearReference,
   onDirtyChange,
 }: ComposerProps) {
-  const initialSkill = parseSkillInvocation(initialDraft ?? "");
-  const [prompt, setPrompt] = useState(initialSkill?.prompt ?? initialDraft ?? "");
+  const initialSkill = parseSkillInvocation(initialDraft?.prompt ?? "");
+  const [prompt, setPrompt] = useState(initialSkill?.prompt ?? initialDraft?.prompt ?? "");
   const [selectedSkill, setSelectedSkill] = useState(initialSkill?.name);
-  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
+  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>(initialDraft?.mentions ?? []);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
@@ -102,7 +107,7 @@ export function Composer({
   }, [dirty, onDirtyChange]);
   useEffect(() => {
     if (!initialDraft) return;
-    const cursor = initialSkill?.prompt.length ?? initialDraft.length;
+    const cursor = initialSkill?.prompt.length ?? initialDraft.prompt.length;
     setMentionCursor(cursor);
     requestAnimationFrame(() => {
       textarea.current?.focus();

@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import type { PluginMention } from "./contracts.js";
+import type { PluginMention, ProjectType } from "./contracts.js";
 
 export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
 
@@ -98,6 +98,8 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 export interface PluginDetail extends PluginSummary {
   skills: PluginComponentSummary[];
   connections: PluginComponentSummary[];
+  defaultPrompts?: string[];
+  projectTypes?: ProjectType[];
 }
 
 export interface PluginCatalog {
@@ -123,6 +125,12 @@ const SemVerSchema = Type.String({
 const InterfaceSchema = Type.Object({
   displayName: Type.Optional(Type.String({ minLength: 1 })),
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
+  defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+  projectTypes: Type.Optional(Type.Array(Type.Union([
+    Type.Literal("web-game"),
+    Type.Literal("godot-game"),
+    Type.Literal("interactive-drama"),
+  ]), { minItems: 1, uniqueItems: true })),
 }, { additionalProperties: false });
 
 export const PluginManifestSchema = Type.Object({

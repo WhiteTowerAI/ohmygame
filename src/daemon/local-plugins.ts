@@ -275,6 +275,8 @@ export async function inspectPluginBundle(
     enabled: true,
     skills,
     connections,
+    defaultPrompts: manifest.interface?.defaultPrompt,
+    projectTypes: manifest.interface?.projectTypes,
   };
 }
 

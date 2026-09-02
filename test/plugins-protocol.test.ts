@@ -29,6 +29,8 @@ describe("plugin protocol", () => {
       interface: {
         displayName: "Godot",
         shortDescription: "Godot workflows",
+        defaultPrompt: ["Build a player controller."],
+        projectTypes: ["godot-game"],
       },
     })).toBe(true);
   });

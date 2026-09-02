@@ -24,7 +24,11 @@ describe("plugin catalog", () => {
       "local:character-workflow",
     ]);
     expect(result.errors).toEqual([]);
-    await expect(catalog.read("opengame:godot")).resolves.toEqual(godotPlugin(true));
+    const godot = await catalog.read("opengame:godot");
+    expect(godot).toEqual(godotPlugin(true));
+    expect(godot?.defaultPrompts).toHaveLength(3);
+    expect(godot?.projectTypes).toEqual(["godot-game"]);
+    expect(result.plugins.find((plugin) => plugin.id === "opengame:godot")).not.toHaveProperty("defaultPrompts");
   });
 
   it("validates mentions against installed enabled plugins", async () => {

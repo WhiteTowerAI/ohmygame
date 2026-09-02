@@ -1,15 +1,14 @@
 import {
-  ArrowLeft,
   ChevronRight,
+  FolderPlus,
   Gamepad2,
   LoaderCircle,
-  FolderOpen,
   MoreHorizontal,
   Package,
   Plus,
+  Play,
   Plug,
   Search,
-  Trash2,
   WandSparkles,
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -21,15 +20,18 @@ import {
   type PluginSettings,
   type PluginSummary,
 } from "../shared/plugins.js";
-import { listPlugins, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import type { ProjectState } from "../shared/contracts.js";
+import { listPlugins, listProjects, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
-export function PluginsPage({ onNavigate, onAddPlugin }: {
+export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onAddPlugin: () => Promise<void>;
+  onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -121,9 +123,15 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const installed = visible.filter((plugin) => plugin.installed);
   const available = visible.filter((plugin) => !plugin.installed);
+  const detailTitle = view.type === "detail"
+    ? detail?.displayName ?? plugins.find((plugin) => plugin.id === view.pluginId)?.displayName ?? "Plugin"
+    : undefined;
 
   return <SidebarPageLayout active="plugins" onNavigate={onNavigate}>
-    <SidebarPageHeader title="Plugins">
+    <SidebarPageHeader
+      title={detailTitle ?? "Plugins"}
+      breadcrumb={view.type === "detail" ? { label: "Plugins", onClick: showCatalog } : undefined}
+    >
       {view.type === "catalog" ? (
         <div className="plugins-toolbar">
           <label className="plugins-search">
@@ -139,14 +147,15 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
       plugin={detail}
       updating={updating === detail?.id}
       error={error}
-      onBack={() => setView({ type: "catalog" })}
       onRetry={() => void openPlugin(view.pluginId)}
+      onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
       onToggleComponent={(type, component, enabled) => detail && void updatePlugin(detail, {
         enabled: detail.enabled,
         components: { ...componentSettings(detail).components, [pluginComponentKey(type, component.id)]: enabled },
       })}
       onBrowse={() => detail && void browsePlugin(detail)}
       onRemove={() => detail && void removePlugin(detail)}
+      onTry={onTryPlugin}
     /> : <>
       {phase === "ready" && (error || catalogWarning) ? <p className="plugins-inline-error" role="alert">{error ?? catalogWarning}</p> : null}
       {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
@@ -165,6 +174,10 @@ export function PluginsPage({ onNavigate, onAddPlugin }: {
       </> : null}
     </>}
   </SidebarPageLayout>;
+
+  function showCatalog(): void {
+    setView({ type: "catalog" });
+  }
 
   async function toggleSummary(plugin: PluginSummary): Promise<void> {
     if (updating) return;
@@ -288,50 +301,196 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
   </article>;
 }
 
-function PluginDetailView({ phase, plugin, updating, error, onBack, onRetry, onToggleComponent, onBrowse, onRemove }: {
+function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onRemove, onTry }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
   updating: boolean;
   error?: string;
-  onBack: () => void;
   onRetry: () => void;
+  onTogglePlugin: (enabled: boolean) => void;
   onToggleComponent: (type: ConfigurablePluginComponentType, component: PluginComponentSummary, enabled: boolean) => void;
   onBrowse: () => void;
   onRemove: () => void;
+  onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }): ReactNode {
+  const [tryPrompt, setTryPrompt] = useState<string>();
+  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [projectPhase, setProjectPhase] = useState<"loading" | "ready" | "error" | "starting">("loading");
+  const [projectError, setProjectError] = useState<string>();
+  const [projectQuery, setProjectQuery] = useState("");
+  const [tryNotice, setTryNotice] = useState<string>();
+  const tryMenu = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!tryPrompt) return;
+    const close = (event: MouseEvent) => {
+      if (!tryMenu.current?.contains(event.target as Node)) setTryPrompt(undefined);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTryPrompt(undefined);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [tryPrompt]);
+
+  async function openProjectPicker(prompt: string): Promise<void> {
+    setTryPrompt(prompt);
+    setProjectQuery("");
+    setProjectError(undefined);
+    setProjectPhase("loading");
+    try {
+      const items = await listProjects();
+      const projectTypes = plugin?.projectTypes;
+      const compatible = projectTypes?.length
+        ? items.filter((project) => projectTypes.includes(project.type))
+        : items;
+      setProjects(compatible.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
+      setProjectPhase("ready");
+    } catch (cause) {
+      setProjectError(errorMessage(cause));
+      setProjectPhase("error");
+    }
+  }
+
+  function choosePrompt(prompt: string): void {
+    if (!plugin?.installed) {
+      setTryNotice("Install this plugin to try an example.");
+      return;
+    }
+    if (!plugin.enabled) {
+      setTryNotice("Enable this plugin to try an example.");
+      return;
+    }
+    setTryNotice(undefined);
+    void openProjectPicker(prompt);
+  }
+
+  function togglePlugin(enabled: boolean): void {
+    setTryPrompt(undefined);
+    setTryNotice(undefined);
+    onTogglePlugin(enabled);
+  }
+
+  async function startPlugin(projectId?: string): Promise<void> {
+    if (!plugin || !tryPrompt || projectPhase === "starting") return;
+    setProjectPhase("starting");
+    setProjectError(undefined);
+    try {
+      await onTry(plugin, tryPrompt, projectId);
+    } catch (cause) {
+      setProjectError(errorMessage(cause));
+      setProjectPhase("error");
+    }
+  }
+
+  const normalizedProjectQuery = projectQuery.trim().toLowerCase();
+  const visibleProjects = projects.filter((project) => !normalizedProjectQuery || project.name.toLowerCase().includes(normalizedProjectQuery));
+  const prompts = plugin?.defaultPrompts ?? [];
+  const firstPrompt = prompts[0];
   return <section className="plugin-detail">
-    <button className="plugins-back" type="button" onClick={onBack}><ArrowLeft size={14} />Back to Plugins</button>
     {phase === "loading" ? <PluginState>Loading plugin</PluginState> : null}
     {phase === "error" ? <PluginError message={error} onRetry={onRetry} /> : null}
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
-        <div><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
-        {plugin.source.type === "local" ? <span className="plugin-detail-actions">
-          {window.openGameDesktop ? <button type="button" disabled={updating} onClick={onBrowse}><FolderOpen size={13} />Browse directory</button> : null}
-          <button type="button" disabled={updating} onClick={onRemove}><Trash2 size={13} />Remove</button>
-        </span> : null}
+        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
+        <div className="plugin-detail-hero-actions" ref={tryMenu}>
+          <PluginDetailActions
+            plugin={plugin}
+            updating={updating}
+            onBrowse={onBrowse}
+            onRemove={onRemove}
+            onToggle={togglePlugin}
+          />
+          {!plugin.installed ? <button className="plugin-detail-primary" type="button" disabled title="Plugin installation is not available yet">Install</button> : null}
+          {plugin.installed && !plugin.enabled ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={() => togglePlugin(true)}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Enabling..." : "Enable"}</button> : null}
+          {plugin.installed && plugin.enabled && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
+          {tryPrompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={`Try ${plugin.displayName}`}>
+            <div className="plugin-try-heading"><strong>Choose a project</strong><span>The prompt will be added to a new conversation.</span></div>
+            <label className="project-switcher-search">
+              <Search size={13} />
+              <input value={projectQuery} placeholder="Search projects" aria-label="Search projects" onChange={(event) => setProjectQuery(event.target.value)} />
+            </label>
+            <div className="project-switcher-list">
+              {projectPhase === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />Loading projects</div> : null}
+              {projectPhase === "error" ? <div className="project-switcher-state is-error"><span>{projectError}</span><button type="button" onClick={() => void openProjectPicker(tryPrompt)}>Retry</button></div> : null}
+              {projectPhase === "starting" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />Starting conversation</div> : null}
+              {projectPhase === "ready" ? visibleProjects.map((project) => <button className="project-switcher-item" type="button" key={project.id} onClick={() => void startPlugin(project.id)}>
+                <ProjectTypeIcon type={project.type} />
+                <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
+                <ChevronRight size={13} />
+              </button>) : null}
+              {projectPhase === "ready" && !visibleProjects.length ? <div className="project-switcher-state">No compatible projects</div> : null}
+            </div>
+            <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />New {projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game")} project</button></div>
+          </div> : null}
+        </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
-      <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} updating={updating} type="skill" onToggle={onToggleComponent} />
-      <ComponentSection title="Connections" items={plugin.connections} icon={() => <Plug size={15} />} updating={updating} type="connection" onToggle={onToggleComponent} />
+      {prompts.length ? <section className="plugin-prompts"><h2>Try it</h2><div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}><span>{prompt}</span><ChevronRight size={14} /></button>)}</div>{tryNotice ? <p role="status">{tryNotice}</p> : null}</section> : null}
+      <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} disabled={updating || !plugin.enabled} type="skill" onToggle={onToggleComponent} />
+      <ComponentSection title="Connections" items={plugin.connections} icon={() => <Plug size={15} />} disabled={updating || !plugin.enabled} type="connection" onToggle={onToggleComponent} />
     </> : null}
   </section>;
 }
 
-function ComponentSection({ title, items, icon, updating, type, onToggle }: {
+function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }: {
+  plugin: PluginDetail;
+  updating: boolean;
+  onBrowse: () => void;
+  onRemove: () => void;
+  onToggle: (enabled: boolean) => void;
+}): ReactNode {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
+  if (!plugin.installed) return null;
+
+  return <div className="plugin-detail-menu" ref={menu}>
+    <button className="plugin-detail-menu-trigger" type="button" disabled={updating} aria-label={`Plugin actions for ${plugin.displayName}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={16} /></button>
+    {menuOpen ? <div className="plugin-card-actions-menu plugin-detail-actions-menu" role="menu">
+      <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onToggle(!plugin.enabled); }}>{plugin.enabled ? "Disable plugin" : "Enable plugin"}</button>
+      {plugin.source.type === "local" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
+      {plugin.source.type === "local" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
+        setMenuOpen(false);
+        if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onRemove();
+      }}>Uninstall</button> : null}
+    </div> : null}
+  </div>;
+}
+
+function ComponentSection({ title, items, icon, disabled, type, onToggle }: {
   title: string;
   items: PluginComponentSummary[];
   icon: (item: PluginComponentSummary) => ReactNode;
-  updating: boolean;
+  disabled: boolean;
   type: ConfigurablePluginComponentType;
   onToggle: (type: ConfigurablePluginComponentType, component: PluginComponentSummary, enabled: boolean) => void;
 }): ReactNode {
   if (!items.length) return null;
-  return <section className="plugin-components"><h2>{title}</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
+  return <section className={`plugin-components${disabled ? " is-disabled" : ""}`}><h2>{title}</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
     <span className="plugin-component-icon">{icon(item)}</span>
     <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
-    <PluginSwitch checked={item.enabled} disabled={updating} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(type, item, !item.enabled)} />
+    <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(type, item, !item.enabled)} />
   </div>)}</div></section>;
 }
 
@@ -358,7 +517,7 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, connections: _connections, ...summary } = plugin;
+  const { skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
   return summary;
 }
 

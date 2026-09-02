@@ -49,7 +49,7 @@ import type { ChatReference } from "./chat-reference.js";
 import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
-import { Composer } from "./composer.js";
+import { Composer, type ComposerDraft } from "./composer.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
@@ -62,7 +62,7 @@ interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
   initialPrompt?: { prompt: string; images: PromptImage[]; mode: PromptMode };
-  initialDraft?: string;
+  initialDraft?: ComposerDraft;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;

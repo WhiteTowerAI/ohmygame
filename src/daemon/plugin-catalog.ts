@@ -138,6 +138,12 @@ export function godotPlugin(connectionEnabled = true): PluginDetail {
     enabled: true,
     skills: [],
     connections: [{ id: GODOT_MCP_SERVER_ID, name: "Godot", enabled: connectionEnabled }],
+    defaultPrompts: [
+      "Create a playable 3D scene in Godot.",
+      "Inspect the current Godot project and suggest the next implementation step.",
+      "Build a player controller for the current Godot scene.",
+    ],
+    projectTypes: ["godot-game"],
   };
 }
 
@@ -157,7 +163,7 @@ function pluginStarter(): PluginDetail {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, connections: _connections, ...summary } = plugin;
+  const { skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
   return summary;
 }
 

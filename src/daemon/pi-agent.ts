@@ -29,12 +29,14 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
   "connections": ["opengame-godot"],
   "interface": {
     "displayName": "My Plugin",
-    "shortDescription": "A short user-facing description."
+    "shortDescription": "A short user-facing description.",
+    "defaultPrompt": ["Try this plugin with a concrete task."],
+    "projectTypes": ["web-game"]
   }
 }
 \`\`\`
 
-Only include fields the plugin uses. The built-in Godot connection is \`opengame-godot\`. OpenGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
+Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, and \`interactive-drama\`. The built-in Godot connection is \`opengame-godot\`. OpenGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
 Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. Do not create a Pi extension, custom in-process tool, or MCP server.
 

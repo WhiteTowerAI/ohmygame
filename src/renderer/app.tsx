@@ -9,13 +9,16 @@ import { communityGameHash, conversationHash, parseAppRoute, projectHash, settin
 import { AssetStudioPage } from "./asset-studio.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
-import type { PromptImage, PromptMode } from "../shared/contracts.js";
-import { createPluginAuthoringSession } from "./api.js";
+import type { PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { PluginDetail } from "../shared/plugins.js";
+import { pluginMentionToken } from "../shared/plugins.js";
+import { createConversation, createPluginAuthoringSession, createProject } from "./api.js";
+import type { ComposerDraft } from "./composer.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
   const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[]; mode: PromptMode }>();
-  const [initialDraft, setInitialDraft] = useState<{ conversationId: string; prompt: string }>();
+  const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -35,7 +38,7 @@ export function App() {
   }
   if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
   if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
-  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} />;
+  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
@@ -48,7 +51,7 @@ export function App() {
       projectId={route.projectId}
       conversationId={route.conversationId}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
-      initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.prompt : undefined}
+      initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
@@ -72,8 +75,24 @@ export function App() {
   async function addPlugin(): Promise<void> {
     const session = await createPluginAuthoringSession();
     setInitialPrompt(undefined);
-    setInitialDraft({ conversationId: session.conversationId, prompt: "$plugin-creator Create an OpenGame plugin that " });
+    setInitialDraft({ conversationId: session.conversationId, draft: { prompt: "$plugin-creator Create an OpenGame plugin that ", mentions: [] } });
     navigateToConversation(session.projectId, session.conversationId);
+  }
+
+  async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
+    const project = projectId ? { id: projectId } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
+    const conversation = await createConversation(project.id);
+    const mention: PluginMention = {
+      name: plugin.name,
+      displayName: plugin.displayName,
+      marketplaceId: plugin.marketplace.id,
+    };
+    setInitialPrompt(undefined);
+    setInitialDraft({
+      conversationId: conversation.id,
+      draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
+    });
+    navigateToConversation(project.id, conversation.id);
   }
 
   function clearInitialPrompt(): void {

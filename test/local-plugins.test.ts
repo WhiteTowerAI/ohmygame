@@ -17,6 +17,10 @@ describe("local plugins", () => {
       version: "1.0.0",
       description: "Write game characters",
       skills: "./skills/",
+      interface: {
+        defaultPrompt: ["Create a game character."],
+        projectTypes: ["web-game"],
+      },
     });
     const store = new LocalPluginStore(dataDirectory);
 
@@ -31,6 +35,8 @@ describe("local plugins", () => {
       installed: true,
       enabled: true,
       skills: [{ id: "skills/writer/SKILL.md", name: "Writer" }],
+      defaultPrompts: ["Create a game character."],
+      projectTypes: ["web-game"],
     });
     await writePluginManifest(source, {
       name: "character-writer",
