@@ -2612,7 +2612,7 @@ button.home-nav-item-active:hover {
   }
 
   .plugin-detail-hero {
-    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-columns: 60px minmax(0, 1fr);
   }
 
   .plugin-detail-hero-actions {
@@ -2851,8 +2851,8 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-row-icon-large {
-  width: 46px;
-  height: 46px;
+  width: 60px;
+  height: 60px;
   border-radius: 10px;
 }
 
@@ -2865,7 +2865,7 @@ button.home-nav-item-active:hover {
 
 .plugin-detail-hero {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   padding-bottom: 22px;

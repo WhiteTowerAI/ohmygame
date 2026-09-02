@@ -1,7 +1,6 @@
 import {
   ChevronRight,
   FolderPlus,
-  Gamepad2,
   LoaderCircle,
   MoreHorizontal,
   Package,
@@ -536,9 +535,9 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 }
 
 function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id">; large?: boolean }): ReactNode {
-  const size = large ? 22 : 17;
+  const size = large ? 30 : 17;
   const godot = plugin.id === "opengame:godot";
-  return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <Gamepad2 size={size} /> : plugin.id.startsWith("local:") ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
+  return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.id.startsWith("local:") ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
 }
 
 function pluginSearchText(plugin: PluginSummary): string {
