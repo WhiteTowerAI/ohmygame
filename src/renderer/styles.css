@@ -4419,9 +4419,9 @@ button {
 .conversation-popover {
   position: absolute;
   z-index: 10;
-  top: 38px;
+  top: 34px;
   right: 0;
-  width: min(330px, calc(100vw - 36px));
+  width: min(286px, calc(100vw - 36px));
   overflow: hidden;
   border: 1px solid var(--menu-border);
   border-radius: 8px;
@@ -4429,55 +4429,39 @@ button {
   box-shadow: var(--menu-shadow);
 }
 
-.conversation-popover-heading {
-  display: flex;
-  height: 34px;
-  align-items: center;
-  padding: 4px 12px 0;
-  color: var(--text);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 16px;
-}
-
 .conversation-list {
   display: flex;
   max-height: min(320px, 48dvh);
   flex-direction: column;
-  gap: 4px;
   overflow: auto;
-  padding: 0 12px 10px 10px;
+  padding: 0 6px 6px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 
 .conversation-row {
   position: relative;
-  height: 42px;
+  height: 44px;
   min-width: 0;
-  flex: 0 0 42px;
-  border-radius: 6px;
+  flex: 0 0 44px;
+  border-radius: 5px;
 }
 
 .conversation-row:hover {
   background: var(--menu-hover);
 }
 
-.conversation-row-current,
-.conversation-row-current:hover {
-  background: #1b2e29;
-}
-
 .conversation-option {
   display: grid;
   width: 100%;
-  height: 42px;
+  height: 44px;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 18px;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
   align-items: center;
-  padding: 5px 14px 4px 12px;
+  gap: 8px;
+  padding: 5px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -4489,9 +4473,11 @@ button {
   width: 14px;
   height: 14px;
   justify-self: end;
-  color: var(--accent);
+  color: var(--composer-accent);
   place-items: center;
 }
+
+.conversation-option-icon { color: var(--text-muted); }
 
 .conversation-option-copy,
 .conversation-option-title,
@@ -4503,14 +4489,10 @@ button {
 .conversation-option-title {
   overflow: hidden;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.conversation-row-current .conversation-option-title {
-  font-weight: 600;
 }
 
 .conversation-option-meta {
@@ -4541,7 +4523,7 @@ button {
 
 .conversation-rename-button {
   position: absolute;
-  top: 8px;
+  top: 9px;
   right: 8px;
   opacity: 0;
 }
@@ -4551,17 +4533,29 @@ button {
   opacity: 1;
 }
 
-.conversation-row:hover .conversation-option-mark {
+.conversation-row:hover .conversation-option-mark,
+.conversation-row:has(.conversation-rename-button:focus-visible) .conversation-option-mark {
   opacity: 0;
 }
 
 .conversation-rename {
   display: grid;
-  height: 42px;
+  height: 44px;
   grid-template-columns: minmax(0, 1fr) 26px 26px;
   align-items: center;
   gap: 3px;
   padding: 6px;
+}
+
+.conversation-menu-empty {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: center;
 }
 
 .conversation-rename input {
@@ -4579,7 +4573,7 @@ button {
 }
 
 .conversation-rename input:focus {
-  border-color: var(--accent);
+  border-color: var(--theme-accent);
 }
 
 .conversation-menu-error {
@@ -7464,7 +7458,7 @@ button {
     position: fixed;
     top: 50px;
     right: 16px;
-    width: min(330px, calc(100vw - 32px));
+    width: min(286px, calc(100vw - 32px));
   }
 
   .agent-pane {

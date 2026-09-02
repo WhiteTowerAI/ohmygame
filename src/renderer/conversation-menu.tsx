@@ -1,4 +1,4 @@
-import { Check, FilePenLine, History, LoaderCircle, X } from "./icons.js";
+import { Check, FilePenLine, FileText, History, LoaderCircle, Search, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 
@@ -24,9 +24,11 @@ export function ConversationMenu({
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -41,6 +43,7 @@ export function ConversationMenu({
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    requestAnimationFrame(() => searchInput.current?.focus());
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
@@ -79,6 +82,9 @@ export function ConversationMenu({
     }
   }
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleConversations = conversations.filter((conversation) => !normalizedQuery || conversation.title.toLowerCase().includes(normalizedQuery));
+
   return (
     <div className="conversation-menu" ref={root}>
       <button
@@ -98,9 +104,12 @@ export function ConversationMenu({
 
       {open ? (
         <div id="conversation-menu-popover" className="conversation-popover" role="dialog" aria-label="Conversations">
-          <div className="conversation-popover-heading">Conversations</div>
+          <label className="project-switcher-search">
+            <Search size={13} />
+            <input ref={searchInput} aria-label="Search conversations" value={query} placeholder="Search conversations" onChange={(event) => setQuery(event.target.value)} />
+          </label>
           <div className="conversation-list">
-            {conversations.map((conversation) => editingId === conversation.id ? (
+            {visibleConversations.map((conversation) => editingId === conversation.id ? (
               <form className="conversation-rename" key={conversation.id} onSubmit={submitRename}>
                 <input
                   ref={editInput}
@@ -118,15 +127,17 @@ export function ConversationMenu({
                 </button>
               </form>
             ) : (
-              <div className={`conversation-row${conversation.id === currentConversationId ? " conversation-row-current" : ""}`} key={conversation.id}>
+              <div className="conversation-row" key={conversation.id}>
                 <button
                   className="conversation-option"
                   type="button"
+                  aria-current={conversation.id === currentConversationId ? "true" : undefined}
                   onClick={() => {
                     close();
                     if (conversation.id !== currentConversationId) onSelect(conversation.id);
                   }}
                 >
+                  <FileText className="conversation-option-icon" size={16} aria-hidden="true" />
                   <span className="conversation-option-copy">
                     <span className="conversation-option-title">{conversation.title}</span>
                     <span className="conversation-option-meta">
@@ -152,6 +163,7 @@ export function ConversationMenu({
                 </button>
               </div>
             ))}
+            {!visibleConversations.length ? <div className="conversation-menu-empty">No matching conversations</div> : null}
           </div>
           {error ? <p className="conversation-menu-error" role="alert">{error}</p> : null}
         </div>
