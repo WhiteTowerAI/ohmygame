@@ -30,6 +30,7 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
   "interface": {
     "displayName": "My Plugin",
     "shortDescription": "A short user-facing description.",
+    "longDescription": "A longer description for the Plugin detail page.",
     "defaultPrompt": ["Try this plugin with a concrete task."],
     "projectTypes": ["web-game"]
   }

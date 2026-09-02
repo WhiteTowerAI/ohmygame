@@ -1,5 +1,4 @@
 import type { PluginMention } from "../shared/contracts.js";
-import { GODOT_MCP_SERVER_ID } from "../shared/mcp.js";
 import {
   OPENGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
@@ -71,20 +70,12 @@ export class PluginCatalogService {
 export class BuiltInPluginAdapter implements PluginCatalogAdapter {
   readonly marketplace = OPENGAME_MARKETPLACE;
 
-  constructor(
-    private readonly godotEnabled: () => Promise<boolean>,
-  ) {}
-
   async list(): Promise<PluginCatalogResult> {
-    return { plugins: (await this.details()).map(pluginSummary) };
+    return { plugins: builtInPlugins().map(pluginSummary) };
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {
-    return (await this.details()).find((plugin) => plugin.id === id);
-  }
-
-  private async details(): Promise<PluginDetail[]> {
-    return [...builtInPlugins(await this.godotEnabled()), pluginStarter()];
+    return builtInPlugins().find((plugin) => plugin.id === id);
   }
 }
 
@@ -122,29 +113,8 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
-export function builtInPlugins(godotEnabled = true): PluginDetail[] {
-  return [godotPlugin(godotEnabled)];
-}
-
-export function godotPlugin(connectionEnabled = true): PluginDetail {
-  return {
-    id: "opengame:godot",
-    name: "godot",
-    displayName: "Godot",
-    description: "Connect the agent to the Godot editor.",
-    marketplace: OPENGAME_MARKETPLACE,
-    source: { type: "builtIn" },
-    installed: true,
-    enabled: true,
-    skills: [],
-    connections: [{ id: GODOT_MCP_SERVER_ID, name: "Godot", enabled: connectionEnabled }],
-    defaultPrompts: [
-      "Create a playable 3D scene in Godot.",
-      "Inspect the current Godot project and suggest the next implementation step.",
-      "Build a player controller for the current Godot scene.",
-    ],
-    projectTypes: ["godot-game"],
-  };
+export function builtInPlugins(): PluginDetail[] {
+  return [pluginStarter()];
 }
 
 function pluginStarter(): PluginDetail {
@@ -153,6 +123,7 @@ function pluginStarter(): PluginDetail {
     name: "plugin-starter",
     displayName: "Plugin Starter",
     description: "A starting point for custom game-making workflows.",
+    longDescription: "Create a custom OpenGame plugin with reusable Skills and Connections.",
     marketplace: OPENGAME_MARKETPLACE,
     source: { type: "builtIn" },
     installed: false,
@@ -163,7 +134,7 @@ function pluginStarter(): PluginDetail {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
   return summary;
 }
 

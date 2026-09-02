@@ -434,6 +434,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
+      {plugin.longDescription ? <section className="plugin-about"><h2>About</h2><p>{plugin.longDescription}</p></section> : null}
       {prompts.length ? <section className="plugin-prompts">
         <h2>Try it</h2>
         <div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}>
@@ -530,7 +531,7 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
   return summary;
 }
 

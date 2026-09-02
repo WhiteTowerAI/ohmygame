@@ -42,13 +42,20 @@ describe("plugin catalog API", () => {
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
-        { id: "opengame:godot", installed: true },
         { id: "opengame:plugin-starter", installed: false },
+        { id: "opengame:godot", installed: true },
         { id: "opengame:img2threejs", installed: true },
       ],
       errors: [],
     });
-    expect(detail.json()).toMatchObject({ id: "opengame:godot", connections: [{ id: "opengame-godot" }] });
+    expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);
+    expect(detail.json()).toMatchObject({
+      id: "opengame:godot",
+      longDescription: expect.any(String),
+      connections: [{ id: "opengame-godot", name: "Godot" }],
+      defaultPrompts: expect.any(Array),
+      projectTypes: ["godot-game"],
+    });
   });
 
   it("exposes the bundled Image to Three.js plugin as one Skill", async () => {

@@ -29,6 +29,7 @@ describe("plugin protocol", () => {
       interface: {
         displayName: "Godot",
         shortDescription: "Godot workflows",
+        longDescription: "Build and edit Godot projects through the connected editor.",
         defaultPrompt: ["Build a player controller."],
         projectTypes: ["godot-game"],
       },

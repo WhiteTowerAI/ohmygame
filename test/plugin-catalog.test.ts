@@ -2,33 +2,27 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BuiltInPluginAdapter, LocalPluginAdapter, PluginCatalogService, godotPlugin } from "../src/daemon/plugin-catalog.js";
+import { BuiltInPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin catalog", () => {
-  it("combines built-in and personal plugins behind one catalog", async () => {
+  it("combines system and personal plugins behind one catalog", async () => {
     const personal = localPlugin();
     const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
-      new BuiltInPluginAdapter(async () => true),
+      new BuiltInPluginAdapter(),
       new LocalPluginAdapter({ list: async () => ({ plugins: [personal], errors: [] }), read: async (id) => id === personal.id ? personal : undefined }),
     ], settings);
 
     const result = await catalog.list();
 
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
-      "opengame:godot",
       "opengame:plugin-starter",
       "local:character-workflow",
     ]);
     expect(result.errors).toEqual([]);
-    const godot = await catalog.read("opengame:godot");
-    expect(godot).toEqual(godotPlugin(true));
-    expect(godot?.defaultPrompts).toHaveLength(3);
-    expect(godot?.projectTypes).toEqual(["godot-game"]);
-    expect(result.plugins.find((plugin) => plugin.id === "opengame:godot")).not.toHaveProperty("defaultPrompts");
   });
 
   it("validates mentions against installed enabled plugins", async () => {

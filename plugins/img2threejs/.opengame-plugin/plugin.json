@@ -5,6 +5,7 @@
   "skills": "./SKILL.md",
   "interface": {
     "displayName": "Image to Three.js",
-    "shortDescription": "Create procedural Three.js models from reference images."
+    "shortDescription": "Create procedural Three.js models from reference images.",
+    "longDescription": "Reconstruct reference images as procedural, animation-ready Three.js models through a structured modeling and visual review workflow."
   }
 }

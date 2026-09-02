@@ -2624,13 +2624,6 @@ button.home-nav-item-active:hover {
 .plugins-installed { margin-top: 28px; }
 .plugins-explore { margin-top: 38px; }
 
-.plugin-components > h2 {
-  margin: 0 0 9px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 650;
-}
-
 .plugins-installed h2 {
   margin: 0;
   color: var(--text);
@@ -2969,15 +2962,29 @@ button.home-nav-item-active:hover {
   opacity: 0.5;
 }
 
-.plugin-prompts {
+.plugin-about {
   margin-top: 24px;
 }
 
-.plugin-prompts > h2 {
+.plugin-about h2,
+.plugin-prompts > h2,
+.plugin-components > h2 {
   margin: 0 0 9px;
   color: var(--text);
   font-size: 13px;
   font-weight: 650;
+}
+
+.plugin-about p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.plugin-prompts {
+  margin-top: 24px;
 }
 
 .plugin-prompts > div {

@@ -2,8 +2,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { godotPlugin } from "../src/daemon/plugin-catalog.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "../src/daemon/plugin-settings.js";
+import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin settings", () => {
   it("persists the plugin switch separately from component switches", async () => {
@@ -66,3 +66,18 @@ describe("plugin settings", () => {
     expect(store.decorate(plugin)).toMatchObject({ enabled: true, connections: [{ enabled: true }] });
   });
 });
+
+function godotPlugin(): PluginDetail {
+  return {
+    id: "opengame:godot",
+    name: "godot",
+    displayName: "Godot",
+    description: "Connect the agent to the Godot editor.",
+    marketplace: { id: "opengame", displayName: "OpenGame" },
+    source: { type: "builtIn" },
+    installed: true,
+    enabled: true,
+    skills: [],
+    connections: [{ id: "opengame-godot", name: "Godot", enabled: true }],
+  };
+}

@@ -15,6 +15,7 @@ describe("bundled plugins", () => {
       version: "0.1.0",
       description: "Rebuild a reference as a model",
       skills: "./skills/",
+      interface: { longDescription: "A detailed modeling workflow." },
     }));
     await writeFile(path.join(plugin, "skills", "reference-modeler", "SKILL.md"), "---\nname: reference-modeler\ndescription: Model a reference\n---\n");
     const store = new BundledPluginStore(root);
@@ -24,6 +25,7 @@ describe("bundled plugins", () => {
     expect(store.list()).toMatchObject([{
       id: "opengame:reference-modeler",
       source: { type: "builtIn" },
+      longDescription: "A detailed modeling workflow.",
       skills: [{ id: "skills/reference-modeler/SKILL.md" }],
       connections: [],
     }]);

@@ -96,6 +96,7 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 }
 
 export interface PluginDetail extends PluginSummary {
+  longDescription?: string;
   skills: PluginComponentSummary[];
   connections: PluginComponentSummary[];
   defaultPrompts?: string[];
@@ -125,6 +126,7 @@ const SemVerSchema = Type.String({
 const InterfaceSchema = Type.Object({
   displayName: Type.Optional(Type.String({ minLength: 1 })),
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
+  longDescription: Type.Optional(Type.String({ minLength: 1 })),
   defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
   projectTypes: Type.Optional(Type.Array(Type.Union([
     Type.Literal("web-game"),

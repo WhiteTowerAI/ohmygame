@@ -268,6 +268,7 @@ export async function inspectPluginBundle(
     name: manifest.name,
     displayName: manifest.interface?.displayName ?? displayName(manifest.name),
     description: manifest.interface?.shortDescription ?? manifest.description,
+    longDescription: manifest.interface?.longDescription,
     version: manifest.version,
     marketplace: identity.marketplace,
     source: identity.source,
@@ -338,7 +339,7 @@ async function referencedComponents(ids: string[] | undefined, available: readon
   for (const id of ids ?? []) {
     if (known && !known.has(id)) throw new LocalPluginError(`${label} is not available: ${id}`);
   }
-  return (ids ?? []).map((id) => ({ id, name: displayName(id), enabled: true }));
+  return (ids ?? []).map((id) => ({ id, name: displayName(id.replace(/^opengame-/, "")), enabled: true }));
 }
 
 async function declaredPath(root: string, relativePath: string): Promise<string> {

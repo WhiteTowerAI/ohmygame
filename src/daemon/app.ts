@@ -416,15 +416,11 @@ export function createApp(options: AppOptions = {}) {
     reservedPluginDisplayNames: () => [...builtInPlugins(), ...bundledPlugins.list()].map((plugin) => plugin.displayName),
   });
   const plugins = new PluginCatalogService([
-    new BuiltInPluginAdapter(async () => {
-      const godot = (await mcpServers.list()).find((server) => server.id === "opengame-godot");
-      return godot?.enabled ?? true;
-    }),
+    new BuiltInPluginAdapter(),
     new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
   ], pluginSettings);
   const pluginDetails = () => [
-    ...builtInPlugins(),
     ...bundledPlugins.list(),
     ...localPlugins.installed(),
   ];
