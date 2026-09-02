@@ -15,7 +15,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { isValidElement, useEffect, useState, type ImgHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { isValidElement, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
@@ -26,8 +26,8 @@ import { ModelPreview } from "./model-preview.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
+import { GodotIcon } from "./godot-icon.js";
 
-const godotIconUrl = new URL("./assets/godot.svg", import.meta.url).href;
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
 interface AgentTimelineProps {
@@ -654,10 +654,6 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
     default: return { icon: Wrench, label: `Used ${toolName}` };
   }
-}
-
-function GodotIcon({ size = 13, ...props }: ImgHTMLAttributes<HTMLImageElement> & { size?: number }) {
-  return <img className="tool-brand-icon tool-brand-godot" src={godotIconUrl} width={size} height={size} alt="" {...props} />;
 }
 
 function searchLabel(action: string, values: Record<string, unknown> | undefined): string {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 
 const capabilities: ConversationCapabilities = {
@@ -46,5 +46,16 @@ describe("composer mentions", () => {
     expect(formatSkillInvocation("plugin-creator", "Create a plugin")).toBe("$plugin-creator Create a plugin");
     expect(formatSkillInvocation(undefined, "Create a plugin")).toBe("Create a plugin");
     expect(skillDisplayName("plugin-creator")).toBe("Plugin Creator");
+  });
+
+  it("separates a leading plugin from its prompt without changing the wire text", () => {
+    const mention = toPluginMention(capabilities.plugins[0]);
+    expect(extractLeadingPluginMention("@Image Generation Create an icon", [mention])).toEqual({
+      mention,
+      prompt: "Create an icon",
+    });
+    expect(extractLeadingPluginMention("Use @Image Generation", [mention])).toEqual({ prompt: "Use @Image Generation" });
+    expect(formatPluginInvocation(mention, "Create an icon")).toBe("@Image Generation Create an icon");
+    expect(formatPluginInvocation(undefined, "Create an icon")).toBe("Create an icon");
   });
 });

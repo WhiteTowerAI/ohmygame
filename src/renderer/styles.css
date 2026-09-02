@@ -3023,6 +3023,27 @@ button.home-nav-item-active:hover {
   color: var(--text-faint);
 }
 
+.plugin-prompt-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-prompt-reference {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.plugin-prompt-text {
+  min-width: 0;
+  color: #fff;
+}
+
 .plugin-prompts > p {
   margin: 8px 0 0;
   color: var(--text-muted);
@@ -6229,7 +6250,14 @@ button {
   opacity: .72;
 }
 
-.composer-skill-reference {
+.composer-capability-references {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-capability-reference {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -6244,7 +6272,7 @@ button {
   line-height: 1.55;
 }
 
-.composer-skill-reference:hover {
+.composer-capability-reference:hover {
   color: color-mix(in srgb, var(--accent) 78%, white);
 }
 

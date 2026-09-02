@@ -25,6 +25,7 @@ import { listPlugins, listProjects, readPlugin, removeLocalPlugin, updatePluginS
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
+import { GodotIcon } from "./godot-icon.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -391,6 +392,9 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   const visibleProjects = projects.filter((project) => !normalizedProjectQuery || project.name.toLowerCase().includes(normalizedProjectQuery));
   const prompts = plugin?.defaultPrompts ?? [];
   const firstPrompt = prompts[0];
+  const emptyProjectLabel = normalizedProjectQuery
+    ? "No matching projects"
+    : plugin?.projectTypes?.length === 1 ? `No ${projectTypeLabel(plugin.projectTypes[0])} projects yet` : "No compatible projects yet";
   return <section className="plugin-detail">
     {phase === "loading" ? <PluginState>Loading plugin</PluginState> : null}
     {phase === "error" ? <PluginError message={error} onRetry={onRetry} /> : null}
@@ -424,14 +428,24 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
                 <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
                 <ChevronRight size={13} />
               </button>) : null}
-              {projectPhase === "ready" && !visibleProjects.length ? <div className="project-switcher-state">No compatible projects</div> : null}
+              {projectPhase === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{emptyProjectLabel}</div> : null}
             </div>
             <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />New {projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game")} project</button></div>
           </div> : null}
         </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
-      {prompts.length ? <section className="plugin-prompts"><h2>Try it</h2><div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}><span>{prompt}</span><ChevronRight size={14} /></button>)}</div>{tryNotice ? <p role="status">{tryNotice}</p> : null}</section> : null}
+      {prompts.length ? <section className="plugin-prompts">
+        <h2>Try it</h2>
+        <div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}>
+          <span className="plugin-prompt-copy">
+            <span className="plugin-prompt-reference">{plugin.id === "opengame:godot" ? <GodotIcon size={14} /> : <Package size={14} aria-hidden="true" />}{plugin.displayName}</span>
+            <span className="plugin-prompt-text">{prompt}</span>
+          </span>
+          <ChevronRight size={14} />
+        </button>)}</div>
+        {tryNotice ? <p role="status">{tryNotice}</p> : null}
+      </section> : null}
       <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} disabled={updating || !plugin.enabled} type="skill" onToggle={onToggleComponent} />
       <ComponentSection title="Connections" items={plugin.connections} icon={() => <Plug size={15} />} disabled={updating || !plugin.enabled} type="connection" onToggle={onToggleComponent} />
     </> : null}

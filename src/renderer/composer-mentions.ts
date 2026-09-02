@@ -26,6 +26,21 @@ export function formatSkillInvocation(name: string | undefined, prompt: string):
   return name ? `$${name}${prompt ? ` ${prompt}` : ""}` : prompt;
 }
 
+export function extractLeadingPluginMention(value: string, mentions: readonly PluginMention[]): { prompt: string; mention?: PluginMention } {
+  const mention = [...mentions]
+    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length)
+    .find((item) => {
+      const token = pluginMentionToken(item);
+      return value === token || (value.startsWith(token) && /^\s/.test(value[token.length] ?? ""));
+    });
+  if (!mention) return { prompt: value };
+  return { prompt: value.slice(pluginMentionToken(mention).length).trimStart(), mention };
+}
+
+export function formatPluginInvocation(mention: PluginMention | undefined, prompt: string): string {
+  return mention ? `${pluginMentionToken(mention)}${prompt ? ` ${prompt}` : ""}` : prompt;
+}
+
 export function skillDisplayName(name: string): string {
   return name.split(/[._-]+/).filter(Boolean).map((part) => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ");
 }
