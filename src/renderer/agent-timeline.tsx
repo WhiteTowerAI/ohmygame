@@ -404,6 +404,7 @@ function TimelineItem({ item, hideError = false, retrying = false }: { item: Thr
   }
   if (item.type === "agentMessage") {
     if (!item.text && item.status === "completed") return null;
+    if (!item.text.trim() && hideError) return null;
     const message = (
       <div className={`assistant-message assistant-${item.status}`}>
         {item.text ? <MarkdownContent text={item.text} /> : null}

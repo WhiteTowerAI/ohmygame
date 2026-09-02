@@ -374,6 +374,44 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Connection error");
   });
 
+  it("does not render an empty failed message between tool groups", () => {
+    const failedTool = (id: string): ThreadItem => ({
+      ...tool(),
+      id,
+      toolCallId: id,
+      status: "failed",
+    });
+    const writtenFile = (id: string, path: string): ThreadItem => ({
+      ...tool(),
+      id,
+      toolCallId: id,
+      tool: "write",
+      arguments: { path },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      failedTool("failed-tool-1"),
+      failedTool("failed-tool-2"),
+      {
+        id: "assistant-error",
+        turnId: "turn-1",
+        type: "agentMessage",
+        text: "",
+        status: "failed",
+        error: { message: "stream disconnected" },
+      },
+      writtenFile("write-1", "one.ts"),
+      writtenFile("write-2", "two.ts"),
+      writtenFile("write-3", "three.ts"),
+    ]} />);
+
+    expect(html).toContain("2 actions failed");
+    expect(html).toContain("Edited 3 files");
+    expect(html.match(/class="tool-activity-group"/g)).toHaveLength(2);
+    expect(html).not.toContain("assistant-failed");
+    expect(html).not.toContain("stream disconnected");
+  });
+
   it("does not show a retry after reconnection succeeds", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "retry",
