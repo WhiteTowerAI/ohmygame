@@ -5,15 +5,12 @@ import {
   Code2,
   ExternalLink,
   FileCode2,
-  Film,
-  Box,
   Folder,
   FolderOpen,
   Globe2,
   Image as ImageIcon,
   Layers3,
   LoaderCircle,
-  Music2,
   Monitor,
   RefreshCw,
   Search,
@@ -25,10 +22,9 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
-import { getWorkspaceFile, listWorkspaceFiles, setProjectCover } from "./api.js";
-import { ModelPreview } from "./model-preview.js";
+import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
+import { AssetCard, AssetDetailDialog, AssetToolbar, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
@@ -60,6 +56,7 @@ export function CodingWorkspace({
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string>();
+  const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
   const fileRequest = useRef(0);
   const preview = project?.preview;
@@ -97,7 +94,7 @@ export function CodingWorkspace({
       if (!disposed) setFilesLoading(false);
     });
     return () => { disposed = true; };
-  }, [project?.id, activeTab, workspaceRevision]);
+  }, [project?.id, activeTab, workspaceRevision, filesRevision]);
 
   useEffect(() => {
     fileRequest.current += 1;
@@ -203,6 +200,7 @@ export function CodingWorkspace({
           loading={filesLoading}
           error={filesError}
           revision={workspaceRevision}
+          onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
       )}
     </section>
@@ -720,69 +718,66 @@ function AssetsView({
   loading,
   error,
   revision,
+  onFilesChanged,
 }: {
   projectId?: string;
   files: WorkspaceFile[];
   loading: boolean;
   error?: string;
   revision: number;
+  onFilesChanged: () => void;
 }) {
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+  const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string>();
-  const selected = files.find((file) => file.path === selectedPath);
+  const [actionError, setActionError] = useState<string>();
+  const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision })), [files, projectId, revision]);
+  const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
+  const selectedAsset = assets.find((asset) => asset.path === selectedPath);
 
-  useEffect(() => {
-    if (selectedPath && !files.some((file) => file.path === selectedPath)) setSelectedPath(undefined);
-  }, [files, selectedPath]);
+  async function runAssetAction(action: () => Promise<unknown>): Promise<void> {
+    setActionError(undefined);
+    try {
+      await action();
+      onFilesChanged();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
+  }
+
+  function rename(asset: BrowsableAsset): boolean {
+    const extension = fileExtension(asset.path);
+    const name = window.prompt(`Rename asset (${extension} is preserved)`, fileStem(asset.path))?.trim();
+    if (!name || name === fileStem(asset.path)) return false;
+    void runAssetAction(() => renameAsset(asset.projectId, asset.path, name));
+    return true;
+  }
+
+  function remove(asset: BrowsableAsset): boolean {
+    if (!window.confirm(`Delete “${fileName(asset.path)}”? This may break references in the project and cannot be undone.`)) return false;
+    void runAssetAction(() => deleteAsset(asset.projectId, asset.path));
+    return true;
+  }
 
   if (loading && files.length === 0) return <WorkspaceState loading label="Loading assets" />;
   if (error) return <WorkspaceState error={error} />;
   if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label="No media assets" />;
   return (
     <div className="assets-view">
-      <div className="asset-grid">
-        {files.map((file) => (
-          <button
-            className={`asset-card${file.path === selectedPath ? " asset-card-active" : ""}`}
-            key={file.path}
-            type="button"
-            onClick={() => setSelectedPath(file.path)}
-            title={file.path}
-          >
-            <AssetThumbnail projectId={projectId} file={file} revision={revision} />
-            <span>{file.path}</span>
-          </button>
-        ))}
+      <div className="assets-toolbar">
+        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery} />
       </div>
-      <div className="asset-detail">
-        {selected ? <AssetPreview projectId={projectId} file={selected} revision={revision} /> : <WorkspaceState label="Select an asset" />}
-      </div>
+      {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
+      {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
+        <AssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />
+      ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label="No assets match these filters" />}
+      {selectedAsset ? <AssetDetailDialog
+        asset={selectedAsset}
+        onClose={() => setSelectedPath(undefined)}
+        onRename={() => { if (rename(selectedAsset)) setSelectedPath(undefined); }}
+        onDelete={() => { if (remove(selectedAsset)) setSelectedPath(undefined); }}
+      /> : null}
     </div>
-  );
-}
-
-function AssetThumbnail({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
-  const asset = useWorkspaceAssetUrl(file.mediaType === "image" ? projectId : undefined, file.path, revision);
-  if (file.mediaType === "image" && asset.url) return <img src={asset.url} alt="" />;
-  if (file.mediaType === "video") return <Film size={22} />;
-  if (file.mediaType === "audio") return <Music2 size={22} />;
-  if (file.mediaType === "model") return <Box size={22} />;
-  return <ImageIcon size={22} />;
-}
-
-function AssetPreview({ projectId, file, revision }: { projectId: string; file: WorkspaceFile; revision: number }) {
-  const asset = useWorkspaceAssetUrl(projectId, file.path, revision);
-  if (asset.error) return <WorkspaceState error={asset.error} />;
-  if (!asset.url) return <WorkspaceState loading label="Loading asset" />;
-  return (
-    <>
-      <div className="file-content-header">{file.path}</div>
-      <div className="asset-preview">
-        {file.mediaType === "image" ? <img src={asset.url} alt={file.path} /> : null}
-        {file.mediaType === "video" ? <video src={asset.url} controls /> : null}
-        {file.mediaType === "audio" ? <audio src={asset.url} controls /> : null}
-        {file.mediaType === "model" ? <ModelPreview source={asset.url} label="3D model asset" /> : null}
-      </div>
-    </>
   );
 }
 
