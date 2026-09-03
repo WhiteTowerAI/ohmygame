@@ -1,6 +1,8 @@
 import {
   ChevronRight,
   FolderPlus,
+  FolderOpen,
+  GitBranch,
   LoaderCircle,
   MoreHorizontal,
   Package,
@@ -16,15 +18,18 @@ import {
   type PluginComponentSummary,
   type PluginConnectionSummary,
   type PluginDetail,
+  type InstallPluginRequest,
+  type PluginInstallCandidate,
   type PluginSettings,
   type PluginSummary,
 } from "../shared/plugins.js";
 import type { ProjectState } from "../shared/contracts.js";
-import { listPlugins, listProjects, readPlugin, removeLocalPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
+import { MarkdownContent } from "./markdown-content.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -40,7 +45,14 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const [detailPhase, setDetailPhase] = useState<"loading" | "ready" | "error">("loading");
   const [query, setQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<"create" | "install">();
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [gitDialogOpen, setGitDialogOpen] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
+  const [installSource, setInstallSource] = useState<InstallPluginRequest>();
+  const [installCandidates, setInstallCandidates] = useState<PluginInstallCandidate[]>([]);
+  const [selectedCandidate, setSelectedCandidate] = useState<string>();
+  const addMenu = useRef<HTMLDivElement>(null);
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -61,6 +73,22 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   }
 
   useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!addMenu.current?.contains(event.target as Node)) setAddMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [addMenuOpen]);
 
   async function openPlugin(pluginId: string): Promise<void> {
     setView({ type: "detail", pluginId });
@@ -92,11 +120,11 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   }
 
   async function removePlugin(plugin: PluginSummary): Promise<void> {
-    if (updating || plugin.source.type !== "local") return;
+    if (updating || plugin.source.type === "builtIn") return;
     setUpdating(plugin.id);
     setError(undefined);
     try {
-      await removeLocalPlugin(plugin.id);
+      await uninstallPlugin(plugin.id);
       setPlugins((items) => items.filter((item) => item.id !== plugin.id));
       setDetail(undefined);
       setView({ type: "catalog" });
@@ -109,13 +137,91 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
 
   async function addPlugin(): Promise<void> {
     if (adding) return;
-    setAdding(true);
+    setAdding("create");
     setError(undefined);
     try {
       await onAddPlugin();
     } catch (cause) {
       setError(errorMessage(cause));
-      setAdding(false);
+      setAdding(undefined);
+    }
+  }
+
+  async function installFromFolder(): Promise<void> {
+    setAddMenuOpen(false);
+    setError(undefined);
+    try {
+      const selected = await window.openGameDesktop?.selectPluginDirectory();
+      if (!selected) return;
+      await prepareInstall({ type: "directory", path: selected });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+
+  function openGitInstallDialog(): void {
+    setAddMenuOpen(false);
+    setGitDialogOpen(true);
+    setGitUrl("");
+    setInstallSource(undefined);
+    setInstallCandidates([]);
+    setSelectedCandidate(undefined);
+    setError(undefined);
+  }
+
+  function closeInstallDialog(): void {
+    setGitDialogOpen(false);
+    setGitUrl("");
+    setInstallSource(undefined);
+    setInstallCandidates([]);
+    setSelectedCandidate(undefined);
+    setError(undefined);
+  }
+
+  async function installFromGit(): Promise<void> {
+    const url = gitUrl.trim();
+    const source = installSource ?? (url ? { type: "git" as const, url } : undefined);
+    if (!source) return;
+    if (!installCandidates.length) await prepareInstall(source);
+    else if (selectedCandidate) await installSelectedPlugin({ ...source, candidate: selectedCandidate });
+  }
+
+  async function prepareInstall(input: InstallPluginRequest): Promise<void> {
+    if (adding) return;
+    setAdding("install");
+    setError(undefined);
+    try {
+      const inspection = await inspectPluginSource(input);
+      if (inspection.candidates.length === 1) {
+        await installSelectedPlugin({ ...input, candidate: inspection.candidates[0]!.key }, true);
+        return;
+      }
+      setInstallSource(input);
+      setInstallCandidates(inspection.candidates);
+      setSelectedCandidate(inspection.candidates[0]?.key);
+      setGitDialogOpen(true);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setAdding(undefined);
+    }
+  }
+
+  async function installSelectedPlugin(input: InstallPluginRequest, alreadyBusy = false): Promise<void> {
+    if (adding && !alreadyBusy) return;
+    if (!alreadyBusy) setAdding("install");
+    setError(undefined);
+    try {
+      const installedPlugin = await installPlugin(input);
+      setPlugins((items) => [...items.filter((item) => item.id !== installedPlugin.id), pluginSummary(installedPlugin)]);
+      closeInstallDialog();
+      setDetail(installedPlugin);
+      setDetailPhase("ready");
+      setView({ type: "detail", pluginId: installedPlugin.id });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setAdding(undefined);
     }
   }
 
@@ -138,7 +244,14 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
             <Search size={15} />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
           </label>
-          <button className="plugins-add-button" type="button" disabled={adding} onClick={() => void addPlugin()}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Opening..." : "Add plugin"}</button>
+          <div className="plugins-add" ref={addMenu}>
+            <button className="plugins-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding === "create" ? "Opening..." : adding === "install" ? "Installing..." : "Add plugin"}</button>
+            {addMenuOpen ? <div className="plugins-add-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void addPlugin(); }}><Package size={14} /><span><strong>Create plugin</strong><small>Build a plugin with the agent</small></span></button>
+              {window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
+              <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>Install from Git...</strong><small>Clone a public HTTPS repository</small></span></button>
+            </div> : null}
+          </div>
         </div>
       ) : null}
     </SidebarPageHeader>
@@ -157,7 +270,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       onRemove={() => detail && void removePlugin(detail)}
       onTry={onTryPlugin}
     /> : <>
-      {phase === "ready" && (error || catalogWarning) ? <p className="plugins-inline-error" role="alert">{error ?? catalogWarning}</p> : null}
+      {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
       {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
@@ -173,6 +286,23 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         <ExplorePlugins plugins={available} onOpenPlugin={(id) => void openPlugin(id)} />
       </> : null}
     </>}
+    {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !adding) closeInstallDialog();
+    }}>
+      <form className="plugin-install-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-install-title" onKeyDown={(event) => {
+        if (event.key === "Escape" && !adding) closeInstallDialog();
+      }} onSubmit={(event) => { event.preventDefault(); void installFromGit(); }}>
+        <header><h2 id="plugin-install-title">{installCandidates.length ? "Choose a plugin" : "Install from Git"}</h2><p>{installCandidates.length ? `Select a plugin from ${installCandidates[0]!.marketplace.displayName}.` : "Enter a public HTTPS repository or marketplace URL."}</p></header>
+        {installCandidates.length ? <div className="plugin-install-candidates" role="radiogroup" aria-label="Plugins">
+          {installCandidates.map((candidate) => <button type="button" role="radio" aria-checked={selectedCandidate === candidate.key} className={selectedCandidate === candidate.key ? "is-selected" : ""} key={candidate.key} onClick={() => setSelectedCandidate(candidate.key)}>
+            <span><strong>{candidate.displayName}</strong><small>{candidate.description}</small></span>
+            <span className="plugin-install-candidate-meta"><small>{candidate.skillCount} skill{candidate.skillCount === 1 ? "" : "s"}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
+          </button>)}
+        </div> : <label><span>Repository or marketplace URL</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
+        {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
+        <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? "Installing..." : "Install"}</button></footer>
+      </form>
+    </div> : null}
   </SidebarPageLayout>;
 
   function showCatalog(): void {
@@ -246,7 +376,7 @@ function ExplorePluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: 
   return <article className="plugin-catalog-card is-trailing">
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
-      <span className="plugin-card-copy"><strong>{plugin.displayName}</strong><span>{plugin.description}</span></span>
+      <span className="plugin-card-copy"><strong>{plugin.displayName}</strong><span className="plugin-card-description">{plugin.description}</span><small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small></span>
       <ChevronRight size={15} />
     </button>
   </article>;
@@ -283,7 +413,8 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
         <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.enabled ? null : <small>Disabled</small>}</span>
-        <span>{plugin.description}</span>
+        <span className="plugin-card-description">{plugin.description}</span>
+        <small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small>
       </span>
     </button>
     <div className="plugin-card-actions">
@@ -291,8 +422,8 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
       {menuOpen ? <div className="plugin-card-actions-menu" role="menu">
         <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpen(); }}>Open details</button>
         <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onToggle(); }}>{plugin.enabled ? "Disable" : "Enable"}</button>
-        {plugin.source.type === "local" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
-        {plugin.source.type === "local" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
+        {plugin.source.type !== "builtIn" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
+        {plugin.source.type !== "builtIn" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
           setMenuOpen(false);
           if (window.confirm(`Remove “${plugin.displayName}”?`)) onRemove();
         }}>Remove</button> : null}
@@ -400,7 +531,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
-        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{plugin.marketplace.displayName}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
+        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{pluginQualifiedSource(plugin)}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
         <div className="plugin-detail-hero-actions" ref={tryMenu}>
           <PluginDetailActions
             plugin={plugin}
@@ -446,7 +577,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </button>)}</div>
         {tryNotice ? <p role="status">{tryNotice}</p> : null}
       </section> : null}
-      <ComponentSection title="Skills" items={plugin.skills} icon={() => <WandSparkles size={15} />} disabled={updating || !plugin.enabled} onToggle={onToggleComponent} />
+      <SkillSection pluginId={plugin.id} items={plugin.skills} disabled={updating || !plugin.enabled} onToggle={onToggleComponent} />
       <ConnectionSection items={plugin.connections} />
     </> : null}
   </section>;
@@ -492,8 +623,8 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }:
     <button className="plugin-detail-menu-trigger" type="button" disabled={updating} aria-label={`Plugin actions for ${plugin.displayName}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={16} /></button>
     {menuOpen ? <div className="plugin-card-actions-menu plugin-detail-actions-menu" role="menu">
       <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onToggle(!plugin.enabled); }}>{plugin.enabled ? "Disable plugin" : "Enable plugin"}</button>
-      {plugin.source.type === "local" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
-      {plugin.source.type === "local" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
+      {plugin.source.type !== "builtIn" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
+      {plugin.source.type !== "builtIn" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
         setMenuOpen(false);
         if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onRemove();
       }}>Uninstall</button> : null}
@@ -501,19 +632,59 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }:
   </div>;
 }
 
-function ComponentSection({ title, items, icon, disabled, onToggle }: {
-  title: string;
+function SkillSection({ pluginId, items, disabled, onToggle }: {
+  pluginId: string;
   items: PluginComponentSummary[];
-  icon: (item: PluginComponentSummary) => ReactNode;
   disabled: boolean;
   onToggle: (component: PluginComponentSummary, enabled: boolean) => void;
 }): ReactNode {
+  const [expanded, setExpanded] = useState<{ id: string; phase: "loading" | "ready" | "error"; content?: string; error?: string }>();
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    requestId.current += 1;
+    setExpanded(undefined);
+  }, [pluginId]);
+
+  async function loadContent(item: PluginComponentSummary): Promise<void> {
+    const currentRequest = ++requestId.current;
+    setExpanded({ id: item.id, phase: "loading" });
+    try {
+      const result = await readPluginSkill(pluginId, item.id);
+      if (requestId.current === currentRequest) setExpanded({ id: item.id, phase: "ready", content: result.content });
+    } catch (cause) {
+      if (requestId.current === currentRequest) setExpanded({ id: item.id, phase: "error", error: errorMessage(cause) });
+    }
+  }
+
+  function toggleContent(item: PluginComponentSummary): void {
+    if (expanded?.id === item.id) {
+      requestId.current += 1;
+      setExpanded(undefined);
+    } else {
+      void loadContent(item);
+    }
+  }
+
   if (!items.length) return null;
-  return <section className={`plugin-components${disabled ? " is-disabled" : ""}`}><h2>{title}</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
-    <span className="plugin-component-icon">{icon(item)}</span>
-    <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
-    <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} />
-  </div>)}</div></section>;
+  return <section className="plugin-components plugin-skills"><h2>Skills</h2><div>{items.map((item) => {
+    const open = expanded?.id === item.id;
+    return <div className="plugin-skill-item" key={item.id}>
+      <div className="plugin-component-row plugin-skill-row">
+        <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
+          <span className="plugin-component-icon"><WandSparkles size={15} /></span>
+          <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
+          <ChevronRight size={14} aria-hidden="true" />
+        </button>
+        <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} />
+      </div>
+      {open ? <div className="plugin-skill-content">
+        {expanded.phase === "loading" ? <div className="plugin-skill-state"><LoaderCircle className="spin" size={13} />Loading skill</div> : null}
+        {expanded.phase === "error" ? <div className="plugin-skill-state is-error"><span>{expanded.error}</span><button type="button" onClick={() => void loadContent(item)}>Retry</button></div> : null}
+        {expanded.phase === "ready" ? <MarkdownContent text={expanded.content ?? ""} /> : null}
+      </div> : null}
+    </div>;
+  })}</div></section>;
 }
 
 function PluginSwitch({ checked, disabled, label, onClick }: { checked: boolean; disabled: boolean; label: string; onClick: () => void }): ReactNode {
@@ -542,14 +713,26 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
   return summary;
 }
 
-function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id">; large?: boolean }): ReactNode {
+function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "source">; large?: boolean }): ReactNode {
   const size = large ? 30 : 17;
   const godot = plugin.id === "opengame:godot";
-  return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.id.startsWith("local:") ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
+  return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
 }
 
 function pluginSearchText(plugin: PluginSummary): string {
-  return `${plugin.name} ${plugin.displayName} ${plugin.description}`.toLowerCase();
+  return `${plugin.name} ${plugin.displayName} ${plugin.description} ${plugin.marketplace.displayName}`.toLowerCase();
+}
+
+function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace">): string {
+  return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
+    ? plugin.marketplace.displayName
+    : `Marketplace · ${plugin.marketplace.displayName}`;
+}
+
+function pluginQualifiedSource(plugin: Pick<PluginSummary, "name" | "marketplace">): string {
+  return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
+    ? plugin.marketplace.displayName
+    : `${plugin.name}@${plugin.marketplace.id}`;
 }
 
 function errorMessage(cause: unknown): string {

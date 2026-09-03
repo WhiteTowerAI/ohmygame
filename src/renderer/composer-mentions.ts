@@ -41,9 +41,26 @@ export function formatPluginInvocation(mention: PluginMention | undefined, promp
   return mention ? `${pluginMentionToken(mention)}${prompt ? ` ${prompt}` : ""}` : prompt;
 }
 
-export function skillDisplayName(name: string): string {
-  return name.split(/[._-]+/).filter(Boolean).map((part) => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ");
+export function formatComposerInvocation(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
+  return formatSkillInvocation(skill, formatPluginInvocation(plugin, prompt));
 }
+
+export function skillDisplayName(name: string): string {
+  return name.split(/[._-]+/).filter(Boolean).map((part) => {
+    const normalized = part.toLowerCase();
+    return SKILL_DISPLAY_TERMS[normalized] ?? `${part[0]!.toUpperCase()}${part.slice(1)}`;
+  }).join(" ");
+}
+
+const SKILL_DISPLAY_TERMS: Record<string, string> = {
+  "2d": "2D",
+  "3d": "3D",
+  ai: "AI",
+  api: "API",
+  gdscript: "GDScript",
+  mcp: "MCP",
+  ui: "UI",
+};
 
 export function mentionQuery(value: string, cursor: number): ComposerMentionQuery | undefined {
   const before = value.slice(0, cursor);

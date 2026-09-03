@@ -39,7 +39,7 @@ import {
   type WorkspaceFileContent,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
-import type { PluginCatalog, PluginDetail, PluginSettings } from "../shared/plugins.js";
+import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 
 const API_BASE = "/api";
@@ -56,6 +56,7 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      selectPluginDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       openPlaytest: (projectId: string, chapterId: string) => Promise<void>;
       updates: {
@@ -199,19 +200,35 @@ export async function listPlugins(): Promise<PluginCatalog> {
   return request("/plugins");
 }
 
+export async function getHomeComposerCapabilities(): Promise<ConversationCapabilities> {
+  return request("/composer/capabilities");
+}
+
 export async function createPluginAuthoringSession(): Promise<{ projectId: string; conversationId: string }> {
   return request("/plugins/authoring-session", { method: "POST" });
+}
+
+export async function installPlugin(input: InstallPluginRequest): Promise<PluginDetail> {
+  return request("/plugins/install", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function inspectPluginSource(input: InstallPluginRequest): Promise<PluginInstallInspection> {
+  return request("/plugins/inspect", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function readPlugin(id: string): Promise<PluginDetail> {
   return request(`/plugins/${encodeURIComponent(id)}`);
 }
 
+export async function readPluginSkill(pluginId: string, skillId: string): Promise<PluginSkillContent> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/skill-content?id=${encodeURIComponent(skillId)}`);
+}
+
 export async function updatePluginSettings(id: string, settings: PluginSettings): Promise<PluginDetail> {
   return request(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) });
 }
 
-export async function removeLocalPlugin(id: string): Promise<void> {
+export async function uninstallPlugin(id: string): Promise<void> {
   await request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 

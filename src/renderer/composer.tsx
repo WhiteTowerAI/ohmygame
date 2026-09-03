@@ -1,4 +1,4 @@
-import { ArrowUp, Package, Square, WandSparkles } from "./icons.js";
+import { ArrowUp, Square } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
@@ -10,8 +10,8 @@ import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCom
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import type { ChatReference } from "./chat-reference.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
-import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention, type ComposerMention } from "./composer-mentions.js";
-import { GodotIcon } from "./godot-icon.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 
 interface ComposerProps {
   conversationReady: boolean;
@@ -100,7 +100,7 @@ export function Composer({
   const mentions = activeMention ? matchingMentions(
     planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
     activeMention,
-  ).slice(0, 8) : [];
+  ) : [];
   const dirty = Boolean(prompt || selectedSkill || selectedPlugin || images.length || reference);
 
   useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
@@ -377,36 +377,18 @@ export function Composer({
           <ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />
         </>}
         disabled={inputDisabled}
-        prefix={selectedSkill || selectedPlugin ? (
-          <div className="composer-capability-references">
-            {selectedSkill ? <button
-              className="composer-capability-reference"
-              type="button"
-              title="Remove skill"
-              aria-label={`Remove ${skillDisplayName(selectedSkill)} skill`}
-              onClick={() => {
-                setSelectedSkill(undefined);
-                textarea.current?.focus();
-              }}
-            >
-              <WandSparkles size={15} aria-hidden="true" />
-              <span>{skillDisplayName(selectedSkill)}</span>
-            </button> : null}
-            {selectedPlugin ? <button
-              className="composer-capability-reference"
-              type="button"
-              title="Remove plugin"
-              aria-label={`Remove ${selectedPlugin.displayName} plugin`}
-              onClick={() => {
-                clearSelectedPlugin();
-                textarea.current?.focus();
-              }}
-            >
-              {isGodotPlugin(selectedPlugin) ? <GodotIcon size={15} /> : <Package size={15} aria-hidden="true" />}
-              <span>{selectedPlugin.displayName}</span>
-            </button> : null}
-          </div>
-        ) : null}
+        prefix={<ComposerCapabilityReferences
+          skill={selectedSkill}
+          plugin={selectedPlugin}
+          onRemoveSkill={() => {
+            setSelectedSkill(undefined);
+            textarea.current?.focus();
+          }}
+          onRemovePlugin={() => {
+            clearSelectedPlugin();
+            textarea.current?.focus();
+          }}
+        />}
         leading={(
           <>
             <ImagePickerButton
@@ -451,9 +433,5 @@ export function Composer({
 }
 
 function formatComposerPrompt(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
-  return formatSkillInvocation(skill, formatPluginInvocation(plugin, prompt));
-}
-
-function isGodotPlugin(plugin: Pick<PluginMention, "name" | "marketplaceId">): boolean {
-  return plugin.marketplaceId === "opengame" && plugin.name === "godot";
+  return formatComposerInvocation(skill, plugin, prompt);
 }

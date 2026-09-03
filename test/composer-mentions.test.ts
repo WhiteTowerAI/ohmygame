@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, extractLeadingPluginMention, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 
 const capabilities: ConversationCapabilities = {
-  plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "opengame" }],
+  plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "opengame", marketplaceDisplayName: "OpenGame" }],
   skills: [{ name: "review", description: "Review a change" }],
 };
 
@@ -46,6 +46,8 @@ describe("composer mentions", () => {
     expect(formatSkillInvocation("plugin-creator", "Create a plugin")).toBe("$plugin-creator Create a plugin");
     expect(formatSkillInvocation(undefined, "Create a plugin")).toBe("Create a plugin");
     expect(skillDisplayName("plugin-creator")).toBe("Plugin Creator");
+    expect(skillDisplayName("godot-gdscript")).toBe("Godot GDScript");
+    expect(skillDisplayName("godot-2d-movement")).toBe("Godot 2D Movement");
   });
 
   it("separates a leading plugin from its prompt without changing the wire text", () => {
@@ -57,5 +59,10 @@ describe("composer mentions", () => {
     expect(extractLeadingPluginMention("Use @Image Generation", [mention])).toEqual({ prompt: "Use @Image Generation" });
     expect(formatPluginInvocation(mention, "Create an icon")).toBe("@Image Generation Create an icon");
     expect(formatPluginInvocation(undefined, "Create an icon")).toBe("Create an icon");
+  });
+
+  it("combines a selected Skill and Plugin for the first Composer prompt", () => {
+    const mention = toPluginMention(capabilities.plugins[0]);
+    expect(formatComposerInvocation("review", mention, "Inspect this change")).toBe("$review @Image Generation Inspect this change");
   });
 });

@@ -61,7 +61,7 @@ import { ProjectSwitcher } from "./project-switcher.js";
 interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
-  initialPrompt?: { prompt: string; images: PromptImage[]; mode: PromptMode };
+  initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode };
   initialDraft?: ComposerDraft;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
@@ -285,7 +285,7 @@ export function ProjectShell({
     ) return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode).catch((error) => {
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
       onInitialPromptHandled?.();

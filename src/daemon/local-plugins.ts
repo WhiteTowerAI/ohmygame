@@ -9,23 +9,29 @@ import {
   type PluginComponentSummary,
   type PluginDetail,
   type PluginMarketplaceRef,
+  type PluginManifest,
+  type ResolvedPluginManifest,
   type PluginSource,
 } from "../shared/plugins.js";
 
-const LOCAL_PLUGIN_ID_PREFIX = "local:";
 const MAX_PLUGIN_ENTRIES = 5_000;
 const MAX_PLUGIN_SIZE = 50 * 1024 * 1024;
 const MAX_PLUGIN_DEPTH = 64;
 
+export type PluginProvenance =
+  | { type: "directory"; path: string }
+  | { type: "git"; url: string; commit: string };
+
 interface LocalPluginRecord {
   name: string;
-  version: string;
-  sourcePath: string;
+  version?: string;
+  provenance: PluginProvenance;
+  manifest: ResolvedPluginManifest;
+  marketplace: PluginMarketplaceRef;
 }
 
 export interface PluginCapabilityRegistry {
   connections(): Promise<readonly string[]>;
-  reservedPluginDisplayNames(): readonly string[];
 }
 
 export interface PluginBundleIdentity {
@@ -48,8 +54,8 @@ export class LocalPluginStore {
   #mutations: Promise<void> = Promise.resolve();
 
   constructor(dataDirectory: string, private readonly capabilities?: PluginCapabilityRegistry) {
-    this.#pluginsDirectory = path.join(dataDirectory, "plugins", "personal");
-    this.#indexPath = path.join(dataDirectory, "plugins", "personal-plugins.json");
+    this.#pluginsDirectory = path.join(dataDirectory, "plugins", "installed");
+    this.#indexPath = path.join(dataDirectory, "plugins", "installed-plugins.json");
   }
 
   async list(): Promise<{ plugins: PluginDetail[]; errors: string[] }> {
@@ -62,7 +68,7 @@ export class LocalPluginStore {
     return {
       plugins,
       errors: results.flatMap((result, index) => result.status === "rejected"
-        ? [`Could not load local plugin ${records[index]!.name}: ${errorMessage(result.reason)}`]
+        ? [`Could not load installed plugin ${records[index]!.name}: ${errorMessage(result.reason)}`]
         : []),
     };
   }
@@ -73,48 +79,57 @@ export class LocalPluginStore {
 
   async read(id: string): Promise<PluginDetail | undefined> {
     await this.#mutations;
-    const name = localPluginName(id);
-    if (!name) return undefined;
-    const record = (await this.#readIndex()).find((item) => item.name === name);
+    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
     return record ? this.#readRecord(record) : undefined;
   }
 
-  async install(sourcePath: string): Promise<PluginDetail> {
-    return this.#mutate(() => this.#install(sourcePath));
+  async install(
+    sourcePath: string,
+    provenance: PluginProvenance = { type: "directory", path: sourcePath },
+    manifest?: ResolvedPluginManifest,
+    marketplace: PluginMarketplaceRef = PERSONAL_MARKETPLACE,
+  ): Promise<PluginDetail> {
+    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace));
   }
 
-  async #install(sourcePath: string): Promise<PluginDetail> {
+  async #install(
+    sourcePath: string,
+    provenance: PluginProvenance,
+    normalizedManifest: ResolvedPluginManifest | undefined,
+    marketplace: PluginMarketplaceRef,
+  ): Promise<PluginDetail> {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
     if (pathsOverlap(source, this.#pluginsDirectory)) {
       throw new LocalPluginError("Plugin source must be outside OpenGame's managed plugin directory");
     }
-    const inspected = await inspectPluginBundle(source, localIdentity, this.capabilities);
+    if (provenance.type === "directory" && path.resolve(provenance.path) !== source) {
+      throw new LocalPluginError("Plugin directory provenance does not match its source");
+    }
+    validateMarketplace(marketplace);
+    const identity = pluginIdentity(marketplace, publicSource(provenance));
+    const inspected = await inspectPluginBundle(source, identity, this.capabilities, normalizedManifest);
+    const manifest = normalizedManifest ?? await readPluginManifest(source);
     const currentRecords = await this.#readIndex();
-    const previousRecord = currentRecords.find((record) => record.name === inspected.name);
-    if (previousRecord && path.resolve(previousRecord.sourcePath) !== source) {
+    const previousRecord = currentRecords.find((record) => pluginRecordId(record) === inspected.id);
+    if (previousRecord && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
       throw new LocalPluginError(`Plugin ${inspected.name} is already installed from another source`);
     }
-    const otherPlugins = await Promise.allSettled(
-      currentRecords.filter((record) => record.name !== inspected.name).map((record) => this.#readRecord(record)),
-    );
-    const existingDisplayNames = [
-      ...(this.capabilities?.reservedPluginDisplayNames() ?? []),
-      ...otherPlugins.flatMap((result) => result.status === "fulfilled" ? [result.value.displayName] : []),
-    ];
-    if (existingDisplayNames.some((name) => normalizedDisplayName(name) === normalizedDisplayName(inspected.displayName))) {
-      throw new LocalPluginError(`Plugin display name is already in use: ${inspected.displayName}`);
+    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id ? undefined : currentRecords.find((record) =>
+      record.marketplace.id === marketplace.id && sourceKey(record.provenance) !== sourceKey(provenance));
+    if (conflictingMarketplace) {
+      throw new LocalPluginError(`Marketplace ${marketplace.id} is already installed from another source`);
     }
     await mkdir(this.#pluginsDirectory, { recursive: true });
     const temporary = path.join(this.#pluginsDirectory, `.${inspected.name}.${randomUUID()}.tmp`);
-    const destination = this.#installedPath(inspected.name, inspected.version!);
+    const destination = this.#installedPath(marketplace.id, inspected.name, inspected.version);
     const backup = path.join(this.#pluginsDirectory, `.${inspected.name}.${randomUUID()}.backup`);
     let hasBackup = false;
     let installedReplacement = false;
     let committed = false;
     try {
       await cp(source, temporary, { recursive: true, errorOnExist: true, force: false });
-      await inspectPluginBundle(temporary, localIdentity, this.capabilities);
+      await inspectPluginBundle(temporary, identity, this.capabilities, manifest);
       await mkdir(path.dirname(destination), { recursive: true });
       try {
         await rename(destination, backup);
@@ -124,14 +139,15 @@ export class LocalPluginStore {
       }
       await rename(temporary, destination);
       installedReplacement = true;
-      const installed = await this.#readRecord({ name: inspected.name, version: inspected.version!, sourcePath: source });
-      const records = currentRecords.filter((record) => record.name !== inspected.name);
-      records.push({ name: inspected.name, version: inspected.version!, sourcePath: source });
+      const record = { name: inspected.name, version: inspected.version, provenance, manifest, marketplace };
+      const installed = await this.#readRecord(record);
+      const records = currentRecords.filter((item) => pluginRecordId(item) !== inspected.id);
+      records.push(record);
       await this.#writeIndex(records);
       committed = true;
       this.#loaded.set(installed.id, installed);
       if (previousRecord && previousRecord.version !== inspected.version) {
-        await rm(this.#installedPath(previousRecord.name, previousRecord.version), { recursive: true, force: true }).catch(() => undefined);
+        await rm(this.#installedPath(previousRecord.marketplace.id, previousRecord.name, previousRecord.version), { recursive: true, force: true }).catch(() => undefined);
       }
       return installed;
     } catch (cause) {
@@ -148,13 +164,11 @@ export class LocalPluginStore {
 
   async remove(id: string): Promise<void> {
     return this.#mutate(async () => {
-      const name = localPluginName(id);
-      if (!name) throw new LocalPluginError("Plugin is not a local plugin", 404);
       const records = await this.#readIndex();
-      if (!records.some((record) => record.name === name)) throw new LocalPluginError("Plugin not found", 404);
-      const record = records.find((item) => item.name === name)!;
-      const destination = this.#installedPath(name, record.version);
-      const removed = path.join(this.#pluginsDirectory, `.${name}.${randomUUID()}.removed`);
+      const record = records.find((item) => pluginRecordId(item) === id);
+      if (!record) throw new LocalPluginError("Plugin not found", 404);
+      const destination = this.#installedPath(record.marketplace.id, record.name, record.version);
+      const removed = path.join(this.#pluginsDirectory, `.${record.name}.${randomUUID()}.removed`);
       try {
         await rename(destination, removed);
       } catch (cause) {
@@ -162,7 +176,7 @@ export class LocalPluginStore {
         throw cause;
       }
       try {
-        await this.#writeIndex(records.filter((record) => record.name !== name));
+        await this.#writeIndex(records.filter((item) => pluginRecordId(item) !== id));
       } catch (cause) {
         await rename(removed, destination);
         throw cause;
@@ -173,23 +187,19 @@ export class LocalPluginStore {
   }
 
   async installedPath(id: string): Promise<string | undefined> {
-    const name = localPluginName(id);
-    if (!name) return undefined;
-    const record = (await this.#readIndex()).find((item) => item.name === name);
-    return record ? this.#installedPath(record.name, record.version) : undefined;
+    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
+    return record ? this.#installedPath(record.marketplace.id, record.name, record.version) : undefined;
   }
 
   async directoryPath(id: string): Promise<string | undefined> {
-    const name = localPluginName(id);
-    if (!name) return undefined;
-    const record = (await this.#readIndex()).find((item) => item.name === name);
+    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
     if (!record) return undefined;
     try {
-      if ((await lstat(record.sourcePath)).isDirectory()) return record.sourcePath;
+      if (record.provenance.type === "directory" && (await lstat(record.provenance.path)).isDirectory()) return record.provenance.path;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     }
-    return this.#installedPath(record.name, record.version);
+    return this.#installedPath(record.marketplace.id, record.name, record.version);
   }
 
   #mutate<T>(operation: () => Promise<T>): Promise<T> {
@@ -200,10 +210,15 @@ export class LocalPluginStore {
 
   async #readRecord(record: LocalPluginRecord): Promise<PluginDetail> {
     try {
-      return await inspectPluginBundle(this.#installedPath(record.name, record.version), localIdentity, this.capabilities);
+      return await inspectPluginBundle(
+        this.#installedPath(record.marketplace.id, record.name, record.version),
+        pluginIdentity(record.marketplace, publicSource(record.provenance)),
+        this.capabilities,
+        record.manifest,
+      );
     } catch (cause) {
       if (cause instanceof LocalPluginError) throw cause;
-      throw new LocalPluginError(`Could not read local plugin ${record.name}: ${errorMessage(cause)}`);
+      throw new LocalPluginError(`Could not read installed plugin ${record.name}: ${errorMessage(cause)}`);
     }
   }
 
@@ -211,13 +226,13 @@ export class LocalPluginStore {
     try {
       const value = JSON.parse(await readFile(this.#indexPath, "utf8")) as unknown;
       if (!Array.isArray(value) || !value.every(isLocalPluginRecord)) {
-        throw new LocalPluginError("Local plugin index is invalid");
+        throw new LocalPluginError("Installed plugin index is invalid");
       }
       return value;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") return [];
       if (cause instanceof LocalPluginError) throw cause;
-      throw new LocalPluginError(`Could not read local plugin index: ${errorMessage(cause)}`);
+      throw new LocalPluginError(`Could not read installed plugin index: ${errorMessage(cause)}`);
     }
   }
 
@@ -232,36 +247,29 @@ export class LocalPluginStore {
     }
   }
 
-  #installedPath(name: string, version: string): string {
-    return path.join(this.#pluginsDirectory, name, version);
+  #installedPath(marketplaceId: string, name: string, version: string | undefined): string {
+    return marketplaceId === PERSONAL_MARKETPLACE.id
+      ? path.join(this.#pluginsDirectory, "personal", name, version ?? "unversioned")
+      : path.join(this.#pluginsDirectory, "marketplace", marketplaceId, name, version ?? "unversioned");
   }
 }
 
-const localIdentity: PluginBundleIdentity = {
-  idPrefix: LOCAL_PLUGIN_ID_PREFIX,
-  marketplace: PERSONAL_MARKETPLACE,
-  source: { type: "local" },
-};
+function pluginIdentity(marketplace: PluginMarketplaceRef, source: PluginSource): PluginBundleIdentity {
+  const idPrefix = marketplace.id === PERSONAL_MARKETPLACE.id ? "personal:" : `marketplace:${marketplace.id}:`;
+  return { idPrefix, marketplace, source };
+}
 
 export async function inspectPluginBundle(
   pluginRoot: string,
   identity: PluginBundleIdentity,
   capabilities?: PluginCapabilityRegistry,
+  normalizedManifest?: ResolvedPluginManifest,
 ): Promise<PluginDetail> {
-  await validateBundle(pluginRoot);
-  const manifestPath = path.join(pluginRoot, PLUGIN_MANIFEST_PATH);
-  let value: unknown;
-  try {
-    value = JSON.parse(await readFile(manifestPath, "utf8"));
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new LocalPluginError(`Plugin manifest not found at ${PLUGIN_MANIFEST_PATH}`);
-    }
-    throw new LocalPluginError(`Could not read plugin manifest: ${errorMessage(cause)}`);
-  }
-  if (!isPluginManifest(value)) throw new LocalPluginError("Plugin manifest is invalid");
-  const manifest = value;
-  const skills = manifest.skills ? await skillComponents(pluginRoot, manifest.skills) : [];
+  await validatePluginBundle(pluginRoot);
+  const manifest = normalizedManifest ?? await readPluginManifest(pluginRoot);
+  const skills = manifest.skills
+    ? (await Promise.all((Array.isArray(manifest.skills) ? manifest.skills : [manifest.skills]).map((skillPath) => skillComponents(pluginRoot, skillPath)))).flat()
+    : [];
   const connections = await referencedComponents(manifest.connections, await capabilities?.connections(), "Connection");
   return {
     id: `${identity.idPrefix}${manifest.name}`,
@@ -281,7 +289,20 @@ export async function inspectPluginBundle(
   };
 }
 
-async function validateBundle(root: string): Promise<void> {
+async function readPluginManifest(pluginRoot: string): Promise<PluginManifest> {
+  const manifestPath = path.join(pluginRoot, PLUGIN_MANIFEST_PATH);
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LocalPluginError(`OpenGame Plugin manifest not found at ${PLUGIN_MANIFEST_PATH}`);
+    throw new LocalPluginError(`Could not read plugin manifest: ${errorMessage(cause)}`);
+  }
+  if (!isPluginManifest(value)) throw new LocalPluginError("Plugin manifest is invalid");
+  return value;
+}
+
+export async function validatePluginBundle(root: string): Promise<void> {
   let entryCount = 0;
   let size = 0;
   async function visit(directory: string, depth: number): Promise<void> {
@@ -370,25 +391,61 @@ function component(
   return { id, name: displayName(name) || fallbackName, enabled: true };
 }
 
-function localPluginName(id: string): string | undefined {
-  if (!id.startsWith(LOCAL_PLUGIN_ID_PREFIX)) return undefined;
-  const name = id.slice(LOCAL_PLUGIN_ID_PREFIX.length);
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) ? name : undefined;
-}
-
 function isLocalPluginRecord(value: unknown): value is LocalPluginRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<LocalPluginRecord>;
-  return typeof record.name === "string" && localPluginName(`${LOCAL_PLUGIN_ID_PREFIX}${record.name}`) !== undefined &&
-    isPluginVersion(record.version) && typeof record.sourcePath === "string" && path.isAbsolute(record.sourcePath);
+  return isPluginName(record.name) && (record.version === undefined || isPluginVersion(record.version)) &&
+    isPluginProvenance(record.provenance) && isResolvedPluginManifest(record.manifest) && isPluginMarketplace(record.marketplace);
+}
+
+function isResolvedPluginManifest(value: unknown): value is ResolvedPluginManifest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const manifest = value as Record<string, unknown>;
+  return isPluginManifest({ ...manifest, version: manifest.version ?? "0.0.0" });
+}
+
+function isPluginProvenance(value: unknown): value is PluginProvenance {
+  if (!value || typeof value !== "object") return false;
+  const provenance = value as Partial<PluginProvenance>;
+  if (provenance.type === "directory") return typeof provenance.path === "string" && path.isAbsolute(provenance.path);
+  return provenance.type === "git" && typeof provenance.url === "string" && typeof provenance.commit === "string";
+}
+
+function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const marketplace = value as Partial<PluginMarketplaceRef>;
+  return isPluginName(marketplace.id) && typeof marketplace.displayName === "string" && Boolean(marketplace.displayName.trim());
+}
+
+function validateMarketplace(marketplace: PluginMarketplaceRef): void {
+  if (!isPluginMarketplace(marketplace)) throw new LocalPluginError("Plugin marketplace is invalid");
+  if (marketplace.id === "opengame") {
+    throw new LocalPluginError(`Plugin marketplace name is reserved: ${marketplace.id}`);
+  }
+}
+
+function isPluginName(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+function pluginRecordId(record: Pick<LocalPluginRecord, "name" | "marketplace">): string {
+  return record.marketplace.id === PERSONAL_MARKETPLACE.id
+    ? `personal:${record.name}`
+    : `marketplace:${record.marketplace.id}:${record.name}`;
+}
+
+function publicSource(provenance: PluginProvenance): PluginSource {
+  return provenance.type === "directory"
+    ? { type: "directory" }
+    : { type: "git", url: provenance.url, commit: provenance.commit };
+}
+
+function sourceKey(provenance: PluginProvenance): string {
+  return provenance.type === "directory" ? `directory:${path.resolve(provenance.path)}` : `git:${provenance.url}`;
 }
 
 function displayName(value: string): string {
   return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function normalizedDisplayName(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function pathsOverlap(first: string, second: string): boolean {

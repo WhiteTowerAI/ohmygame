@@ -10,7 +10,7 @@ import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, createPiSession, loadConversation, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
+import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
@@ -32,12 +32,13 @@ import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
 import { BuiltInPluginAdapter, BundledPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
+import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
-import { resolvePluginSkillPaths } from "./plugin-runtime.js";
+import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
-import { hasPluginMentionToken, type PluginSettings } from "../shared/plugins.js";
+import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -455,7 +456,6 @@ export function createApp(options: AppOptions = {}) {
   const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
   const localPlugins = new LocalPluginStore(dataDirectory, {
     connections: async () => (await mcpServers.list()).map((server) => server.id),
-    reservedPluginDisplayNames: () => [...builtInPlugins(), ...bundledPlugins.list()].map((plugin) => plugin.displayName),
   });
   const plugins = new PluginCatalogService([
     new BuiltInPluginAdapter(),
@@ -483,7 +483,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkillPaths([bundledPlugins, localPlugins], pluginSettings),
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -510,7 +510,7 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkillPaths([bundledPlugins, localPlugins], pluginSettings),
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
       );
     }),
     activeToolNames: (project, mode, session) => {
@@ -621,11 +621,89 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(201).send({ projectId: project.id, conversationId: conversation.summary.id });
   });
 
+  const pluginInstallRequestSchema = {
+    body: {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "path"],
+          properties: { type: { const: "directory" }, path: { type: "string", minLength: 1 }, candidate: { type: "string" } },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "url"],
+          properties: { type: { const: "git" }, url: { type: "string", minLength: 1 }, candidate: { type: "string" } },
+        },
+      ],
+    },
+  } as const;
+
+  app.post<{ Body: InstallPluginRequest }>("/plugins/install", { schema: pluginInstallRequestSchema }, async (request, reply) => {
+    try {
+      const installed = await installPlugin(localPlugins, request.body);
+      invalidatePluginSessions();
+      return reply.code(201).send(pluginSettings.decorate(installed));
+    } catch (cause) {
+      if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.post<{ Body: InstallPluginRequest }>("/plugins/inspect", { schema: pluginInstallRequestSchema }, async (request, reply) => {
+    try {
+      const candidates = (await inspectPluginSource(request.body)).map(({ manifest: _manifest, ...candidate }) => candidate);
+      return { candidates };
+    } catch (cause) {
+      if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.get("/plugins", async () => plugins.list());
+
+  app.get("/composer/capabilities", async () => {
+    const [catalog, skills] = await Promise.all([
+      plugins.list(),
+      loadPiSkillCatalog(
+        path.join(dataDirectory, "home-composer"),
+        piAgentDirectory,
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+      ),
+    ]);
+    return {
+      plugins: enabledPluginMentions(catalog.plugins),
+      skills,
+    } satisfies ConversationCapabilities;
+  });
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
     const plugin = await withConnectionStatus(await plugins.read(request.params.pluginId));
     return plugin ?? reply.code(404).send({ error: "Plugin not found" });
+  });
+
+  app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-content", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id"],
+        properties: { id: { type: "string", minLength: 1, maxLength: 1_000 } },
+      },
+    },
+  }, async (request, reply) => {
+    const plugin = await plugins.read(request.params.pluginId);
+    if (!plugin?.installed) return reply.code(404).send({ error: "Installed plugin not found" });
+    try {
+      const content = await readPluginSkillContent(plugin, request.query.id, [bundledPlugins, localPlugins]);
+      return content === undefined
+        ? reply.code(404).send({ error: "Plugin Skill not found" })
+        : { id: request.query.id, content };
+    } catch (cause) {
+      if (cause instanceof PluginSkillContentError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
   });
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId/directory", async (request, reply) => {
@@ -659,8 +737,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.delete<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
-    const plugin = await plugins.read(request.params.pluginId);
-    if (!plugin || plugin.source.type !== "local") return reply.code(404).send({ error: "Local plugin not found" });
+    const plugin = await localPlugins.read(request.params.pluginId);
+    if (!plugin) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
       await localPlugins.remove(request.params.pluginId);
       await pluginSettings.remove(request.params.pluginId).catch((cause) => {
@@ -1168,9 +1246,7 @@ export function createApp(options: AppOptions = {}) {
         agents.skills(project, conversation),
       ]);
       return {
-        plugins: catalog.plugins
-          .filter((plugin) => plugin.enabled)
-          .map(({ id, name, displayName, description, marketplace }) => ({ id, name, displayName, description, marketplaceId: marketplace.id })),
+        plugins: enabledPluginMentions(catalog.plugins),
         skills,
       } satisfies ConversationCapabilities;
     },
@@ -1626,6 +1702,19 @@ export function createApp(options: AppOptions = {}) {
     await artifacts.close();
   });
   return app;
+}
+
+function enabledPluginMentions(plugins: readonly PluginSummary[]): ConversationCapabilities["plugins"] {
+  return plugins
+    .filter((plugin) => plugin.enabled)
+    .map(({ id, name, displayName, description, marketplace }) => ({
+      id,
+      name,
+      displayName,
+      description,
+      marketplaceId: marketplace.id,
+      marketplaceDisplayName: marketplace.displayName,
+    }));
 }
 
 function isWebp(value: unknown): value is Buffer {

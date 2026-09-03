@@ -20,7 +20,7 @@ describe("plugin catalog", () => {
 
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
       "opengame:plugin-starter",
-      "local:character-workflow",
+      "personal:character-workflow",
     ]);
     expect(result.errors).toEqual([]);
   });
@@ -59,13 +59,13 @@ describe("plugin catalog", () => {
 
 function localPlugin(): PluginDetail {
   return {
-    id: "local:character-workflow",
+    id: "personal:character-workflow",
     name: "character-workflow",
     displayName: "Character Workflow",
     description: "Create consistent characters",
     version: "0.1.0",
     marketplace: { id: "personal", displayName: "Personal" },
-    source: { type: "local" },
+    source: { type: "directory" },
     installed: true,
     enabled: true,
     skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }],

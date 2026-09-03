@@ -2498,6 +2498,92 @@ button.home-nav-item-active:hover {
   opacity: 0.6;
 }
 
+.plugins-add { position: relative; }
+
+.plugins-add-menu {
+  position: absolute;
+  z-index: 20;
+  top: 38px;
+  right: 0;
+  display: grid;
+  width: 230px;
+  padding: 4px;
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu-surface);
+  box-shadow: var(--menu-shadow);
+}
+
+.plugins-add-menu button {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.plugins-add-menu button:is(:hover, :focus-visible) { background: var(--menu-hover); }
+.plugins-add-menu button > span { display: grid; min-width: 0; gap: 2px; }
+.plugins-add-menu strong { color: inherit; font-size: 11px; font-weight: 500; }
+.plugins-add-menu small { color: rgb(255 255 255 / 68%); font-size: 9px; }
+
+.plugin-install-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 45%);
+  app-region: no-drag;
+}
+
+.plugin-install-dialog {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu-surface);
+  box-shadow: var(--menu-shadow);
+}
+
+.plugin-install-dialog header { display: grid; gap: 4px; }
+.plugin-install-dialog h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 500; }
+.plugin-install-dialog p { margin: 0; color: var(--text-muted); font-size: 11px; }
+.plugin-install-dialog label { display: grid; gap: 7px; color: var(--text-muted); font-size: 10px; font-weight: 500; }
+.plugin-install-dialog input { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; outline: 0; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+.plugin-install-dialog input:focus { border-color: var(--border-strong); }
+.plugin-install-candidates { display: grid; max-height: min(420px, 55dvh); gap: 3px; overflow-y: auto; }
+.plugin-install-candidates > button { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; text-align: left; }
+.plugin-install-candidates > button:is(:hover, :focus-visible) { background: var(--menu-hover); }
+.plugin-install-candidates > button.is-selected { background: rgb(185 255 24 / 8%); box-shadow: inset 0 0 0 1px rgb(185 255 24 / 62%); color: var(--text); }
+.plugin-install-candidates > button > span { display: grid; min-width: 0; gap: 3px; }
+.plugin-install-candidates strong { color: var(--text); font-size: 11px; font-weight: 500; }
+.plugin-install-candidates small { color: var(--text-faint); font-size: 9px; }
+.plugin-install-candidates > button.is-selected small { color: var(--text-muted); }
+.plugin-install-candidates .plugin-install-candidate-meta { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+.plugin-install-candidate-radio { display: grid; width: 14px; height: 14px; place-items: center; border: 1px solid var(--text-faint); border-radius: 50%; }
+.plugin-install-candidate-radio::after { width: 6px; height: 6px; border-radius: 50%; background: var(--composer-accent); content: ""; opacity: 0; }
+.is-selected .plugin-install-candidate-radio { border-color: var(--composer-accent); }
+.is-selected .plugin-install-candidate-radio::after { opacity: 1; }
+.plugin-install-dialog .plugin-install-error { color: var(--danger); }
+.plugin-install-dialog footer { display: flex; justify-content: flex-end; gap: 7px; }
+.plugin-install-dialog footer button { display: inline-flex; height: 32px; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 0; border-radius: 6px; background: var(--surface-raised); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; font-weight: 500; }
+.plugin-install-dialog footer button:hover:not(:disabled) { background: var(--surface-hover); }
+.plugin-install-dialog footer .plugin-install-submit { background: var(--composer-accent); color: #182000; }
+.plugin-install-dialog footer .plugin-install-submit:hover:not(:disabled) { background: var(--composer-accent-hover); }
+.plugin-install-dialog :disabled { cursor: default; opacity: 0.55; }
+
 .plugin-row-icon {
   display: grid;
   width: 34px;
@@ -2733,7 +2819,7 @@ button.home-nav-item-active:hover {
   white-space: nowrap;
 }
 
-.plugin-card-copy > span:last-child:not(.plugin-card-title) {
+.plugin-card-description {
   display: -webkit-box;
   overflow: hidden;
   color: var(--text-muted);
@@ -2742,6 +2828,14 @@ button.home-nav-item-active:hover {
   white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.plugin-card-marketplace {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plugin-card-title {
@@ -2914,7 +3008,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-detail-copy > span {
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-size: 10px;
 }
 
@@ -3109,7 +3203,7 @@ button.home-nav-item-active:hover {
 
 .plugin-component-row {
   display: grid;
-  min-height: 64px;
+  min-height: 54px;
   grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
@@ -3121,8 +3215,96 @@ button.home-nav-item-active:hover {
   border-bottom: 0;
 }
 
+.plugin-skill-item:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.plugin-skill-item .plugin-component-row {
+  border-bottom: 0;
+}
+
+.plugin-skill-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: 0;
+}
+
+.plugin-skill-open {
+  display: grid;
+  min-width: 0;
+  align-self: stretch;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.plugin-skill-open > svg {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  transition: transform 120ms ease;
+}
+
+.plugin-skill-open[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+
+.plugin-skill-open:hover .plugin-row-copy strong {
+  color: #fff;
+}
+
+.plugin-skill-row:has(.plugin-skill-open:hover) {
+  background: var(--surface-hover);
+}
+
+.plugin-skill-content {
+  max-height: 320px;
+  padding: 14px 18px 18px 54px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.plugin-skill-state {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.plugin-skill-state.is-error {
+  color: var(--danger);
+}
+
+.plugin-skill-state button {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--surface-hover);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.plugin-component-row .plugin-row-copy strong {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
 .plugin-component-row .plugin-row-copy > span {
   color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 15px;
 }
 
 .plugin-component-icon {
@@ -6162,11 +6344,21 @@ button {
   box-shadow: var(--menu-shadow);
 }
 
+.composer-mention-menu {
+  box-sizing: border-box;
+  max-height: 360px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--menu-surface) 94%, #fff);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
 .composer-command-menu button {
   display: grid;
   width: 100%;
   min-height: 38px;
-  grid-template-columns: 18px auto minmax(0, 1fr);
+  grid-template-columns: 18px auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 0 9px;
@@ -6192,6 +6384,30 @@ button {
   font-size: 11px;
   text-align: right;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-mention-menu button > svg {
+  color: var(--text-secondary);
+}
+
+.composer-mention-menu button > span {
+  overflow: hidden;
+  color: #f1f2f4;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-mention-menu small {
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.composer-mention-menu em {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
   white-space: nowrap;
 }
 

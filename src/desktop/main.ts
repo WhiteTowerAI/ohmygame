@@ -42,6 +42,11 @@ ipcMain.handle("open-game:browse-plugin-directory", async (event, pluginId: unkn
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
+ipcMain.handle("open-game:select-plugin-directory", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
+  return result.canceled ? undefined : result.filePaths[0];
+});
 ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());

@@ -41,8 +41,8 @@ describe("agent tools", () => {
     await runner.load();
     let installedPath = "";
     const plugin = {
-      id: "local:character-workflow", name: "character-workflow", displayName: "Character Workflow", description: "Characters", version: "0.1.0",
-      marketplace: { id: "personal", displayName: "Personal" }, source: { type: "local" as const }, installed: true, enabled: true,
+      id: "personal:character-workflow", name: "character-workflow", displayName: "Character Workflow", description: "Characters", version: "0.1.0",
+      marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" as const }, installed: true, enabled: true,
       skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }], connections: [],
     };
     const tool = createAgentTools(project, runner, projects, undefined, async (sourcePath) => {

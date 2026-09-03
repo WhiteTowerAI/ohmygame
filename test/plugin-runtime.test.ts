@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PluginDetail } from "../src/shared/plugins.js";
 import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
+import { resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 
 describe("plugin runtime", () => {
@@ -21,6 +21,21 @@ describe("plugin runtime", () => {
 
     expect(skillPaths).toEqual([]);
   });
+
+  it("preserves Plugin provenance for enabled skills", async () => {
+    const plugin = localPlugin();
+    const settings = await settingsStore();
+    const local = {
+      list: async () => ({ plugins: [plugin], errors: [] }),
+      installedPath: async () => "/managed/plugin/0.1.0",
+    } as unknown as LocalPluginStore;
+
+    await expect(resolvePluginSkills([local], settings)).resolves.toEqual([{
+      path: "/managed/plugin/0.1.0/skills/review/SKILL.md",
+      pluginDisplayName: "Test",
+      marketplaceDisplayName: "Personal",
+    }]);
+  });
 });
 
 async function settingsStore(): Promise<PluginSettingsStore> {
@@ -31,8 +46,8 @@ async function settingsStore(): Promise<PluginSettingsStore> {
 
 function localPlugin(): PluginDetail {
   return {
-    id: "local:test", name: "test", displayName: "Test", description: "Test plugin", version: "0.1.0",
-    marketplace: { id: "personal", displayName: "Personal" }, source: { type: "local" }, installed: true, enabled: true,
+    id: "personal:test", name: "test", displayName: "Test", description: "Test plugin", version: "0.1.0",
+    marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" }, installed: true, enabled: true,
     skills: [{ id: "skills/review/SKILL.md", name: "Review", enabled: true }],
     connections: [{ id: "opengame-godot", name: "Godot", enabled: true }],
   };

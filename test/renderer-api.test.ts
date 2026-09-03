@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, refinePlan, removeLocalPlugin, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -105,32 +105,71 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ plugins: [], errors: [] }))
-      .mockResolvedValueOnce(Response.json({ id: "opengame:godot" }));
+      .mockResolvedValueOnce(Response.json({ id: "opengame:godot" }))
+      .mockResolvedValueOnce(Response.json({ id: "skills/godot/SKILL.md", content: "# Godot" }));
     vi.stubGlobal("fetch", fetchMock);
 
     await listPlugins();
     await readPlugin("opengame:godot");
+    await readPluginSkill("opengame:godot", "skills/godot/SKILL.md");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/opengame%3Agodot", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/opengame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
+  });
+
+  it("loads Composer capabilities before a project exists", async () => {
+    installWindow();
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ plugins: [], skills: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getHomeComposerCapabilities();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/composer/capabilities", expect.objectContaining({ headers: {} }));
   });
 
   it("updates settings and removes personal plugins through the unified API", async () => {
     installWindow();
-    const plugin = { id: "local:character-writer" };
+    const plugin = { id: "personal:character-writer" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json(plugin))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await updatePluginSettings(plugin.id, { enabled: false, components: {} });
-    await removeLocalPlugin(plugin.id);
+    await uninstallPlugin(plugin.id);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/local%3Acharacter-writer/settings", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/personal%3Acharacter-writer/settings", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ enabled: false, components: {} }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/local%3Acharacter-writer", expect.objectContaining({ method: "DELETE" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Acharacter-writer", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("installs plugins through the unified API", async () => {
+    installWindow();
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ id: "personal:test" }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await installPlugin({ type: "git", url: "https://example.com/test.git" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/install", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ type: "git", url: "https://example.com/test.git" }),
+    }));
+  });
+
+  it("inspects plugin sources through the unified API", async () => {
+    installWindow();
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ candidates: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await inspectPluginSource({ type: "directory", path: "/plugins/test" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/inspect", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ type: "directory", path: "/plugins/test" }),
+    }));
   });
 
   it("passes the current user token only in the publish request body", async () => {

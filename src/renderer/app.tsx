@@ -17,7 +17,7 @@ import type { ComposerDraft } from "./composer.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; images: PromptImage[]; mode: PromptMode }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
 
   useEffect(() => {
@@ -61,8 +61,8 @@ export function App() {
     />
   );
 
-  function openCreatedProject(projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode): void {
-    setInitialPrompt({ conversationId, prompt, images, mode });
+  function openCreatedProject(projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode): void {
+    setInitialPrompt({ conversationId, prompt, mentions, images, mode });
     navigateToConversation(projectId, conversationId);
   }
 

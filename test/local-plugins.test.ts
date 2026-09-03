@@ -27,11 +27,11 @@ describe("local plugins", () => {
     const installed = await store.install(source);
 
     expect(installed).toMatchObject({
-      id: "local:character-writer",
+      id: "personal:character-writer",
       displayName: "Character Writer",
       version: "1.0.0",
       marketplace: { id: "personal", displayName: "Personal" },
-      source: { type: "local" },
+      source: { type: "directory" },
       installed: true,
       enabled: true,
       skills: [{ id: "skills/writer/SKILL.md", name: "Writer" }],
@@ -49,7 +49,7 @@ describe("local plugins", () => {
     await expect(store.directoryPath(installed.id)).resolves.toBe(source);
 
     await rm(source, { recursive: true });
-    await expect(store.directoryPath(installed.id)).resolves.toContain(path.join("plugins", "personal", "character-writer", "1.1.0"));
+    await expect(store.directoryPath(installed.id)).resolves.toContain(path.join("plugins", "installed", "personal", "character-writer", "1.1.0"));
 
     await store.remove(installed.id);
     expect(await store.list()).toEqual({ plugins: [], errors: [] });
@@ -91,7 +91,7 @@ describe("local plugins", () => {
     await expect(new LocalPluginStore(path.join(root, "data")).install(source)).rejects.toThrow("Plugin manifest is invalid");
   });
 
-  it("requires unique display names across installed and reserved plugins", async () => {
+  it("identifies plugins by canonical name rather than display name", async () => {
     const root = await temporaryDirectory();
     const dataDirectory = path.join(root, "data");
     const first = path.join(root, "first-plugin");
@@ -108,12 +108,11 @@ describe("local plugins", () => {
     });
     const store = new LocalPluginStore(dataDirectory, {
       connections: async () => [],
-      reservedPluginDisplayNames: () => ["Godot"],
     });
 
     await store.install(first);
-    await expect(store.install(second)).rejects.toThrow("Plugin display name is already in use: shared name");
-    await expect(store.install(reserved)).rejects.toThrow("Plugin display name is already in use: Godot");
+    await expect(store.install(second)).resolves.toMatchObject({ id: "personal:second-plugin" });
+    await expect(store.install(reserved)).resolves.toMatchObject({ id: "personal:reserved-plugin" });
   });
 
   it("keeps healthy plugins when one installed copy is damaged", async () => {
@@ -125,13 +124,45 @@ describe("local plugins", () => {
     await writePluginManifest(second, { name: "second-plugin", version: "1.0.0", description: "Second" });
     const store = new LocalPluginStore(dataDirectory);
     await Promise.all([store.install(first), store.install(second)]);
-    await rm(path.join(dataDirectory, "plugins", "personal", "first-plugin", "1.0.0", ".opengame-plugin", "plugin.json"));
+    await rm(path.join(dataDirectory, "plugins", "installed", "personal", "first-plugin", "1.0.0"), { recursive: true });
 
     const result = await store.list();
 
-    expect(result.plugins.map((plugin) => plugin.id)).toEqual(["local:second-plugin"]);
+    expect(result.plugins.map((plugin) => plugin.id)).toEqual(["personal:second-plugin"]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain("first-plugin");
+  });
+
+  it("keeps same-named plugins distinct by marketplace and restores their source", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const first = path.join(root, "first-marketplace-plugin");
+    const second = path.join(root, "second-marketplace-plugin");
+    const conflicting = path.join(root, "conflicting-marketplace-plugin");
+    await writePluginManifest(first, { name: "game-tools", version: "1.0.0", description: "First tools" });
+    await writePluginManifest(second, { name: "game-tools", version: "1.0.0", description: "Second tools" });
+    await writePluginManifest(conflicting, { name: "other-tools", version: "1.0.0", description: "Other tools" });
+    const store = new LocalPluginStore(dataDirectory);
+
+    const firstPlugin = await store.install(first, { type: "directory", path: first }, undefined, {
+      id: "first-marketplace", displayName: "First Marketplace",
+    });
+    const secondPlugin = await store.install(second, { type: "directory", path: second }, undefined, {
+      id: "second-marketplace", displayName: "Second Marketplace",
+    });
+
+    expect(firstPlugin.id).toBe("marketplace:first-marketplace:game-tools");
+    expect(secondPlugin.id).toBe("marketplace:second-marketplace:game-tools");
+    await expect(new LocalPluginStore(dataDirectory).list()).resolves.toMatchObject({
+      plugins: [
+        { id: firstPlugin.id, marketplace: { id: "first-marketplace", displayName: "First Marketplace" } },
+        { id: secondPlugin.id, marketplace: { id: "second-marketplace", displayName: "Second Marketplace" } },
+      ],
+      errors: [],
+    });
+    await expect(store.install(conflicting, { type: "directory", path: conflicting }, undefined, {
+      id: "first-marketplace", displayName: "First Marketplace",
+    })).rejects.toThrow("Marketplace first-marketplace is already installed from another source");
   });
 
   it("rejects deeply nested bundles", async () => {

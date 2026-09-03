@@ -15,9 +15,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { isValidElement, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
@@ -27,6 +25,7 @@ import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { GodotIcon } from "./godot-icon.js";
+import { MarkdownContent } from "./markdown-content.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
@@ -438,45 +437,6 @@ function ConnectionActivity({ title, error, retrying = false, failed = false }: 
   );
 }
 
-function MarkdownContent({ text, className = "" }: { text: string; className?: string }) {
-  return (
-    <div className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
-          pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
-  const [copied, setCopied] = useState(false);
-  const code = nodeText(children).replace(/\n$/, "");
-  const language = isValidElement<{ className?: string }>(children)
-    ? children.props.className?.match(/language-([^\s]+)/)?.[1]
-    : undefined;
-
-  return (
-    <div className="markdown-code-block">
-      <div className="markdown-code-header">
-        <span>{language ?? "Code"}</span>
-        <button type="button" onClick={() => {
-          void navigator.clipboard.writeText(code).then(() => setCopied(true));
-        }}>
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
-      </div>
-      <pre>{children}</pre>
-    </div>
-  );
-}
-
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
   const presentation = completed ? completedToolPresentation(item) : toolPresentation(item);
   const Icon = presentation.icon;
@@ -676,11 +636,4 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-function nodeText(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(nodeText).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return nodeText(node.props.children);
-  return "";
 }

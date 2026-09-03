@@ -408,10 +408,13 @@ export interface ConversationCapabilities {
     displayName: string;
     description: string;
     marketplaceId: string;
+    marketplaceDisplayName: string;
   }>;
   skills: Array<{
     name: string;
     description: string;
+    pluginDisplayName?: string;
+    marketplaceDisplayName?: string;
   }>;
 }
 

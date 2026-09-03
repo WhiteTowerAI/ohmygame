@@ -1,6 +1,7 @@
 import {
   createAgentSession,
   DefaultResourceLoader,
+  loadSkills,
   ModelRuntime,
   parseSkillBlock,
   SessionManager,
@@ -17,6 +18,7 @@ import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
+import type { PluginSkillRegistration } from "./plugin-runtime.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -36,7 +38,14 @@ export interface CodingSession {
   setThinkingLevel?(level: AgentReasoningLevel): void;
   setActiveToolsByName?(toolNames: string[]): void;
   getAllTools?(): Array<{ name: string }>;
-  getSkills?(): Array<{ name: string; description: string }>;
+  getSkills?(): SkillCatalogItem[];
+}
+
+export interface SkillCatalogItem {
+  name: string;
+  description: string;
+  pluginDisplayName?: string;
+  marketplaceDisplayName?: string;
 }
 
 interface PiPromptImage {
@@ -431,7 +440,7 @@ export class AgentManager {
     return managed.session.getContextUsage?.();
   }
 
-  async skills(project: ProjectState, conversation: StoredConversation): Promise<Array<{ name: string; description: string }>> {
+  async skills(project: ProjectState, conversation: StoredConversation): Promise<SkillCatalogItem[]> {
     const existing = this.#sessions.get(conversationKey(project.id, conversation.summary.id));
     if (existing) return existing.session.getSkills?.() ?? [];
     if (this.options.loadSkills) return this.options.loadSkills(project);
@@ -1835,10 +1844,10 @@ export async function createPiSession(
   modelRuntime?: ModelRuntime,
   model?: RuntimeModel,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
-  resolvePluginSkillPaths?: () => Promise<string[]>,
+  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  const { resourceLoader, sessionSettings } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkillPaths);
+  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
   const { session } = await createAgentSession({
     cwd: workspacePath,
     agentDir,
@@ -1851,34 +1860,50 @@ export async function createPiSession(
   });
   await session.bindExtensions({ mode: "rpc" });
   return Object.assign(session, {
-    getSkills: () => resourceLoader.getSkills().skills.map(({ name, description }) => ({ name, description })),
+    getSkills: () => skillCatalog(resourceLoader.getSkills().skills, pluginSkills),
   });
 }
 
 export async function loadPiSkills(
   workspacePath: string,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
-  resolvePluginSkillPaths?: () => Promise<string[]>,
-): Promise<Array<{ name: string; description: string }>> {
-  const { resourceLoader } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkillPaths);
-  return resourceLoader.getSkills().skills.map(({ name, description }) => ({ name, description }));
+  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+): Promise<SkillCatalogItem[]> {
+  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
+  return skillCatalog(resourceLoader.getSkills().skills, pluginSkills);
+}
+
+export async function loadPiSkillCatalog(
+  workspacePath: string,
+  agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
+  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+): Promise<SkillCatalogItem[]> {
+  await ensureOpenGamePiEnvironment(agentDir);
+  const pluginSkills = await resolvePluginSkills?.() ?? [];
+  return skillCatalog(loadSkills({
+    cwd: workspacePath,
+    agentDir,
+    skillPaths: pluginSkills.map((skill) => skill.path),
+    includeDefaults: true,
+  }).skills, pluginSkills);
 }
 
 async function createPiResourceLoader(
   workspacePath: string,
   agentDir: string,
-  resolvePluginSkillPaths?: () => Promise<string[]>,
-): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager }> {
+  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
   await ensureOpenGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
   sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
+  const pluginSkills = await resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
-    additionalSkillPaths: await resolvePluginSkillPaths?.(),
+    additionalSkillPaths: pluginSkills.map((skill) => skill.path),
     appendSystemPrompt: [
       "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
       "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
@@ -1890,7 +1915,25 @@ async function createPiResourceLoader(
     ],
   });
   await resourceLoader.reload();
-  return { resourceLoader, sessionSettings };
+  return { resourceLoader, sessionSettings, pluginSkills };
+}
+
+function skillCatalog(
+  skills: Array<{ name: string; description: string; filePath: string }>,
+  pluginSkills: readonly PluginSkillRegistration[],
+): SkillCatalogItem[] {
+  const sources = new Map(pluginSkills.map((skill) => [path.resolve(skill.path), skill]));
+  return skills.map(({ name, description, filePath }) => {
+    const source = sources.get(path.resolve(filePath));
+    return {
+      name,
+      description,
+      ...(source ? {
+        pluginDisplayName: source.pluginDisplayName,
+        marketplaceDisplayName: source.marketplaceDisplayName,
+      } : {}),
+    };
+  });
 }
 
 export function lastAssistantError(messages: readonly unknown[]): string | undefined {

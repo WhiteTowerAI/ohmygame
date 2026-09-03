@@ -36,6 +36,15 @@ describe("plugin protocol", () => {
     })).toBe(true);
   });
 
+  it("accepts multiple skill paths", () => {
+    expect(isPluginManifest({
+      name: "game-tools",
+      version: "1.0.0",
+      description: "Game tools",
+      skills: ["./skills/godot/", "./skills/web/"],
+    })).toBe(true);
+  });
+
   it("rejects invalid identities, paths, and undeclared fields", () => {
     const base = {
       name: "valid-plugin",

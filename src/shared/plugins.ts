@@ -6,7 +6,26 @@ export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
 
 export type PluginSource =
   | { type: "builtIn" }
-  | { type: "local" };
+  | { type: "directory" }
+  | { type: "git"; url: string; commit: string };
+
+export type InstallPluginRequest =
+  | { type: "directory"; path: string; candidate?: string }
+  | { type: "git"; url: string; candidate?: string };
+
+export interface PluginInstallCandidate {
+  key: string;
+  name: string;
+  displayName: string;
+  description: string;
+  skillCount: number;
+  format: "opengame" | "codex" | "claude" | "pi" | "agent-skills";
+  marketplace: PluginMarketplaceRef;
+}
+
+export interface PluginInstallInspection {
+  candidates: PluginInstallCandidate[];
+}
 
 export interface PluginMarketplaceRef {
   id: string;
@@ -107,6 +126,11 @@ export interface PluginDetail extends PluginSummary {
   projectTypes?: ProjectType[];
 }
 
+export interface PluginSkillContent {
+  id: string;
+  content: string;
+}
+
 export interface PluginCatalog {
   plugins: PluginSummary[];
   errors: PluginMarketplaceError[];
@@ -143,12 +167,13 @@ export const PluginManifestSchema = Type.Object({
   name: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
   version: SemVerSchema,
   description: Type.String({ minLength: 1 }),
-  skills: Type.Optional(RelativePathSchema),
+  skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
   connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   interface: Type.Optional(InterfaceSchema),
 }, { additionalProperties: false });
 
 export type PluginManifest = Static<typeof PluginManifestSchema>;
+export type ResolvedPluginManifest = Omit<PluginManifest, "version"> & { version?: string };
 
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);

@@ -1,21 +1,33 @@
 import { ArrowUp, Check, ChevronDown, LoaderCircle } from "./icons.js";
-import { useEffect, useId, useRef, useState } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { createConversation, createProject } from "./api.js";
+import { createConversation, createProject, getHomeComposerCapabilities, waitForRuntime } from "./api.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox } from "./prompt-box.js";
 import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
+import { ComposerMentionMenu } from "./composer-mention-menu.js";
+import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { ComposerCapabilityReferences } from "./composer-capability-references.js";
+
+const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
 export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeChange, onCreate }: {
   projectType: ProjectType;
   placeholder: string;
   onProjectTypeChange?: (type: ProjectType) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
 }) {
   const [prompt, setPrompt] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState<string>();
+  const [selectedPlugin, setSelectedPlugin] = useState<PluginMention>();
+  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
+  const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [selectedMention, setSelectedMention] = useState(0);
+  const [dismissedMention, setDismissedMention] = useState<string>();
   const [planning, setPlanning] = useState(false);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [creating, setCreating] = useState(false);
@@ -24,6 +36,27 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
+  const candidateMention = mentionQuery(prompt, mentionCursor);
+  const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
+  const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
+  const mentions = activeMention ? matchingMentions(
+    planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
+    activeMention,
+  ) : [];
+
+  useEffect(() => {
+    let disposed = false;
+    void waitForRuntime()
+      .then(() => getHomeComposerCapabilities())
+      .then((result) => { if (!disposed) setCapabilities(result); })
+      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
+    return () => { disposed = true; };
+  }, []);
+
+  useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
+  useEffect(() => {
+    if (!mentionKey) setDismissedMention(undefined);
+  }, [mentionKey]);
 
   useEffect(() => {
     if (modelCatalog.models.some((candidate) => sameModel(candidate, model))) return;
@@ -44,14 +77,21 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
       togglePlanning();
       return;
     }
-    const nextPrompt = prompt.trim();
+    const nextPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
     if ((!nextPrompt && images.length === 0) || creating) return;
     setCreating(true);
     setError(undefined);
     try {
       const project = await createProject({ type: projectType });
       const conversation = await createConversation(project.id, model, reasoningLevel);
-      onCreate(project.id, conversation.id, nextPrompt, promptImages(images), planning ? "planning" : "normal");
+      onCreate(
+        project.id,
+        conversation.id,
+        nextPrompt,
+        activePluginMentions(nextPrompt, pluginMentions),
+        promptImages(images),
+        planning ? "planning" : "normal",
+      );
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
@@ -61,7 +101,95 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   function togglePlanning(): void {
     setPlanning((value) => !value);
     setPrompt("");
+    setSelectedSkill(undefined);
+    setSelectedPlugin(undefined);
+    setPluginMentions([]);
+    setMentionCursor(0);
     promptRef.current?.focus();
+  }
+
+  function changePrompt(value: string): void {
+    setPrompt(value);
+    setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, selectedPlugin, value), current));
+  }
+
+  function clearSelectedPlugin(): void {
+    setSelectedPlugin(undefined);
+    setPluginMentions((current) => activePluginMentions(formatSkillInvocation(selectedSkill, prompt), current));
+  }
+
+  function selectMention(mention: ComposerMention): void {
+    if (!activeMention) return;
+    if (mention.type === "skill") {
+      const suffix = prompt.slice(activeMention.end).replace(/^\s+/, "");
+      setPrompt(`${prompt.slice(0, activeMention.start)}${suffix}`);
+      setSelectedSkill(mention.value.name);
+      setMentionCursor(activeMention.start);
+      setSelectedMention(0);
+      focusAt(activeMention.start);
+      return;
+    }
+    const selected = toPluginMention(mention.value);
+    if (activeMention.start === 0 && !selectedPlugin) {
+      const nextPrompt = prompt.slice(activeMention.end).replace(/^\s+/, "");
+      const candidates = [
+        ...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
+        selected,
+      ];
+      setPrompt(nextPrompt);
+      setSelectedPlugin(selected);
+      setPluginMentions(activePluginMentions(formatComposerInvocation(selectedSkill, selected, nextPrompt), candidates));
+      setMentionCursor(0);
+      setSelectedMention(0);
+      focusAt(0);
+      return;
+    }
+    const inserted = insertMention(prompt, activeMention, mention);
+    changePrompt(inserted.value);
+    setPluginMentions((current) => [
+      ...current.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
+      selected,
+    ]);
+    setMentionCursor(inserted.cursor);
+    setSelectedMention(0);
+    focusAt(inserted.cursor);
+  }
+
+  function focusAt(cursor: number): void {
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    setMentionCursor(event.currentTarget.selectionStart);
+    if (selectedSkill && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault();
+      setSelectedSkill(undefined);
+      return true;
+    }
+    if (selectedPlugin && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault();
+      clearSelectedPlugin();
+      return true;
+    }
+    if (!mentions.length) return false;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      setSelectedMention((current) => (current + offset + mentions.length) % mentions.length);
+      return true;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      event.preventDefault();
+      selectMention(mentions[selectedMention] ?? mentions[0]);
+      return true;
+    }
+    if (event.key !== "Escape") return false;
+    event.preventDefault();
+    setDismissedMention(mentionKey);
+    return true;
   }
 
   return (
@@ -80,7 +208,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
             <button
               className="icon-button send-button"
               type="submit"
-              disabled={(!prompt.trim() && images.length === 0) || creating}
+              disabled={(!selectedSkill && !selectedPlugin && !prompt.trim() && images.length === 0) || creating}
               title="Create project"
               aria-label="Create project"
             >
@@ -90,6 +218,18 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
         )}
         content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
         disabled={creating}
+        prefix={<ComposerCapabilityReferences
+          skill={selectedSkill}
+          plugin={selectedPlugin}
+          onRemoveSkill={() => {
+            setSelectedSkill(undefined);
+            promptRef.current?.focus();
+          }}
+          onRemovePlugin={() => {
+            clearSelectedPlugin();
+            promptRef.current?.focus();
+          }}
+        />}
         leading={(
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
@@ -97,11 +237,15 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
           </>
         )}
-        onChange={setPrompt}
+        onChange={changePrompt}
+        onCommandKeyDown={handleCommandKeyDown}
         onSubmit={() => void submit()}
-        overlay={matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={togglePlanning} /> : null}
-        placeholder={planning ? "Describe what to plan" : placeholder}
+        overlay={mentions.length
+          ? <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />
+          : matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={togglePlanning} /> : null}
+        placeholder={selectedSkill || selectedPlugin ? "" : planning ? "Describe what to plan" : placeholder}
         textareaRef={promptRef}
+        onSelectionChange={setMentionCursor}
         value={prompt}
         variant="home"
       />

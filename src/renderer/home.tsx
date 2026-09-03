@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
-import type { ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
@@ -16,7 +16,7 @@ import neonDrift from "./assets/home/neon-drift.svg";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, images: PromptImage[], mode: PromptMode) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
   onOpen: (projectId: string) => void;
 }
 
