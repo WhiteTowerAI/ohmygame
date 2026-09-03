@@ -1,12 +1,5 @@
-import type {
-  ImageAspectRatio,
-  ImageOutputCount,
-  ImageResolution,
-  Model3DPose,
-  Model3DQuality,
-  VideoAspectRatio,
-  VideoResolution,
-} from "../shared/contracts.js";
+import type { AssetTemplateDefinition, Model3DSource, StudioMode } from "../shared/asset-templates.js";
+export type { Model3DSource, StudioMode } from "../shared/asset-templates.js";
 import characterModel3D from "./assets/asset-templates/character-model-3d.webp";
 import characterSheet from "./assets/asset-templates/character-sheet.webp";
 import characterTurnaround from "./assets/asset-templates/character-turnaround.webp";
@@ -19,32 +12,14 @@ import generalVideo from "./assets/asset-templates/general-video.webp";
 import propDesign from "./assets/asset-templates/prop-design.webp";
 import seamlessLoop from "./assets/asset-templates/seamless-loop.webp";
 
-export type StudioMode = "image" | "video" | "3d";
-export type Model3DSource = "text" | "image";
-
-export interface AssetTemplate {
+export interface AssetTemplate extends AssetTemplateDefinition {
   id: string;
-  mode: StudioMode;
-  name: string;
-  description: string;
-  promptLabel: string;
-  promptPlaceholder: string;
-  defaultPrompt?: string;
   previewImage: string;
-  defaults?: {
-    imageResolution?: ImageResolution;
-    imageAspectRatio?: ImageAspectRatio;
-    imageOutputs?: ImageOutputCount;
-    videoResolution?: VideoResolution;
-    videoAspectRatio?: VideoAspectRatio;
-    videoDuration?: number;
-    model3DQuality?: Model3DQuality;
-    model3DPose?: Model3DPose;
-    model3DSource?: Model3DSource;
-  };
+  source: "builtIn" | "local" | "catalog";
+  publication?: import("../shared/asset-templates.js").LocalAssetTemplate["publication"];
 }
 
-export const ASSET_TEMPLATES: readonly AssetTemplate[] = [
+const BUILT_IN_TEMPLATES: readonly Omit<AssetTemplate, "source">[] = [
   {
     id: "general-image",
     mode: "image",
@@ -164,6 +139,11 @@ export const ASSET_TEMPLATES: readonly AssetTemplate[] = [
     defaults: { model3DQuality: "ultra", model3DPose: "a-pose", model3DSource: "text" },
   },
 ];
+
+export const ASSET_TEMPLATES: readonly AssetTemplate[] = BUILT_IN_TEMPLATES.map((template) => ({
+  ...template,
+  source: "builtIn",
+}));
 
 export function templatesForMode(mode: StudioMode): readonly AssetTemplate[] {
   return ASSET_TEMPLATES.filter((template) => template.mode === mode);

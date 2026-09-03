@@ -1,4 +1,4 @@
-import { Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Sparkles, X } from "./icons.js";
+import { Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Share2, Sparkles, X } from "./icons.js";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -22,9 +22,11 @@ import {
   type VideoAspectRatio,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, getImageGenerationSettings, getToolRunFile, listImageModels, listProjects, MODELS_CHANGED_EVENT, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, MODELS_CHANGED_EVENT, publishAssetTemplate, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { defaultTemplateForMode, templatesForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
+import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { AppSidebar } from "./app-sidebar.js";
+import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -85,6 +87,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [result, setResult] = useState<PreviewResult>();
   const [history, setHistory] = useState<PreviewResult[]>([]);
   const [panelView, setPanelView] = useState<AssetPanelView>("templates");
+  const [localTemplates, setLocalTemplates] = useState<LocalAssetTemplate[]>([]);
+  const [exploreTemplates, setExploreTemplates] = useState<ExploreAssetTemplate[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [selectedResult, setSelectedResult] = useState(0);
   const [generationError, setGenerationError] = useState<string>();
   const [referenceError, setReferenceError] = useState<string>();
@@ -97,8 +104,14 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const historyRef = useRef<PreviewResult[]>([]);
   const uploadInput = useRef<HTMLInputElement>(null);
   const resultActions = useRef<HTMLDivElement>(null);
+  const auth = useAuth();
 
-  const templates = templatesForMode(mode);
+  const publishedTemplateIds = new Set(localTemplates.flatMap((template) => template.publication ? [template.publication.templateId] : []));
+  const customTemplates = [
+    ...localTemplates.map(templateForGallery),
+    ...exploreTemplates.filter((template) => !publishedTemplateIds.has(template.id)).map(templateForGallery),
+  ];
+  const templates = [...templatesForMode(mode), ...customTemplates.filter((template) => template.mode === mode)];
   const selectedTemplate = templates.find((template) => template.id === templateId) ?? defaultTemplateForMode(mode);
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
@@ -167,12 +180,20 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       await waitForRuntime();
       if (!mounted.current) return;
       setPhase("ready");
-      await Promise.all([loadImageConfig(), loadProjectList()]);
+      await Promise.all([loadImageConfig(), loadProjectList(), loadTemplates()]);
     } catch (cause) {
       if (!mounted.current) return;
       setLoadError(errorMessage(cause));
       setPhase("error");
     }
+  }
+
+  async function loadTemplates(): Promise<void> {
+    const [local, explore] = await Promise.allSettled([listAssetTemplates(), listExploreTemplates()]);
+    if (!mounted.current) return;
+    if (local.status === "fulfilled") setLocalTemplates(local.value);
+    else setActionStatus({ type: "error", message: errorMessage(local.reason) });
+    if (explore.status === "fulfilled") setExploreTemplates(explore.value);
   }
 
   async function loadImageConfig(): Promise<void> {
@@ -306,6 +327,74 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setMenuOpen(false);
   }
 
+  function openTemplateDialog(): void {
+    setTemplateName(selectedTemplate.source === "builtIn" ? `${selectedTemplate.name} Copy` : selectedTemplate.name);
+    setTemplateDialogOpen(true);
+    setActionStatus(undefined);
+  }
+
+  async function saveTemplate(): Promise<void> {
+    const name = templateName.trim();
+    if (!name || templateBusy) return;
+    setTemplateBusy(true);
+    setActionStatus(undefined);
+    try {
+      const saved = await createAssetTemplate(currentTemplateDefinition(name));
+      setLocalTemplates((templates) => [...templates, saved]);
+      setTemplateDialogOpen(false);
+      applyTemplate(templateForGallery(saved));
+      setActionStatus({ type: "success", message: "Template saved" });
+    } catch (cause) {
+      setActionStatus({ type: "error", message: errorMessage(cause) });
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function shareTemplate(template: AssetTemplate): Promise<void> {
+    if (template.source !== "local" || templateBusy) return;
+    const accessToken = await auth.requestAccessToken();
+    if (!accessToken) return;
+    setTemplateBusy(true);
+    setActionStatus(undefined);
+    try {
+      const result = await publishAssetTemplate(template.id, accessToken);
+      setLocalTemplates((templates) => templates.map((candidate) => candidate.id === template.id ? {
+        ...candidate,
+        publication: {
+          templateId: result.template.id,
+          releaseId: result.release.id,
+          publishedAt: result.release.publishedAt,
+        },
+      } : candidate));
+      setExploreTemplates(await listExploreTemplates());
+      setActionStatus({ type: "success", message: "Shared to Explore" });
+    } catch (cause) {
+      setActionStatus({ type: "error", message: errorMessage(cause) });
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  function currentTemplateDefinition(name: string) {
+    const prompt = mode === "image" ? imagePrompt : mode === "video" ? videoPrompt : model3DPrompt;
+    const defaults = mode === "image"
+      ? { imageResolution: resolution, imageAspectRatio: aspectRatio, imageOutputs: outputs }
+      : mode === "video"
+        ? { videoResolution, videoAspectRatio, videoDuration }
+        : { model3DQuality, model3DPose, model3DSource };
+    return {
+      mode,
+      name,
+      description: selectedTemplate.description,
+      promptLabel: selectedTemplate.promptLabel,
+      promptPlaceholder: selectedTemplate.promptPlaceholder,
+      previewTemplateId: selectedTemplate.source === "builtIn" ? selectedTemplate.id : selectedTemplate.previewTemplateId,
+      ...(prompt.trim() ? { defaultPrompt: prompt.trim() } : {}),
+      defaults,
+    };
+  }
+
   function addHistoryResult(entry: PreviewResult): void {
     const entries = [entry, ...historyRef.current];
     const evicted = entries.splice(HISTORY_LIMIT);
@@ -420,7 +509,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                     <OptionGroup label="Aspect ratio" values={videoReference ? (["adaptive"] as const) : VIDEO_ASPECT_RATIOS} value={videoReference ? "adaptive" : videoAspectRatio} disabled={generating} format={(value) => value === "adaptive" ? "Auto" : value} onChange={setVideoAspectRatio} />
                     <RangeField label="Duration" value={videoDuration} min={4} max={15} disabled={generating} onChange={setVideoDuration} />
                   </>
-                ) : (
+                ) : mode === "3d" ? (
                   <div className="asset-3d-options">
                     <SettingsSection title="Geometry">
                       <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} disabled={generating} format={titleCase} onChange={setModel3DQuality} />
@@ -432,7 +521,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       {model3DTexture ? <ToggleField label="PBR" checked={model3DPbr} disabled={generating} onChange={setModel3DPbr} /> : null}
                     </SettingsSection>
                   </div>
-                )}
+                ) : null}
               </div>
             ) : null}
             <button className="asset-generate-button" type="submit" disabled={phase !== "ready" || !canGenerate || generating}>
@@ -442,7 +531,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           </form>
 
           <section className="asset-result-panel" aria-label={panelView === "templates" ? "Asset templates" : "Generation history"}>
-            <header><PanelViewSwitcher view={panelView} disabled={generating} onChange={setPanelView} /><div className="asset-result-actions" ref={resultActions}>{panelView === "history" && result ? <button type="button" aria-label="Result actions" aria-expanded={menuOpen} disabled={generating} onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button> : null}{menuOpen && result && selectedFile && selectedUrl ? <div className="asset-result-menu" role="menu">
+            <header><PanelViewSwitcher view={panelView} disabled={generating} onChange={setPanelView} /><div className="asset-result-actions" ref={resultActions}>{panelView === "templates" ? <><button type="button" aria-label="Save current settings as a template" title="Save current settings as a template" disabled={generating || templateBusy} onClick={openTemplateDialog}><Plus size={17} /></button>{selectedTemplate.source === "local" ? <button type="button" aria-label={`Share ${selectedTemplate.name} to Explore`} title="Share to Explore" disabled={generating || templateBusy} onClick={() => void shareTemplate(selectedTemplate)}>{templateBusy ? <LoaderCircle className="spin" size={15} /> : <Share2 size={16} />}</button> : null}</> : null}{panelView === "history" && result ? <button type="button" aria-label="Result actions" aria-expanded={menuOpen} disabled={generating} onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button> : null}{menuOpen && result && selectedFile && selectedUrl ? <div className="asset-result-menu" role="menu">
               <a href={selectedUrl} download={selectedFile.name} role="menuitem"><Download size={14} />Download</a>
               {projects.length ? <div className="asset-result-projects">
                 <button type="button" role="menuitem" aria-haspopup="menu" disabled={adding}><FolderInput size={14} /><span>Add to Project</span><ChevronRight className="asset-result-menu-chevron" size={13} /></button>
@@ -463,6 +552,14 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                 return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.templateName} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={mode} url={url} label={entry.templateName} /></span><span className="asset-history-copy"><strong>{entry.templateName}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
               })) : null}
             </div>
+            {templateDialogOpen ? <div className="asset-template-dialog" role="dialog" aria-modal="true" aria-label="Save template">
+              <form onSubmit={(event) => { event.preventDefault(); void saveTemplate(); }}>
+                <strong>Save template</strong>
+                <label htmlFor="asset-template-name">Name</label>
+                <input id="asset-template-name" autoFocus value={templateName} maxLength={80} disabled={templateBusy} onChange={(event) => setTemplateName(event.target.value)} />
+                <div><button type="button" disabled={templateBusy} onClick={() => setTemplateDialogOpen(false)}>Cancel</button><button type="submit" disabled={!templateName.trim() || templateBusy}>{templateBusy ? "Saving..." : "Save"}</button></div>
+              </form>
+            </div> : null}
             {generationError && modeHistory.length ? <p className="asset-result-notice is-error" role="alert">Generation failed: {generationError}</p> : actionStatus ? <p className={`asset-result-notice${actionStatus.type === "error" ? " is-error" : ""}`} role={actionStatus.type === "error" ? "alert" : "status"}>{actionStatus.message}</p> : null}
           </section>
         </div>
@@ -480,7 +577,15 @@ function PanelViewSwitcher({ view, disabled, onChange }: { view: AssetPanelView;
 }
 
 function TemplateGallery({ templates, selectedId, onSelect }: { templates: readonly AssetTemplate[]; selectedId: string; onSelect: (template: AssetTemplate) => void }) {
-  return <div className="asset-template-list">{templates.map((template) => <button className={`asset-template-card${template.id === selectedId ? " is-selected" : ""}`} type="button" key={template.id} aria-label={`${template.name}: ${template.description}`} aria-pressed={template.id === selectedId} onClick={() => onSelect(template)}><span className="asset-template-preview"><img src={template.previewImage} alt="" /></span><span className="asset-template-card-copy"><strong>{template.name}</strong></span></button>)}</div>;
+  return <div className="asset-template-list">{templates.map((template) => <button className={`asset-template-card${template.id === selectedId ? " is-selected" : ""}`} type="button" key={`${template.source}:${template.id}`} aria-label={`${template.name}: ${template.description}`} aria-pressed={template.id === selectedId} onClick={() => onSelect(template)}><span className="asset-template-preview"><img src={template.previewImage} alt="" /></span><span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" ? null : <small>{template.source === "local" ? "Saved" : "Explore"}</small>}</span></button>)}</div>;
+}
+
+function templateForGallery(template: LocalAssetTemplate | ExploreAssetTemplate): AssetTemplate {
+  return {
+    ...template,
+    previewImage: templatesForMode(template.mode).find((candidate) => candidate.id === template.previewTemplateId)?.previewImage
+      ?? defaultTemplateForMode(template.mode).previewImage,
+  };
 }
 
 function HistoryIcon({ mode }: { mode: StudioMode }) {

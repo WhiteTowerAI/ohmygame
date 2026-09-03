@@ -1,14 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { isAssetTemplateDefinition } from "../shared/asset-templates.js";
+import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
 import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import type {
   CreatePublishAssetReleaseMetadata,
   CreatePublishAssetReleaseResult,
   CreatePublishAssetRequest,
+  CreatePublishPluginReleaseMetadata,
+  CreatePublishPluginReleaseResult,
+  CreatePublishPluginRequest,
+  CreatePublishTemplateReleaseRequest,
+  CreatePublishTemplateReleaseResult,
+  CreatePublishTemplateRequest,
   CreatePublishDeploymentMetadata,
   CreatePublishGameRequest,
   PublishAsset,
@@ -17,6 +26,8 @@ import type {
   PublishCommunityGame,
   PublishDeployment,
   PublishGame,
+  PublishExplorePlugin,
+  PublishExploreTemplate,
   SetPublishListingRequest,
 } from "../shared/publish-v1.js";
 import { ArtifactError, ArtifactStore, contentType, DEFAULT_ARTIFACT_LIMITS, type ArtifactLimits } from "./artifacts.js";
@@ -24,7 +35,7 @@ import { requirePublisher, type PublisherTokenVerifier } from "./auth.js";
 import { sendPublishError } from "./http.js";
 import { listingBodySchema } from "./listings.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
-import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredGame } from "./store.js";
+import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredExplorePlugin, type StoredExploreTemplate, type StoredGame, type StoredPlugin, type StoredPluginRelease, type StoredTemplate, type StoredTemplateRelease } from "./store.js";
 
 export interface PublishAppOptions {
   dataDirectory: string;
@@ -55,6 +66,27 @@ const assetBodySchema = {
   },
 } as const;
 
+const pluginBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name"],
+  properties: { name: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+} as const;
+
+const templateBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name"],
+  properties: { name: { type: "string", minLength: 1, maxLength: 80 } },
+} as const;
+
+const templateReleaseBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["definition"],
+  properties: { definition: { type: "object" } },
+} as const;
+
 export function createPublishApp(options: PublishAppOptions) {
   const playOrigin = options.playOrigin ?? "http://localhost:43130";
   const store = new PublishStore(options.dataDirectory);
@@ -76,7 +108,9 @@ export function createPublishApp(options: PublishAppOptions) {
     },
   });
 
-  app.addHook("onReady", () => artifacts.load(new Set([...store.deploymentIds(), ...store.assetReleaseIds()])));
+  app.addHook("onReady", () => artifacts.load(new Set([
+    ...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds(),
+  ])));
   app.addHook("onClose", async () => store.close());
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
@@ -409,6 +443,257 @@ export function createPublishApp(options: PublishAppOptions) {
     return reply.send(createReadStream(file));
   });
 
+  app.post<{ Body: CreatePublishPluginRequest }>(
+    "/v1/plugins",
+    { schema: { body: pluginBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const key = idempotencyKey(request, reply);
+      if (!key) return;
+      const existing = store.pluginByName(request.body.name);
+      if (existing && existing.publisherId !== publisherId) {
+        return sendPublishError(reply, request, 409, "conflict", "Plugin name is already in use");
+      }
+      const route = "/v1/plugins";
+      const reservation = store.reserveIdempotency(
+        publisherId, "POST", route, key, requestHash(request.body), new Date().toISOString(),
+      );
+      const replay = handleReservation(reservation, request, reply, (body) => body);
+      if (replay !== false) return replay;
+      const now = new Date().toISOString();
+      const plugin: StoredPlugin = {
+        id: randomUUID(), publisherId, name: request.body.name,
+        currentReleaseId: null, createdAt: now, updatedAt: now,
+      };
+      try {
+        store.createPlugin(plugin, { method: "POST", route, key, statusCode: 201, body: plugin });
+        return reply.code(201).send(plugin);
+      } catch (error) {
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        throw error;
+      }
+    },
+  );
+
+  app.get<{ Params: { pluginId: string } }>("/v1/plugins/:pluginId", async (request, reply) => {
+    const publisherId = await authenticatePublisher(request, reply);
+    if (!publisherId) return;
+    return store.plugin(publisherId, request.params.pluginId)
+      ?? sendPublishError(reply, request, 404, "not_found", "Plugin not found");
+  });
+
+  app.post<{ Params: { pluginId: string } }>("/v1/plugins/:pluginId/releases", async (request, reply) => {
+    const publisherId = await authenticatePublisher(request, reply);
+    if (!publisherId) return;
+    const plugin = store.plugin(publisherId, request.params.pluginId);
+    if (!plugin) return sendPublishError(reply, request, 404, "not_found", "Plugin not found");
+    const key = idempotencyKey(request, reply);
+    if (!key) return;
+    if (!request.isMultipart()) return sendPublishError(reply, request, 400, "validation_failed", "Expected multipart/form-data");
+
+    const uploadPath = artifacts.temporaryFile(randomUUID(), ".zip");
+    let metadata: CreatePublishPluginReleaseMetadata | undefined;
+    let received: { sha256: string; bytes: number } | undefined;
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === "field") {
+          if (part.fieldname !== "metadata" || metadata) throw new ArtifactError("Expected one metadata field");
+          metadata = pluginReleaseMetadata(part.value, plugin.name);
+        } else {
+          if (part.fieldname !== "artifact" || received) {
+            part.file.resume();
+            throw new ArtifactError("Expected one artifact file");
+          }
+          if (part.mimetype !== "application/zip" && part.mimetype !== "application/x-zip-compressed") {
+            part.file.resume();
+            throw new ArtifactError("Plugin artifact must be an application/zip file");
+          }
+          received = await artifacts.receive(part.file, uploadPath);
+        }
+      }
+      if (!metadata || !received) throw new ArtifactError("Plugin release requires metadata and artifact parts");
+      if (metadata.artifactSha256 !== received.sha256 || metadata.artifactBytes !== received.bytes) {
+        throw new ArtifactError("Artifact digest or byte length does not match metadata");
+      }
+      const route = "/v1/plugins/:pluginId/releases";
+      const reservation = store.reserveIdempotency(
+        publisherId, "POST", route, key,
+        requestHash({ pluginId: plugin.id, ...metadata }), new Date().toISOString(),
+      );
+      const replay = handleReservation(reservation, request, reply, (body) => body);
+      if (replay !== false) return replay;
+      if (store.pluginVersion(plugin.id, metadata.manifest.version)) {
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        return sendPublishError(reply, request, 409, "conflict", "Plugin version is already published");
+      }
+      const current = store.currentPluginRelease(publisherId, plugin.id);
+      if (current && !isNewerPluginVersion(metadata.manifest.version, current.version)) {
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        return sendPublishError(reply, request, 409, "conflict", "Plugin version must be newer than the current release");
+      }
+      const release: StoredPluginRelease = {
+        id: randomUUID(), pluginId: plugin.id, version: metadata.manifest.version,
+        artifactSha256: metadata.artifactSha256, artifactBytes: metadata.artifactBytes,
+        manifest: metadata.manifest, publishedAt: new Date().toISOString(),
+      };
+      try {
+        await artifacts.installArchive(uploadPath, release.id, {
+          requiredFiles: [PLUGIN_MANIFEST_PATH],
+          allowedHiddenDirectories: [".opengame-plugin"],
+          archiveFileName: "plugin.zip",
+          limits: {
+            expandedBytes: Math.min(PLUGIN_ARCHIVE_MAX_BYTES, options.artifactLimits?.expandedBytes ?? Infinity),
+            fileBytes: Math.min(PLUGIN_ARCHIVE_MAX_BYTES, options.artifactLimits?.fileBytes ?? Infinity),
+            files: Math.min(PLUGIN_ARCHIVE_MAX_ENTRIES, options.artifactLimits?.files ?? Infinity),
+          },
+        });
+        const manifestPath = await artifacts.internalFile(release.id, PLUGIN_MANIFEST_PATH);
+        const archivedManifest = manifestPath ? JSON.parse(await readFile(manifestPath, "utf8")) as unknown : undefined;
+        if (!isPluginManifest(archivedManifest) || !isDeepStrictEqual(archivedManifest, metadata.manifest)) {
+          throw new ArtifactError("Plugin manifest does not match release metadata");
+        }
+        const body: CreatePublishPluginReleaseResult = {
+          plugin: { ...plugin, currentReleaseId: release.id, updatedAt: release.publishedAt }, release,
+        };
+        store.activatePluginRelease(publisherId, release, { method: "POST", route, key, statusCode: 201, body });
+        return reply.code(201).send(body);
+      } catch (error) {
+        await artifacts.remove(release.id);
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        throw error;
+      }
+    } finally {
+      await rm(uploadPath, { force: true });
+    }
+  });
+
+  app.put<{ Params: { pluginId: string }; Body: SetPublishListingRequest }>(
+    "/v1/plugins/:pluginId/listing",
+    { schema: { body: listingBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const listing = store.setPluginListing(publisherId, request.params.pluginId, request.body.status, new Date().toISOString());
+      if (listing === "not_ready") return sendPublishError(reply, request, 409, "conflict", "Plugin must have a release before it can be listed");
+      return listing ?? sendPublishError(reply, request, 404, "not_found", "Plugin not found");
+    },
+  );
+
+  app.get("/v1/explore/plugins", async () => store.explorePlugins().map(publicExplorePlugin));
+
+  app.get<{ Params: { pluginId: string } }>("/v1/explore/plugins/:pluginId", async (request, reply) => {
+    const plugin = store.explorePlugin(request.params.pluginId);
+    return plugin ? publicExplorePlugin(plugin) : sendPublishError(reply, request, 404, "not_found", "Plugin not found");
+  });
+
+  app.get<{ Params: { pluginId: string; releaseId: string } }>("/v1/explore/plugins/:pluginId/releases/:releaseId/content", async (request, reply) => {
+    const release = store.explorePluginRelease(request.params.pluginId, request.params.releaseId);
+    if (!release) return sendPublishError(reply, request, 404, "not_found", "Plugin release not found");
+    const file = await artifacts.file(release.id, "plugin.zip");
+    if (!file) return sendPublishError(reply, request, 404, "not_found", "Plugin content not found");
+    reply.header("content-type", "application/zip");
+    reply.header("content-length", release.artifactBytes);
+    reply.header("etag", `\"${release.artifactSha256}\"`);
+    reply.header("cache-control", "public, max-age=31536000, immutable");
+    reply.header("x-content-type-options", "nosniff");
+    return reply.send(createReadStream(file));
+  });
+
+  app.post<{ Body: CreatePublishTemplateRequest }>(
+    "/v1/templates",
+    { schema: { body: templateBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const key = idempotencyKey(request, reply);
+      if (!key) return;
+      const name = request.body.name.trim();
+      if (!name) return sendPublishError(reply, request, 400, "validation_failed", "name must not be empty");
+      const route = "/v1/templates";
+      const reservation = store.reserveIdempotency(
+        publisherId, "POST", route, key, requestHash({ name }), new Date().toISOString(),
+      );
+      const replay = handleReservation(reservation, request, reply, (body) => body);
+      if (replay !== false) return replay;
+      const now = new Date().toISOString();
+      const template: StoredTemplate = {
+        id: randomUUID(), publisherId, name, currentReleaseId: null, createdAt: now, updatedAt: now,
+      };
+      try {
+        store.createTemplate(template, { method: "POST", route, key, statusCode: 201, body: template });
+        return reply.code(201).send(template);
+      } catch (error) {
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        throw error;
+      }
+    },
+  );
+
+  app.get<{ Params: { templateId: string } }>("/v1/templates/:templateId", async (request, reply) => {
+    const publisherId = await authenticatePublisher(request, reply);
+    if (!publisherId) return;
+    return store.template(publisherId, request.params.templateId)
+      ?? sendPublishError(reply, request, 404, "not_found", "Template not found");
+  });
+
+  app.post<{ Params: { templateId: string }; Body: CreatePublishTemplateReleaseRequest }>(
+    "/v1/templates/:templateId/releases",
+    { schema: { body: templateReleaseBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const template = store.template(publisherId, request.params.templateId);
+      if (!template) return sendPublishError(reply, request, 404, "not_found", "Template not found");
+      if (!isAssetTemplateDefinition(request.body.definition)) {
+        return sendPublishError(reply, request, 400, "validation_failed", "Template definition is invalid");
+      }
+      const key = idempotencyKey(request, reply);
+      if (!key) return;
+      const route = "/v1/templates/:templateId/releases";
+      const reservation = store.reserveIdempotency(
+        publisherId, "POST", route, key,
+        requestHash({ templateId: template.id, definition: request.body.definition }), new Date().toISOString(),
+      );
+      const replay = handleReservation(reservation, request, reply, (body) => body);
+      if (replay !== false) return replay;
+      const release: StoredTemplateRelease = {
+        id: randomUUID(), templateId: template.id, definition: request.body.definition,
+        publishedAt: new Date().toISOString(),
+      };
+      try {
+        const body: CreatePublishTemplateReleaseResult = {
+          template: { ...template, name: release.definition.name, currentReleaseId: release.id, updatedAt: release.publishedAt },
+          release,
+        };
+        store.activateTemplateRelease(publisherId, release, { method: "POST", route, key, statusCode: 201, body });
+        return reply.code(201).send(body);
+      } catch (error) {
+        store.releaseIdempotency(publisherId, "POST", route, key);
+        throw error;
+      }
+    },
+  );
+
+  app.put<{ Params: { templateId: string }; Body: SetPublishListingRequest }>(
+    "/v1/templates/:templateId/listing",
+    { schema: { body: listingBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const listing = store.setTemplateListing(publisherId, request.params.templateId, request.body.status, new Date().toISOString());
+      if (listing === "not_ready") return sendPublishError(reply, request, 409, "conflict", "Template must have a release before it can be listed");
+      return listing ?? sendPublishError(reply, request, 404, "not_found", "Template not found");
+    },
+  );
+
+  app.get("/v1/explore/templates", async () => store.exploreTemplates().map(publicExploreTemplate));
+
+  app.get<{ Params: { templateId: string } }>("/v1/explore/templates/:templateId", async (request, reply) => {
+    const template = store.exploreTemplate(request.params.templateId);
+    return template ? publicExploreTemplate(template) : sendPublishError(reply, request, 404, "not_found", "Template not found");
+  });
+
   app.get("/*", async (request, reply) => {
     return sendPublishError(reply, request, 404, "not_found", "Not found");
   });
@@ -490,11 +775,43 @@ function assetReleaseMetadata(value: unknown, mediaType: PublishAsset["mediaType
   return { artifactSha256, artifactBytes, fileName, contentType: declaredContentType };
 }
 
+function pluginReleaseMetadata(value: unknown, pluginName: string): CreatePublishPluginReleaseMetadata {
+  let input: unknown = value;
+  if (typeof input === "string") {
+    try { input = JSON.parse(input); } catch { throw new ArtifactError("metadata must be valid JSON"); }
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new ArtifactError("metadata must be an object");
+  const record = input as Record<string, unknown>;
+  const artifactSha256 = String(record.artifactSha256 ?? "");
+  const artifactBytes = Number(record.artifactBytes);
+  if (!/^[a-f0-9]{64}$/.test(artifactSha256)) throw new ArtifactError("artifactSha256 must be a lowercase SHA-256 digest");
+  if (!Number.isSafeInteger(artifactBytes) || artifactBytes < 1) throw new ArtifactError("artifactBytes must be a positive safe integer");
+  if (!isPluginManifest(record.manifest) || record.manifest.name !== pluginName) throw new ArtifactError("Plugin manifest is invalid");
+  return { artifactSha256, artifactBytes, manifest: record.manifest };
+}
+
 function publicExploreAsset(asset: StoredExploreAsset): PublishExploreAsset {
   return {
     id: asset.assetId, title: asset.title, description: asset.description, mediaType: asset.mediaType,
     releaseId: asset.id, artifactSha256: asset.artifactSha256, artifactBytes: asset.artifactBytes,
     fileName: asset.fileName, contentType: asset.contentType, publishedAt: asset.publishedAt,
+  };
+}
+
+function publicExplorePlugin(plugin: StoredExplorePlugin): PublishExplorePlugin {
+  return {
+    id: plugin.pluginId, name: plugin.name, version: plugin.version, releaseId: plugin.id,
+    artifactSha256: plugin.artifactSha256, artifactBytes: plugin.artifactBytes,
+    manifest: plugin.manifest, publishedAt: plugin.publishedAt,
+  };
+}
+
+function publicExploreTemplate(template: StoredExploreTemplate): PublishExploreTemplate {
+  return {
+    ...template.definition,
+    id: template.templateId,
+    releaseId: template.id,
+    publishedAt: template.publishedAt,
   };
 }
 

@@ -137,7 +137,10 @@ describe("plugin catalog API", () => {
   });
 
   it("lists and reads OpenGame plugins without exposing Pi runtime packages", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")) });
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")),
+      publishFetch: async () => Response.json([]),
+    });
     apps.push(app);
     await app.ready();
 
@@ -147,7 +150,6 @@ describe("plugin catalog API", () => {
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
-        { id: "opengame:plugin-starter", installed: false },
         { id: "opengame:godot", installed: true },
         { id: "opengame:img2threejs", installed: true },
       ],

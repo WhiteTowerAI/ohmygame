@@ -3,6 +3,9 @@ import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node
 import path from "node:path";
 import {
   PERSONAL_MARKETPLACE,
+  OPENGAME_MARKETPLACE,
+  PLUGIN_ARCHIVE_MAX_BYTES,
+  PLUGIN_ARCHIVE_MAX_ENTRIES,
   PLUGIN_MANIFEST_PATH,
   isPluginManifest,
   isPluginVersion,
@@ -14,13 +17,12 @@ import {
   type PluginSource,
 } from "../shared/plugins.js";
 
-const MAX_PLUGIN_ENTRIES = 5_000;
-const MAX_PLUGIN_SIZE = 50 * 1024 * 1024;
 const MAX_PLUGIN_DEPTH = 64;
 
 export type PluginProvenance =
   | { type: "directory"; path: string }
-  | { type: "git"; url: string; commit: string };
+  | { type: "git"; url: string; commit: string }
+  | { type: "catalog"; pluginId: string; releaseId: string };
 
 interface LocalPluginRecord {
   name: string;
@@ -92,11 +94,20 @@ export class LocalPluginStore {
     return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace));
   }
 
+  async installCatalog(
+    sourcePath: string,
+    provenance: Extract<PluginProvenance, { type: "catalog" }>,
+    manifest: PluginManifest,
+  ): Promise<PluginDetail> {
+    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, OPENGAME_MARKETPLACE, true));
+  }
+
   async #install(
     sourcePath: string,
     provenance: PluginProvenance,
     normalizedManifest: ResolvedPluginManifest | undefined,
     marketplace: PluginMarketplaceRef,
+    trustedMarketplace = false,
   ): Promise<PluginDetail> {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
@@ -106,7 +117,7 @@ export class LocalPluginStore {
     if (provenance.type === "directory" && path.resolve(provenance.path) !== source) {
       throw new LocalPluginError("Plugin directory provenance does not match its source");
     }
-    validateMarketplace(marketplace);
+    validateMarketplace(marketplace, trustedMarketplace);
     const identity = pluginIdentity(marketplace, publicSource(provenance));
     const inspected = await inspectPluginBundle(source, identity, this.capabilities, normalizedManifest);
     const manifest = normalizedManifest ?? await readPluginManifest(source);
@@ -115,7 +126,7 @@ export class LocalPluginStore {
     if (previousRecord && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
       throw new LocalPluginError(`Plugin ${inspected.name} is already installed from another source`);
     }
-    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id ? undefined : currentRecords.find((record) =>
+    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || provenance.type === "catalog" ? undefined : currentRecords.find((record) =>
       record.marketplace.id === marketplace.id && sourceKey(record.provenance) !== sourceKey(provenance));
     if (conflictingMarketplace) {
       throw new LocalPluginError(`Marketplace ${marketplace.id} is already installed from another source`);
@@ -255,7 +266,9 @@ export class LocalPluginStore {
 }
 
 function pluginIdentity(marketplace: PluginMarketplaceRef, source: PluginSource): PluginBundleIdentity {
-  const idPrefix = marketplace.id === PERSONAL_MARKETPLACE.id ? "personal:" : `marketplace:${marketplace.id}:`;
+  const idPrefix = marketplace.id === PERSONAL_MARKETPLACE.id ? "personal:"
+    : marketplace.id === OPENGAME_MARKETPLACE.id ? "opengame:"
+    : `marketplace:${marketplace.id}:`;
   return { idPrefix, marketplace, source };
 }
 
@@ -315,7 +328,7 @@ export async function validatePluginBundle(root: string): Promise<void> {
     }
     for (const entry of directoryEntries) {
       entryCount += 1;
-      if (entryCount > MAX_PLUGIN_ENTRIES) throw new LocalPluginError("Plugin contains too many files and directories");
+      if (entryCount > PLUGIN_ARCHIVE_MAX_ENTRIES) throw new LocalPluginError("Plugin contains too many files and directories");
       const target = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) throw new LocalPluginError("Plugin directories must not contain symbolic links");
       if (entry.isDirectory()) {
@@ -324,7 +337,7 @@ export async function validatePluginBundle(root: string): Promise<void> {
       }
       if (!entry.isFile()) throw new LocalPluginError("Plugin directories may contain only files and directories");
       size += (await lstat(target)).size;
-      if (size > MAX_PLUGIN_SIZE) throw new LocalPluginError("Plugin is larger than 50 MB");
+      if (size > PLUGIN_ARCHIVE_MAX_BYTES) throw new LocalPluginError("Plugin is larger than 50 MB");
     }
   }
   const stats = await lstat(root).catch((cause) => {
@@ -408,7 +421,8 @@ function isPluginProvenance(value: unknown): value is PluginProvenance {
   if (!value || typeof value !== "object") return false;
   const provenance = value as Partial<PluginProvenance>;
   if (provenance.type === "directory") return typeof provenance.path === "string" && path.isAbsolute(provenance.path);
-  return provenance.type === "git" && typeof provenance.url === "string" && typeof provenance.commit === "string";
+  if (provenance.type === "git") return typeof provenance.url === "string" && typeof provenance.commit === "string";
+  return provenance.type === "catalog" && typeof provenance.pluginId === "string" && typeof provenance.releaseId === "string";
 }
 
 function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
@@ -417,9 +431,9 @@ function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
   return isPluginName(marketplace.id) && typeof marketplace.displayName === "string" && Boolean(marketplace.displayName.trim());
 }
 
-function validateMarketplace(marketplace: PluginMarketplaceRef): void {
+function validateMarketplace(marketplace: PluginMarketplaceRef, trusted = false): void {
   if (!isPluginMarketplace(marketplace)) throw new LocalPluginError("Plugin marketplace is invalid");
-  if (marketplace.id === "opengame") {
+  if (marketplace.id === "opengame" && !trusted) {
     throw new LocalPluginError(`Plugin marketplace name is reserved: ${marketplace.id}`);
   }
 }
@@ -431,17 +445,21 @@ function isPluginName(value: unknown): value is string {
 function pluginRecordId(record: Pick<LocalPluginRecord, "name" | "marketplace">): string {
   return record.marketplace.id === PERSONAL_MARKETPLACE.id
     ? `personal:${record.name}`
+    : record.marketplace.id === OPENGAME_MARKETPLACE.id
+      ? `opengame:${record.name}`
     : `marketplace:${record.marketplace.id}:${record.name}`;
 }
 
 function publicSource(provenance: PluginProvenance): PluginSource {
-  return provenance.type === "directory"
-    ? { type: "directory" }
-    : { type: "git", url: provenance.url, commit: provenance.commit };
+  if (provenance.type === "directory") return { type: "directory" };
+  if (provenance.type === "git") return { type: "git", url: provenance.url, commit: provenance.commit };
+  return provenance;
 }
 
 function sourceKey(provenance: PluginProvenance): string {
-  return provenance.type === "directory" ? `directory:${path.resolve(provenance.path)}` : `git:${provenance.url}`;
+  if (provenance.type === "directory") return `directory:${path.resolve(provenance.path)}`;
+  if (provenance.type === "git") return `git:${provenance.url}`;
+  return `catalog:${provenance.pluginId}`;
 }
 
 function displayName(value: string): string {

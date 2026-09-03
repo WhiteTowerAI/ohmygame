@@ -24,12 +24,13 @@ import {
   type PluginSummary,
 } from "../shared/plugins.js";
 import type { ProjectState } from "../shared/contracts.js";
-import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { inspectPluginSource, installCatalogPlugin, installPlugin, listPlugins, listProjects, publishPlugin, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
+import { useAuth } from "./auth.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -55,6 +56,8 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const addMenu = useRef<HTMLDivElement>(null);
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const auth = useAuth();
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -95,8 +98,11 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     setDetail(undefined);
     setDetailPhase("loading");
     setError(undefined);
+    setNotice(undefined);
     try {
-      setDetail(await readPlugin(pluginId));
+      const loaded = await readPlugin(pluginId);
+      const summary = plugins.find((plugin) => plugin.id === pluginId);
+      setDetail(summary ? { ...loaded, latestVersion: summary.latestVersion, updateAvailable: summary.updateAvailable } : loaded);
       setDetailPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -108,6 +114,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     if (updating) return;
     setUpdating(plugin.id);
     setError(undefined);
+    setNotice(undefined);
     try {
       const updated = await updatePluginSettings(plugin.id, settings);
       setDetail((current) => current?.id === updated.id ? updated : current);
@@ -128,6 +135,38 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       setPlugins((items) => items.filter((item) => item.id !== plugin.id));
       setDetail(undefined);
       setView({ type: "catalog" });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setUpdating(undefined);
+    }
+  }
+
+  async function installFromCatalog(plugin: PluginDetail): Promise<void> {
+    if (updating) return;
+    setUpdating(plugin.id);
+    setError(undefined);
+    try {
+      const installed = await installCatalogPlugin(plugin.id);
+      setDetail(installed);
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setUpdating(undefined);
+    }
+  }
+
+  async function sharePlugin(plugin: PluginDetail): Promise<void> {
+    if (updating) return;
+    const accessToken = await auth.requestAccessToken();
+    if (!accessToken) return;
+    setUpdating(plugin.id);
+    setError(undefined);
+    try {
+      await publishPlugin(plugin.id, accessToken);
+      await load();
+      setNotice("Shared to Explore");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -260,6 +299,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       plugin={detail}
       updating={updating === detail?.id}
       error={error}
+      notice={notice}
       onRetry={() => void openPlugin(view.pluginId)}
       onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
       onToggleComponent={(component, enabled) => detail && void updatePlugin(detail, {
@@ -269,6 +309,8 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       onBrowse={() => detail && void browsePlugin(detail)}
       onBrowseSkill={(skillId) => detail && void browsePluginSkill(detail.id, skillId)}
       onRemove={() => detail && void removePlugin(detail)}
+      onInstall={() => detail && void installFromCatalog(detail)}
+      onPublish={() => detail && void sharePlugin(detail)}
       onTry={onTryPlugin}
     /> : <>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
@@ -422,7 +464,7 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.enabled ? null : <small>Disabled</small>}</span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.updateAvailable ? <small>Update available</small> : plugin.enabled ? null : <small>Disabled</small>}</span>
         <span className="plugin-card-description">{plugin.description}</span>
         <small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small>
       </span>
@@ -442,17 +484,20 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
   </article>;
 }
 
-function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onTry }: {
+function PluginDetailView({ phase, plugin, updating, error, notice, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onInstall, onPublish, onTry }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
   updating: boolean;
   error?: string;
+  notice?: string;
   onRetry: () => void;
   onTogglePlugin: (enabled: boolean) => void;
   onToggleComponent: (component: PluginComponentSummary, enabled: boolean) => void;
   onBrowse: () => void;
   onBrowseSkill: (skillId: string) => void;
   onRemove: () => void;
+  onInstall: () => void;
+  onPublish: () => void;
   onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }): ReactNode {
   const [tryPrompt, setTryPrompt] = useState<string>();
@@ -550,10 +595,12 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
             onBrowse={onBrowse}
             onRemove={onRemove}
             onToggle={togglePlugin}
+            onPublish={onPublish}
           />
-          {!plugin.installed ? <button className="plugin-detail-primary" type="button" disabled title="Plugin installation is not available yet">Install</button> : null}
-          {plugin.installed && !plugin.enabled ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={() => togglePlugin(true)}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Enabling..." : "Enable"}</button> : null}
-          {plugin.installed && plugin.enabled && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
+          {!plugin.installed ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Installing..." : "Install"}</button> : null}
+          {plugin.installed && plugin.updateAvailable ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Updating..." : `Update to v${plugin.latestVersion}`}</button> : null}
+          {plugin.installed && !plugin.enabled && !plugin.updateAvailable ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={() => togglePlugin(true)}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Enabling..." : "Enable"}</button> : null}
+          {plugin.installed && plugin.enabled && !plugin.updateAvailable && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
           {tryPrompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={`Try ${plugin.displayName}`}>
             <div className="plugin-try-heading"><strong>Choose a project</strong><span>The prompt will be added to a new conversation.</span></div>
             <label className="project-switcher-search">
@@ -576,6 +623,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
+      {notice ? <p className="plugins-inline-notice" role="status">{notice}</p> : null}
       {plugin.longDescription ? <section className="plugin-about"><h2>About</h2><p>{plugin.longDescription}</p></section> : null}
       {prompts.length ? <section className="plugin-prompts">
         <h2>Try it</h2>
@@ -603,12 +651,13 @@ function ConnectionSection({ items }: { items: PluginConnectionSummary[] }): Rea
   </div>)}</div></section>;
 }
 
-function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }: {
+function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle, onPublish }: {
   plugin: PluginDetail;
   updating: boolean;
   onBrowse: () => void;
   onRemove: () => void;
   onToggle: (enabled: boolean) => void;
+  onPublish: () => void;
 }): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -634,6 +683,7 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }:
     <button className="plugin-detail-menu-trigger" type="button" disabled={updating} aria-label={`Plugin actions for ${plugin.displayName}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((current) => !current)}><MoreHorizontal size={16} /></button>
     {menuOpen ? <div className="plugin-card-actions-menu plugin-detail-actions-menu" role="menu">
       <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onToggle(!plugin.enabled); }}>{plugin.enabled ? "Disable plugin" : "Enable plugin"}</button>
+      {plugin.source.type === "directory" || plugin.source.type === "git" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onPublish(); }}>Share to Explore</button> : null}
       {plugin.source.type !== "builtIn" && window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onBrowse(); }}>Browse directory</button> : null}
       {plugin.source.type !== "builtIn" ? <button className="plugin-card-action-remove" type="button" role="menuitem" onClick={() => {
         setMenuOpen(false);

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -12,6 +12,81 @@ const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("remote publish", () => {
+  it("saves, publishes, and loads an Asset Template from Explore", async () => {
+    const runtime = await testRuntime();
+    const saved = await runtime.daemon.inject({
+      method: "POST", url: "/asset-templates", payload: {
+        mode: "video",
+        name: "Cinematic Shot",
+        description: "One deliberate shot",
+        promptLabel: "Prompt",
+        promptPlaceholder: "Describe the shot",
+        defaultPrompt: "Use continuous camera motion",
+        defaults: { videoResolution: "768P", videoAspectRatio: "16:9", videoDuration: 8 },
+      },
+    });
+    expect(saved.statusCode).toBe(201);
+    const published = await runtime.daemon.inject({
+      method: "POST", url: `/asset-templates/${saved.json().id}/publish`, payload: { accessToken: token },
+    });
+    expect(published.statusCode, published.body).toBe(201);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([
+      expect.objectContaining({ id: saved.json().id, publication: expect.objectContaining({ templateId: published.json().template.id }) }),
+    ]);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json()).toEqual([
+      expect.objectContaining({ name: "Cinematic Shot", source: "catalog", releaseId: published.json().release.id }),
+    ]);
+  });
+
+  it("publishes, installs, and updates a Catalog Plugin without re-enabling it", async () => {
+    const runtime = await testRuntime();
+    const source = await temporary("open-game-published-plugin-");
+    await mkdir(path.join(source, ".opengame-plugin"));
+    await mkdir(path.join(source, "skills", "levels"), { recursive: true });
+    await writeFile(path.join(source, "skills", "levels", "SKILL.md"), "---\nname: levels\ndescription: Build levels.\n---\n");
+    const writeManifest = (version: string) => writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+      name: "level-tools", version, description: "Level workflows", skills: "./skills",
+      interface: { displayName: "Level Tools", defaultPrompt: ["Build a level"] },
+    }));
+    await writeManifest("1.0.0");
+    await runtime.daemon.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
+    const published = await runtime.daemon.inject({
+      method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
+    });
+    expect(published.statusCode).toBe(201);
+
+    const consumer = createApp({ dataDirectory: await temporary("open-game-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
+    apps.push(consumer);
+    await consumer.ready();
+    const catalog = await consumer.inject({ method: "GET", url: "/plugins" });
+    expect(catalog.json().plugins).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "opengame:level-tools", installed: false, version: "1.0.0" }),
+    ]));
+    const installed = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    expect(installed.statusCode, installed.body).toBe(201);
+    expect(installed.json()).toMatchObject({
+      id: "opengame:level-tools", version: "1.0.0", installed: true, enabled: true,
+      source: { type: "catalog" },
+    });
+    await consumer.inject({
+      method: "PUT", url: "/plugins/opengame%3Alevel-tools/settings", payload: { enabled: false, components: {} },
+    });
+
+    await writeManifest("1.1.0");
+    await runtime.daemon.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
+    expect((await runtime.daemon.inject({
+      method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
+    })).statusCode).toBe(201);
+    const update = (await consumer.inject({ method: "GET", url: "/plugins" })).json().plugins
+      .find((plugin: { id: string }) => plugin.id === "opengame:level-tools");
+    expect(update).toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
+    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
+      .toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
+    expect((await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" })).statusCode).toBe(201);
+    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
+      .toMatchObject({ version: "1.1.0", enabled: false });
+  });
+
   it("shares a project Asset, browses it, and imports it into an existing project", async () => {
     const runtime = await testRuntime();
     const source = await createProject(runtime.daemon, "Source");

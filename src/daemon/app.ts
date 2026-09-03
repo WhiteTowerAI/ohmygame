@@ -16,7 +16,7 @@ import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, lo
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
-import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { PortalClient } from "./portal-client.js";
@@ -31,16 +31,18 @@ import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
-import { BuiltInPluginAdapter, BundledPluginAdapter, builtInPlugins, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
+import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, RemotePluginAdapter } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
-import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
+import { inspectPluginSource, installCatalogPlugin, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
+import { AssetTemplateError, AssetTemplateStore } from "./asset-templates.js";
+import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
-import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
+import { PLUGIN_MANIFEST_PATH, hasPluginMentionToken, isPluginManifest, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -409,6 +411,7 @@ export function createApp(options: AppOptions = {}) {
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
+  const assetTemplates = new AssetTemplateStore(dataDirectory);
   const previews = new PreviewManager(events);
   const imageSettings = new ImageSettingsStore(dataDirectory);
   const model3DSettings = new ApiSettingsStore(dataDirectory, "model-3d-settings.json", "https://api.meshy.ai", "3D", {
@@ -474,9 +477,9 @@ export function createApp(options: AppOptions = {}) {
     connections: async () => (await mcpServers.list()).map((server) => server.id),
   });
   const plugins = new PluginCatalogService([
-    new BuiltInPluginAdapter(),
     new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
+    new RemotePluginAdapter(publisher),
   ], pluginSettings);
   const withConnectionStatus = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => {
     if (!plugin) return plugin;
@@ -664,6 +667,52 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
+    }
+  });
+
+  app.post<{ Params: { pluginId: string } }>("/plugins/:pluginId/install", async (request, reply) => {
+    try {
+      const available = await plugins.read(request.params.pluginId);
+      if (!available || available.source.type !== "catalog") return reply.code(404).send({ error: "Catalog Plugin not found" });
+      const remote = await publisher.explorePlugin(available.source.pluginId);
+      const archive = await publisher.pluginContent(remote.id, remote.releaseId);
+      const sha256 = createHash("sha256").update(archive).digest("hex");
+      if (archive.length !== remote.artifactBytes || sha256 !== remote.artifactSha256) {
+        return reply.code(502).send({ error: "Downloaded Plugin failed integrity verification" });
+      }
+      const installed = await installCatalogPlugin(localPlugins, {
+        pluginId: remote.id, releaseId: remote.releaseId, manifest: remote.manifest, archive,
+      });
+      invalidatePluginSessions();
+      return reply.code(201).send(pluginSettings.decorate(installed));
+    } catch (cause) {
+      const statusCode = cause instanceof LocalPluginError ? cause.statusCode
+        : cause instanceof RemotePublishError ? cause.statusCode
+        : 502;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.post<{ Params: { pluginId: string }; Body: { accessToken: string } }>("/plugins/:pluginId/publish", {
+    schema: { body: publishProjectSchema.body },
+  }, async (request, reply) => {
+    const plugin = await localPlugins.read(request.params.pluginId);
+    const source = plugin ? await localPlugins.installedPath(plugin.id) : undefined;
+    if (!plugin || !source) return reply.code(404).send({ error: "Installed local Plugin not found" });
+    try {
+      const manifestValue = JSON.parse(await readFile(path.join(source, PLUGIN_MANIFEST_PATH), "utf8")) as unknown;
+      if (!isPluginManifest(manifestValue)) return reply.code(400).send({ error: "Plugin manifest is invalid" });
+      const result = await publisher.publishPlugin({
+        name: manifestValue.name,
+        manifest: manifestValue,
+        archive: await createPluginArchive(source),
+      }, request.body.accessToken);
+      return reply.code(201).send(result);
+    } catch (cause) {
+      const statusCode = cause instanceof PublishError ? cause.statusCode
+        : cause instanceof RemotePublishError ? cause.statusCode
+        : 502;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
 
@@ -912,6 +961,62 @@ export function createApp(options: AppOptions = {}) {
   app.get("/explore/assets", async (_request, reply) => {
     try {
       return await publisher.exploreAssets();
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
+
+  app.get("/asset-templates", async (_request, reply) => {
+    try {
+      return await assetTemplates.list();
+    } catch (cause) {
+      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.post<{ Body: CreateAssetTemplateRequest }>("/asset-templates", async (request, reply) => {
+    try {
+      if (!isAssetTemplateDefinition(request.body)) throw new AssetTemplateError("Asset template is invalid");
+      return reply.code(201).send(await assetTemplates.create(request.body));
+    } catch (cause) {
+      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.post<{ Params: { templateId: string }; Body: PublishProjectRequest }>(
+    "/asset-templates/:templateId/publish",
+    { schema: { body: publishProjectSchema.body } },
+    async (request, reply) => {
+      try {
+        const template = await assetTemplates.read(request.params.templateId);
+        if (!template) return reply.code(404).send({ error: "Asset template not found" });
+        const { id: _id, source: _source, createdAt: _createdAt, publication, ...definition } = template;
+        const result = await publisher.publishTemplate({
+          localId: template.id,
+          templateId: publication?.templateId,
+          definition,
+        }, request.body.accessToken);
+        await assetTemplates.setPublication(template.id, {
+          templateId: result.template.id,
+          releaseId: result.release.id,
+          publishedAt: result.release.publishedAt,
+        });
+        return reply.code(201).send(result);
+      } catch (cause) {
+        const statusCode = cause instanceof AssetTemplateError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.get("/explore/templates", async (_request, reply) => {
+    try {
+      return (await publisher.exploreTemplates()).map((template) => ({ ...template, source: "catalog" as const }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });

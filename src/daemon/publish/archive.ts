@@ -38,6 +38,10 @@ export class ArtifactBuilder {
   }
 }
 
+export async function createPluginArchive(source: string): Promise<Buffer> {
+  return createZip(source, true);
+}
+
 async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void): Promise<string> {
   const packageJson = await readPackageJson(workspacePath);
   if (packageJson) {
@@ -57,9 +61,9 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
   throw new PublishError("Project has no build script or static index.html yet");
 }
 
-async function createZip(source: string): Promise<Buffer> {
+async function createZip(source: string, plugin = false): Promise<Buffer> {
   const zip = new ZipFile();
-  for (const file of await filesIn(source)) {
+  for (const file of await filesIn(source, "", plugin)) {
     zip.addFile(path.join(source, ...file.split("/")), file, { mtime: ZIP_TIMESTAMP });
   }
   const chunks: Buffer[] = [];
@@ -81,13 +85,13 @@ async function createZip(source: string): Promise<Buffer> {
   return completed;
 }
 
-async function filesIn(root: string, relative = ""): Promise<string[]> {
+async function filesIn(root: string, relative = "", plugin = false): Promise<string[]> {
   const files: string[] = [];
   const directory = path.join(root, relative);
   for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (ignored(entry.name) || entry.isSymbolicLink()) continue;
+    if (ignored(entry.name, relative, plugin) || entry.isSymbolicLink()) continue;
     const child = relative ? `${relative}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) files.push(...await filesIn(root, child));
+    if (entry.isDirectory()) files.push(...await filesIn(root, child, plugin));
     else if (entry.isFile()) files.push(child);
   }
   return files;
@@ -134,8 +138,10 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
   });
 }
 
-function ignored(name: string): boolean {
-  return name.startsWith(".") || name === "node_modules";
+function ignored(name: string, relative: string, plugin: boolean): boolean {
+  if (name === "node_modules" || name === ".git" || name === ".data") return true;
+  if (!name.startsWith(".")) return false;
+  return !(plugin && !relative && name === ".opengame-plugin");
 }
 
 async function exists(target: string): Promise<boolean> {

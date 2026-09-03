@@ -16,6 +16,9 @@ export interface ArtifactLimits {
 
 export interface ArchiveRequirements {
   requiredFiles?: readonly string[];
+  allowedHiddenDirectories?: readonly string[];
+  archiveFileName?: string;
+  limits?: Pick<ArtifactLimits, "expandedBytes" | "fileBytes" | "files">;
 }
 
 export interface ArtifactFileOptions {
@@ -84,12 +87,15 @@ export class ArtifactStore {
     const destination = path.join(this.#artifactsDirectory, artifactId);
     await mkdir(temporary, { recursive: false });
     try {
-      await extractZip(archivePath, temporary, this.limits);
+      await extractZip(archivePath, temporary, { ...this.limits, ...requirements.limits }, requirements.allowedHiddenDirectories ?? []);
       for (const requiredFile of requirements.requiredFiles ?? []) {
         const required = await stat(path.join(temporary, requiredFile)).catch(() => undefined);
         if (!required?.isFile() || required.size === 0) {
           throw new ArtifactError(`Artifact must contain a non-empty ${requiredFile}`);
         }
+      }
+      if (requirements.archiveFileName) {
+        await rename(archivePath, path.join(temporary, requirements.archiveFileName));
       }
       await rename(temporary, destination);
     } catch (error) {
@@ -145,9 +151,15 @@ export class ArtifactStore {
       return false;
     }
   }
+
+  async internalFile(artifactId: string, relativePath: string): Promise<string | undefined> {
+    if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).some((part) => !part || part === "..")) return undefined;
+    const candidate = path.join(this.#artifactsDirectory, artifactId, relativePath);
+    return (await stat(candidate).catch(() => undefined))?.isFile() ? candidate : undefined;
+  }
 }
 
-async function extractZip(zipPath: string, destination: string, limits: ArtifactLimits): Promise<void> {
+async function extractZip(zipPath: string, destination: string, limits: ArtifactLimits, allowedHiddenDirectories: readonly string[]): Promise<void> {
   const zip = await openZip(zipPath);
   let entries = 0;
   let expandedBytes = 0;
@@ -158,7 +170,7 @@ async function extractZip(zipPath: string, destination: string, limits: Artifact
       if (!entry) break;
       entries += 1;
       if (entries > limits.files) throw new ArtifactError("Artifact contains too many entries", "artifact_too_large");
-      const normalized = validEntryPath(entry);
+      const normalized = validEntryPath(entry, allowedHiddenDirectories);
       if (paths.has(normalized)) throw new ArtifactError("Artifact contains duplicate paths");
       paths.add(normalized);
       if (entry.uncompressedSize > limits.fileBytes) {
@@ -181,7 +193,7 @@ async function extractZip(zipPath: string, destination: string, limits: Artifact
   }
 }
 
-function validEntryPath(entry: Entry): string {
+function validEntryPath(entry: Entry, allowedHiddenDirectories: readonly string[]): string {
   const name = entry.fileName;
   if (!name || name.includes("\\") || name.startsWith("/") || /^[A-Za-z]:/.test(name)) {
     throw new ArtifactError("Artifact contains an invalid path");
@@ -190,7 +202,10 @@ function validEntryPath(entry: Entry): string {
   if (!segments.length || segments.some((segment) => segment === "." || segment === "..")) {
     throw new ArtifactError("Artifact contains an invalid path");
   }
-  if (segments.some((segment) => segment.startsWith(".") || segment === "node_modules")) {
+  const invalidHidden = segments.some((segment, index) => segment.startsWith(".") && (
+    index !== 0 || !allowedHiddenDirectories.includes(segment)
+  ));
+  if (invalidHidden || segments.includes("node_modules")) {
     throw new ArtifactError("Artifact contains private project files");
   }
   const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;

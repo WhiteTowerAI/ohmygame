@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PLUGIN_MANIFEST_PATH,
   isPluginManifest,
+  isNewerPluginVersion,
   isPluginVersion,
   parsePluginMentions,
   serializePluginMentions,
@@ -70,6 +71,13 @@ describe("plugin protocol", () => {
     expect(isPluginVersion("1.0")).toBe(false);
     expect(isPluginVersion("1.0.0-01")).toBe(false);
     expect(isPluginVersion("1/2")).toBe(false);
+  });
+
+  it("orders stable and prerelease Plugin versions", () => {
+    expect(isNewerPluginVersion("1.1.0", "1.0.9")).toBe(true);
+    expect(isNewerPluginVersion("1.0.0", "1.0.0-beta.2")).toBe(true);
+    expect(isNewerPluginVersion("1.0.0-beta.10", "1.0.0-beta.2")).toBe(true);
+    expect(isNewerPluginVersion("1.0.0-alpha", "1.0.0")).toBe(false);
   });
 
   it("keeps catalog state outside the author manifest", () => {

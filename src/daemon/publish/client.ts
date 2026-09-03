@@ -3,11 +3,17 @@ import type { CommunityGame, ProjectState, PublishResult } from "../../shared/co
 import type {
   CreatePublishAssetReleaseResult,
   CreatePublishDeploymentResult,
+  CreatePublishPluginReleaseResult,
+  CreatePublishTemplateReleaseResult,
+  PublishExplorePlugin,
+  PublishExploreTemplate,
   PublishAsset,
   PublishAssetMediaType,
   PublishApiError,
   PublishDeployment,
   PublishGame,
+  PublishPlugin,
+  PublishTemplate,
   PublishExploreAsset,
 } from "../../shared/publish-v1.js";
 
@@ -102,6 +108,82 @@ export class RemotePublisher {
   async assetContent(assetId: string, releaseId: string): Promise<Buffer> {
     const response = await this.#response(`/v1/explore/assets/${encodeURIComponent(assetId)}/releases/${encodeURIComponent(releaseId)}/content`);
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  async publishPlugin(input: {
+    name: string;
+    manifest: import("../../shared/plugins.js").PluginManifest;
+    archive: Buffer;
+  }, accessToken: string): Promise<CreatePublishPluginReleaseResult> {
+    const plugin = await this.#request<PublishPlugin>("/v1/plugins", {
+      method: "POST",
+      headers: { "idempotency-key": `plugin-${input.name}` },
+      body: JSON.stringify({ name: input.name }),
+    }, accessToken);
+    const metadata = {
+      artifactSha256: createHash("sha256").update(input.archive).digest("hex"),
+      artifactBytes: input.archive.length,
+      manifest: input.manifest,
+    };
+    const form = new FormData();
+    form.set("metadata", JSON.stringify(metadata));
+    form.set("artifact", new Blob([new Uint8Array(input.archive)], { type: "application/zip" }), "plugin.zip");
+    const key = createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
+    const result = await this.#request<CreatePublishPluginReleaseResult>(`/v1/plugins/${plugin.id}/releases`, {
+      method: "POST",
+      headers: { "idempotency-key": `plugin-release-${plugin.id}-${key}` },
+      body: form,
+    }, accessToken);
+    await this.#request(`/v1/plugins/${plugin.id}/listing`, {
+      method: "PUT", body: JSON.stringify({ status: "listed" }),
+    }, accessToken);
+    return result;
+  }
+
+  explorePlugins(): Promise<PublishExplorePlugin[]> {
+    return this.#request("/v1/explore/plugins");
+  }
+
+  explorePlugin(pluginId: string): Promise<PublishExplorePlugin> {
+    return this.#request(`/v1/explore/plugins/${encodeURIComponent(pluginId)}`);
+  }
+
+  async pluginContent(pluginId: string, releaseId: string): Promise<Buffer> {
+    const response = await this.#response(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/content`);
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  async publishTemplate(input: {
+    localId: string;
+    templateId?: string;
+    definition: import("../../shared/asset-templates.js").AssetTemplateDefinition;
+  }, accessToken: string): Promise<CreatePublishTemplateReleaseResult> {
+    let template = input.templateId
+      ? await this.#request<PublishTemplate>(`/v1/templates/${encodeURIComponent(input.templateId)}`, {}, accessToken).catch((error) => {
+        if (error instanceof RemotePublishError && error.statusCode === 404) return undefined;
+        throw error;
+      })
+      : undefined;
+    template ??= await this.#request<PublishTemplate>("/v1/templates", {
+      method: "POST",
+      headers: { "idempotency-key": `template-${input.localId}` },
+      body: JSON.stringify({ name: input.definition.name }),
+    }, accessToken);
+    const metadata = { definition: input.definition };
+    const key = createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
+    const result = await this.#request<CreatePublishTemplateReleaseResult>(`/v1/templates/${template.id}/releases`, {
+      method: "POST",
+      headers: { "idempotency-key": `template-release-${template.id}-${key}` },
+      body: JSON.stringify(metadata),
+    }, accessToken);
+    await this.#request(`/v1/templates/${template.id}/listing`, {
+      method: "PUT", body: JSON.stringify({ status: "listed" }),
+    }, accessToken);
+    return result;
+  }
+
+  exploreTemplates(): Promise<PublishExploreTemplate[]> {
+    return this.#request("/v1/explore/templates");
   }
 
   async #game(project: ProjectState, accessToken: string): Promise<PublishGame> {

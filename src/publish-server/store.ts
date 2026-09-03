@@ -1,7 +1,9 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing } from "../shared/publish-v1.js";
+import type { AssetTemplateDefinition } from "../shared/asset-templates.js";
+import type { PluginManifest } from "../shared/plugins.js";
+import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishTemplateListing } from "../shared/publish-v1.js";
 import { nextListingState, type ListingState } from "./listings.js";
 
 export interface StoredGame {
@@ -54,6 +56,49 @@ export interface StoredExploreAsset extends StoredAssetRelease {
   title: string;
   description: string;
   mediaType: PublishAssetMediaType;
+}
+
+export interface StoredPlugin {
+  id: string;
+  publisherId: string;
+  name: string;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredPluginRelease {
+  id: string;
+  pluginId: string;
+  version: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  manifest: PluginManifest;
+  publishedAt: string;
+}
+
+export interface StoredExplorePlugin extends StoredPluginRelease {
+  name: string;
+}
+
+export interface StoredTemplate {
+  id: string;
+  publisherId: string;
+  name: string;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredTemplateRelease {
+  id: string;
+  templateId: string;
+  definition: AssetTemplateDefinition;
+  publishedAt: string;
+}
+
+export interface StoredExploreTemplate extends StoredTemplateRelease {
+  name: string;
 }
 
 export type IdempotencyReservation =
@@ -358,6 +403,217 @@ export class PublishStore {
     `).get(assetId, releaseId) as Row | undefined);
   }
 
+  createPlugin(
+    plugin: StoredPlugin,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): StoredPlugin {
+    this.#transaction(() => {
+      this.#database.prepare(`
+        INSERT INTO plugins (id, publisher_id, name, current_release_id, created_at, updated_at)
+        VALUES (?, ?, ?, NULL, ?, ?)
+      `).run(plugin.id, plugin.publisherId, plugin.name, plugin.createdAt, plugin.updatedAt);
+      this.#database.prepare(`
+        INSERT INTO plugin_listings (plugin_id, status, listed_at, updated_at)
+        VALUES (?, 'unlisted', NULL, ?)
+      `).run(plugin.id, plugin.createdAt);
+      this.#completeIdempotency(plugin.publisherId, idempotency);
+    });
+    return plugin;
+  }
+
+  plugin(publisherId: string, pluginId: string): StoredPlugin | undefined {
+    return pluginFrom(this.#database.prepare(`
+      SELECT * FROM plugins WHERE id = ? AND publisher_id = ?
+    `).get(pluginId, publisherId) as Row | undefined);
+  }
+
+  pluginByName(name: string): StoredPlugin | undefined {
+    return pluginFrom(this.#database.prepare(`
+      SELECT * FROM plugins WHERE name = ?
+    `).get(name) as Row | undefined);
+  }
+
+  activatePluginRelease(
+    publisherId: string,
+    release: StoredPluginRelease,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): { plugin: StoredPlugin; release: StoredPluginRelease } {
+    let result!: { plugin: StoredPlugin; release: StoredPluginRelease };
+    this.#transaction(() => {
+      if (!this.plugin(publisherId, release.pluginId)) throw new Error("Plugin not found");
+      this.#database.prepare(`
+        INSERT INTO plugin_releases
+          (id, plugin_id, version, artifact_sha256, artifact_bytes, manifest_json, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(release.id, release.pluginId, release.version, release.artifactSha256, release.artifactBytes, JSON.stringify(release.manifest), release.publishedAt);
+      this.#database.prepare(`
+        UPDATE plugins SET current_release_id = ?, updated_at = ? WHERE id = ?
+      `).run(release.id, release.publishedAt, release.pluginId);
+      this.#completeIdempotency(publisherId, idempotency);
+      result = { plugin: this.plugin(publisherId, release.pluginId)!, release };
+    });
+    return result;
+  }
+
+  pluginVersion(pluginId: string, version: string): StoredPluginRelease | undefined {
+    return pluginReleaseFrom(this.#database.prepare(`
+      SELECT * FROM plugin_releases WHERE plugin_id = ? AND version = ?
+    `).get(pluginId, version) as Row | undefined);
+  }
+
+  currentPluginRelease(publisherId: string, pluginId: string): StoredPluginRelease | undefined {
+    return pluginReleaseFrom(this.#database.prepare(`
+      SELECT r.* FROM plugin_releases r
+      JOIN plugins p ON p.current_release_id = r.id
+      WHERE p.id = ? AND p.publisher_id = ?
+    `).get(pluginId, publisherId) as Row | undefined);
+  }
+
+  setPluginListing(
+    publisherId: string,
+    pluginId: string,
+    status: "listed" | "unlisted",
+    updatedAt: string,
+  ): PublishPluginListing | "not_ready" | undefined {
+    const plugin = this.plugin(publisherId, pluginId);
+    if (!plugin) return undefined;
+    const row = this.#database.prepare("SELECT * FROM plugin_listings WHERE plugin_id = ?").get(pluginId) as Row;
+    const current: ListingState = {
+      status: row.status === "listed" ? "listed" : "unlisted",
+      listedAt: row.listed_at === null ? null : String(row.listed_at),
+      updatedAt: String(row.updated_at),
+    };
+    const next = nextListingState(current, status, Boolean(plugin.currentReleaseId), updatedAt);
+    if (next === "not_ready") return next;
+    this.#database.prepare(`
+      UPDATE plugin_listings SET status = ?, listed_at = ?, updated_at = ? WHERE plugin_id = ?
+    `).run(next.status, next.listedAt, next.updatedAt, pluginId);
+    return next.status === "listed"
+      ? { pluginId, status: "listed", listedAt: next.listedAt!, updatedAt: next.updatedAt }
+      : { pluginId, status: "unlisted", listedAt: null, updatedAt: next.updatedAt };
+  }
+
+  pluginReleaseIds(): Set<string> {
+    return new Set((this.#database.prepare("SELECT id FROM plugin_releases").all() as Row[]).map((row) => String(row.id)));
+  }
+
+  explorePlugins(): StoredExplorePlugin[] {
+    return (this.#database.prepare(`
+      SELECT p.name, r.*
+      FROM plugins p
+      JOIN plugin_listings l ON l.plugin_id = p.id AND l.status = 'listed'
+      JOIN plugin_releases r ON r.id = p.current_release_id
+      ORDER BY r.published_at DESC, p.id DESC
+    `).all() as Row[]).map(explorePluginFrom);
+  }
+
+  explorePlugin(pluginId: string): StoredExplorePlugin | undefined {
+    const row = this.#database.prepare(`
+      SELECT p.name, r.*
+      FROM plugins p
+      JOIN plugin_listings l ON l.plugin_id = p.id AND l.status = 'listed'
+      JOIN plugin_releases r ON r.id = p.current_release_id
+      WHERE p.id = ?
+    `).get(pluginId) as Row | undefined;
+    return row ? explorePluginFrom(row) : undefined;
+  }
+
+  explorePluginRelease(pluginId: string, releaseId: string): StoredPluginRelease | undefined {
+    return pluginReleaseFrom(this.#database.prepare(`
+      SELECT r.* FROM plugin_releases r
+      JOIN plugin_listings l ON l.plugin_id = r.plugin_id AND l.status = 'listed'
+      WHERE r.plugin_id = ? AND r.id = ?
+    `).get(pluginId, releaseId) as Row | undefined);
+  }
+
+  createTemplate(
+    template: StoredTemplate,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): StoredTemplate {
+    this.#transaction(() => {
+      this.#database.prepare(`
+        INSERT INTO templates (id, publisher_id, name, current_release_id, created_at, updated_at)
+        VALUES (?, ?, ?, NULL, ?, ?)
+      `).run(template.id, template.publisherId, template.name, template.createdAt, template.updatedAt);
+      this.#database.prepare(`
+        INSERT INTO template_listings (template_id, status, listed_at, updated_at)
+        VALUES (?, 'unlisted', NULL, ?)
+      `).run(template.id, template.createdAt);
+      this.#completeIdempotency(template.publisherId, idempotency);
+    });
+    return template;
+  }
+
+  template(publisherId: string, templateId: string): StoredTemplate | undefined {
+    return templateFrom(this.#database.prepare(`
+      SELECT * FROM templates WHERE id = ? AND publisher_id = ?
+    `).get(templateId, publisherId) as Row | undefined);
+  }
+
+  activateTemplateRelease(
+    publisherId: string,
+    release: StoredTemplateRelease,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): { template: StoredTemplate; release: StoredTemplateRelease } {
+    let result!: { template: StoredTemplate; release: StoredTemplateRelease };
+    this.#transaction(() => {
+      if (!this.template(publisherId, release.templateId)) throw new Error("Template not found");
+      this.#database.prepare(`
+        INSERT INTO template_releases (id, template_id, definition_json, published_at)
+        VALUES (?, ?, ?, ?)
+      `).run(release.id, release.templateId, JSON.stringify(release.definition), release.publishedAt);
+      this.#database.prepare(`
+        UPDATE templates SET name = ?, current_release_id = ?, updated_at = ? WHERE id = ?
+      `).run(release.definition.name, release.id, release.publishedAt, release.templateId);
+      this.#completeIdempotency(publisherId, idempotency);
+      result = { template: this.template(publisherId, release.templateId)!, release };
+    });
+    return result;
+  }
+
+  setTemplateListing(
+    publisherId: string,
+    templateId: string,
+    status: "listed" | "unlisted",
+    updatedAt: string,
+  ): PublishTemplateListing | "not_ready" | undefined {
+    const template = this.template(publisherId, templateId);
+    if (!template) return undefined;
+    const row = this.#database.prepare("SELECT * FROM template_listings WHERE template_id = ?").get(templateId) as Row;
+    const current: ListingState = {
+      status: row.status === "listed" ? "listed" : "unlisted",
+      listedAt: row.listed_at === null ? null : String(row.listed_at),
+      updatedAt: String(row.updated_at),
+    };
+    const next = nextListingState(current, status, Boolean(template.currentReleaseId), updatedAt);
+    if (next === "not_ready") return next;
+    this.#database.prepare(`
+      UPDATE template_listings SET status = ?, listed_at = ?, updated_at = ? WHERE template_id = ?
+    `).run(next.status, next.listedAt, next.updatedAt, templateId);
+    return next.status === "listed"
+      ? { templateId, status: "listed", listedAt: next.listedAt!, updatedAt: next.updatedAt }
+      : { templateId, status: "unlisted", listedAt: null, updatedAt: next.updatedAt };
+  }
+
+  exploreTemplates(): StoredExploreTemplate[] {
+    return (this.#database.prepare(`
+      SELECT t.name, r.* FROM templates t
+      JOIN template_listings l ON l.template_id = t.id AND l.status = 'listed'
+      JOIN template_releases r ON r.id = t.current_release_id
+      ORDER BY r.published_at DESC, t.id DESC
+    `).all() as Row[]).map(exploreTemplateFrom);
+  }
+
+  exploreTemplate(templateId: string): StoredExploreTemplate | undefined {
+    const row = this.#database.prepare(`
+      SELECT t.name, r.* FROM templates t
+      JOIN template_listings l ON l.template_id = t.id AND l.status = 'listed'
+      JOIN template_releases r ON r.id = t.current_release_id
+      WHERE t.id = ?
+    `).get(templateId) as Row | undefined;
+    return row ? exploreTemplateFrom(row) : undefined;
+  }
+
   #completeIdempotency(
     publisherId: string,
     value: { method: string; route: string; key: string; statusCode: number; body: unknown },
@@ -448,6 +704,56 @@ function exploreAssetFrom(row: Row): StoredExploreAsset {
   };
 }
 
+function pluginFrom(row: Row | undefined): StoredPlugin | undefined {
+  if (!row) return undefined;
+  return {
+    id: String(row.id),
+    publisherId: String(row.publisher_id),
+    name: String(row.name),
+    currentReleaseId: row.current_release_id === null ? null : String(row.current_release_id),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function pluginReleaseFrom(row: Row | undefined): StoredPluginRelease | undefined {
+  if (!row) return undefined;
+  return {
+    id: String(row.id),
+    pluginId: String(row.plugin_id),
+    version: String(row.version),
+    artifactSha256: String(row.artifact_sha256),
+    artifactBytes: Number(row.artifact_bytes),
+    manifest: JSON.parse(String(row.manifest_json)) as PluginManifest,
+    publishedAt: String(row.published_at),
+  };
+}
+
+function explorePluginFrom(row: Row): StoredExplorePlugin {
+  return { ...pluginReleaseFrom(row)!, name: String(row.name) };
+}
+
+function templateFrom(row: Row | undefined): StoredTemplate | undefined {
+  if (!row) return undefined;
+  return {
+    id: String(row.id), publisherId: String(row.publisher_id), name: String(row.name),
+    currentReleaseId: row.current_release_id === null ? null : String(row.current_release_id),
+    createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+  };
+}
+
+function templateReleaseFrom(row: Row): StoredTemplateRelease {
+  return {
+    id: String(row.id), templateId: String(row.template_id),
+    definition: JSON.parse(String(row.definition_json)) as AssetTemplateDefinition,
+    publishedAt: String(row.published_at),
+  };
+}
+
+function exploreTemplateFrom(row: Row): StoredExploreTemplate {
+  return { ...templateReleaseFrom(row), name: String(row.name) };
+}
+
 function communityGameFrom(row: Row): StoredCommunityGame {
   return {
     id: String(row.id),
@@ -511,6 +817,57 @@ const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS asset_listings (
     asset_id TEXT PRIMARY KEY REFERENCES assets(id),
+    status TEXT NOT NULL CHECK(status IN ('listed', 'unlisted')),
+    listed_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS plugins (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    name TEXT NOT NULL,
+    current_release_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(publisher_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS plugin_releases (
+    id TEXT PRIMARY KEY,
+    plugin_id TEXT NOT NULL REFERENCES plugins(id),
+    version TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    artifact_bytes INTEGER NOT NULL,
+    manifest_json TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    UNIQUE(plugin_id, version)
+  );
+
+  CREATE TABLE IF NOT EXISTS plugin_listings (
+    plugin_id TEXT PRIMARY KEY REFERENCES plugins(id),
+    status TEXT NOT NULL CHECK(status IN ('listed', 'unlisted')),
+    listed_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    name TEXT NOT NULL,
+    current_release_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS template_releases (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL REFERENCES templates(id),
+    definition_json TEXT NOT NULL,
+    published_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS template_listings (
+    template_id TEXT PRIMARY KEY REFERENCES templates(id),
     status TEXT NOT NULL CHECK(status IN ('listed', 'unlisted')),
     listed_at TEXT,
     updated_at TEXT NOT NULL

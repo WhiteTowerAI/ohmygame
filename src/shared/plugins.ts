@@ -3,11 +3,14 @@ import { Check } from "typebox/value";
 import type { PluginMention, ProjectType } from "./contracts.js";
 
 export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
+export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
+export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 
 export type PluginSource =
   | { type: "builtIn" }
   | { type: "directory" }
-  | { type: "git"; url: string; commit: string };
+  | { type: "git"; url: string; commit: string }
+  | { type: "catalog"; pluginId: string; releaseId: string };
 
 export type InstallPluginRequest =
   | { type: "directory"; path: string; candidate?: string }
@@ -94,6 +97,8 @@ export interface PluginSummary {
   source: PluginSource;
   installed: boolean;
   enabled: boolean;
+  latestVersion?: string;
+  updateAvailable?: boolean;
 }
 
 export interface PluginComponentSummary {
@@ -177,6 +182,37 @@ export type ResolvedPluginManifest = Omit<PluginManifest, "version"> & { version
 
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
+}
+
+export function isNewerPluginVersion(candidate: string, current: string): boolean {
+  const left = parsedVersion(candidate);
+  const right = parsedVersion(current);
+  if (!left || !right) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (left.core[index] !== right.core[index]) return left.core[index]! > right.core[index]!;
+  }
+  if (!left.prerelease || !right.prerelease) return !left.prerelease && Boolean(right.prerelease);
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = left.prerelease[index];
+    const b = right.prerelease[index];
+    if (a === b) continue;
+    if (a === undefined || b === undefined) return b === undefined;
+    const aNumber = /^\d+$/.test(a) ? Number(a) : undefined;
+    const bNumber = /^\d+$/.test(b) ? Number(b) : undefined;
+    if (aNumber !== undefined && bNumber !== undefined) return aNumber > bNumber;
+    if (aNumber !== undefined || bNumber !== undefined) return bNumber !== undefined;
+    return a > b;
+  }
+  return false;
+}
+
+function parsedVersion(value: string): { core: number[]; prerelease?: string[] } | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
+  return match ? {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    ...(match[4] ? { prerelease: match[4].split(".") } : {}),
+  } : undefined;
 }
 
 export function isPluginManifest(value: unknown): value is PluginManifest {

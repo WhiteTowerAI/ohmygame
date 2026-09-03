@@ -2,12 +2,14 @@ import type { PluginMention } from "../shared/contracts.js";
 import {
   OPENGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
+  isNewerPluginVersion,
   type PluginCatalog,
   type PluginDetail,
   type PluginMarketplaceRef,
   type PluginSummary,
 } from "../shared/plugins.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
+import type { RemotePublisher } from "./publish/client.js";
 
 export interface PluginCatalogResult {
   plugins: PluginSummary[];
@@ -45,10 +47,26 @@ export class PluginCatalogService {
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {
-    for (const adapter of this.adapters) {
-      const plugin = await adapter.read(id);
-      if (plugin) return this.settings.decorate(plugin);
-    }
+    const results = await Promise.all(this.adapters.map(async (adapter) => {
+      try {
+        return { plugin: await adapter.read(id) };
+      } catch (error) {
+        return { error };
+      }
+    }));
+    const plugins = results.flatMap((result) => result.plugin ? [result.plugin] : []);
+    const installed = plugins.find((plugin) => plugin.installed);
+    const remote = plugins.find((plugin) => plugin.source.type === "catalog" && !plugin.installed);
+    const plugin = installed && remote && installed.source.type === "catalog"
+      ? {
+          ...installed,
+          latestVersion: remote.version,
+          updateAvailable: Boolean(installed.version && remote.version && isNewerPluginVersion(remote.version, installed.version)),
+        }
+      : installed ?? remote ?? plugins[0];
+    if (plugin) return this.settings.decorate(plugin);
+    const failure = results.find((result) => result.error !== undefined);
+    if (failure) throw failure.error;
     return undefined;
   }
 
@@ -64,18 +82,6 @@ export class PluginCatalogService {
       }
     }
     return validated;
-  }
-}
-
-export class BuiltInPluginAdapter implements PluginCatalogAdapter {
-  readonly marketplace = OPENGAME_MARKETPLACE;
-
-  async list(): Promise<PluginCatalogResult> {
-    return { plugins: builtInPlugins().map(pluginSummary) };
-  }
-
-  async read(id: string): Promise<PluginDetail | undefined> {
-    return builtInPlugins().find((plugin) => plugin.id === id);
   }
 }
 
@@ -113,24 +119,31 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
-export function builtInPlugins(): PluginDetail[] {
-  return [pluginStarter()];
-}
+export class RemotePluginAdapter implements PluginCatalogAdapter {
+  readonly marketplace = OPENGAME_MARKETPLACE;
+  readonly #plugins = new Map<string, import("../shared/publish-v1.js").PublishExplorePlugin>();
 
-function pluginStarter(): PluginDetail {
-  return {
-    id: "opengame:plugin-starter",
-    name: "plugin-starter",
-    displayName: "Plugin Starter",
-    description: "A starting point for custom game-making workflows.",
-    longDescription: "Create a custom OpenGame plugin with reusable Skills and Connections.",
-    marketplace: OPENGAME_MARKETPLACE,
-    source: { type: "builtIn" },
-    installed: false,
-    enabled: false,
-    skills: [],
-    connections: [],
-  };
+  constructor(private readonly publisher: Pick<RemotePublisher, "explorePlugins" | "explorePlugin">) {}
+
+  async list(): Promise<PluginCatalogResult> {
+    const plugins = await this.publisher.explorePlugins();
+    this.#plugins.clear();
+    for (const plugin of plugins) this.#plugins.set(`opengame:${plugin.name}`, plugin);
+    return { plugins: plugins.map(remotePluginSummary) };
+  }
+
+  async read(id: string): Promise<PluginDetail | undefined> {
+    if (!id.startsWith("opengame:")) return undefined;
+    try {
+      const cached = this.#plugins.get(id) ?? (await this.publisher.explorePlugins())
+        .find((plugin) => `opengame:${plugin.name}` === id);
+      if (!cached) return undefined;
+      return remotePluginDetail(await this.publisher.explorePlugin(cached.id));
+    } catch (cause) {
+      if ((cause as { statusCode?: number }).statusCode === 404) return undefined;
+      throw cause;
+    }
+  }
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
@@ -139,5 +152,60 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 }
 
 function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
-  return [...new Map(plugins.map((plugin) => [plugin.id, plugin])).values()];
+  const unique = new Map<string, PluginSummary>();
+  for (const plugin of plugins) {
+    const current = unique.get(plugin.id);
+    if (!current) {
+      unique.set(plugin.id, plugin);
+      continue;
+    }
+    if (plugin.installed) {
+      unique.set(plugin.id, {
+        ...plugin,
+        ...(plugin.source.type === "catalog" && current.source.type === "catalog" ? {
+          latestVersion: current.version,
+          updateAvailable: Boolean(plugin.version && current.version && isNewerPluginVersion(current.version, plugin.version)),
+        } : {}),
+      });
+    } else if (current.installed && current.source.type === "catalog" && plugin.source.type === "catalog") {
+      unique.set(plugin.id, {
+        ...current,
+        latestVersion: plugin.version,
+        updateAvailable: Boolean(current.version && plugin.version && isNewerPluginVersion(plugin.version, current.version)),
+      });
+    }
+  }
+  return [...unique.values()];
+}
+
+function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginSummary {
+  const manifest = plugin.manifest;
+  return {
+    id: `opengame:${plugin.name}`,
+    name: plugin.name,
+    displayName: manifest.interface?.displayName ?? displayName(plugin.name),
+    description: manifest.interface?.shortDescription ?? manifest.description,
+    version: plugin.version,
+    latestVersion: plugin.version,
+    marketplace: OPENGAME_MARKETPLACE,
+    source: { type: "catalog", pluginId: plugin.id, releaseId: plugin.releaseId },
+    installed: false,
+    enabled: false,
+  };
+}
+
+function remotePluginDetail(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginDetail {
+  const summary = remotePluginSummary(plugin);
+  return {
+    ...summary,
+    longDescription: plugin.manifest.interface?.longDescription,
+    skills: [],
+    connections: (plugin.manifest.connections ?? []).map((id) => ({ id, name: displayName(id.replace(/^opengame-/, "")), enabled: true })),
+    defaultPrompts: plugin.manifest.interface?.defaultPrompt,
+    projectTypes: plugin.manifest.interface?.projectTypes,
+  };
+}
+
+function displayName(value: string): string {
+  return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

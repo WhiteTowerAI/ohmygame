@@ -2,24 +2,22 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BuiltInPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
+import { LocalPluginAdapter, PluginCatalogService, type PluginCatalogAdapter } from "../src/daemon/plugin-catalog.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin catalog", () => {
-  it("combines system and personal plugins behind one catalog", async () => {
+  it("exposes personal plugins behind the catalog", async () => {
     const personal = localPlugin();
     const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
-      new BuiltInPluginAdapter(),
       new LocalPluginAdapter({ list: async () => ({ plugins: [personal], errors: [] }), read: async (id) => id === personal.id ? personal : undefined }),
     ], settings);
 
     const result = await catalog.list();
 
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
-      "opengame:plugin-starter",
       "personal:character-workflow",
     ]);
     expect(result.errors).toEqual([]);
@@ -55,7 +53,71 @@ describe("plugin catalog", () => {
       errors: [{ marketplaceId: "personal", message: "Could not load local plugin damaged" }],
     });
   });
+
+  it("preserves a catalog read failure when no adapter finds the Plugin", async () => {
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    await settings.load();
+    const failure = new Error("Catalog unavailable");
+    const catalog = new PluginCatalogService([
+      adapter({ read: async () => { throw failure; } }),
+    ], settings);
+
+    await expect(catalog.read("opengame:missing")).rejects.toBe(failure);
+  });
+
+  it("keeps an installed Plugin available when another adapter fails", async () => {
+    const plugin = localPlugin();
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    await settings.load();
+    const catalog = new PluginCatalogService([
+      adapter({ read: async () => plugin }),
+      adapter({ read: async () => { throw new Error("Catalog unavailable"); } }),
+    ], settings);
+
+    await expect(catalog.read(plugin.id)).resolves.toMatchObject({ id: plugin.id, installed: true });
+  });
+
+  it("does not apply Catalog update metadata to a bundled Plugin", async () => {
+    const bundled: PluginDetail = {
+      ...localPlugin(),
+      id: "opengame:godot",
+      name: "godot",
+      marketplace: { id: "opengame", displayName: "OpenGame" },
+      source: { type: "builtIn" },
+    };
+    const remote = {
+      ...bundled,
+      version: "9.0.0",
+      source: { type: "catalog" as const, pluginId: "remote-godot", releaseId: "release-1" },
+      installed: false,
+      enabled: false,
+      skills: [],
+      connections: [],
+    };
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    await settings.load();
+    const catalog = new PluginCatalogService([
+      adapter({ plugins: [bundled] }),
+      adapter({ plugins: [remote] }),
+    ], settings);
+
+    const plugin = (await catalog.list()).plugins[0]!;
+    expect(plugin.source).toEqual({ type: "builtIn" });
+    expect(plugin.latestVersion).toBeUndefined();
+    expect(plugin.updateAvailable).toBeUndefined();
+  });
 });
+
+function adapter(overrides: {
+  plugins?: PluginDetail[];
+  read?: PluginCatalogAdapter["read"];
+}): PluginCatalogAdapter {
+  return {
+    marketplace: { id: "test", displayName: "Test" },
+    list: async () => ({ plugins: overrides.plugins ?? [] }),
+    read: overrides.read ?? (async () => undefined),
+  };
+}
 
 function localPlugin(): PluginDetail {
   return {

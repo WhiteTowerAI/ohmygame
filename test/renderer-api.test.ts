@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listExploreAssets, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -7,6 +7,30 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("uses the Asset Template save, Explore, and publish endpoints", async () => {
+    installWindow();
+    const definition = {
+      mode: "image" as const, name: "Character", description: "", promptLabel: "Prompt",
+      promptPlaceholder: "Describe a character", defaults: { imageResolution: "1K" as const },
+    };
+    const local = { ...definition, id: "local-1", source: "local" as const, createdAt: new Date(0).toISOString() };
+    const remote = { ...definition, id: "remote-1", source: "catalog" as const, releaseId: "release-1", publishedAt: new Date(0).toISOString() };
+    const published = { template: { id: "remote-1" }, release: { id: "release-1" } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json([local]))
+      .mockResolvedValueOnce(Response.json(local, { status: 201 }))
+      .mockResolvedValueOnce(Response.json([remote]))
+      .mockResolvedValueOnce(Response.json(published, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listAssetTemplates()).resolves.toEqual([local]);
+    await expect(createAssetTemplate(definition)).resolves.toEqual(local);
+    await expect(listExploreTemplates()).resolves.toEqual([remote]);
+    await expect(publishAssetTemplate("local-1", "token")).resolves.toEqual(published);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-templates", expect.objectContaining({ method: "POST", body: JSON.stringify(definition) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/asset-templates/local-1/publish", expect.objectContaining({ method: "POST", body: JSON.stringify({ accessToken: "token" }) }));
+  });
+
   it("handles chunked UTF-8 and ignores malformed events", async () => {
     installWindow();
     const content = [
@@ -203,6 +227,22 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/explore/assets", expect.anything());
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project/assets/import", expect.objectContaining({
       method: "POST", body: JSON.stringify({ assetId: "asset-1" }),
+    }));
+  });
+
+  it("installs and publishes Catalog Plugins through the daemon API", async () => {
+    installWindow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ id: "opengame:tools" }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({}, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await installCatalogPlugin("opengame:tools");
+    await publishPlugin("personal:tools", "user-access-token");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/opengame%3Atools/install", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
     }));
   });
 

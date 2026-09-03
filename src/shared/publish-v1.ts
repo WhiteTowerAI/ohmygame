@@ -123,6 +123,101 @@ export interface CreatePublishAssetReleaseResult {
   release: PublishAssetRelease;
 }
 
+export interface PublishPlugin {
+  id: string;
+  publisherId: string;
+  name: string;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublishTemplate {
+  id: string;
+  publisherId: string;
+  name: string;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublishTemplateRelease {
+  id: string;
+  templateId: string;
+  definition: import("./asset-templates.js").AssetTemplateDefinition;
+  publishedAt: string;
+}
+
+export type PublishExploreTemplate = import("./asset-templates.js").AssetTemplateDefinition & {
+  id: string;
+  releaseId: string;
+  publishedAt: string;
+};
+
+export interface CreatePublishTemplateRequest {
+  name: string;
+}
+
+export interface CreatePublishTemplateReleaseRequest {
+  definition: import("./asset-templates.js").AssetTemplateDefinition;
+}
+
+export interface CreatePublishTemplateReleaseResult {
+  template: PublishTemplate;
+  release: PublishTemplateRelease;
+}
+
+export type PublishTemplateListing = {
+  templateId: string;
+  updatedAt: string;
+} & (
+  | { status: "listed"; listedAt: string }
+  | { status: "unlisted"; listedAt: null }
+);
+
+export interface PublishPluginRelease {
+  id: string;
+  pluginId: string;
+  version: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  publishedAt: string;
+}
+
+export interface PublishExplorePlugin {
+  id: string;
+  name: string;
+  version: string;
+  releaseId: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  manifest: import("./plugins.js").PluginManifest;
+  publishedAt: string;
+}
+
+export interface CreatePublishPluginRequest {
+  name: string;
+}
+
+export interface CreatePublishPluginReleaseMetadata {
+  artifactSha256: string;
+  artifactBytes: number;
+  manifest: import("./plugins.js").PluginManifest;
+}
+
+export interface CreatePublishPluginReleaseResult {
+  plugin: PublishPlugin;
+  release: PublishPluginRelease;
+}
+
+export type PublishPluginListing = {
+  pluginId: string;
+  updatedAt: string;
+} & (
+  | { status: "listed"; listedAt: string }
+  | { status: "unlisted"; listedAt: null }
+);
+
 export type PublishErrorCode =
   | "authentication_required"
   | "not_found"

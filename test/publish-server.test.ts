@@ -20,6 +20,89 @@ afterEach(async () => {
 });
 
 describe("public publish server", () => {
+  it("publishes and lists immutable Asset Template definitions", async () => {
+    const app = await testApp();
+    const created = await app.inject({
+      method: "POST", url: "/v1/templates",
+      headers: { ...authorization, "idempotency-key": "template" },
+      payload: { name: "Character Sheet" },
+    });
+    expect(created.statusCode).toBe(201);
+    const templateId = created.json().id;
+    const definition = assetTemplateDefinition("Character Sheet");
+    const release = await app.inject({
+      method: "POST", url: `/v1/templates/${templateId}/releases`,
+      headers: { ...authorization, "idempotency-key": "template-release" },
+      payload: { definition },
+    });
+    expect(release.statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: "/v1/explore/templates" })).json()).toEqual([]);
+    expect((await app.inject({
+      method: "PUT", url: `/v1/templates/${templateId}/listing`, headers: authorization, payload: { status: "listed" },
+    })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/v1/explore/templates" })).json()).toEqual([
+      expect.objectContaining({ id: templateId, releaseId: release.json().release.id, ...definition }),
+    ]);
+  });
+
+  it("publishes immutable Plugin releases and exposes only the listed version", async () => {
+    const app = await testApp();
+    const created = await createPlugin(app, "create-plugin", "level-tools");
+    expect(created.statusCode).toBe(201);
+    const pluginId = created.json().id;
+
+    const first = await publishPlugin(app, pluginId, "release-1", pluginManifest("1.0.0"));
+    expect(first.statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toEqual([]);
+    await app.inject({ method: "PUT", url: `/v1/plugins/${pluginId}/listing`, headers: authorization, payload: { status: "listed" } });
+    expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toMatchObject([{
+      id: pluginId, name: "level-tools", version: "1.0.0", manifest: { name: "level-tools" },
+    }]);
+    const content = await app.inject({
+      method: "GET", url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/content`,
+    });
+    expect(content.statusCode).toBe(200);
+    expect(content.headers["content-type"]).toContain("application/zip");
+
+    const stale = await publishPlugin(app, pluginId, "release-stale", pluginManifest("0.9.0"));
+    expect(stale.statusCode).toBe(409);
+    const second = await publishPlugin(app, pluginId, "release-2", pluginManifest("1.1.0"));
+    expect(second.statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: `/v1/explore/plugins/${pluginId}` })).json().version).toBe("1.1.0");
+  });
+
+  it("keeps published Plugin archives after restart", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-plugins-"));
+    const first = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(first);
+    const plugin = (await createPlugin(first, "plugin", "level-tools")).json();
+    const release = await publishPlugin(first, plugin.id, "release", pluginManifest("1.0.0"));
+    await first.inject({ method: "PUT", url: `/v1/plugins/${plugin.id}/listing`, headers: authorization, payload: { status: "listed" } });
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const second = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(second);
+    await second.ready();
+    const content = await second.inject({
+      method: "GET", url: `/v1/explore/plugins/${plugin.id}/releases/${release.json().release.id}/content`,
+    });
+    expect(content.statusCode).toBe(200);
+    expect(createHash("sha256").update(content.rawPayload).digest("hex")).toBe(release.json().release.artifactSha256);
+  });
+
+  it("reserves public Plugin names across publishers", async () => {
+    const app = await testApp();
+    expect((await createPlugin(app, "first", "level-tools")).statusCode).toBe(201);
+    const response = await app.inject({
+      method: "POST", url: "/v1/plugins",
+      headers: { authorization: "Bearer other-publisher-token", "idempotency-key": "second" },
+      payload: { name: "level-tools" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toBe("Plugin name is already in use");
+  });
+
   it("publishes immutable Assets and exposes only listed releases", async () => {
     const app = await testApp();
     expect((await app.inject({ method: "POST", url: "/v1/assets", payload: { title: "Sprite", mediaType: "image" } })).statusCode).toBe(401);
@@ -275,6 +358,50 @@ function createGame(app: FastifyInstance, key: string, payload: { title: string;
 
 function createAsset(app: FastifyInstance, key: string, payload: { title: string; description?: string; mediaType: string }) {
   return app.inject({ method: "POST", url: "/v1/assets", headers: { ...authorization, "idempotency-key": key }, payload });
+}
+
+function createPlugin(app: FastifyInstance, key: string, name: string) {
+  return app.inject({ method: "POST", url: "/v1/plugins", headers: { ...authorization, "idempotency-key": key }, payload: { name } });
+}
+
+function pluginManifest(version: string) {
+  return {
+    name: "level-tools", version, description: "Level design workflows",
+    interface: { displayName: "Level Tools", longDescription: "Build better levels." },
+  };
+}
+
+function assetTemplateDefinition(name: string) {
+  return {
+    mode: "image" as const,
+    name,
+    description: "Consistent character views",
+    promptLabel: "Prompt",
+    promptPlaceholder: "Describe a character",
+    defaultPrompt: "Create three views",
+    defaults: { imageResolution: "2K", imageAspectRatio: "16:9", imageOutputs: 1 },
+  };
+}
+
+async function publishPlugin(app: FastifyInstance, pluginId: string, key: string, manifest: ReturnType<typeof pluginManifest>) {
+  const archive = await zipFiles({
+    ".opengame-plugin/plugin.json": JSON.stringify(manifest),
+    "skills/level/SKILL.md": "---\nname: level\ndescription: Build levels.\n---\n",
+  });
+  const metadata = {
+    artifactSha256: createHash("sha256").update(archive).digest("hex"),
+    artifactBytes: archive.length,
+    manifest,
+  };
+  const form = new FormData();
+  form.set("metadata", JSON.stringify(metadata));
+  form.set("artifact", new Blob([new Uint8Array(archive)], { type: "application/zip" }), "plugin.zip");
+  const request = new Request("http://localhost/upload", { method: "POST", body: form });
+  return app.inject({
+    method: "POST", url: `/v1/plugins/${pluginId}/releases`,
+    headers: { ...Object.fromEntries(request.headers), ...authorization, "idempotency-key": key },
+    payload: Buffer.from(await request.arrayBuffer()),
+  });
 }
 
 async function publishAsset(

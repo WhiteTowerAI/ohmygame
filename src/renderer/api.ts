@@ -43,6 +43,8 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
+import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
+import type { CreatePublishTemplateReleaseResult } from "../shared/publish-v1.js";
 
 const API_BASE = "/api";
 
@@ -215,6 +217,16 @@ export async function installPlugin(input: InstallPluginRequest): Promise<Plugin
   return request("/plugins/install", { method: "POST", body: JSON.stringify(input) });
 }
 
+export async function installCatalogPlugin(id: string): Promise<PluginDetail> {
+  return request(`/plugins/${encodeURIComponent(id)}/install`, { method: "POST" });
+}
+
+export async function publishPlugin(id: string, accessToken: string): Promise<void> {
+  await request(`/plugins/${encodeURIComponent(id)}/publish`, {
+    method: "POST", body: JSON.stringify({ accessToken }),
+  });
+}
+
 export async function inspectPluginSource(input: InstallPluginRequest): Promise<PluginInstallInspection> {
   return request("/plugins/inspect", { method: "POST", body: JSON.stringify(input) });
 }
@@ -357,6 +369,24 @@ export async function addExploreAssetToProject(projectId: string, assetId: strin
     method: "POST",
     body: JSON.stringify({ assetId }),
   });
+}
+
+export async function listAssetTemplates(): Promise<LocalAssetTemplate[]> {
+  return request("/asset-templates");
+}
+
+export async function createAssetTemplate(input: CreateAssetTemplateRequest): Promise<LocalAssetTemplate> {
+  return request("/asset-templates", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function publishAssetTemplate(templateId: string, accessToken: string): Promise<CreatePublishTemplateReleaseResult> {
+  return request(`/asset-templates/${encodeURIComponent(templateId)}/publish`, {
+    method: "POST", body: JSON.stringify({ accessToken }),
+  });
+}
+
+export async function listExploreTemplates(): Promise<ExploreAssetTemplate[]> {
+  return request("/explore/templates");
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {
