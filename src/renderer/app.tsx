@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Community, CommunityGamePlayer } from "./community.js";
+import { ExploreAssetsPage } from "./explore-assets.js";
+import { GamePlayer, GamesPage } from "./games.js";
 import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
 import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityGameHash, conversationHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { conversationHash, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetStudioPage } from "./asset-studio.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
@@ -36,8 +37,9 @@ export function App() {
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
-  if (route.page === "community") return <Community onNavigate={navigateToSidebarPage} onOpenGame={openCommunityGame} />;
-  if (route.page === "community-game") return <CommunityGamePlayer gameId={route.gameId} onBack={goToCommunity} />;
+  if (route.page === "games") return <GamesPage onNavigate={navigateToSidebarPage} onOpenGame={openGame} />;
+  if (route.page === "assets") return <ExploreAssetsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
@@ -114,14 +116,14 @@ export function App() {
     setRoute({ page: "home" });
   }
 
-  function openCommunityGame(gameId: string): void {
-    window.history.pushState(null, "", communityGameHash(gameId));
-    setRoute({ page: "community-game", gameId });
+  function openGame(gameId: string): void {
+    window.history.pushState(null, "", gameHash(gameId));
+    setRoute({ page: "game", gameId });
   }
 
-  function goToCommunity(): void {
-    window.history.replaceState(null, "", sidebarHash("community"));
-    setRoute({ page: "community" });
+  function goToGames(): void {
+    window.history.replaceState(null, "", sidebarHash("games"));
+    setRoute({ page: "games" });
   }
 
   function navigateToSidebarPage(page: AppNavigationTarget): void {

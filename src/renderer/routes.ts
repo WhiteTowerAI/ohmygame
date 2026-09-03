@@ -5,19 +5,20 @@ export type SidebarPage =
   | "plugins"
   | "interactive-drama"
   | "asset-studio"
-  | "community";
+  | "games"
+  | "assets";
 
 export type SettingsSection = "account" | "providers" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 
 const SIDEBAR_PAGES = new Set<SidebarPage>([
-  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "community",
+  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "games", "assets",
 ]);
 
 export type AppRoute =
   | { page: SidebarPage }
   | { page: "settings"; section: SettingsSection }
-  | { page: "community-game"; gameId: string }
+  | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string; chapterId: string }
   | { page: "project"; projectId: string; conversationId?: string };
 
@@ -29,10 +30,10 @@ export function parseAppRoute(hash: string): AppRoute {
   if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarPage)) {
     return { page: sidebarMatch[1] as SidebarPage };
   }
-  const communityGameMatch = /^#\/community\/games\/([^/]+)$/.exec(hash);
-  if (communityGameMatch?.[1]) {
+  const gameMatch = /^#\/games\/([^/]+)$/.exec(hash);
+  if (gameMatch?.[1]) {
     try {
-      return { page: "community-game", gameId: decodeURIComponent(communityGameMatch[1]) };
+      return { page: "game", gameId: decodeURIComponent(gameMatch[1]) };
     } catch {
       return { page: "home" };
     }
@@ -83,8 +84,8 @@ export function conversationHash(projectId: string, conversationId: string): str
   return `${projectHash(projectId)}/conversations/${encodeURIComponent(conversationId)}`;
 }
 
-export function communityGameHash(gameId: string): string {
-  return `#/community/games/${encodeURIComponent(gameId)}`;
+export function gameHash(gameId: string): string {
+  return `#/games/${encodeURIComponent(gameId)}`;
 }
 
 export function playtestHash(projectId: string, chapterId: string): string {

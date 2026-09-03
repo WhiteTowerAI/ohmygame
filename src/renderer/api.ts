@@ -18,6 +18,8 @@ import {
   type ProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
+  type ExploreAsset,
+  type PublishAssetResult,
   type ConversationDetail,
   type ConversationSummary,
   type ProjectState,
@@ -185,11 +187,11 @@ export async function updateModel3DGenerationSettings(input: UpdateModel3DGenera
   return request("/settings/model-3d-generation", { method: "PUT", body: JSON.stringify(input) });
 }
 
-export async function listCommunityGames(): Promise<CommunityGame[]> {
+export async function listExploreGames(): Promise<CommunityGame[]> {
   return request("/community/games");
 }
 
-export async function getCommunityGame(gameId: string): Promise<CommunityGame> {
+export async function getExploreGame(gameId: string): Promise<CommunityGame> {
   return request(`/community/games/${encodeURIComponent(gameId)}`);
 }
 
@@ -331,6 +333,30 @@ export async function renameAsset(projectId: string, filePath: string, name: str
 
 export async function deleteAsset(projectId: string, filePath: string): Promise<void> {
   await request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+}
+
+export async function publishAsset(projectId: string, filePath: string, accessToken: string): Promise<PublishAssetResult> {
+  return request(`/projects/${projectId}/assets/publish?path=${encodeURIComponent(filePath)}`, {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  });
+}
+
+export async function listExploreAssets(): Promise<ExploreAsset[]> {
+  return request("/explore/assets");
+}
+
+export async function getExploreAssetContent(assetId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/explore/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function addExploreAssetToProject(projectId: string, assetId: string): Promise<{ path: string }> {
+  return request(`/projects/${projectId}/assets/import`, {
+    method: "POST",
+    body: JSON.stringify({ assetId }),
+  });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {

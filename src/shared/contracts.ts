@@ -1,4 +1,4 @@
-import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { CreatePublishAssetReleaseResult, PublishCommunityGame, PublishDeployment, PublishExploreAsset } from "./publish-v1.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -223,6 +223,18 @@ export interface PublishResult {
 
 export interface PublishProjectRequest {
   accessToken: string;
+}
+
+export type ExploreAsset = PublishExploreAsset;
+
+export interface PublishAssetRequest {
+  accessToken: string;
+}
+
+export type PublishAssetResult = CreatePublishAssetReleaseResult;
+
+export interface ImportAssetRequest {
+  assetId: string;
 }
 
 export type AgentMessagePhase = "commentary" | "final_answer";

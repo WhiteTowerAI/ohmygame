@@ -3,6 +3,8 @@ import type { WorkspaceFile } from "../shared/contracts.js";
 import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
 import { ModelPreview } from "./model-preview.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { publishAsset } from "./api.js";
+import { useAuth } from "./auth.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
 
@@ -103,8 +105,26 @@ export function AssetDetailDialog({ asset, onClose, onOpenProject, onRename, onD
   const onCloseRef = useRef(onClose);
   const menuOpenRef = useRef(menuOpen);
   const preview = useWorkspaceAssetUrl(asset.projectId, asset.path, asset.revision);
+  const auth = useAuth();
+  const [sharing, setSharing] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string>();
   onCloseRef.current = onClose;
   menuOpenRef.current = menuOpen;
+
+  async function share(): Promise<void> {
+    setShareNotice(undefined);
+    const accessToken = await auth.requestAccessToken();
+    if (!accessToken) return;
+    setSharing(true);
+    try {
+      await publishAsset(asset.projectId, asset.path, accessToken);
+      setShareNotice("Shared to Explore");
+    } catch (cause) {
+      setShareNotice(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSharing(false);
+    }
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -183,7 +203,11 @@ export function AssetDetailDialog({ asset, onClose, onOpenProject, onRename, onD
             {asset.projectName ? <div><dt>Project</dt><dd title={asset.projectName}>{asset.projectName}</dd></div> : null}
             <div className="library-dialog-path"><dt>Path</dt><dd title={asset.path}>{asset.path}</dd></div>
           </dl>
-          {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button> : null}
+          <div className="library-dialog-footer-actions">
+            {shareNotice ? <span role="status">{shareNotice}</span> : null}
+            {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button> : null}
+            <button className="is-primary" type="button" disabled={sharing} onClick={() => void share()}>{sharing ? <LoaderCircle className="spin" size={15} /> : null}{sharing ? "Sharing" : "Share"}</button>
+          </div>
         </footer>
       </section>
     </div>
@@ -254,12 +278,12 @@ export function fileStem(filePath: string): string {
   return extension ? name.slice(0, -extension.length) : name;
 }
 
-function mediaTypeLabel(mediaType: BrowsableAsset["mediaType"]): string {
+export function mediaTypeLabel(mediaType: BrowsableAsset["mediaType"]): string {
   if (mediaType === "model") return "3D model";
   return mediaType[0]?.toUpperCase() + mediaType.slice(1);
 }
 
-function fileSize(bytes: number): string {
+export function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

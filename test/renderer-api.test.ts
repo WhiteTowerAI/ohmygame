@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listExploreAssets, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -182,6 +182,27 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/project/publish", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ accessToken: "user-access-token" }),
+    }));
+  });
+
+  it("publishes, browses, and imports Assets through the daemon API", async () => {
+    installWindow();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ asset: {}, release: {} }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(Response.json({ path: "assets/imported/sprite.png" }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await publishAsset("project", "assets/sprite.png", "user-access-token");
+    await listExploreAssets();
+    await addExploreAssetToProject("project", "asset-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project/assets/publish?path=assets%2Fsprite.png", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/explore/assets", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project/assets/import", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ assetId: "asset-1" }),
     }));
   });
 

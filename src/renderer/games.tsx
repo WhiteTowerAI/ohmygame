@@ -1,11 +1,11 @@
 import { ArrowLeft, ExternalLink, Gamepad2, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
-import { getCommunityGame, listCommunityGames, waitForRuntime } from "./api.js";
-import type { AppNavigationTarget, SidebarPage } from "./routes.js";
+import { getExploreGame, listExploreGames, waitForRuntime } from "./api.js";
+import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
-export function Community({
+export function GamesPage({
   onNavigate,
   onOpenGame,
 }: {
@@ -21,8 +21,7 @@ export function Community({
     setError(undefined);
     try {
       await waitForRuntime();
-      const loaded = await listCommunityGames();
-      setGames(loaded);
+      setGames(await listExploreGames());
       setPhase("ready");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -33,7 +32,7 @@ export function Community({
   useEffect(() => { void load(); }, []);
 
   return (
-    <SidebarPageLayout active="community" onNavigate={onNavigate}>
+    <SidebarPageLayout active="games" onNavigate={onNavigate}>
       <SidebarPageHeader
         title="Games"
         actions={(
@@ -43,23 +42,23 @@ export function Community({
         )}
       />
 
-      <section className="community-content">
-        {phase === "loading" ? <div className="community-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
-        {phase === "error" ? <div className="community-state community-error"><X size={20} />{error}</div> : null}
-        {phase === "ready" && games.length === 0 ? <div className="community-state">No published games yet</div> : null}
+      <section className="explore-content">
+        {phase === "loading" ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
+        {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
+        {phase === "ready" && games.length === 0 ? <div className="explore-state">No published games yet</div> : null}
         {phase === "ready" && games.length > 0 ? (
           <div className="home-project-grid">
             {games.map((game, index) => (
-              <article className="community-game-card" key={game.id}>
-                <button className="community-game-card-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
-                  <span className={`community-game-card-preview project-card-preview-${index % 4} community-game-preview`} aria-hidden="true">
+              <article className="explore-game-card" key={game.id}>
+                <button className="explore-game-card-open" type="button" onClick={() => onOpenGame(game.id)} aria-label={`Play ${game.title}`}>
+                  <span className={`explore-game-card-preview project-card-preview-${index % 4} explore-game-preview`} aria-hidden="true">
                     <Gamepad2 size={28} />
                   </span>
-                  <span className="community-game-card-meta">
+                  <span className="explore-game-card-meta">
                     <span className="home-project-avatar" aria-hidden="true"><Gamepad2 size={14} /></span>
-                    <span className="community-game-card-copy">
-                      <span className="community-game-card-name" title={game.title}>{game.title}</span>
-                      <span className="community-game-card-time">{publishedTime(game.publishedAt)}</span>
+                    <span className="explore-game-card-copy">
+                      <span className="explore-game-card-name" title={game.title}>{game.title}</span>
+                      <span className="explore-game-card-time">{publishedTime(game.publishedAt)}</span>
                     </span>
                   </span>
                 </button>
@@ -72,7 +71,7 @@ export function Community({
   );
 }
 
-export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack: () => void }) {
+export function GamePlayer({ gameId, onBack }: { gameId: string; onBack: () => void }) {
   const [game, setGame] = useState<CommunityGame>();
   const [error, setError] = useState<string>();
 
@@ -81,7 +80,7 @@ export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack
     setError(undefined);
     try {
       await waitForRuntime();
-      setGame(await getCommunityGame(gameId));
+      setGame(await getExploreGame(gameId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -90,11 +89,11 @@ export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack
   useEffect(() => { void load(); }, [gameId]);
 
   return (
-    <main className="community-player-page">
-      <header className="community-player-header window-drag-handle">
-        <button className="community-player-back" type="button" onClick={onBack}>
+    <main className="game-player-page">
+      <header className="game-player-header window-drag-handle">
+        <button className="game-player-back" type="button" onClick={onBack}>
           <ArrowLeft size={15} />
-          Community
+          Games
         </button>
         <strong title={game?.title}>{game?.title ?? "Game"}</strong>
         <button
@@ -108,10 +107,10 @@ export function CommunityGamePlayer({ gameId, onBack }: { gameId: string; onBack
           <ExternalLink size={15} />
         </button>
       </header>
-      <section className="community-player-stage">
-        {!game && !error ? <div className="community-state"><LoaderCircle className="spin" size={20} />Loading game</div> : null}
+      <section className="game-player-stage">
+        {!game && !error ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading game</div> : null}
         {error ? (
-          <div className="community-state community-error">
+          <div className="explore-state explore-error">
             <X size={20} />
             <span>{error}</span>
             <button className="quiet-button" type="button" onClick={() => void load()}>Retry</button>

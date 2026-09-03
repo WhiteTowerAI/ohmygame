@@ -1,10 +1,28 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { sendPublishError } from "./http.js";
 
 export type PublisherTokenVerifier = (token: string) => Promise<string | undefined>;
 
 export function bearerToken(authorization: string | undefined): string | undefined {
   const match = /^Bearer ([^\s]+)$/.exec(authorization ?? "");
   return match?.[1];
+}
+
+export async function requirePublisher(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  verifyToken: PublisherTokenVerifier,
+  ensurePublisher: (publisherId: string, createdAt: string) => void,
+): Promise<string | undefined> {
+  const token = bearerToken(request.headers.authorization);
+  const publisherId = token ? await verifyToken(token) : undefined;
+  if (!publisherId) {
+    sendPublishError(reply, request, 401, "authentication_required", "Authentication required");
+    return undefined;
+  }
+  ensurePublisher(publisherId, new Date().toISOString());
+  return publisherId;
 }
 
 export function createSupabaseTokenVerifier(

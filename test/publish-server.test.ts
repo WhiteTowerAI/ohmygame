@@ -20,6 +20,59 @@ afterEach(async () => {
 });
 
 describe("public publish server", () => {
+  it("publishes immutable Assets and exposes only listed releases", async () => {
+    const app = await testApp();
+    expect((await app.inject({ method: "POST", url: "/v1/assets", payload: { title: "Sprite", mediaType: "image" } })).statusCode).toBe(401);
+    const created = await createAsset(app, "create-asset", { title: "  Forest sprite  ", mediaType: "image" });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ title: "Forest sprite", mediaType: "image", currentReleaseId: null });
+    const assetId = created.json().id;
+    expect((await app.inject({ method: "PUT", url: `/v1/assets/${assetId}/listing`, headers: authorization, payload: { status: "listed" } })).statusCode).toBe(409);
+
+    const first = await publishAsset(app, assetId, "first-release", Buffer.from("first image"), "forest.png", "image/png");
+    expect(first.statusCode).toBe(201);
+    expect((await app.inject({ method: "GET", url: "/v1/explore/assets" })).json()).toEqual([]);
+    expect((await app.inject({ method: "PUT", url: `/v1/assets/${assetId}/listing`, headers: authorization, payload: { status: "listed" } })).statusCode).toBe(200);
+    const publicAsset = (await app.inject({ method: "GET", url: `/v1/explore/assets/${assetId}` })).json();
+    expect(publicAsset).toMatchObject({ id: assetId, title: "Forest sprite", releaseId: first.json().release.id, fileName: "forest.png" });
+    expect(publicAsset).not.toHaveProperty("publisherId");
+    expect((await app.inject({ method: "GET", url: `/v1/explore/assets/${assetId}/releases/${first.json().release.id}/content` })).body).toBe("first image");
+
+    const second = await publishAsset(app, assetId, "second-release", Buffer.from("second image"), "forest.png", "image/png");
+    expect(second.json().release.id).not.toBe(first.json().release.id);
+    expect((await app.inject({ method: "GET", url: `/v1/explore/assets/${assetId}/releases/${second.json().release.id}/content` })).body).toBe("second image");
+    expect((await app.inject({ method: "GET", url: `/v1/explore/assets/${assetId}/releases/${first.json().release.id}/content` })).body).toBe("first image");
+    expect((await publishAsset(app, assetId, "second-release", Buffer.from("second image"), "forest.png", "image/png")).json()).toEqual(second.json());
+
+    await app.inject({ method: "PUT", url: `/v1/assets/${assetId}/listing`, headers: authorization, payload: { status: "unlisted" } });
+    expect((await app.inject({ method: "GET", url: `/v1/explore/assets/${assetId}` })).statusCode).toBe(404);
+  });
+
+  it("keeps published Asset files after restart", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-assets-"));
+    const first = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(first);
+    const asset = (await createAsset(first, "asset", { title: "Persistent", mediaType: "model" })).json();
+    const release = await publishAsset(first, asset.id, "release", Buffer.from("glb-data"), "model.glb", "model/gltf-binary");
+    await first.inject({ method: "PUT", url: `/v1/assets/${asset.id}/listing`, headers: authorization, payload: { status: "listed" } });
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const second = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(second);
+    await second.ready();
+    expect((await second.inject({ method: "GET", url: `/v1/explore/assets/${asset.id}/releases/${release.json().release.id}/content` })).body).toBe("glb-data");
+    expect(release.json().release.id).toBeTruthy();
+  });
+
+  it("rejects unsupported Asset release metadata", async () => {
+    const app = await testApp();
+    const asset = (await createAsset(app, "asset", { title: "Image", mediaType: "image" })).json();
+    const response = await publishAsset(app, asset.id, "bad-release", Buffer.from("video"), "video.mp4", "video/mp4");
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("artifact_invalid");
+  });
+
   it("authenticates creators and creates games idempotently as unlisted", async () => {
     const app = await testApp();
     expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
@@ -217,6 +270,36 @@ function createGame(app: FastifyInstance, key: string, payload: { title: string;
     url: "/v1/games",
     headers: { ...authorization, "idempotency-key": key },
     payload,
+  });
+}
+
+function createAsset(app: FastifyInstance, key: string, payload: { title: string; description?: string; mediaType: string }) {
+  return app.inject({ method: "POST", url: "/v1/assets", headers: { ...authorization, "idempotency-key": key }, payload });
+}
+
+async function publishAsset(
+  app: FastifyInstance,
+  assetId: string,
+  key: string,
+  contents: Buffer,
+  fileName: string,
+  contentType: string,
+) {
+  const metadata = {
+    artifactSha256: createHash("sha256").update(contents).digest("hex"),
+    artifactBytes: contents.length,
+    fileName,
+    contentType,
+  };
+  const form = new FormData();
+  form.set("metadata", JSON.stringify(metadata));
+  form.set("artifact", new Blob([new Uint8Array(contents)], { type: contentType }), fileName);
+  const request = new Request("http://localhost/upload", { method: "POST", body: form });
+  return app.inject({
+    method: "POST",
+    url: `/v1/assets/${assetId}/releases`,
+    headers: { ...Object.fromEntries(request.headers), ...authorization, "idempotency-key": key },
+    payload: Buffer.from(await request.arrayBuffer()),
   });
 }
 

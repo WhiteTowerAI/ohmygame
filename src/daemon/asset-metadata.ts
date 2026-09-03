@@ -8,6 +8,13 @@ interface AssetMetadata {
   version: 1;
   prompts: Record<string, string>;
   previews: Record<string, string>;
+  publications: Record<string, AssetPublication>;
+}
+
+export interface AssetPublication {
+  assetId: string;
+  releaseId: string;
+  publishedAt: string;
 }
 
 export async function readAssetMetadata(workspacePath: string): Promise<AssetMetadata> {
@@ -30,22 +37,35 @@ export async function writeAssetMetadata(
   await writeMetadata(workspacePath, metadata);
 }
 
+export async function writeAssetPublication(
+  workspacePath: string,
+  assetPath: string,
+  publication: AssetPublication,
+): Promise<void> {
+  const metadata = await readAssetMetadata(workspacePath);
+  metadata.publications[assetPath] = publication;
+  await writeMetadata(workspacePath, metadata);
+}
+
 export async function renameAssetMetadata(workspacePath: string, from: string, to: string): Promise<void> {
   const metadata = await readAssetMetadata(workspacePath);
-  if (!metadata.prompts[from] && !metadata.previews[from]) return;
+  if (!metadata.prompts[from] && !metadata.previews[from] && !metadata.publications[from]) return;
   if (metadata.prompts[from]) metadata.prompts[to] = metadata.prompts[from];
   if (metadata.previews[from]) metadata.previews[to] = metadata.previews[from];
+  if (metadata.publications[from]) metadata.publications[to] = metadata.publications[from];
   delete metadata.prompts[from];
   delete metadata.previews[from];
+  delete metadata.publications[from];
   await writeMetadata(workspacePath, metadata);
 }
 
 export async function deleteAssetMetadata(workspacePath: string, assetPath: string): Promise<string | undefined> {
   const metadata = await readAssetMetadata(workspacePath);
   const previewPath = metadata.previews[assetPath];
-  if (!metadata.prompts[assetPath] && !previewPath) return undefined;
+  if (!metadata.prompts[assetPath] && !previewPath && !metadata.publications[assetPath]) return undefined;
   delete metadata.prompts[assetPath];
   delete metadata.previews[assetPath];
+  delete metadata.publications[assetPath];
   await writeMetadata(workspacePath, metadata);
   return previewPath;
 }
@@ -70,18 +90,30 @@ async function writeMetadata(workspacePath: string, metadata: AssetMetadata): Pr
 }
 
 function emptyMetadata(): AssetMetadata {
-  return { version: 1, prompts: {}, previews: {} };
+  return { version: 1, prompts: {}, previews: {}, publications: {} };
 }
 
 function parseAssetMetadata(value: unknown): AssetMetadata | undefined {
   if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== 1) return undefined;
   const prompts = (value as { prompts?: unknown }).prompts;
   const previews = (value as { previews?: unknown }).previews;
+  const publications = (value as { publications?: unknown }).publications;
   if (prompts === null || typeof prompts !== "object" || !Object.entries(prompts).every(([assetPath, prompt]) => (
     Boolean(assetPath) && typeof prompt === "string" && Boolean(prompt.trim())
   ))) return undefined;
   if (previews !== undefined && (previews === null || typeof previews !== "object" || !Object.entries(previews).every(([assetPath, previewPath]) => (
       Boolean(assetPath) && typeof previewPath === "string" && /^\.data\/asset-previews\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.(png|jpg)$/.test(previewPath)
   )))) return undefined;
-  return { version: 1, prompts: prompts as Record<string, string>, previews: (previews ?? {}) as Record<string, string> };
+  if (publications !== undefined && (publications === null || typeof publications !== "object" || !Object.entries(publications).every(([assetPath, publication]) => (
+    Boolean(assetPath) && Boolean(publication) && typeof publication === "object" &&
+    typeof (publication as AssetPublication).assetId === "string" &&
+    typeof (publication as AssetPublication).releaseId === "string" &&
+    typeof (publication as AssetPublication).publishedAt === "string"
+  )))) return undefined;
+  return {
+    version: 1,
+    prompts: prompts as Record<string, string>,
+    previews: (previews ?? {}) as Record<string, string>,
+    publications: (publications ?? {}) as Record<string, AssetPublication>,
+  };
 }

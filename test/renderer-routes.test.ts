@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { communityGameHash, conversationHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { conversationHash, gameHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "plugins", "interactive-drama", "asset-studio", "community"] as const) {
+    for (const page of ["projects", "library", "plugins", "interactive-drama", "asset-studio", "games", "assets"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
     }
@@ -46,9 +46,9 @@ describe("renderer routes", () => {
     });
   });
 
-  it("parses and formats Community game routes", () => {
-    expect(parseAppRoute("#/community/games/game%201")).toEqual({ page: "community-game", gameId: "game 1" });
-    expect(communityGameHash("game 1")).toBe("#/community/games/game%201");
+  it("parses and formats game routes", () => {
+    expect(parseAppRoute("#/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
+    expect(gameHash("game 1")).toBe("#/games/game%201");
   });
 
   it("parses and formats playtest routes", () => {
@@ -67,8 +67,8 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/projects/one/interactive-drama/conversations/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/one/interactive-drama/more")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/%")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/community/games/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/community/games/%")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/games/")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/games/%")).toEqual({ page: "home" });
     expect(parseAppRoute("#/playtest/project/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/playtest/%/chapter")).toEqual({ page: "home" });
   });

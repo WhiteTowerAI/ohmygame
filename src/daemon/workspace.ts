@@ -72,13 +72,13 @@ export async function validateWorkspaceFile(workspacePath: string, requestedPath
 export async function getWorkspaceMedia(
   workspacePath: string,
   requestedPath: string,
-): Promise<{ absolutePath: string; relativePath: string; contentType: string; size: number }> {
+): Promise<{ absolutePath: string; relativePath: string; contentType: string; mediaType: NonNullable<WorkspaceFile["mediaType"]>; size: number }> {
   const { absolutePath, relativePath } = await resolveFile(workspacePath, requestedPath);
   const fileStat = await stat(absolutePath);
   if (!fileStat.isFile()) throw new WorkspaceError("Path is not a file");
-  const media = mediaInfo(requestedPath);
+  const media = workspaceMediaInfo(requestedPath);
   if (!media) throw new WorkspaceError("File is not a supported media asset");
-  return { absolutePath, relativePath, contentType: media.contentType, size: fileStat.size };
+  return { absolutePath, relativePath, contentType: media.contentType, mediaType: media.mediaType, size: fileStat.size };
 }
 
 async function visit(root: string, relativeDirectory: string, files: WorkspaceFile[]): Promise<void> {
@@ -92,7 +92,7 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
       continue;
     }
     if (!entry.isFile()) continue;
-    const media = mediaInfo(entry.name);
+    const media = workspaceMediaInfo(entry.name);
     files.push({
       path: relativePath,
       size: (await stat(path.join(directory, entry.name))).size,
@@ -101,7 +101,7 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
   }
 }
 
-function mediaInfo(filePath: string): (typeof MEDIA_TYPES)[string] | undefined {
+export function workspaceMediaInfo(filePath: string): (typeof MEDIA_TYPES)[string] | undefined {
   return MEDIA_TYPES[path.extname(filePath).toLowerCase()];
 }
 

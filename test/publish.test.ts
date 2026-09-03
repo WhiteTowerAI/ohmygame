@@ -12,6 +12,66 @@ const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("remote publish", () => {
+  it("shares a project Asset, browses it, and imports it into an existing project", async () => {
+    const runtime = await testRuntime();
+    const source = await createProject(runtime.daemon, "Source");
+    const target = await createProject(runtime.daemon, "Target");
+    await writeFile(path.join(source.workspacePath, "sprite.png"), "image-one");
+
+    const shared = await publishAsset(runtime.daemon, source.id, "sprite.png");
+    expect(shared.statusCode).toBe(201);
+    const first = shared.json();
+    const explored = await runtime.daemon.inject({ method: "GET", url: "/explore/assets" });
+    expect(explored.json()).toMatchObject([{ id: first.asset.id, title: "sprite", mediaType: "image" }]);
+
+    await writeFile(path.join(source.workspacePath, "sprite.png"), "image-two");
+    const updated = (await publishAsset(runtime.daemon, source.id, "sprite.png")).json();
+    expect(updated.asset.id).toBe(first.asset.id);
+    expect(updated.release.id).not.toBe(first.release.id);
+
+    const renamed = await runtime.daemon.inject({
+      method: "PATCH",
+      url: `/projects/${source.id}/assets?path=sprite.png`,
+      payload: { name: "hero" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    const republished = await publishAsset(runtime.daemon, source.id, "hero.png");
+    expect(republished.statusCode).toBe(201);
+    expect(republished.json().asset.id).toBe(first.asset.id);
+    expect(republished.json().release.fileName).toBe("hero.png");
+
+    const imported = await runtime.daemon.inject({ method: "POST", url: `/projects/${target.id}/assets/import`, payload: { assetId: first.asset.id } });
+    expect(imported.statusCode).toBe(201);
+    expect(imported.json().path).toBe("assets/imported/hero.png");
+    expect(await readFile(path.join(target.workspacePath, imported.json().path), "utf8")).toBe("image-two");
+    const duplicate = await runtime.daemon.inject({ method: "POST", url: `/projects/${target.id}/assets/import`, payload: { assetId: first.asset.id } });
+    expect(duplicate.json().path).toBe("assets/imported/hero-2.png");
+
+    const metadata = JSON.parse(await readFile(path.join(source.workspacePath, ".data", "assets.json"), "utf8"));
+    expect(metadata.publications["hero.png"]).toMatchObject({ assetId: first.asset.id, releaseId: republished.json().release.id });
+    expect(JSON.stringify(metadata)).not.toContain(token);
+  });
+
+  it("rejects a downloaded Asset whose contents fail integrity verification", async () => {
+    const asset = {
+      id: "asset-1", title: "Asset", description: "", mediaType: "image", releaseId: "release-1",
+      artifactSha256: "0".repeat(64), artifactBytes: 4, fileName: "asset.png", contentType: "image/png",
+      publishedAt: new Date(0).toISOString(),
+    };
+    const daemon = createApp({
+      dataDirectory: await temporary("open-game-daemon-"),
+      publishApiUrl: "https://publish.example",
+      publishFetch: async (input) => String(input).endsWith("/content")
+        ? new Response("fake", { headers: { "content-type": "image/png" } })
+        : Response.json(asset),
+    });
+    apps.push(daemon);
+    const project = await createProject(daemon, "Target");
+    const response = await daemon.inject({ method: "POST", url: `/projects/${project.id}/assets/import`, payload: { assetId: asset.id } });
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({ error: "Downloaded asset failed integrity verification" });
+  });
+
   it("requires a user access token for each publish", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);
@@ -342,6 +402,14 @@ function publishProject(app: FastifyInstance, projectId: string) {
   return app.inject({
     method: "POST",
     url: `/projects/${projectId}/publish`,
+    payload: { accessToken: token },
+  });
+}
+
+function publishAsset(app: FastifyInstance, projectId: string, assetPath: string) {
+  return app.inject({
+    method: "POST",
+    url: `/projects/${projectId}/assets/publish?path=${encodeURIComponent(assetPath)}`,
     payload: { accessToken: token },
   });
 }

@@ -25,8 +25,8 @@ const WHATS_NEW = [
   { title: "Playable Canvas is here", image: playableCanvas, page: "home" as SidebarPage },
   { title: "Cozy Town Starter Kit", image: cozyTown, page: "library" as SidebarPage },
   { title: "Dialogue Director", image: dialogueDirector, page: "interactive-drama" as SidebarPage },
-  { title: "Creator Week rewards", image: creatorWeek, page: "community" as SidebarPage },
-  { title: "Neon Drift", image: neonDrift, page: "community" as SidebarPage },
+  { title: "Creator Week rewards", image: creatorWeek, page: "games" as SidebarPage },
+  { title: "Neon Drift", image: neonDrift, page: "games" as SidebarPage },
 ];
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {

@@ -1,13 +1,15 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ImportAssetRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
-import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -39,7 +41,7 @@ import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
-import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -146,6 +148,20 @@ const publishProjectSchema = {
     additionalProperties: false,
     required: ["accessToken"],
     properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+  },
+} as const;
+
+const publishAssetSchema = {
+  querystring: assetPathQuerySchema,
+  body: publishProjectSchema.body,
+} as const;
+
+const importAssetSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["assetId"],
+    properties: { assetId: { type: "string", minLength: 1, maxLength: 200 } },
   },
 } as const;
 
@@ -893,6 +909,30 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/explore/assets", async (_request, reply) => {
+    try {
+      return await publisher.exploreAssets();
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
+
+  app.get<{ Params: { assetId: string } }>("/explore/assets/:assetId/content", async (request, reply) => {
+    try {
+      const asset = await publisher.exploreAsset(request.params.assetId);
+      const contents = await publisher.assetContent(asset.id, asset.releaseId);
+      return reply.type(asset.contentType)
+        .header("content-length", contents.length)
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
+        .send(contents);
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });
@@ -947,6 +987,71 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Querystring: { path: string }; Body: PublishAssetRequest }>(
+    "/projects/:projectId/assets/publish",
+    { schema: publishAssetSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const media = await getWorkspaceMedia(project.workspacePath, request.query.path);
+        if (media.size > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
+        const publication = await projects.assetPublication(project.id, media.relativePath);
+        const prompt = await projects.generatedAssetPrompt(project.id, media.relativePath);
+        const result = await publisher.publishAsset({
+          projectId: project.id,
+          path: media.relativePath,
+          title: (prompt?.trim() || path.parse(media.relativePath).name).slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
+          mediaType: media.mediaType,
+          fileName: path.basename(media.relativePath),
+          contentType: media.contentType,
+          contents: await readFile(media.absolutePath),
+          ...(publication ? { assetId: publication.assetId } : {}),
+        }, request.body.accessToken);
+        await projects.setAssetPublication(project.id, media.relativePath, {
+          assetId: result.asset.id,
+          releaseId: result.release.id,
+          publishedAt: result.release.publishedAt,
+        });
+        return reply.code(201).send(result);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof WorkspaceError ? 400
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: ImportAssetRequest }>(
+    "/projects/:projectId/assets/import",
+    { schema: importAssetSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const asset = await publisher.exploreAsset(request.body.assetId);
+        const media = workspaceMediaInfo(asset.fileName);
+        if (!media || media.mediaType !== asset.mediaType || media.contentType !== asset.contentType) {
+          return reply.code(502).send({ error: "Remote asset metadata is invalid" });
+        }
+        const contents = await publisher.assetContent(asset.id, asset.releaseId);
+        const sha256 = createHash("sha256").update(contents).digest("hex");
+        if (contents.length !== asset.artifactBytes || sha256 !== asset.artifactSha256) {
+          return reply.code(502).send({ error: "Downloaded asset failed integrity verification" });
+        }
+        return reply.code(201).send({ path: await projects.importAsset(project.id, asset.fileName, contents) });
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof ProjectAssetError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
       }
     },
   );

@@ -1,4 +1,5 @@
 export const PUBLISH_GAME_TITLE_MAX_LENGTH = 200;
+export const PUBLISH_ASSET_TITLE_MAX_LENGTH = 200;
 export const PUBLISH_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
 
 export type PublishListingStatus = "listed" | "unlisted";
@@ -58,6 +59,68 @@ export interface SetPublishListingRequest {
 export interface CreatePublishDeploymentResult {
   deployment: PublishDeployment;
   game: PublishGame;
+}
+
+export type PublishAssetMediaType = "image" | "video" | "audio" | "model";
+
+export interface PublishAsset {
+  id: string;
+  publisherId: string;
+  title: string;
+  description: string;
+  mediaType: PublishAssetMediaType;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublishAssetRelease {
+  id: string;
+  assetId: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  fileName: string;
+  contentType: string;
+  publishedAt: string;
+}
+
+export interface PublishExploreAsset {
+  id: string;
+  title: string;
+  description: string;
+  mediaType: PublishAssetMediaType;
+  releaseId: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  fileName: string;
+  contentType: string;
+  publishedAt: string;
+}
+
+export type PublishAssetListing = {
+  assetId: string;
+  updatedAt: string;
+} & (
+  | { status: "listed"; listedAt: string }
+  | { status: "unlisted"; listedAt: null }
+);
+
+export interface CreatePublishAssetRequest {
+  title: string;
+  description?: string;
+  mediaType: PublishAssetMediaType;
+}
+
+export interface CreatePublishAssetReleaseMetadata {
+  artifactSha256: string;
+  artifactBytes: number;
+  fileName: string;
+  contentType: string;
+}
+
+export interface CreatePublishAssetReleaseResult {
+  asset: PublishAsset;
+  release: PublishAssetRelease;
 }
 
 export type PublishErrorCode =

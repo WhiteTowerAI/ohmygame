@@ -72,7 +72,7 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
         </div>
         {!configured && !error ? <p className="sign-in-error" role="alert">Supabase Auth is not configured.</p> : null}
         {error ? <p className="sign-in-error" role="alert">{error}</p> : null}
-        <p className="sign-in-note">Coding and Community browsing remain available without signing in.</p>
+        <p className="sign-in-note">Coding and Explore browsing remain available without signing in.</p>
       </section>
     </div>
   );

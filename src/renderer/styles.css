@@ -1438,6 +1438,7 @@ body {
 .home-nav-icon-asset-studio { mask-image: url("./assets/sidebar/asset-studio.svg"); -webkit-mask-image: url("./assets/sidebar/asset-studio.svg"); }
 .home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/interactive-drama.svg"); }
 .home-nav-icon-games { mask-image: url("./assets/sidebar/games.svg"); -webkit-mask-image: url("./assets/sidebar/games.svg"); }
+.home-nav-icon-assets { mask-image: url("./assets/sidebar/assets.svg"); -webkit-mask-image: url("./assets/sidebar/assets.svg"); }
 
 .home-nav-item-active .home-nav-icon-home { mask-image: url("./assets/sidebar/fill/home.svg"); -webkit-mask-image: url("./assets/sidebar/fill/home.svg"); }
 .home-nav-item-active .home-nav-icon-project { mask-image: url("./assets/sidebar/fill/project.svg"); -webkit-mask-image: url("./assets/sidebar/fill/project.svg"); }
@@ -1446,6 +1447,7 @@ body {
 .home-nav-item-active .home-nav-icon-asset-studio { mask-image: url("./assets/sidebar/fill/asset-studio.svg"); -webkit-mask-image: url("./assets/sidebar/fill/asset-studio.svg"); }
 .home-nav-item-active .home-nav-icon-interactive-drama { mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); -webkit-mask-image: url("./assets/sidebar/fill/interactive-drama.svg"); }
 .home-nav-item-active .home-nav-icon-games { mask-image: url("./assets/sidebar/fill/games.svg"); -webkit-mask-image: url("./assets/sidebar/fill/games.svg"); }
+.home-nav-item-active .home-nav-icon-assets { mask-image: url("./assets/sidebar/fill/assets.svg"); -webkit-mask-image: url("./assets/sidebar/fill/assets.svg"); }
 
 .home-nav-item-active .home-nav-icon {
   background: var(--home-accent);
@@ -1967,7 +1969,7 @@ button.home-nav-item-active:hover {
 }
 
 .project-card,
-.community-game-card {
+.explore-game-card {
   position: relative;
   display: block;
   min-width: 0;
@@ -1981,7 +1983,7 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-open,
-.community-game-card-open {
+.explore-game-card-open {
   display: block;
   width: 100%;
   padding: 0;
@@ -1994,12 +1996,12 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-open:hover,
-.community-game-card-open:hover {
+.explore-game-card-open:hover {
   opacity: 0.88;
 }
 
 .project-card-preview,
-.community-game-card-preview {
+.explore-game-card-preview {
   display: block;
   width: 100%;
   aspect-ratio: 252 / 142;
@@ -2008,7 +2010,7 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-preview img,
-.community-game-card-preview img {
+.explore-game-card-preview img {
   display: block;
   width: 100%;
   height: 100%;
@@ -2021,7 +2023,7 @@ button.home-nav-item-active:hover {
 .project-card-preview-3 { background: linear-gradient(180deg, #29243e, #5f507d); }
 
 .project-card-meta,
-.community-game-card-meta {
+.explore-game-card-meta {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -2034,7 +2036,7 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-copy,
-.community-game-card-copy {
+.explore-game-card-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -2108,7 +2110,7 @@ button.home-nav-item-active:hover {
 .project-card-actions-menu .project-card-actions-delete:is(:hover, :focus-visible) { color: #ff938c; }
 
 .project-card-name,
-.community-game-card-name {
+.explore-game-card-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2148,7 +2150,7 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-time,
-.community-game-card-time {
+.explore-game-card-time {
   color: var(--text-muted);
   font-size: 11px;
 }
@@ -2411,8 +2413,14 @@ button.home-nav-item-active:hover {
 .library-dialog-footer dl > div { display: grid; min-width: 0; gap: 3px; }
 .library-dialog-footer dt { color: var(--text-faint); font-size: 9px; text-transform: uppercase; }
 .library-dialog-footer dd { margin: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.library-dialog-footer > button { display: inline-flex; height: 34px; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
-.library-dialog-footer > button:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.library-dialog-footer-actions { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.library-dialog-footer-actions > span { max-width: 180px; overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.library-dialog-footer-actions > button { display: inline-flex; height: 34px; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.library-dialog-footer-actions > button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-hover); }
+.library-dialog-footer-actions > button.is-primary { border-color: transparent; background: var(--theme-accent); color: var(--accent-ink); }
+.library-dialog-footer-actions > button.is-primary:hover:not(:disabled) { border-color: transparent; background: var(--theme-accent-hover); }
+.library-dialog-footer-actions > button:disabled { cursor: default; opacity: 0.65; }
+.library-dialog-footer-actions > .asset-project-picker { top: auto; right: 0; bottom: 42px; left: auto; width: 286px; }
 
 .plugin-detail-primary {
   display: inline-flex;
@@ -7319,17 +7327,17 @@ button {
   opacity: 0.42;
 }
 
-.community-content {
+.explore-content {
   padding: 28px 0 6px;
 }
 
-.community-game-preview {
+.explore-game-preview {
   display: grid;
   place-items: center;
   color: var(--accent);
 }
 
-.community-state {
+.explore-state {
   display: flex;
   min-height: 220px;
   align-items: center;
@@ -7339,9 +7347,9 @@ button {
   font-size: 12px;
 }
 
-.community-error { color: var(--danger); }
+.explore-error { color: var(--danger); }
 
-.community-player-page {
+.game-player-page {
   display: flex;
   width: 100%;
   height: 100dvh;
@@ -7351,7 +7359,7 @@ button {
   background: var(--canvas);
 }
 
-.community-player-header {
+.game-player-header {
   display: grid;
   grid-template-columns: minmax(112px, 1fr) minmax(0, 2fr) minmax(112px, 1fr);
   flex: 0 0 50px;
@@ -7363,18 +7371,18 @@ button {
   font-size: 12px;
 }
 
-.community-player-header > strong {
+.game-player-header > strong {
   overflow: hidden;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.community-player-header > .icon-button {
+.game-player-header > .icon-button {
   justify-self: end;
 }
 
-.community-player-back {
+.game-player-back {
   display: inline-flex;
   width: max-content;
   align-items: center;
@@ -7388,22 +7396,22 @@ button {
   font: inherit;
 }
 
-.community-player-back:hover {
+.game-player-back:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-.desktop-macos .community-player-header {
+.desktop-macos .game-player-header {
   padding-left: 88px;
 }
 
-.community-player-stage {
+.game-player-stage {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.community-player-stage iframe {
+.game-player-stage iframe {
   flex: 1;
   width: 100%;
   min-height: 0;
@@ -7830,7 +7838,7 @@ button {
 @media (max-width: 720px) {
   body { overflow: auto; }
 
-  .community-player-header {
+  .game-player-header {
     grid-template-columns: minmax(96px, 1fr) minmax(0, 1fr) 32px;
   }
 
@@ -7978,7 +7986,9 @@ button {
   .library-dialog-footer { align-items: stretch; flex-direction: column; gap: 12px; }
   .library-dialog-footer dl { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
   .library-dialog-path { grid-column: 1 / -1; }
-  .library-dialog-footer > button { justify-content: center; }
+  .library-dialog-footer-actions { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+  .library-dialog-footer-actions > span { max-width: none; flex: 1 0 100%; text-align: right; }
+  .library-dialog-footer-actions > .asset-project-picker { position: fixed; top: auto; right: 16px; bottom: 72px; left: auto; width: min(286px, calc(100vw - 32px)); }
 
   .workspace-shell {
     grid-template-columns: 1fr;

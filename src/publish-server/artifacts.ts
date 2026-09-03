@@ -14,6 +14,14 @@ export interface ArtifactLimits {
   files: number;
 }
 
+export interface ArchiveRequirements {
+  requiredFiles?: readonly string[];
+}
+
+export interface ArtifactFileOptions {
+  defaultDocument?: string;
+}
+
 export const DEFAULT_ARTIFACT_LIMITS: ArtifactLimits = {
   compressedBytes: PUBLISH_ARTIFACT_MAX_BYTES,
   expandedBytes: 100 * 1024 * 1024,
@@ -39,18 +47,18 @@ export class ArtifactStore {
     this.#temporaryDirectory = path.join(dataDirectory, "temporary");
   }
 
-  async load(deploymentIds: ReadonlySet<string>): Promise<void> {
+  async load(artifactIds: ReadonlySet<string>): Promise<void> {
     await mkdir(this.#artifactsDirectory, { recursive: true });
     for (const entry of await readdir(this.#artifactsDirectory, { withFileTypes: true })) {
-      if (!entry.isDirectory() || deploymentIds.has(entry.name)) continue;
+      if (!entry.isDirectory() || artifactIds.has(entry.name)) continue;
       await rm(path.join(this.#artifactsDirectory, entry.name), { recursive: true, force: true });
     }
     await rm(this.#temporaryDirectory, { recursive: true, force: true });
     await mkdir(this.#temporaryDirectory, { recursive: true });
   }
 
-  temporaryZip(id: string): string {
-    return path.join(this.#temporaryDirectory, `${id}.zip`);
+  temporaryFile(id: string, extension: string): string {
+    return path.join(this.#temporaryDirectory, `${id}${extension}`);
   }
 
   async receive(stream: Readable, destination: string): Promise<{ sha256: string; bytes: number }> {
@@ -71,16 +79,17 @@ export class ArtifactStore {
     return { sha256: hash.digest("hex"), bytes };
   }
 
-  async install(zipPath: string, deploymentId: string): Promise<void> {
-    const temporary = path.join(this.#temporaryDirectory, deploymentId);
-    const destination = path.join(this.#artifactsDirectory, deploymentId);
+  async installArchive(archivePath: string, artifactId: string, requirements: ArchiveRequirements = {}): Promise<void> {
+    const temporary = path.join(this.#temporaryDirectory, artifactId);
+    const destination = path.join(this.#artifactsDirectory, artifactId);
     await mkdir(temporary, { recursive: false });
     try {
-      await extractZip(zipPath, temporary, this.limits);
-      const index = path.join(temporary, "index.html");
-      const indexStat = await stat(index).catch(() => undefined);
-      if (!indexStat?.isFile() || indexStat.size === 0) {
-        throw new ArtifactError("Artifact root must contain a non-empty index.html");
+      await extractZip(archivePath, temporary, this.limits);
+      for (const requiredFile of requirements.requiredFiles ?? []) {
+        const required = await stat(path.join(temporary, requiredFile)).catch(() => undefined);
+        if (!required?.isFile() || required.size === 0) {
+          throw new ArtifactError(`Artifact must contain a non-empty ${requiredFile}`);
+        }
       }
       await rename(temporary, destination);
     } catch (error) {
@@ -88,31 +97,49 @@ export class ArtifactStore {
       if (error instanceof ArtifactError) throw error;
       throw new ArtifactError("Artifact is not a valid ZIP archive");
     } finally {
-      await rm(zipPath, { force: true });
+      await rm(archivePath, { force: true });
     }
   }
 
-  async remove(deploymentId: string): Promise<void> {
-    await rm(path.join(this.#artifactsDirectory, deploymentId), { recursive: true, force: true });
+  async installFile(sourcePath: string, artifactId: string, fileName: string): Promise<void> {
+    if (path.basename(fileName) !== fileName || !fileName || fileName.startsWith(".")) {
+      throw new ArtifactError("Artifact file name is invalid");
+    }
+    const temporary = path.join(this.#temporaryDirectory, artifactId);
+    const destination = path.join(this.#artifactsDirectory, artifactId);
+    await mkdir(temporary, { recursive: false });
+    try {
+      await rename(sourcePath, path.join(temporary, fileName));
+      await rename(temporary, destination);
+    } catch (error) {
+      await rm(temporary, { recursive: true, force: true });
+      throw error;
+    } finally {
+      await rm(sourcePath, { force: true });
+    }
   }
 
-  async file(deploymentId: string, requestPath: string): Promise<string | undefined> {
+  async remove(artifactId: string): Promise<void> {
+    await rm(path.join(this.#artifactsDirectory, artifactId), { recursive: true, force: true });
+  }
+
+  async file(artifactId: string, requestPath: string, options: ArtifactFileOptions = {}): Promise<string | undefined> {
     const relative = safeRequestPath(requestPath);
     if (relative === undefined) return undefined;
-    const root = path.join(this.#artifactsDirectory, deploymentId);
-    const candidate = path.join(root, relative || "index.html");
+    const root = path.join(this.#artifactsDirectory, artifactId);
+    const candidate = path.join(root, relative || options.defaultDocument || "");
     const info = await stat(candidate).catch(() => undefined);
     if (info?.isFile()) return candidate;
-    if (info?.isDirectory()) {
-      const index = path.join(candidate, "index.html");
+    if (info?.isDirectory() && options.defaultDocument) {
+      const index = path.join(candidate, options.defaultDocument);
       if ((await stat(index).catch(() => undefined))?.isFile()) return index;
     }
     return undefined;
   }
 
-  async exists(deploymentId: string): Promise<boolean> {
+  async exists(artifactId: string, requiredFile: string): Promise<boolean> {
     try {
-      await access(path.join(this.#artifactsDirectory, deploymentId, "index.html"));
+      await access(path.join(this.#artifactsDirectory, artifactId, requiredFile));
       return true;
     } catch {
       return false;

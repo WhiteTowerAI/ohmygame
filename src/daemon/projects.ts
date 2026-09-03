@@ -3,7 +3,7 @@ import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writ
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
+import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 import { getWorkspaceMedia } from "./workspace.js";
 
@@ -228,6 +228,45 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
+  }
+
+  async assetPublication(id: string, assetPath: string): Promise<AssetPublication | undefined> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return (await readAssetMetadata(project.workspacePath)).publications[assetPath];
+  }
+
+  async setAssetPublication(id: string, assetPath: string, publication: AssetPublication): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await getWorkspaceMedia(project.workspacePath, assetPath);
+    await this.#writeAssetMetadata(id, () => writeAssetPublication(project.workspacePath, assetPath, publication));
+  }
+
+  async importAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/.test(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
+    const assetsDirectory = path.join(project.workspacePath, "assets");
+    const importedDirectory = path.join(assetsDirectory, "imported");
+    await ensureDirectory(project.workspacePath);
+    await ensureDirectory(assetsDirectory, true);
+    await ensureDirectory(importedDirectory, true);
+    const parsed = path.parse(fileName);
+    let candidate = fileName;
+    for (let suffix = 2; await exists(path.join(importedDirectory, candidate)); suffix += 1) {
+      candidate = `${parsed.name}-${suffix}${parsed.ext}`;
+    }
+    const destination = path.join(importedDirectory, candidate);
+    const temporary = path.join(importedDirectory, `.${candidate}.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, contents, { flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    await this.touch(id);
+    return path.posix.join("assets", "imported", candidate);
   }
 
   async renameAsset(id: string, assetPath: string, name: string): Promise<string> {

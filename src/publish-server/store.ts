@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { PublishCommunityListing } from "../shared/publish-v1.js";
+import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing } from "../shared/publish-v1.js";
+import { nextListingState, type ListingState } from "./listings.js";
 
 export interface StoredGame {
   id: string;
@@ -26,6 +27,33 @@ export interface StoredCommunityGame {
   description: string;
   deploymentId: string;
   publishedAt: string;
+}
+
+export interface StoredAsset {
+  id: string;
+  publisherId: string;
+  title: string;
+  description: string;
+  mediaType: PublishAssetMediaType;
+  currentReleaseId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredAssetRelease {
+  id: string;
+  assetId: string;
+  artifactSha256: string;
+  artifactBytes: number;
+  fileName: string;
+  contentType: string;
+  publishedAt: string;
+}
+
+export interface StoredExploreAsset extends StoredAssetRelease {
+  title: string;
+  description: string;
+  mediaType: PublishAssetMediaType;
 }
 
 export type IdempotencyReservation =
@@ -148,15 +176,15 @@ export class PublishStore {
   ): PublishCommunityListing | "not_ready" | undefined {
     const game = this.game(publisherId, gameId);
     if (!game) return undefined;
-    if (status === "listed" && !game.currentDeploymentId) return "not_ready";
     const current = this.listing(publisherId, gameId)!;
-    const listedAt = status === "listed" ? current.listedAt ?? updatedAt : null;
+    const next = nextListingState(current, status, Boolean(game.currentDeploymentId), updatedAt);
+    if (next === "not_ready") return next;
     this.#database.prepare(`
       UPDATE community_listings SET status = ?, listed_at = ?, updated_at = ? WHERE game_id = ?
-    `).run(status, listedAt, updatedAt, gameId);
-    return status === "listed"
-      ? { gameId, status, listedAt: listedAt!, updatedAt }
-      : { gameId, status, listedAt: null, updatedAt };
+    `).run(next.status, next.listedAt, next.updatedAt, gameId);
+    return next.status === "listed"
+      ? { gameId, status: next.status, listedAt: next.listedAt!, updatedAt: next.updatedAt }
+      : { gameId, status: next.status, listedAt: null, updatedAt: next.updatedAt };
   }
 
   activateDeployment(
@@ -226,6 +254,110 @@ export class PublishStore {
     return row ? communityGameFrom(row) : undefined;
   }
 
+  createAsset(
+    asset: StoredAsset,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): StoredAsset {
+    this.#transaction(() => {
+      this.#database.prepare(`
+        INSERT INTO assets
+          (id, publisher_id, title, description, media_type, current_release_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      `).run(asset.id, asset.publisherId, asset.title, asset.description, asset.mediaType, asset.createdAt, asset.updatedAt);
+      this.#database.prepare(`
+        INSERT INTO asset_listings (asset_id, status, listed_at, updated_at)
+        VALUES (?, 'unlisted', NULL, ?)
+      `).run(asset.id, asset.createdAt);
+      this.#completeIdempotency(asset.publisherId, idempotency);
+    });
+    return asset;
+  }
+
+  asset(publisherId: string, assetId: string): StoredAsset | undefined {
+    return assetFrom(this.#database.prepare(`
+      SELECT * FROM assets WHERE id = ? AND publisher_id = ?
+    `).get(assetId, publisherId) as Row | undefined);
+  }
+
+  activateAssetRelease(
+    publisherId: string,
+    release: StoredAssetRelease,
+    idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
+  ): { asset: StoredAsset; release: StoredAssetRelease } {
+    let result!: { asset: StoredAsset; release: StoredAssetRelease };
+    this.#transaction(() => {
+      if (!this.asset(publisherId, release.assetId)) throw new Error("Asset not found");
+      this.#database.prepare(`
+        INSERT INTO asset_releases
+          (id, asset_id, artifact_sha256, artifact_bytes, file_name, content_type, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(release.id, release.assetId, release.artifactSha256, release.artifactBytes, release.fileName, release.contentType, release.publishedAt);
+      this.#database.prepare(`
+        UPDATE assets SET current_release_id = ?, updated_at = ? WHERE id = ?
+      `).run(release.id, release.publishedAt, release.assetId);
+      this.#completeIdempotency(publisherId, idempotency);
+      result = { asset: this.asset(publisherId, release.assetId)!, release };
+    });
+    return result;
+  }
+
+  setAssetListing(
+    publisherId: string,
+    assetId: string,
+    status: "listed" | "unlisted",
+    updatedAt: string,
+  ): PublishAssetListing | "not_ready" | undefined {
+    const asset = this.asset(publisherId, assetId);
+    if (!asset) return undefined;
+    const row = this.#database.prepare("SELECT * FROM asset_listings WHERE asset_id = ?").get(assetId) as Row;
+    const current: ListingState = {
+      status: row.status === "listed" ? "listed" : "unlisted",
+      listedAt: row.listed_at === null ? null : String(row.listed_at),
+      updatedAt: String(row.updated_at),
+    };
+    const next = nextListingState(current, status, Boolean(asset.currentReleaseId), updatedAt);
+    if (next === "not_ready") return next;
+    this.#database.prepare(`
+      UPDATE asset_listings SET status = ?, listed_at = ?, updated_at = ? WHERE asset_id = ?
+    `).run(next.status, next.listedAt, next.updatedAt, assetId);
+    return next.status === "listed"
+      ? { assetId, status: "listed", listedAt: next.listedAt!, updatedAt: next.updatedAt }
+      : { assetId, status: "unlisted", listedAt: null, updatedAt: next.updatedAt };
+  }
+
+  assetReleaseIds(): Set<string> {
+    return new Set((this.#database.prepare("SELECT id FROM asset_releases").all() as Row[]).map((row) => String(row.id)));
+  }
+
+  exploreAssets(): StoredExploreAsset[] {
+    return (this.#database.prepare(`
+      SELECT a.title, a.description, a.media_type, r.*
+      FROM assets a
+      JOIN asset_listings l ON l.asset_id = a.id AND l.status = 'listed'
+      JOIN asset_releases r ON r.id = a.current_release_id
+      ORDER BY r.published_at DESC, a.id DESC
+    `).all() as Row[]).map(exploreAssetFrom);
+  }
+
+  exploreAsset(assetId: string): StoredExploreAsset | undefined {
+    const row = this.#database.prepare(`
+      SELECT a.title, a.description, a.media_type, r.*
+      FROM assets a
+      JOIN asset_listings l ON l.asset_id = a.id AND l.status = 'listed'
+      JOIN asset_releases r ON r.id = a.current_release_id
+      WHERE a.id = ?
+    `).get(assetId) as Row | undefined;
+    return row ? exploreAssetFrom(row) : undefined;
+  }
+
+  exploreAssetRelease(assetId: string, releaseId: string): StoredAssetRelease | undefined {
+    return assetReleaseFrom(this.#database.prepare(`
+      SELECT r.* FROM asset_releases r
+      JOIN asset_listings l ON l.asset_id = r.asset_id AND l.status = 'listed'
+      WHERE r.asset_id = ? AND r.id = ?
+    `).get(assetId, releaseId) as Row | undefined);
+  }
+
   #completeIdempotency(
     publisherId: string,
     value: { method: string; route: string; key: string; statusCode: number; body: unknown },
@@ -280,6 +412,42 @@ function listingFrom(row: Row | undefined): PublishCommunityListing | undefined 
     : { ...base, status: "unlisted", listedAt: null };
 }
 
+function assetFrom(row: Row | undefined): StoredAsset | undefined {
+  if (!row) return undefined;
+  return {
+    id: String(row.id),
+    publisherId: String(row.publisher_id),
+    title: String(row.title),
+    description: String(row.description),
+    mediaType: String(row.media_type) as PublishAssetMediaType,
+    currentReleaseId: row.current_release_id === null ? null : String(row.current_release_id),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function assetReleaseFrom(row: Row | undefined): StoredAssetRelease | undefined {
+  if (!row) return undefined;
+  return {
+    id: String(row.id),
+    assetId: String(row.asset_id),
+    artifactSha256: String(row.artifact_sha256),
+    artifactBytes: Number(row.artifact_bytes),
+    fileName: String(row.file_name),
+    contentType: String(row.content_type),
+    publishedAt: String(row.published_at),
+  };
+}
+
+function exploreAssetFrom(row: Row): StoredExploreAsset {
+  return {
+    ...assetReleaseFrom(row)!,
+    title: String(row.title),
+    description: String(row.description),
+    mediaType: String(row.media_type) as PublishAssetMediaType,
+  };
+}
+
 function communityGameFrom(row: Row): StoredCommunityGame {
   return {
     id: String(row.id),
@@ -315,6 +483,34 @@ const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS community_listings (
     game_id TEXT PRIMARY KEY REFERENCES games(id),
+    status TEXT NOT NULL CHECK(status IN ('listed', 'unlisted')),
+    listed_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS assets (
+    id TEXT PRIMARY KEY,
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    media_type TEXT NOT NULL CHECK(media_type IN ('image', 'video', 'audio', 'model')),
+    current_release_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS asset_releases (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(id),
+    artifact_sha256 TEXT NOT NULL,
+    artifact_bytes INTEGER NOT NULL,
+    file_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    published_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS asset_listings (
+    asset_id TEXT PRIMARY KEY REFERENCES assets(id),
     status TEXT NOT NULL CHECK(status IN ('listed', 'unlisted')),
     listed_at TEXT,
     updated_at TEXT NOT NULL
