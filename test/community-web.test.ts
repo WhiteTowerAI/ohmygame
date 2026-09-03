@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { listCommunityGames } from "../src/community-web/api.js";
+import { getCommunityGame, listCommunityGames } from "../src/community-web/api.js";
+import { parseCommunityRoute } from "../src/community-web/app.js";
+
+describe("Community Web routes", () => {
+  it("parses home and game detail paths", () => {
+    expect(parseCommunityRoute("/")).toEqual({ page: "home" });
+    expect(parseCommunityRoute("/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
+    expect(parseCommunityRoute("/games/game-1/")).toEqual({ page: "game", gameId: "game-1" });
+    expect(parseCommunityRoute("/games")).toEqual({ page: "not-found" });
+    expect(parseCommunityRoute("/games/%")).toEqual({ page: "not-found" });
+  });
+});
 
 describe("Community Web API", () => {
   it("loads listed games", async () => {
@@ -9,6 +20,14 @@ describe("Community Web API", () => {
 
     await expect(listCommunityGames(fetcher)).resolves.toEqual([first, second]);
     expect(fetcher).toHaveBeenCalledWith("/v1/community/games", expect.anything());
+  });
+
+  it("loads a game by encoded id", async () => {
+    const expected = game("game 1");
+    const fetcher = vi.fn(async () => Response.json(expected));
+
+    await expect(getCommunityGame(expected.id, fetcher)).resolves.toEqual(expected);
+    expect(fetcher).toHaveBeenCalledWith("/v1/community/games/game%201", expect.anything());
   });
 });
 

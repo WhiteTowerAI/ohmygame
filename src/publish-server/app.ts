@@ -37,6 +37,8 @@ import { listingBodySchema } from "./listings.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
 import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredExplorePlugin, type StoredExploreTemplate, type StoredGame, type StoredPlugin, type StoredPluginRelease, type StoredTemplate, type StoredTemplateRelease } from "./store.js";
 
+const PLAY_ROUTE_PREFIX = "/__play";
+
 export interface PublishAppOptions {
   dataDirectory: string;
   playOrigin?: string;
@@ -91,7 +93,16 @@ export function createPublishApp(options: PublishAppOptions) {
   const playOrigin = options.playOrigin ?? "http://localhost:43130";
   const store = new PublishStore(options.dataDirectory);
   const artifacts = new ArtifactStore(options.dataDirectory, options.artifactLimits);
-  const app = Fastify({ logger: options.logger ?? false, ajv: { customOptions: { coerceTypes: false } } });
+  const app = Fastify({
+    logger: options.logger ?? false,
+    ajv: { customOptions: { coerceTypes: false } },
+    rewriteUrl: (request) => {
+      if ((request.method === "GET" || request.method === "HEAD") && playTarget(request.headers.host, playOrigin)) {
+        return `${PLAY_ROUTE_PREFIX}${request.url}`;
+      }
+      return request.url ?? "/";
+    },
+  });
   const authenticatePublisher = (request: FastifyRequest, reply: FastifyReply) => requirePublisher(
     request,
     reply,
@@ -119,7 +130,6 @@ export function createPublishApp(options: PublishAppOptions) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return reply.code(405).header("allow", "GET, HEAD").send();
     }
-    return serveGame(request, reply, target, store, artifacts);
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -717,6 +727,16 @@ export function createPublishApp(options: PublishAppOptions) {
     return template ? publicExploreTemplate(template) : sendPublishError(reply, request, 404, "not_found", "Template not found");
   });
 
+  app.route({
+    method: ["GET", "HEAD"],
+    url: `${PLAY_ROUTE_PREFIX}/*`,
+    handler: async (request, reply) => {
+      const target = playTarget(request.headers.host, playOrigin);
+      if (!target) return sendPublishError(reply, request, 404, "not_found", "Not found");
+      return serveGame(request, reply, target, store, artifacts);
+    },
+  });
+
   app.get("/*", async (request, reply) => {
     return sendPublishError(reply, request, 404, "not_found", "Not found");
   });
@@ -910,7 +930,7 @@ async function serveGame(
   if (!deployment || !(await artifacts.exists(deployment.id, "index.html"))) {
     return sendPublishError(reply, request, 404, "not_found", "Game not found");
   }
-  const file = await artifacts.file(deployment.id, request.url, { defaultDocument: "index.html" });
+  const file = await artifacts.file(deployment.id, request.originalUrl, { defaultDocument: "index.html" });
   if (!file) return sendPublishError(reply, request, 404, "not_found", "File not found");
   reply.header("content-type", contentType(file));
   reply.header("x-content-type-options", "nosniff");

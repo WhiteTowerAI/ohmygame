@@ -235,6 +235,7 @@ describe("public publish server", () => {
     expect((await play(app, firstDeployment.versionUrl, "/")).body).toContain("Version one");
     expect((await play(app, firstDeployment.versionUrl, "/assets/game.js")).body).toContain("one");
     expect((await play(app, first.json().game.playUrl, "/")).body).toContain("Version one");
+    expect((await play(app, first.json().game.playUrl, "/assets/game.js")).body).toContain("one");
     expect((await play(app, first.json().game.playUrl, "/health")).statusCode).toBe(404);
     expect((await play(app, first.json().game.playUrl, "/v1/games")).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/v1/community/games" })).json()).toEqual([]);

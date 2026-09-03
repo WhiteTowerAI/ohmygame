@@ -4,6 +4,10 @@ export function listCommunityGames(fetcher: typeof fetch = fetch): Promise<Publi
   return request("/v1/community/games", fetcher);
 }
 
+export function getCommunityGame(gameId: string, fetcher: typeof fetch = fetch): Promise<PublishCommunityGame> {
+  return request(`/v1/community/games/${encodeURIComponent(gameId)}`, fetcher);
+}
+
 async function request<T>(pathname: string, fetcher: typeof fetch): Promise<T> {
   const response = await fetcher(pathname, { headers: { accept: "application/json" } });
   if (response.ok) return response.json() as Promise<T>;
