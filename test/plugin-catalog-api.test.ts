@@ -46,14 +46,24 @@ describe("plugin catalog API", () => {
       method: "GET",
       url: "/plugins/personal%3Atest-plugin/skill-content?id=skills%2Ftest%2FSKILL.md",
     });
+    const skillFile = await app.inject({
+      method: "GET",
+      url: "/plugins/personal%3Atest-plugin/skill-file?id=skills%2Ftest%2FSKILL.md",
+    });
     const capabilities = await app.inject({ method: "GET", url: "/composer/capabilities" });
     const unknown = await app.inject({
       method: "GET",
       url: "/plugins/personal%3Atest-plugin/skill-content?id=.opengame-plugin%2Fplugin.json",
     });
+    const unknownFile = await app.inject({
+      method: "GET",
+      url: "/plugins/personal%3Atest-plugin/skill-file?id=.opengame-plugin%2Fplugin.json",
+    });
 
     expect(skill.statusCode).toBe(200);
     expect(skill.json()).toEqual({ id: "skills/test/SKILL.md", content: skillContent });
+    expect(skillFile.statusCode).toBe(200);
+    expect(skillFile.json().path).toMatch(/skills[/\\]test[/\\]SKILL\.md$/);
     expect(capabilities.statusCode).toBe(200);
     expect(capabilities.json().plugins).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "personal:test-plugin", marketplaceId: "personal" }),
@@ -66,6 +76,7 @@ describe("plugin catalog API", () => {
       }),
     ]));
     expect(unknown.statusCode).toBe(404);
+    expect(unknownFile.statusCode).toBe(404);
   });
 
   it("inspects a Claude marketplace before installing a selected plugin", async () => {

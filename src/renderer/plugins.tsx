@@ -267,6 +267,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         components: { ...componentSettings(detail).components, [pluginComponentKey("skill", component.id)]: enabled },
       })}
       onBrowse={() => detail && void browsePlugin(detail)}
+      onBrowseSkill={(skillId) => detail && void browsePluginSkill(detail.id, skillId)}
       onRemove={() => detail && void removePlugin(detail)}
       onTry={onTryPlugin}
     /> : <>
@@ -328,6 +329,15 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     setError(undefined);
     try {
       await window.openGameDesktop?.browsePluginDirectory(plugin.id);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+
+  async function browsePluginSkill(pluginId: string, skillId: string): Promise<void> {
+    setError(undefined);
+    try {
+      await window.openGameDesktop?.revealPluginSkill(pluginId, skillId);
     } catch (cause) {
       setError(errorMessage(cause));
     }
@@ -432,7 +442,7 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
   </article>;
 }
 
-function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onRemove, onTry }: {
+function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onTry }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
   updating: boolean;
@@ -441,6 +451,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   onTogglePlugin: (enabled: boolean) => void;
   onToggleComponent: (component: PluginComponentSummary, enabled: boolean) => void;
   onBrowse: () => void;
+  onBrowseSkill: (skillId: string) => void;
   onRemove: () => void;
   onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }): ReactNode {
@@ -577,7 +588,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </button>)}</div>
         {tryNotice ? <p role="status">{tryNotice}</p> : null}
       </section> : null}
-      <SkillSection pluginId={plugin.id} items={plugin.skills} disabled={updating || !plugin.enabled} onToggle={onToggleComponent} />
+      <SkillSection pluginId={plugin.id} items={plugin.skills} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <ConnectionSection items={plugin.connections} />
     </> : null}
   </section>;
@@ -632,10 +643,11 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle }:
   </div>;
 }
 
-function SkillSection({ pluginId, items, disabled, onToggle }: {
+function SkillSection({ pluginId, items, disabled, onBrowse, onToggle }: {
   pluginId: string;
   items: PluginComponentSummary[];
   disabled: boolean;
+  onBrowse: (skillId: string) => void;
   onToggle: (component: PluginComponentSummary, enabled: boolean) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState<{ id: string; phase: "loading" | "ready" | "error"; content?: string; error?: string }>();
@@ -676,6 +688,7 @@ function SkillSection({ pluginId, items, disabled, onToggle }: {
           <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
           <ChevronRight size={14} aria-hidden="true" />
         </button>
+        {window.openGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
         <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} />
       </div>
       {open ? <div className="plugin-skill-content">

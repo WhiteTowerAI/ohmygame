@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pluginComponentKey, type PluginDetail } from "../shared/plugins.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
@@ -25,6 +25,25 @@ export async function readPluginSkillContent(
   skillId: string,
   sources: readonly PluginSkillSource[],
 ): Promise<string | undefined> {
+  const target = await resolvePluginSkillFile(plugin, skillId, sources);
+  if (!target) return undefined;
+  const details = await lstat(target).catch((cause) => {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw cause;
+  });
+  if (!details?.isFile()) return undefined;
+  if (details.size > MAX_SKILL_CONTENT_SIZE) throw new PluginSkillContentError("Skill content is larger than 512 KB");
+  return readFile(target, "utf8").catch((cause) => {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw cause;
+  });
+}
+
+export async function resolvePluginSkillFile(
+  plugin: PluginDetail,
+  skillId: string,
+  sources: readonly PluginSkillSource[],
+): Promise<string | undefined> {
   if (path.basename(skillId) !== "SKILL.md" || !plugin.skills.some((skill) => skill.id === skillId)) return undefined;
   for (const source of sources) {
     const root = await source.installedPath(plugin.id);
@@ -32,17 +51,11 @@ export async function readPluginSkillContent(
     const target = path.resolve(root, skillId);
     const relative = path.relative(root, target);
     if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
-    const details = await stat(target).catch((cause) => {
+    const details = await lstat(target).catch((cause) => {
       if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw cause;
     });
-    if (!details) return undefined;
-    if (!details.isFile()) return undefined;
-    if (details.size > MAX_SKILL_CONTENT_SIZE) throw new PluginSkillContentError("Skill content is larger than 512 KB");
-    return readFile(target, "utf8").catch((cause) => {
-      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw cause;
-    });
+    if (details?.isFile()) return target;
   }
   return undefined;
 }

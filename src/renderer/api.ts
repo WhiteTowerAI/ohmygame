@@ -56,6 +56,7 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
+      revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       openPlaytest: (projectId: string, chapterId: string) => Promise<void>;

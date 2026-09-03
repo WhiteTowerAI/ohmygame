@@ -42,6 +42,19 @@ ipcMain.handle("open-game:browse-plugin-directory", async (event, pluginId: unkn
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
+ipcMain.handle("open-game:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
+  if (!validRouteId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
+    throw new Error("Invalid Plugin Skill");
+  }
+  const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/skill-file?id=${encodeURIComponent(skillId)}`, {
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) throw new Error("Plugin Skill is not available");
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
+  shell.showItemInFolder(result.path);
+});
 ipcMain.handle("open-game:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });

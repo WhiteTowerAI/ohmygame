@@ -3224,7 +3224,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-skill-row {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   padding-left: 0;
 }
 
@@ -3260,6 +3260,24 @@ button.home-nav-item-active:hover {
 
 .plugin-skill-row:has(.plugin-skill-open:hover) {
   background: var(--surface-hover);
+}
+
+.plugin-skill-browse {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.plugin-skill-browse:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .plugin-skill-content {

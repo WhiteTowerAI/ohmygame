@@ -34,7 +34,7 @@ import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
-import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkills } from "./plugin-runtime.js";
+import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
@@ -683,7 +683,7 @@ export function createApp(options: AppOptions = {}) {
     return plugin ?? reply.code(404).send({ error: "Plugin not found" });
   });
 
-  app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-content", {
+  const pluginSkillQuerySchema = {
     schema: {
       querystring: {
         type: "object",
@@ -692,7 +692,9 @@ export function createApp(options: AppOptions = {}) {
         properties: { id: { type: "string", minLength: 1, maxLength: 1_000 } },
       },
     },
-  }, async (request, reply) => {
+  } as const;
+
+  app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-content", pluginSkillQuerySchema, async (request, reply) => {
     const plugin = await plugins.read(request.params.pluginId);
     if (!plugin?.installed) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
@@ -704,6 +706,13 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof PluginSkillContentError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
+  });
+
+  app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-file", pluginSkillQuerySchema, async (request, reply) => {
+    const plugin = await plugins.read(request.params.pluginId);
+    if (!plugin?.installed) return reply.code(404).send({ error: "Installed plugin not found" });
+    const filePath = await resolvePluginSkillFile(plugin, request.query.id, [bundledPlugins, localPlugins]);
+    return filePath ? { path: filePath } : reply.code(404).send({ error: "Plugin Skill not found" });
   });
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId/directory", async (request, reply) => {
