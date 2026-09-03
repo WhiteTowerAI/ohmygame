@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
+  isPluginVersion,
   type PluginComponentSummary,
   type PluginConnectionSummary,
   type PluginDetail,
@@ -159,12 +160,22 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
 
   async function sharePlugin(plugin: PluginDetail): Promise<void> {
     if (updating) return;
+    let version = plugin.version;
+    if (!version) {
+      const value = window.prompt("Version for this Plugin release", "0.1.0");
+      if (value === null) return;
+      version = value.trim();
+      if (!isPluginVersion(version)) {
+        setError("Enter a semantic version such as 0.1.0");
+        return;
+      }
+    }
     const accessToken = await auth.requestAccessToken();
     if (!accessToken) return;
     setUpdating(plugin.id);
     setError(undefined);
     try {
-      await publishPlugin(plugin.id, accessToken);
+      await publishPlugin(plugin.id, accessToken, version);
       await load();
       setNotice("Shared to Explore");
     } catch (cause) {

@@ -87,6 +87,49 @@ describe("remote publish", () => {
       .toMatchObject({ version: "1.1.0", enabled: false });
   });
 
+  it("publishes and installs a Claude marketplace Plugin without rewriting its manifest", async () => {
+    const runtime = await testRuntime();
+    const source = await temporary("open-game-claude-plugin-");
+    await mkdir(path.join(source, ".claude-plugin"));
+    await mkdir(path.join(source, "skills", "levels"), { recursive: true });
+    await writeFile(path.join(source, ".claude-plugin", "marketplace.json"), JSON.stringify({
+      name: "game-skills",
+      plugins: [{ name: "level-tools", source: "./", description: "Level workflows", skills: ["./skills/levels"] }],
+    }));
+    await writeFile(path.join(source, "skills", "levels", "SKILL.md"), "---\nname: levels\ndescription: Build levels.\n---\n");
+    const installed = await runtime.daemon.inject({
+      method: "POST", url: "/plugins/install",
+      payload: { type: "directory", path: source, candidate: "marketplace:game-skills:level-tools" },
+    });
+    expect(installed.statusCode, installed.body).toBe(201);
+    expect(installed.json().version).toBeUndefined();
+
+    const missingVersion = await runtime.daemon.inject({
+      method: "POST", url: "/plugins/marketplace%3Agame-skills%3Alevel-tools/publish",
+      payload: { accessToken: token },
+    });
+    expect(missingVersion.statusCode).toBe(400);
+    expect(missingVersion.json().error).toContain("semantic version");
+
+    const published = await runtime.daemon.inject({
+      method: "POST", url: "/plugins/marketplace%3Agame-skills%3Alevel-tools/publish",
+      payload: { accessToken: token, version: "0.1.0" },
+    });
+    expect(published.statusCode, published.body).toBe(201);
+    expect(published.json().release.manifest).toMatchObject({ name: "level-tools", version: "0.1.0" });
+
+    const consumer = createApp({ dataDirectory: await temporary("open-game-claude-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
+    apps.push(consumer);
+    await consumer.ready();
+    const catalogInstall = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    expect(catalogInstall.statusCode, catalogInstall.body).toBe(201);
+    expect(catalogInstall.json()).toMatchObject({
+      id: "opengame:level-tools",
+      version: "0.1.0",
+      skills: [{ name: "Levels" }],
+    });
+  });
+
   it("shares a project Asset, browses it, and imports it into an existing project", async () => {
     const runtime = await testRuntime();
     const source = await createProject(runtime.daemon, "Source");

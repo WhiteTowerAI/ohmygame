@@ -238,11 +238,11 @@ describe("renderer project API", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await installCatalogPlugin("opengame:tools");
-    await publishPlugin("personal:tools", "user-access-token");
+    await publishPlugin("personal:tools", "user-access-token", "0.1.0");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/opengame%3Atools/install", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
-      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
+      method: "POST", body: JSON.stringify({ accessToken: "user-access-token", version: "0.1.0" }),
     }));
   });
 

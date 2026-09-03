@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { isAssetTemplateDefinition } from "../shared/asset-templates.js";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
+import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
 import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import type {
   CreatePublishAssetReleaseMetadata,
@@ -539,8 +539,7 @@ export function createPublishApp(options: PublishAppOptions) {
       };
       try {
         await artifacts.installArchive(uploadPath, release.id, {
-          requiredFiles: [PLUGIN_MANIFEST_PATH],
-          allowedHiddenDirectories: [".opengame-plugin"],
+          allowedHiddenDirectories: PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES,
           archiveFileName: "plugin.zip",
           limits: {
             expandedBytes: Math.min(PLUGIN_ARCHIVE_MAX_BYTES, options.artifactLimits?.expandedBytes ?? Infinity),
@@ -548,11 +547,7 @@ export function createPublishApp(options: PublishAppOptions) {
             files: Math.min(PLUGIN_ARCHIVE_MAX_ENTRIES, options.artifactLimits?.files ?? Infinity),
           },
         });
-        const manifestPath = await artifacts.internalFile(release.id, PLUGIN_MANIFEST_PATH);
-        const archivedManifest = manifestPath ? JSON.parse(await readFile(manifestPath, "utf8")) as unknown : undefined;
-        if (!isPluginManifest(archivedManifest) || !isDeepStrictEqual(archivedManifest, metadata.manifest)) {
-          throw new ArtifactError("Plugin manifest does not match release metadata");
-        }
+        await validatePluginArtifact(artifacts, release.id, metadata.manifest);
         const body: CreatePublishPluginReleaseResult = {
           plugin: { ...plugin, currentReleaseId: release.id, updatedAt: release.publishedAt }, release,
         };
@@ -788,6 +783,27 @@ function pluginReleaseMetadata(value: unknown, pluginName: string): CreatePublis
   if (!Number.isSafeInteger(artifactBytes) || artifactBytes < 1) throw new ArtifactError("artifactBytes must be a positive safe integer");
   if (!isPluginManifest(record.manifest) || record.manifest.name !== pluginName) throw new ArtifactError("Plugin manifest is invalid");
   return { artifactSha256, artifactBytes, manifest: record.manifest };
+}
+
+async function validatePluginArtifact(artifacts: ArtifactStore, releaseId: string, manifest: PluginManifest): Promise<void> {
+  const skillPaths = Array.isArray(manifest.skills) ? manifest.skills : manifest.skills ? [manifest.skills] : [];
+  for (const skillPath of skillPaths) {
+    if (!await artifacts.exists(releaseId, skillPath.slice(2))) {
+      throw new ArtifactError(`Plugin artifact is missing declared Skill path ${skillPath}`);
+    }
+  }
+
+  const manifestPath = await artifacts.internalFile(releaseId, PLUGIN_MANIFEST_PATH);
+  if (!manifestPath) return;
+  let archivedManifest: unknown;
+  try {
+    archivedManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch {
+    throw new ArtifactError("Plugin manifest is not valid JSON");
+  }
+  if (!isPluginManifest(archivedManifest) || !isDeepStrictEqual(archivedManifest, manifest)) {
+    throw new ArtifactError("Plugin manifest does not match release metadata");
+  }
 }
 
 function publicExploreAsset(asset: StoredExploreAsset): PublishExploreAsset {

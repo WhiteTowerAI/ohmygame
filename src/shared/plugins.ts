@@ -5,6 +5,12 @@ import type { PluginMention, ProjectType } from "./contracts.js";
 export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
+export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
+  ".agents",
+  ".claude-plugin",
+  ".codex-plugin",
+  ".opengame-plugin",
+];
 
 export type PluginSource =
   | { type: "builtIn" }

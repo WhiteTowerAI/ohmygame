@@ -1,12 +1,11 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { isDeepStrictEqual } from "node:util";
 import yauzl, { type Entry, type ZipFile } from "yauzl";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, isPluginManifest, type InstallPluginRequest, type PluginDetail, type PluginManifest } from "../shared/plugins.js";
+import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type InstallPluginRequest, type PluginDetail, type PluginManifest } from "../shared/plugins.js";
 import { LocalPluginError, validatePluginBundle, type LocalPluginStore } from "./local-plugins.js";
 import { discoverPlugins, type DiscoveredPlugin } from "./plugin-discovery.js";
 
@@ -41,11 +40,7 @@ export async function installCatalogPlugin(
     await writeFile(archivePath, input.archive, { flag: "wx" });
     await mkdir(source);
     await extractPluginArchive(archivePath, source);
-    const value = JSON.parse(await readFile(path.join(source, PLUGIN_MANIFEST_PATH), "utf8")) as unknown;
-    if (!isPluginManifest(value) || !isDeepStrictEqual(value, input.manifest)) {
-      throw new LocalPluginError("Downloaded Plugin manifest does not match the Catalog");
-    }
-    return await store.installCatalog(source, { type: "catalog", pluginId: input.pluginId, releaseId: input.releaseId }, value);
+    return await store.installCatalog(source, { type: "catalog", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest);
   } catch (cause) {
     if (cause instanceof LocalPluginError) throw cause;
     throw new LocalPluginError(`Could not install Catalog Plugin: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -174,7 +169,9 @@ function pluginArchivePath(entry: Entry): string {
   if (!segments.length || segments.some((part) => part === "." || part === ".." || part === "node_modules")) {
     throw new LocalPluginError("Plugin archive contains an invalid path");
   }
-  if (segments.some((part, index) => part.startsWith(".") && (index !== 0 || part !== ".opengame-plugin"))) {
+  if (segments.some((part, index) => part.startsWith(".") && (
+    index !== 0 || !PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(part)
+  ))) {
     throw new LocalPluginError("Plugin archive contains private files");
   }
   const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;

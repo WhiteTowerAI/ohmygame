@@ -42,7 +42,7 @@ import { ConnectionError, ConnectionManager } from "./connections.js";
 import { AssetTemplateError, AssetTemplateStore } from "./asset-templates.js";
 import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
-import { PLUGIN_MANIFEST_PATH, hasPluginMentionToken, isPluginManifest, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
+import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 
 export interface AppOptions {
@@ -150,6 +150,18 @@ const publishProjectSchema = {
     additionalProperties: false,
     required: ["accessToken"],
     properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+  },
+} as const;
+
+const publishPluginSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["accessToken"],
+    properties: {
+      accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+      version: { type: "string", minLength: 1, maxLength: 256 },
+    },
   },
 } as const;
 
@@ -693,19 +705,21 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { pluginId: string }; Body: { accessToken: string } }>("/plugins/:pluginId/publish", {
-    schema: { body: publishProjectSchema.body },
+  app.post<{ Params: { pluginId: string }; Body: { accessToken: string; version?: string } }>("/plugins/:pluginId/publish", {
+    schema: publishPluginSchema,
   }, async (request, reply) => {
-    const plugin = await localPlugins.read(request.params.pluginId);
-    const source = plugin ? await localPlugins.installedPath(plugin.id) : undefined;
-    if (!plugin || !source) return reply.code(404).send({ error: "Installed local Plugin not found" });
     try {
-      const manifestValue = JSON.parse(await readFile(path.join(source, PLUGIN_MANIFEST_PATH), "utf8")) as unknown;
-      if (!isPluginManifest(manifestValue)) return reply.code(400).send({ error: "Plugin manifest is invalid" });
+      const bundle = await localPlugins.installedBundle(request.params.pluginId);
+      if (!bundle) return reply.code(404).send({ error: "Installed local Plugin not found" });
+      const version = bundle.manifest.version ?? request.body.version?.trim();
+      if (!version || !isPluginVersion(version)) {
+        return reply.code(400).send({ error: "A semantic version such as 0.1.0 is required to share this Plugin" });
+      }
+      const manifest = { ...bundle.manifest, version };
       const result = await publisher.publishPlugin({
-        name: manifestValue.name,
-        manifest: manifestValue,
-        archive: await createPluginArchive(source),
+        name: manifest.name,
+        manifest,
+        archive: await createPluginArchive(bundle.path),
       }, request.body.accessToken);
       return reply.code(201).send(result);
     } catch (cause) {

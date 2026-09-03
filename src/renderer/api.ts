@@ -221,9 +221,9 @@ export async function installCatalogPlugin(id: string): Promise<PluginDetail> {
   return request(`/plugins/${encodeURIComponent(id)}/install`, { method: "POST" });
 }
 
-export async function publishPlugin(id: string, accessToken: string): Promise<void> {
+export async function publishPlugin(id: string, accessToken: string, version?: string): Promise<void> {
   await request(`/plugins/${encodeURIComponent(id)}/publish`, {
-    method: "POST", body: JSON.stringify({ accessToken }),
+    method: "POST", body: JSON.stringify({ accessToken, version }),
   });
 }
 

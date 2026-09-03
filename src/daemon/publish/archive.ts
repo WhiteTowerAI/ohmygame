@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
+import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES } from "../../shared/publish-v1.js";
 
 interface PackageJson {
@@ -141,7 +142,7 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
 function ignored(name: string, relative: string, plugin: boolean): boolean {
   if (name === "node_modules" || name === ".git" || name === ".data") return true;
   if (!name.startsWith(".")) return false;
-  return !(plugin && !relative && name === ".opengame-plugin");
+  return !(plugin && !relative && PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(name));
 }
 
 async function exists(target: string): Promise<boolean> {

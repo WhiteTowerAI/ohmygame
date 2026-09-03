@@ -42,6 +42,11 @@ export interface PluginBundleIdentity {
   source: PluginSource;
 }
 
+export interface InstalledPluginBundle {
+  path: string;
+  manifest: ResolvedPluginManifest;
+}
+
 export class LocalPluginError extends Error {
   constructor(message: string, readonly statusCode = 400) {
     super(message);
@@ -200,6 +205,15 @@ export class LocalPluginStore {
   async installedPath(id: string): Promise<string | undefined> {
     const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
     return record ? this.#installedPath(record.marketplace.id, record.name, record.version) : undefined;
+  }
+
+  async installedBundle(id: string): Promise<InstalledPluginBundle | undefined> {
+    await this.#mutations;
+    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
+    return record ? {
+      path: this.#installedPath(record.marketplace.id, record.name, record.version),
+      manifest: record.manifest,
+    } : undefined;
   }
 
   async directoryPath(id: string): Promise<string | undefined> {
