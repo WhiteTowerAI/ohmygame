@@ -13,6 +13,7 @@ import type {
   PublishDeployment,
   PublishGame,
   PublishPlugin,
+  PublishPluginSkill,
   PublishTemplate,
   PublishExploreAsset,
 } from "../../shared/publish-v1.js";
@@ -113,6 +114,7 @@ export class RemotePublisher {
   async publishPlugin(input: {
     name: string;
     manifest: import("../../shared/plugins.js").PluginManifest;
+    skills: PublishPluginSkill[];
     archive: Buffer;
   }, accessToken: string): Promise<CreatePublishPluginReleaseResult> {
     const plugin = await this.#request<PublishPlugin>("/v1/plugins", {
@@ -124,6 +126,7 @@ export class RemotePublisher {
       artifactSha256: createHash("sha256").update(input.archive).digest("hex"),
       artifactBytes: input.archive.length,
       manifest: input.manifest,
+      skills: input.skills,
     };
     const form = new FormData();
     form.set("metadata", JSON.stringify(metadata));

@@ -184,6 +184,12 @@ export interface PublishPluginRelease {
   publishedAt: string;
 }
 
+export interface PublishPluginSkill {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface PublishExplorePlugin {
   id: string;
   name: string;
@@ -192,6 +198,7 @@ export interface PublishExplorePlugin {
   artifactSha256: string;
   artifactBytes: number;
   manifest: import("./plugins.js").PluginManifest;
+  skills: PublishPluginSkill[];
   publishedAt: string;
 }
 
@@ -203,6 +210,7 @@ export interface CreatePublishPluginReleaseMetadata {
   artifactSha256: string;
   artifactBytes: number;
   manifest: import("./plugins.js").PluginManifest;
+  skills: PublishPluginSkill[];
 }
 
 export interface CreatePublishPluginReleaseResult {

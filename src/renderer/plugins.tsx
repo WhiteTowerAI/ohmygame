@@ -54,6 +54,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const [installSource, setInstallSource] = useState<InstallPluginRequest>();
   const [installCandidates, setInstallCandidates] = useState<PluginInstallCandidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<string>();
+  const [publishVersion, setPublishVersion] = useState<{ plugin: PluginDetail; value: string }>();
   const addMenu = useRef<HTMLDivElement>(null);
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
@@ -160,16 +161,30 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
 
   async function sharePlugin(plugin: PluginDetail): Promise<void> {
     if (updating) return;
-    let version = plugin.version;
-    if (!version) {
-      const value = window.prompt("Version for this Plugin release", "0.1.0");
-      if (value === null) return;
-      version = value.trim();
-      if (!isPluginVersion(version)) {
-        setError("Enter a semantic version such as 0.1.0");
-        return;
-      }
+    if (!plugin.version) {
+      setError(undefined);
+      setPublishVersion({ plugin, value: "0.1.0" });
+      return;
     }
+    await publishPluginRelease(plugin, plugin.version);
+  }
+
+  async function submitPublishVersion(): Promise<void> {
+    if (!publishVersion || updating) return;
+    const version = publishVersion.value.trim();
+    if (!isPluginVersion(version)) {
+      setError("Enter a semantic version such as 0.1.0");
+      return;
+    }
+    await publishPluginRelease(publishVersion.plugin, version);
+  }
+
+  function closePublishVersion(): void {
+    setPublishVersion(undefined);
+    setError(undefined);
+  }
+
+  async function publishPluginRelease(plugin: PluginDetail, version: string): Promise<void> {
     const accessToken = await auth.requestAccessToken();
     if (!accessToken) return;
     setUpdating(plugin.id);
@@ -177,6 +192,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     try {
       await publishPlugin(plugin.id, accessToken, version);
       await load();
+      setPublishVersion(undefined);
       setNotice("Shared to Explore");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -355,6 +371,18 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         </div> : <label><span>Repository or marketplace URL</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
         {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
         <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? "Installing..." : "Install"}</button></footer>
+      </form>
+    </div> : null}
+    {publishVersion ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !updating) closePublishVersion();
+    }}>
+      <form className="plugin-install-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-publish-title" onKeyDown={(event) => {
+        if (event.key === "Escape" && !updating) closePublishVersion();
+      }} onSubmit={(event) => { event.preventDefault(); void submitPublishVersion(); }}>
+        <header><h2 id="plugin-publish-title">Share to Explore</h2><p>Add a semantic version for this Plugin release.</p></header>
+        <label><span>Version</span><input autoFocus required disabled={Boolean(updating)} value={publishVersion.value} placeholder="0.1.0" onChange={(event) => { setPublishVersion((current) => current ? { ...current, value: event.target.value } : current); setError(undefined); }} /></label>
+        {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
+        <footer><button type="button" disabled={Boolean(updating)} onClick={closePublishVersion}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(updating) || !publishVersion.value.trim()}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Sharing..." : "Share"}</button></footer>
       </form>
     </div> : null}
   </SidebarPageLayout>;
@@ -647,7 +675,7 @@ function PluginDetailView({ phase, plugin, updating, error, notice, onRetry, onT
         </button>)}</div>
         {tryNotice ? <p role="status">{tryNotice}</p> : null}
       </section> : null}
-      <SkillSection pluginId={plugin.id} items={plugin.skills} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
+      <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <ConnectionSection items={plugin.connections} />
     </> : null}
   </section>;
@@ -704,9 +732,10 @@ function PluginDetailActions({ plugin, updating, onBrowse, onRemove, onToggle, o
   </div>;
 }
 
-function SkillSection({ pluginId, items, disabled, onBrowse, onToggle }: {
+function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle }: {
   pluginId: string;
   items: PluginComponentSummary[];
+  installed: boolean;
   disabled: boolean;
   onBrowse: (skillId: string) => void;
   onToggle: (component: PluginComponentSummary, enabled: boolean) => void;
@@ -744,13 +773,16 @@ function SkillSection({ pluginId, items, disabled, onBrowse, onToggle }: {
     const open = expanded?.id === item.id;
     return <div className="plugin-skill-item" key={item.id}>
       <div className="plugin-component-row plugin-skill-row">
-        <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
+        {installed ? <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
           <span className="plugin-component-icon"><WandSparkles size={15} /></span>
           <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
           <ChevronRight size={14} aria-hidden="true" />
-        </button>
-        {window.openGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
-        <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} />
+        </button> : <div className="plugin-skill-open is-static">
+          <span className="plugin-component-icon"><WandSparkles size={15} /></span>
+          <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
+        </div>}
+        {installed && window.openGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
+        {installed ? <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} /> : null}
       </div>
       {open ? <div className="plugin-skill-content">
         {expanded.phase === "loading" ? <div className="plugin-skill-state"><LoaderCircle className="spin" size={13} />Loading skill</div> : null}

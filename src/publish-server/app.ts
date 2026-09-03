@@ -535,7 +535,7 @@ export function createPublishApp(options: PublishAppOptions) {
       const release: StoredPluginRelease = {
         id: randomUUID(), pluginId: plugin.id, version: metadata.manifest.version,
         artifactSha256: metadata.artifactSha256, artifactBytes: metadata.artifactBytes,
-        manifest: metadata.manifest, publishedAt: new Date().toISOString(),
+        manifest: metadata.manifest, skills: metadata.skills, publishedAt: new Date().toISOString(),
       };
       try {
         await artifacts.installArchive(uploadPath, release.id, {
@@ -547,7 +547,7 @@ export function createPublishApp(options: PublishAppOptions) {
             files: Math.min(PLUGIN_ARCHIVE_MAX_ENTRIES, options.artifactLimits?.files ?? Infinity),
           },
         });
-        await validatePluginArtifact(artifacts, release.id, metadata.manifest);
+        await validatePluginArtifact(artifacts, release.id, metadata.manifest, metadata.skills);
         const body: CreatePublishPluginReleaseResult = {
           plugin: { ...plugin, currentReleaseId: release.id, updatedAt: release.publishedAt }, release,
         };
@@ -782,14 +782,40 @@ function pluginReleaseMetadata(value: unknown, pluginName: string): CreatePublis
   if (!/^[a-f0-9]{64}$/.test(artifactSha256)) throw new ArtifactError("artifactSha256 must be a lowercase SHA-256 digest");
   if (!Number.isSafeInteger(artifactBytes) || artifactBytes < 1) throw new ArtifactError("artifactBytes must be a positive safe integer");
   if (!isPluginManifest(record.manifest) || record.manifest.name !== pluginName) throw new ArtifactError("Plugin manifest is invalid");
-  return { artifactSha256, artifactBytes, manifest: record.manifest };
+  if (!Array.isArray(record.skills) || record.skills.length > 5_000) throw new ArtifactError("Plugin skills are invalid");
+  const skills = record.skills.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new ArtifactError("Plugin skill is invalid");
+    const skill = value as Record<string, unknown>;
+    if (Object.keys(skill).some((key) => !["id", "name", "description"].includes(key))) throw new ArtifactError("Plugin skill is invalid");
+    const id = typeof skill.id === "string" ? skill.id.trim() : "";
+    const name = typeof skill.name === "string" ? skill.name.trim() : "";
+    const description = typeof skill.description === "string" ? skill.description.trim() : undefined;
+    const idSegments = id.split("/");
+    if (!id || id.length > 500 || id.includes("\\") || id.startsWith("/") ||
+      idSegments.some((segment) => !segment || segment === "." || segment === "..") || idSegments.at(-1) !== "SKILL.md" ||
+      !name || name.length > 200 || (description?.length ?? 0) > 2_000) {
+      throw new ArtifactError("Plugin skill is invalid");
+    }
+    return { id, name, ...(description ? { description } : {}) };
+  });
+  return { artifactSha256, artifactBytes, manifest: record.manifest, skills };
 }
 
-async function validatePluginArtifact(artifacts: ArtifactStore, releaseId: string, manifest: PluginManifest): Promise<void> {
+async function validatePluginArtifact(
+  artifacts: ArtifactStore,
+  releaseId: string,
+  manifest: PluginManifest,
+  skills: CreatePublishPluginReleaseMetadata["skills"],
+): Promise<void> {
   const skillPaths = Array.isArray(manifest.skills) ? manifest.skills : manifest.skills ? [manifest.skills] : [];
   for (const skillPath of skillPaths) {
     if (!await artifacts.exists(releaseId, skillPath.slice(2))) {
       throw new ArtifactError(`Plugin artifact is missing declared Skill path ${skillPath}`);
+    }
+  }
+  for (const skill of skills) {
+    if (!await artifacts.exists(releaseId, skill.id)) {
+      throw new ArtifactError(`Plugin artifact is missing published Skill ${skill.id}`);
     }
   }
 
@@ -818,7 +844,7 @@ function publicExplorePlugin(plugin: StoredExplorePlugin): PublishExplorePlugin 
   return {
     id: plugin.pluginId, name: plugin.name, version: plugin.version, releaseId: plugin.id,
     artifactSha256: plugin.artifactSha256, artifactBytes: plugin.artifactBytes,
-    manifest: plugin.manifest, publishedAt: plugin.publishedAt,
+    manifest: plugin.manifest, skills: plugin.skills, publishedAt: plugin.publishedAt,
   };
 }
 

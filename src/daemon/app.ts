@@ -711,6 +711,8 @@ export function createApp(options: AppOptions = {}) {
     try {
       const bundle = await localPlugins.installedBundle(request.params.pluginId);
       if (!bundle) return reply.code(404).send({ error: "Installed local Plugin not found" });
+      const plugin = await localPlugins.read(request.params.pluginId);
+      if (!plugin) return reply.code(404).send({ error: "Installed local Plugin not found" });
       const version = bundle.manifest.version ?? request.body.version?.trim();
       if (!version || !isPluginVersion(version)) {
         return reply.code(400).send({ error: "A semantic version such as 0.1.0 is required to share this Plugin" });
@@ -719,6 +721,7 @@ export function createApp(options: AppOptions = {}) {
       const result = await publisher.publishPlugin({
         name: manifest.name,
         manifest,
+        skills: plugin.skills.map(({ id, name, description }) => ({ id, name, description })),
         archive: await createPluginArchive(bundle.path),
       }, request.body.accessToken);
       return reply.code(201).send(result);

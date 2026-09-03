@@ -62,6 +62,10 @@ describe("remote publish", () => {
     expect(catalog.json().plugins).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "opengame:level-tools", installed: false, version: "1.0.0" }),
     ]));
+    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json()).toMatchObject({
+      installed: false,
+      skills: [{ name: "Levels", enabled: true }],
+    });
     const installed = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
     expect(installed.statusCode, installed.body).toBe(201);
     expect(installed.json()).toMatchObject({

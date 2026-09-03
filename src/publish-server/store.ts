@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AssetTemplateDefinition } from "../shared/asset-templates.js";
 import type { PluginManifest } from "../shared/plugins.js";
-import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishTemplateListing } from "../shared/publish-v1.js";
+import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishPluginSkill, PublishTemplateListing } from "../shared/publish-v1.js";
 import { nextListingState, type ListingState } from "./listings.js";
 
 export interface StoredGame {
@@ -74,6 +74,7 @@ export interface StoredPluginRelease {
   artifactSha256: string;
   artifactBytes: number;
   manifest: PluginManifest;
+  skills: PublishPluginSkill[];
   publishedAt: string;
 }
 
@@ -117,6 +118,10 @@ export class PublishStore {
     this.#database = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
     this.#database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
     this.#database.exec(SCHEMA);
+    const pluginReleaseColumns = this.#database.prepare("PRAGMA table_info(plugin_releases)").all() as Row[];
+    if (!pluginReleaseColumns.some((column) => column.name === "skills_json")) {
+      this.#database.exec("ALTER TABLE plugin_releases ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'");
+    }
     this.#database.exec("DELETE FROM idempotency_keys WHERE response_json IS NULL");
   }
 
@@ -443,9 +448,9 @@ export class PublishStore {
       if (!this.plugin(publisherId, release.pluginId)) throw new Error("Plugin not found");
       this.#database.prepare(`
         INSERT INTO plugin_releases
-          (id, plugin_id, version, artifact_sha256, artifact_bytes, manifest_json, published_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(release.id, release.pluginId, release.version, release.artifactSha256, release.artifactBytes, JSON.stringify(release.manifest), release.publishedAt);
+          (id, plugin_id, version, artifact_sha256, artifact_bytes, manifest_json, skills_json, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(release.id, release.pluginId, release.version, release.artifactSha256, release.artifactBytes, JSON.stringify(release.manifest), JSON.stringify(release.skills), release.publishedAt);
       this.#database.prepare(`
         UPDATE plugins SET current_release_id = ?, updated_at = ? WHERE id = ?
       `).run(release.id, release.publishedAt, release.pluginId);
@@ -725,6 +730,7 @@ function pluginReleaseFrom(row: Row | undefined): StoredPluginRelease | undefine
     artifactSha256: String(row.artifact_sha256),
     artifactBytes: Number(row.artifact_bytes),
     manifest: JSON.parse(String(row.manifest_json)) as PluginManifest,
+    skills: JSON.parse(String(row.skills_json ?? "[]")) as PublishPluginSkill[],
     publishedAt: String(row.published_at),
   };
 }
@@ -839,6 +845,7 @@ const SCHEMA = `
     artifact_sha256 TEXT NOT NULL,
     artifact_bytes INTEGER NOT NULL,
     manifest_json TEXT NOT NULL,
+    skills_json TEXT NOT NULL,
     published_at TEXT NOT NULL,
     UNIQUE(plugin_id, version)
   );

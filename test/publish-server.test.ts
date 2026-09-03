@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPublishApp } from "../src/publish-server/app.js";
@@ -57,6 +58,7 @@ describe("public publish server", () => {
     await app.inject({ method: "PUT", url: `/v1/plugins/${pluginId}/listing`, headers: authorization, payload: { status: "listed" } });
     expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toMatchObject([{
       id: pluginId, name: "level-tools", version: "1.0.0", manifest: { name: "level-tools" },
+      skills: [{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }],
     }]);
     const content = await app.inject({
       method: "GET", url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/content`,
@@ -89,6 +91,27 @@ describe("public publish server", () => {
     });
     expect(content.statusCode).toBe(200);
     expect(createHash("sha256").update(content.rawPayload).digest("hex")).toBe(release.json().release.artifactSha256);
+    expect((await second.inject({ method: "GET", url: `/v1/explore/plugins/${plugin.id}` })).json().skills)
+      .toEqual([{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }]);
+  });
+
+  it("migrates an existing Plugin release store", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-plugin-migration-"));
+    const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
+    await initial.ready();
+    await initial.close();
+
+    const database = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    database.exec("ALTER TABLE plugin_releases DROP COLUMN skills_json");
+    database.close();
+
+    const migrated = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(migrated);
+    await migrated.ready();
+    const columns = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    expect(columns.prepare("PRAGMA table_info(plugin_releases)").all())
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: "skills_json" })]));
+    columns.close();
   });
 
   it("reserves public Plugin names across publishers", async () => {
@@ -392,6 +415,7 @@ async function publishPlugin(app: FastifyInstance, pluginId: string, key: string
     artifactSha256: createHash("sha256").update(archive).digest("hex"),
     artifactBytes: archive.length,
     manifest,
+    skills: [{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }],
   };
   const form = new FormData();
   form.set("metadata", JSON.stringify(metadata));
