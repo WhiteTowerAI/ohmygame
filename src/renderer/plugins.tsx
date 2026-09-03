@@ -773,14 +773,11 @@ function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle
     const open = expanded?.id === item.id;
     return <div className="plugin-skill-item" key={item.id}>
       <div className="plugin-component-row plugin-skill-row">
-        {installed ? <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
+        <button className="plugin-skill-open" type="button" aria-expanded={open} onClick={() => toggleContent(item)}>
           <span className="plugin-component-icon"><WandSparkles size={15} /></span>
           <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
           <ChevronRight size={14} aria-hidden="true" />
-        </button> : <div className="plugin-skill-open is-static">
-          <span className="plugin-component-icon"><WandSparkles size={15} /></span>
-          <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
-        </div>}
+        </button>
         {installed && window.openGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
         {installed ? <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} /> : null}
       </div>

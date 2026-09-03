@@ -1,6 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
-import { pluginComponentKey, type PluginDetail } from "../shared/plugins.js";
+import { PLUGIN_SKILL_CONTENT_MAX_BYTES, pluginComponentKey, type PluginDetail } from "../shared/plugins.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
 
 export interface PluginSkillSource {
@@ -13,8 +13,6 @@ export interface PluginSkillRegistration {
   pluginDisplayName: string;
   marketplaceDisplayName: string;
 }
-
-const MAX_SKILL_CONTENT_SIZE = 512 * 1024;
 
 export class PluginSkillContentError extends Error {
   readonly statusCode = 413;
@@ -32,7 +30,7 @@ export async function readPluginSkillContent(
     throw cause;
   });
   if (!details?.isFile()) return undefined;
-  if (details.size > MAX_SKILL_CONTENT_SIZE) throw new PluginSkillContentError("Skill content is larger than 512 KB");
+  if (details.size > PLUGIN_SKILL_CONTENT_MAX_BYTES) throw new PluginSkillContentError("Skill content is larger than 512 KB");
   return readFile(target, "utf8").catch((cause) => {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw cause;

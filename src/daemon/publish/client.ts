@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
+import type { PluginManifest, PluginSkillContent } from "../../shared/plugins.js";
 import type {
   CreatePublishAssetReleaseResult,
   CreatePublishDeploymentResult,
@@ -113,7 +114,7 @@ export class RemotePublisher {
 
   async publishPlugin(input: {
     name: string;
-    manifest: import("../../shared/plugins.js").PluginManifest;
+    manifest: PluginManifest;
     skills: PublishPluginSkill[];
     archive: Buffer;
   }, accessToken: string): Promise<CreatePublishPluginReleaseResult> {
@@ -154,6 +155,10 @@ export class RemotePublisher {
   async pluginContent(pluginId: string, releaseId: string): Promise<Buffer> {
     const response = await this.#response(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/content`);
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  pluginSkillContent(pluginId: string, releaseId: string, skillId: string): Promise<PluginSkillContent> {
+    return this.#request(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/skill-content?id=${encodeURIComponent(skillId)}`);
   }
 
   async publishTemplate(input: {

@@ -778,14 +778,19 @@ export function createApp(options: AppOptions = {}) {
 
   app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-content", pluginSkillQuerySchema, async (request, reply) => {
     const plugin = await plugins.read(request.params.pluginId);
-    if (!plugin?.installed) return reply.code(404).send({ error: "Installed plugin not found" });
+    if (!plugin) return reply.code(404).send({ error: "Plugin not found" });
     try {
+      if (!plugin.installed && plugin.source.type === "catalog") {
+        return await publisher.pluginSkillContent(plugin.source.pluginId, plugin.source.releaseId, request.query.id);
+      }
+      if (!plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
       const content = await readPluginSkillContent(plugin, request.query.id, [bundledPlugins, localPlugins]);
       return content === undefined
         ? reply.code(404).send({ error: "Plugin Skill not found" })
         : { id: request.query.id, content };
     } catch (cause) {
       if (cause instanceof PluginSkillContentError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof RemotePublishError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });

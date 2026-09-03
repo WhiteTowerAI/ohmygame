@@ -65,6 +65,16 @@ describe("public publish server", () => {
     });
     expect(content.statusCode).toBe(200);
     expect(content.headers["content-type"]).toContain("application/zip");
+    const skill = await app.inject({
+      method: "GET",
+      url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/skill-content?id=skills%2Flevel%2FSKILL.md`,
+    });
+    expect(skill.statusCode).toBe(200);
+    expect(skill.json()).toEqual({ id: "skills/level/SKILL.md", content: "---\nname: level\ndescription: Build levels.\n---\n" });
+    expect((await app.inject({
+      method: "GET",
+      url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/skill-content?id=.opengame-plugin%2Fplugin.json`,
+    })).statusCode).toBe(404);
 
     const stale = await publishPlugin(app, pluginId, "release-stale", pluginManifest("0.9.0"));
     expect(stale.statusCode).toBe(409);

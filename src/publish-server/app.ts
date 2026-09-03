@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { isAssetTemplateDefinition } from "../shared/asset-templates.js";
-import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
+import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, PLUGIN_SKILL_CONTENT_MAX_BYTES, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
 import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import type {
   CreatePublishAssetReleaseMetadata,
@@ -594,6 +594,34 @@ export function createPublishApp(options: PublishAppOptions) {
     reply.header("x-content-type-options", "nosniff");
     return reply.send(createReadStream(file));
   });
+
+  app.get<{ Params: { pluginId: string; releaseId: string }; Querystring: { id: string } }>(
+    "/v1/explore/plugins/:pluginId/releases/:releaseId/skill-content",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 500 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const release = store.explorePluginRelease(request.params.pluginId, request.params.releaseId);
+      if (!release) return sendPublishError(reply, request, 404, "not_found", "Plugin release not found");
+      if (!release.skills.some((skill) => skill.id === request.query.id)) {
+        return sendPublishError(reply, request, 404, "not_found", "Plugin Skill not found");
+      }
+      const file = await artifacts.internalFile(release.id, request.query.id);
+      if (!file) return sendPublishError(reply, request, 404, "not_found", "Plugin Skill not found");
+      if ((await stat(file)).size > PLUGIN_SKILL_CONTENT_MAX_BYTES) {
+        return sendPublishError(reply, request, 413, "artifact_too_large", "Skill content is larger than 512 KB");
+      }
+      reply.header("cache-control", "public, max-age=31536000, immutable");
+      return { id: request.query.id, content: await readFile(file, "utf8") };
+    },
+  );
 
   app.post<{ Body: CreatePublishTemplateRequest }>(
     "/v1/templates",

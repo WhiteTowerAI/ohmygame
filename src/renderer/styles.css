@@ -3253,10 +3253,6 @@ button.home-nav-item-active:hover {
   text-align: left;
 }
 
-.plugin-skill-open.is-static {
-  cursor: default;
-}
-
 .plugin-skill-open > svg {
   flex: 0 0 auto;
   color: var(--text-faint);

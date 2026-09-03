@@ -199,7 +199,7 @@ function remotePluginDetail(plugin: import("../shared/publish-v1.js").PublishExp
   return {
     ...summary,
     longDescription: plugin.manifest.interface?.longDescription,
-    skills: plugin.skills.map((skill) => ({ ...skill, enabled: true })),
+    skills: (plugin.skills ?? []).map((skill) => ({ ...skill, enabled: true })),
     connections: (plugin.manifest.connections ?? []).map((id) => ({ id, name: displayName(id.replace(/^opengame-/, "")), enabled: true })),
     defaultPrompts: plugin.manifest.interface?.defaultPrompt,
     projectTypes: plugin.manifest.interface?.projectTypes,
