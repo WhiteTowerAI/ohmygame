@@ -1,31 +1,46 @@
-import { ArrowLeft, Gamepad2, LoaderCircle, RefreshCw } from "../renderer/icons.js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { LoaderCircle, Play } from "../renderer/icons.js";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
-import { getCommunityGame, listCommunityGames } from "./api.js";
+import { listCommunityGames } from "./api.js";
+import appleIcon from "./assets/apple.svg";
+import githubIcon from "./assets/github.svg";
+import brandMark from "./assets/opengame-mark.svg";
+import windowsIcon from "./assets/windows.svg";
 
-export type CommunityRoute = { page: "list" } | { page: "game"; gameId: string };
-
-export function parseCommunityRoute(pathname: string): CommunityRoute {
-  const match = /^\/games\/([^/]+)\/?$/.exec(pathname);
-  if (!match?.[1]) return { page: "list" };
-  try {
-    return { page: "game", gameId: decodeURIComponent(match[1]) };
-  } catch {
-    return { page: "list" };
-  }
-}
+const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
+const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
+const FEATURED_GAME_LIMIT = 14;
 
 export function App() {
-  const route = parseCommunityRoute(window.location.pathname);
-  return route.page === "game" ? <GamePage gameId={route.gameId} /> : <GameList />;
+  return <SiteShell><HomePage /></SiteShell>;
 }
 
-function GameList() {
+function SiteShell({ children }: { children: ReactNode }) {
+  return <div className="site-shell">
+    <SiteHeader />
+    {children}
+    <footer className="site-footer"><Brand /><span>Open-source tools for making and sharing games.</span><a href={GITHUB_URL}>GitHub</a></footer>
+  </div>;
+}
+
+function SiteHeader() {
+  return <header className="site-header">
+    <a className="brand-link" href="/" aria-label="OpenGame home"><Brand /></a>
+    <nav className="site-nav" aria-label="OpenGame"><a className="is-active" href="#games">Games</a><a className="api-link" href="https://portal.open-game.ai">API</a></nav>
+    <div className="header-actions"><a className="github-link" href={GITHUB_URL} aria-label="OpenGame on GitHub" title="GitHub"><img src={githubIcon} alt="" /></a><a className="download-button" href={DOWNLOAD_URL}>Download</a></div>
+  </header>;
+}
+
+function Brand() {
+  return <span className="brand"><img src={brandMark} alt="" /><span>OPEN<span>GAME</span></span></span>;
+}
+
+function HomePage() {
   const [games, setGames] = useState<PublishCommunityGame[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  async function loadGames() {
     setLoading(true);
     setError(undefined);
     try {
@@ -37,93 +52,34 @@ function GameList() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void loadGames(); }, []);
 
-  return (
-    <Page>
-      <header className="page-heading">
-        <div>
-          <span className="eyebrow">OpenGame</span>
-          <h1>Community</h1>
-        </div>
-        <button className="icon-button" type="button" onClick={() => void load()} aria-label="Refresh games" title="Refresh games">
-          <RefreshCw className={loading ? "spin" : undefined} size={17} />
-        </button>
-      </header>
-
-      {loading ? <Status><LoaderCircle className="spin" size={20} />Loading games</Status> : null}
-      {!loading && error ? <Status error={error} onRetry={load} /> : null}
+  return <main>
+    <section className="hero">
+      <h1>THE FIRST OPEN-SOURCE PLATFORM FOR<br />GAME <em>CREATION</em>, <em>PUBLISHING</em>, AND <em>PLAY</em>.</h1>
+      <div className="hero-actions"><a href={DOWNLOAD_URL}><img src={appleIcon} alt="" />Download for macOS</a><a href={DOWNLOAD_URL}><img src={windowsIcon} alt="" />Download for Windows</a></div>
+    </section>
+    <section className="featured-games content-width" id="games">
+      <header className="section-heading"><h2>Games Built with OpenGame</h2><span>Play and explore</span></header>
+      {loading ? <Status><LoaderCircle className="spin" size={18} />Loading games</Status> : null}
+      {!loading && error ? <Status error={error} onRetry={loadGames} /> : null}
       {!loading && !error && games.length === 0 ? <Status>No published games yet</Status> : null}
-      {!loading && !error && games.length > 0 ? (
-        <div className="game-grid">
-          {games.map((game) => (
-            <a className="game-card" href={`/games/${encodeURIComponent(game.id)}`} key={game.id}>
-              <span className="game-art"><Gamepad2 size={30} /></span>
-              <span className="game-copy">
-                <strong>{game.title}</strong>
-                <span>{game.description || "Play this community game"}</span>
-                <time dateTime={game.publishedAt}>{publishedDate(game.publishedAt)}</time>
-              </span>
-            </a>
-          ))}
-        </div>
-      ) : null}
-    </Page>
-  );
+      {!loading && !error && games.length > 0 ? <GameWall games={games.slice(0, FEATURED_GAME_LIMIT)} /> : null}
+    </section>
+  </main>;
 }
 
-function GamePage({ gameId }: { gameId: string }) {
-  const [game, setGame] = useState<PublishCommunityGame>();
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    let active = true;
-    void getCommunityGame(gameId)
-      .then((loaded) => { if (active) setGame(loaded); })
-      .catch((cause) => { if (active) setError(errorMessage(cause)); });
-    return () => { active = false; };
-  }, [gameId]);
-
-  return (
-    <main className="player-page">
-      <header className="player-header">
-        <a className="icon-button" href="/" aria-label="Back to Community" title="Back to Community"><ArrowLeft size={17} /></a>
-        <div>
-          <strong>{game?.title ?? "Community game"}</strong>
-          {game?.description ? <span>{game.description}</span> : null}
-        </div>
-      </header>
-      {error ? <Status error={error} /> : null}
-      {!game && !error ? <Status><LoaderCircle className="spin" size={20} />Loading game</Status> : null}
-      {game ? (
-        <iframe
-          src={game.playUrl}
-          title={game.title}
-          sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-          allow="autoplay; fullscreen"
-        />
-      ) : null}
-    </main>
-  );
+function GameWall({ games }: { games: PublishCommunityGame[] }) {
+  return <div className="game-wall">{games.map((game, index) => <article className={`game-tile game-tile-${index % 7}`} key={game.id}>
+    <span className="game-preview"><iframe src={game.playUrl} title={game.title} loading="lazy" tabIndex={-1} sandbox="allow-scripts" /></span>
+    <a className="game-link" href={game.playUrl} target="_blank" rel="noreferrer" aria-label={`Play ${game.title}`}><span className="game-overlay"><span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span><Play size={17} /></span></a>
+  </article>)}</div>;
 }
 
-function Page({ children }: { children: React.ReactNode }) {
-  return <main className="community-page"><div className="page-content">{children}</div></main>;
+function Status({ children, error, onRetry }: { children?: ReactNode; error?: string; onRetry?: () => void }) {
+  return <div className={`status${error ? " status-error" : ""}`}>{children ?? error}{onRetry ? <button type="button" onClick={onRetry}>Try again</button> : null}</div>;
 }
 
-function Status({ children, error, onRetry }: { children?: React.ReactNode; error?: string; onRetry?: () => void }) {
-  return (
-    <div className={`status${error ? " status-error" : ""}`}>
-      {children ?? error}
-      {onRetry ? <button type="button" onClick={() => void onRetry()}>Try again</button> : null}
-    </div>
-  );
-}
+function errorMessage(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }
 
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function publishedDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
-}
+function publishedDate(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }

@@ -1,17 +1,7 @@
-import type {
-  PublishApiError,
-  PublishCommunityGame,
-} from "../shared/publish-v1.js";
+import type { PublishApiError, PublishCommunityGame } from "../shared/publish-v1.js";
 
 export function listCommunityGames(fetcher: typeof fetch = fetch): Promise<PublishCommunityGame[]> {
   return request("/v1/community/games", fetcher);
-}
-
-export function getCommunityGame(
-  gameId: string,
-  fetcher: typeof fetch = fetch,
-): Promise<PublishCommunityGame> {
-  return request(`/v1/community/games/${encodeURIComponent(gameId)}`, fetcher);
 }
 
 async function request<T>(pathname: string, fetcher: typeof fetch): Promise<T> {
