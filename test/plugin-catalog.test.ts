@@ -106,6 +106,43 @@ describe("plugin catalog", () => {
     expect(plugin.latestVersion).toBeUndefined();
     expect(plugin.updateAvailable).toBeUndefined();
   });
+
+  it("merges current Catalog metadata into an installed Catalog Plugin", async () => {
+    const installed: PluginDetail = {
+      ...localPlugin(),
+      id: "opengame:reference-tools",
+      name: "reference-tools",
+      marketplace: { id: "opengame", displayName: "OpenGame" },
+      source: { type: "catalog", pluginId: "plugin-1", releaseId: "release-1" },
+    };
+    const remote: PluginDetail = {
+      ...installed,
+      version: "0.2.0",
+      source: { type: "catalog", pluginId: "plugin-1", releaseId: "release-2" },
+      installed: false,
+      enabled: false,
+      origin: { type: "github", repository: "example/reference-tools", commit: "new-commit" },
+      curation: "featured",
+      author: { id: "github:example", displayName: "Example" },
+      stats: { likes: 2, uses: 3 },
+    };
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    await settings.load();
+    const catalog = new PluginCatalogService([
+      adapter({ plugins: [installed], read: async () => installed }),
+      adapter({ plugins: [remote], read: async () => remote }),
+    ], settings);
+
+    await expect(catalog.read(installed.id)).resolves.toMatchObject({
+      installed: true,
+      latestVersion: "0.2.0",
+      updateAvailable: true,
+      origin: remote.origin,
+      curation: "featured",
+      author: remote.author,
+      stats: remote.stats,
+    });
+  });
 });
 
 function adapter(overrides: {

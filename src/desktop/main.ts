@@ -10,6 +10,7 @@ import { createDesktopWindow, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(moduleDirectory, "../..");
 const developmentRendererUrl = process.env.OPEN_GAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: ManagedDaemon | undefined;
@@ -124,6 +125,9 @@ try {
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
+    preinstalledPluginsDirectory: app.isPackaged
+      ? path.join(process.resourcesPath, "preinstalled-plugins")
+      : path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

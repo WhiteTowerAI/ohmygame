@@ -35,6 +35,8 @@ try {
     dataDirectory,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OPEN_GAME_BUNDLED_PLUGINS_DIR,
+    preinstalledPluginsDirectory: process.env.OPEN_GAME_PREINSTALLED_PLUGINS_DIR
+      ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     accessToken: process.env.OPEN_GAME_DAEMON_TOKEN,
     allowedOrigins: (process.env.OPEN_GAME_ALLOWED_ORIGINS ?? "")
       .split(",")

@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AssetTemplateDefinition } from "../shared/asset-templates.js";
-import type { PluginManifest } from "../shared/plugins.js";
-import type { CommunityAuthor, CommunityStats, CommunitySubjectType, PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishPluginSkill, PublishTemplateListing } from "../shared/publish-v1.js";
+import { isNewerPluginVersion, type PluginManifest } from "../shared/plugins.js";
+import type { CommunityAuthor, CommunityStats, CommunitySubjectType, PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginCuration, PublishPluginListing, PublishPluginOrigin, PublishPluginSkill, PublishTemplateListing } from "../shared/publish-v1.js";
 import { nextListingState, type ListingState } from "./listings.js";
 
 export interface StoredGame {
@@ -71,6 +71,8 @@ export interface StoredPlugin {
   currentReleaseId: string | null;
   createdAt: string;
   updatedAt: string;
+  origin?: PublishPluginOrigin;
+  curation?: PublishPluginCuration;
 }
 
 export interface StoredPluginRelease {
@@ -88,6 +90,8 @@ export interface StoredExplorePlugin extends StoredPluginRelease {
   name: string;
   author: CommunityAuthor;
   stats: CommunityStats;
+  origin?: PublishPluginOrigin;
+  curation?: PublishPluginCuration;
 }
 
 export interface StoredTemplate {
@@ -131,6 +135,13 @@ export class PublishStore {
     const pluginReleaseColumns = this.#database.prepare("PRAGMA table_info(plugin_releases)").all() as Row[];
     if (!pluginReleaseColumns.some((column) => column.name === "skills_json")) {
       this.#database.exec("ALTER TABLE plugin_releases ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    const pluginColumns = this.#database.prepare("PRAGMA table_info(plugins)").all() as Row[];
+    if (!pluginColumns.some((column) => column.name === "origin_json")) {
+      this.#database.exec("ALTER TABLE plugins ADD COLUMN origin_json TEXT");
+    }
+    if (!pluginColumns.some((column) => column.name === "curation")) {
+      this.#database.exec("ALTER TABLE plugins ADD COLUMN curation TEXT");
     }
     const deploymentColumns = this.#database.prepare("PRAGMA table_info(deployments)").all() as Row[];
     if (!deploymentColumns.some((column) => column.name === "has_cover")) {
@@ -486,9 +497,10 @@ export class PublishStore {
   ): StoredPlugin {
     this.#transaction(() => {
       this.#database.prepare(`
-        INSERT INTO plugins (id, publisher_id, name, current_release_id, created_at, updated_at)
-        VALUES (?, ?, ?, NULL, ?, ?)
-      `).run(plugin.id, plugin.publisherId, plugin.name, plugin.createdAt, plugin.updatedAt);
+        INSERT INTO plugins (id, publisher_id, name, current_release_id, created_at, updated_at, origin_json, curation)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+      `).run(plugin.id, plugin.publisherId, plugin.name, plugin.createdAt, plugin.updatedAt,
+        plugin.origin ? JSON.stringify(plugin.origin) : null, plugin.curation ?? null);
       this.#database.prepare(`
         INSERT INTO plugin_listings (plugin_id, status, listed_at, updated_at)
         VALUES (?, 'unlisted', NULL, ?)
@@ -496,6 +508,47 @@ export class PublishStore {
       this.#completeIdempotency(plugin.publisherId, idempotency);
     });
     return plugin;
+  }
+
+  seedPlugin(plugin: StoredPlugin, release: StoredPluginRelease, publisher: CommunityAuthor): void {
+    this.#transaction(() => {
+      const current = this.#database.prepare(`
+        SELECT p.current_release_id, r.version
+        FROM plugins p
+        LEFT JOIN plugin_releases r ON r.id = p.current_release_id
+        WHERE p.id = ?
+      `).get(plugin.id) as Row | undefined;
+      const activateRelease = !current || current.current_release_id === null
+        || (typeof current.version === "string" && isNewerPluginVersion(release.version, current.version));
+      this.ensurePublisher(publisher, plugin.createdAt);
+      this.#database.prepare(`
+        INSERT INTO plugins (id, publisher_id, name, current_release_id, created_at, updated_at, origin_json, curation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          curation = COALESCE(plugins.curation, excluded.curation)
+      `).run(plugin.id, plugin.publisherId, plugin.name, release.id, plugin.createdAt, release.publishedAt,
+        plugin.origin ? JSON.stringify(plugin.origin) : null, plugin.curation ?? null);
+      this.#database.prepare(`
+        INSERT INTO plugin_releases
+          (id, plugin_id, version, artifact_sha256, artifact_bytes, manifest_json, skills_json, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(release.id, release.pluginId, release.version, release.artifactSha256, release.artifactBytes,
+        JSON.stringify(release.manifest), JSON.stringify(release.skills), release.publishedAt);
+      if (activateRelease || current?.current_release_id === release.id) {
+        this.#database.prepare(`
+          UPDATE plugins
+          SET current_release_id = ?, updated_at = ?, origin_json = ?, curation = ?
+          WHERE id = ?
+        `).run(release.id, release.publishedAt, plugin.origin ? JSON.stringify(plugin.origin) : null,
+          plugin.curation ?? null, plugin.id);
+      }
+      this.#database.prepare(`
+        INSERT INTO plugin_listings (plugin_id, status, listed_at, updated_at)
+        VALUES (?, 'listed', ?, ?)
+        ON CONFLICT(plugin_id) DO NOTHING
+      `).run(plugin.id, plugin.createdAt, release.publishedAt);
+    });
   }
 
   plugin(publisherId: string, pluginId: string): StoredPlugin | undefined {
@@ -576,7 +629,7 @@ export class PublishStore {
 
   explorePlugins(): StoredExplorePlugin[] {
     return (this.#database.prepare(`
-      SELECT p.name, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
+      SELECT p.name, p.origin_json, p.curation, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
         publisher.avatar_url AS author_avatar, ${interactionCounts("plugin", "p.id")}
       FROM plugins p
       JOIN publishers publisher ON publisher.id = p.publisher_id
@@ -588,7 +641,7 @@ export class PublishStore {
 
   explorePlugin(pluginId: string): StoredExplorePlugin | undefined {
     const row = this.#database.prepare(`
-      SELECT p.name, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
+      SELECT p.name, p.origin_json, p.curation, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
         publisher.avatar_url AS author_avatar, ${interactionCounts("plugin", "p.id")}
       FROM plugins p
       JOIN publishers publisher ON publisher.id = p.publisher_id
@@ -821,6 +874,7 @@ function pluginFrom(row: Row | undefined): StoredPlugin | undefined {
     currentReleaseId: row.current_release_id === null ? null : String(row.current_release_id),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    ...pluginMetadataFrom(row),
   };
 }
 
@@ -839,7 +893,13 @@ function pluginReleaseFrom(row: Row | undefined): StoredPluginRelease | undefine
 }
 
 function explorePluginFrom(row: Row): StoredExplorePlugin {
-  return { ...pluginReleaseFrom(row)!, name: String(row.name), ...communityMetadataFrom(row) };
+  return { ...pluginReleaseFrom(row)!, name: String(row.name), ...pluginMetadataFrom(row), ...communityMetadataFrom(row) };
+}
+
+function pluginMetadataFrom(row: Row): Pick<StoredPlugin, "origin" | "curation"> {
+  const origin = row.origin_json ? JSON.parse(String(row.origin_json)) as PublishPluginOrigin : undefined;
+  const curation = row.curation === "featured" ? "featured" as const : undefined;
+  return { ...(origin ? { origin } : {}), ...(curation ? { curation } : {}) };
 }
 
 function templateFrom(row: Row | undefined): StoredTemplate | undefined {
@@ -959,6 +1019,8 @@ const SCHEMA = `
     current_release_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    origin_json TEXT,
+    curation TEXT,
     UNIQUE(publisher_id, name)
   );
 

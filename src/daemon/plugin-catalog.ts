@@ -26,6 +26,7 @@ export class PluginCatalogService {
   constructor(
     private readonly adapters: readonly PluginCatalogAdapter[],
     private readonly settings: PluginSettingsStore,
+    private readonly decoratePlugin: <T extends PluginSummary | PluginDetail>(plugin: T) => T = (plugin) => plugin,
   ) {}
 
   async list(): Promise<PluginCatalog> {
@@ -38,7 +39,8 @@ export class PluginCatalogService {
     }));
     const adapterResults = results.flatMap((entry) => entry.result ? [entry.result] : []);
     return {
-      plugins: uniquePlugins(adapterResults.flatMap((result) => result.plugins)).map((plugin) => this.settings.decorateSummary(plugin)),
+      plugins: uniquePlugins(adapterResults.flatMap((result) => result.plugins))
+        .map((plugin) => this.decoratePlugin(this.settings.decorateSummary(plugin))),
       errors: results.flatMap((entry) => {
         const messages = entry.error ? [entry.error] : entry.result?.errors ?? [];
         return messages.map((message) => ({ marketplaceId: entry.adapter.marketplace.id, message }));
@@ -62,9 +64,13 @@ export class PluginCatalogService {
           ...installed,
           latestVersion: remote.version,
           updateAvailable: Boolean(installed.version && remote.version && isNewerPluginVersion(remote.version, installed.version)),
+          author: remote.author,
+          stats: remote.stats,
+          origin: remote.origin,
+          curation: remote.curation,
         }
       : installed ?? remote ?? plugins[0];
-    if (plugin) return this.settings.decorate(plugin);
+    if (plugin) return this.decoratePlugin(this.settings.decorate(plugin));
     const failure = results.find((result) => result.error !== undefined);
     if (failure) throw failure.error;
     return undefined;
@@ -165,6 +171,10 @@ function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
         ...(plugin.source.type === "catalog" && current.source.type === "catalog" ? {
           latestVersion: current.version,
           updateAvailable: Boolean(plugin.version && current.version && isNewerPluginVersion(current.version, plugin.version)),
+          author: current.author,
+          stats: current.stats,
+          origin: current.origin,
+          curation: current.curation,
         } : {}),
       });
     } else if (current.installed && current.source.type === "catalog" && plugin.source.type === "catalog") {
@@ -172,6 +182,10 @@ function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
         ...current,
         latestVersion: plugin.version,
         updateAvailable: Boolean(current.version && plugin.version && isNewerPluginVersion(plugin.version, current.version)),
+        author: plugin.author,
+        stats: plugin.stats,
+        origin: plugin.origin,
+        curation: plugin.curation,
       });
     }
   }
@@ -193,6 +207,8 @@ function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishEx
     enabled: false,
     author: plugin.author,
     stats: plugin.stats,
+    origin: plugin.origin,
+    curation: plugin.curation,
   };
 }
 

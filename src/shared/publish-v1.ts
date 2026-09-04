@@ -22,6 +22,15 @@ export interface CommunityViewerState {
   liked: boolean;
 }
 
+export interface PublishPluginOrigin {
+  type: "github";
+  repository: string;
+  commit: string;
+  release?: string;
+}
+
+export type PublishPluginCuration = "featured";
+
 export interface CommunityInteractionResult extends CommunityViewerState {
   stats: CommunityStats;
 }
@@ -234,6 +243,8 @@ export interface PublishExplorePlugin {
   publishedAt: string;
   author: CommunityAuthor;
   stats: CommunityStats;
+  origin?: PublishPluginOrigin;
+  curation?: PublishPluginCuration;
 }
 
 export interface CreatePublishPluginRequest {

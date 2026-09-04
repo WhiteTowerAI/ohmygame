@@ -151,7 +151,6 @@ describe("plugin catalog API", () => {
     expect(catalog.json()).toMatchObject({
       plugins: [
         { id: "opengame:godot", installed: true },
-        { id: "opengame:img2threejs", installed: true },
       ],
       errors: [],
     });
@@ -163,23 +162,6 @@ describe("plugin catalog API", () => {
       defaultPrompts: expect.any(Array),
       projectTypes: ["godot-game"],
     });
-  });
-
-  it("exposes the bundled Image to Three.js plugin as one Skill", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-bundled-plugin-")) });
-    apps.push(app);
-    await app.ready();
-
-    const detail = await app.inject({ method: "GET", url: "/plugins/opengame%3Aimg2threejs" });
-
-    expect(detail.statusCode).toBe(200);
-    expect(detail.json()).toMatchObject({
-      id: "opengame:img2threejs",
-      displayName: "Image to Three.js",
-      skills: [{ id: "SKILL.md", name: "Img2threejs", enabled: true }],
-      connections: [],
-    });
-    expect(detail.json()).not.toHaveProperty("tools");
   });
 
   it("stores the Plugin switch without owning Connection access", async () => {

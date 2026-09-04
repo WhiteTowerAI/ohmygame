@@ -37,6 +37,7 @@ import { ArtifactError, ArtifactStore, contentType, DEFAULT_ARTIFACT_LIMITS, typ
 import { requirePublisher, type PublisherTokenVerifier } from "./auth.js";
 import { sendPublishError } from "./http.js";
 import { listingBodySchema } from "./listings.js";
+import { seedPreparedPlugins } from "./preinstalled-plugins.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
 import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredExplorePlugin, type StoredExploreTemplate, type StoredGame, type StoredPlugin, type StoredPluginRelease, type StoredTemplate, type StoredTemplateRelease } from "./store.js";
 
@@ -48,6 +49,7 @@ export interface PublishAppOptions {
   verifyPublisherToken: PublisherTokenVerifier;
   artifactLimits?: ArtifactLimits;
   logger?: boolean;
+  preinstalledPluginsDirectory?: string;
 }
 
 const gameBodySchema = {
@@ -122,9 +124,12 @@ export function createPublishApp(options: PublishAppOptions) {
     },
   });
 
-  app.addHook("onReady", () => artifacts.load(new Set([
-    ...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds(),
-  ])));
+  app.addHook("onReady", async () => {
+    await artifacts.load(new Set([...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds()]));
+    if (options.preinstalledPluginsDirectory) {
+      await seedPreparedPlugins(options.preinstalledPluginsDirectory, store, artifacts);
+    }
+  });
   app.addHook("onClose", async () => store.close());
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
@@ -993,6 +998,7 @@ function publicExplorePlugin(plugin: StoredExplorePlugin): PublishExplorePlugin 
     artifactSha256: plugin.artifactSha256, artifactBytes: plugin.artifactBytes,
     manifest: plugin.manifest, skills: plugin.skills, publishedAt: plugin.publishedAt,
     author: plugin.author, stats: plugin.stats,
+    origin: plugin.origin, curation: plugin.curation,
   };
 }
 

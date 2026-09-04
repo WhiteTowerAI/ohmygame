@@ -20,6 +20,7 @@ interface StartDaemonOptions {
   runtimeBin?: string;
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
+  preinstalledPluginsDirectory?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   healthTimeoutMs?: number;
@@ -44,6 +45,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       OPEN_GAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OPEN_GAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
+      ...(options.preinstalledPluginsDirectory ? { OPEN_GAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

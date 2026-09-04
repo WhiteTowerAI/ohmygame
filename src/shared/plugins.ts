@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention, ProjectType } from "./contracts.js";
-import type { CommunityAuthor, CommunityStats } from "./publish-v1.js";
+import type { CommunityAuthor, CommunityStats, PublishPluginCuration, PublishPluginOrigin } from "./publish-v1.js";
 
 export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
@@ -109,6 +109,9 @@ export interface PluginSummary {
   updateAvailable?: boolean;
   author?: CommunityAuthor;
   stats?: CommunityStats;
+  origin?: PublishPluginOrigin;
+  curation?: PublishPluginCuration;
+  preinstalled?: boolean;
 }
 
 export interface PluginComponentSummary {

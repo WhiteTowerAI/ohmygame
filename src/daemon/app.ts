@@ -36,6 +36,7 @@ import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { inspectPluginSource, installCatalogPlugin, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
+import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
@@ -66,6 +67,7 @@ export interface AppOptions {
   generateConversationTitle?: TitleGenerator;
   generateProjectTitle?: TitleGenerator;
   bundledPluginsDirectory?: string;
+  preinstalledPluginsDirectory?: string;
 }
 
 const createProjectSchema = {
@@ -515,6 +517,10 @@ export function createApp(options: AppOptions = {}) {
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   const connections = new ConnectionManager(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
+  const preinstalledPlugins = new PreinstalledPluginManager(
+    options.preinstalledPluginsDirectory,
+    dataDirectory,
+  );
   const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
   const localPlugins = new LocalPluginStore(dataDirectory, {
     connections: async () => (await mcpServers.list()).map((server) => server.id),
@@ -523,7 +529,7 @@ export function createApp(options: AppOptions = {}) {
     new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
     new RemotePluginAdapter(publisher),
-  ], pluginSettings);
+  ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
   const withConnectionStatus = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => {
     if (!plugin) return plugin;
     const configured = new Map((await connections.list()).map((connection) => [connection.id, connection.enabled]));
@@ -600,7 +606,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
 
@@ -867,6 +874,7 @@ export function createApp(options: AppOptions = {}) {
     const plugin = await localPlugins.read(request.params.pluginId);
     if (!plugin) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
+      await preinstalledPlugins.markRemoved(plugin);
       await localPlugins.remove(request.params.pluginId);
       await pluginSettings.remove(request.params.pluginId).catch((cause) => {
         app.log.warn({ err: cause, pluginId: request.params.pluginId }, "Could not remove stale plugin settings");

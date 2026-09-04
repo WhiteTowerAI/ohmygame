@@ -832,13 +832,19 @@ function pluginSearchText(plugin: PluginSummary): string {
   return `${plugin.name} ${plugin.displayName} ${plugin.description} ${plugin.marketplace.displayName}`.toLowerCase();
 }
 
-function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace">): string {
+function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace" | "origin" | "curation">): string {
+  if (plugin.origin?.type === "github") {
+    return `${plugin.curation === "featured" ? "Featured · " : ""}GitHub · ${plugin.origin.repository}`;
+  }
   return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
     ? plugin.marketplace.displayName
     : `Marketplace · ${plugin.marketplace.displayName}`;
 }
 
-function pluginQualifiedSource(plugin: Pick<PluginSummary, "name" | "marketplace">): string {
+function pluginQualifiedSource(plugin: Pick<PluginSummary, "name" | "marketplace" | "origin" | "curation" | "preinstalled">): string {
+  if (plugin.origin?.type === "github") {
+    return `${plugin.origin.repository}${plugin.curation === "featured" ? " · Featured" : ""}${plugin.preinstalled ? " · Preinstalled" : ""}`;
+  }
   return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
     ? plugin.marketplace.displayName
     : `${plugin.name}@${plugin.marketplace.id}`;

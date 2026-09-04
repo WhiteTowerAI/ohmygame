@@ -15,6 +15,8 @@ files:
 extraResources:
   - from: plugins
     to: plugins
+  - from: .runtime/preinstalled-plugins
+    to: preinstalled-plugins
   - from: .runtime/node
     to: runtime/node
   - from: .runtime/desktop-config.json
