@@ -23,7 +23,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prepare:desktop-runtime -- win32-x64
+        env:
+          PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
       - run: npm run build:desktop-app
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - run: npx electron-builder --win nsis --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -44,7 +49,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prepare:desktop-runtime -- darwin-arm64
+        env:
+          PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
       - run: npm run build:desktop-app
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - name: Validate Apple signing secrets
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
