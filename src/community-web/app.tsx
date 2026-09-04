@@ -11,11 +11,15 @@ import windowsIcon from "./assets/windows.svg";
 
 const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
 const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
-const FEATURED_GAME_LIMIT = 28;
 
 type MosaicSlot = { column: number; row: number; size: 1 | 2 | 3 };
+type MosaicStyle = CSSProperties & {
+  "--mosaic-column": number;
+  "--mosaic-row": number;
+  "--mosaic-size": number;
+};
 
-const MOSAIC_SLOTS: readonly MosaicSlot[] = [
+const HOME_MOSAIC_SLOTS: readonly MosaicSlot[] = [
   { column: 1, row: 1, size: 3 },
   { column: 4, row: 1, size: 2 },
   { column: 6, row: 1, size: 2 },
@@ -46,8 +50,43 @@ const MOSAIC_SLOTS: readonly MosaicSlot[] = [
   { column: 8, row: 10, size: 1 },
 ];
 
+const GAME_DETAIL_SLOTS: readonly MosaicSlot[] = [
+  { column: 8, row: 1, size: 1 },
+  { column: 8, row: 2, size: 1 },
+  { column: 8, row: 3, size: 1 },
+  { column: 8, row: 4, size: 1 },
+  { column: 8, row: 5, size: 1 },
+  { column: 6, row: 6, size: 2 },
+  { column: 8, row: 6, size: 1 },
+  { column: 8, row: 7, size: 1 },
+  { column: 6, row: 8, size: 3 },
+  { column: 1, row: 9, size: 2 },
+  { column: 3, row: 9, size: 1 },
+  { column: 3, row: 10, size: 1 },
+  { column: 4, row: 8, size: 2 },
+  { column: 1, row: 11, size: 3 },
+  { column: 4, row: 11, size: 2 },
+  { column: 7, row: 11, size: 2 },
+  { column: 6, row: 11, size: 1 },
+  { column: 6, row: 12, size: 1 },
+  { column: 4, row: 13, size: 1 },
+  { column: 5, row: 13, size: 1 },
+  { column: 6, row: 13, size: 1 },
+  { column: 7, row: 13, size: 1 },
+  { column: 8, row: 13, size: 1 },
+  { column: 1, row: 14, size: 1 },
+  { column: 2, row: 14, size: 1 },
+  { column: 3, row: 14, size: 2 },
+  { column: 5, row: 14, size: 1 },
+  { column: 6, row: 14, size: 2 },
+];
+
 export function getGameMosaicSlots(count: number): readonly MosaicSlot[] {
-  return MOSAIC_SLOTS.slice(0, Math.max(0, Math.min(Math.floor(count), MOSAIC_SLOTS.length)));
+  return takeMosaicSlots(HOME_MOSAIC_SLOTS, count);
+}
+
+export function getGameDetailMosaicSlots(count: number): readonly MosaicSlot[] {
+  return takeMosaicSlots(GAME_DETAIL_SLOTS, count);
 }
 
 export type CommunityRoute =
@@ -144,7 +183,7 @@ function HomePage() {
         {loading ? <Status><LoaderCircle className="spin" size={18} />Loading games</Status> : null}
         {!loading && error ? <Status error={error} onRetry={loadGames} /> : null}
         {!loading && !error && games.length === 0 ? <Status>No published games yet</Status> : null}
-        {!loading && !error && games.length > 0 ? <GameWall games={games.slice(0, FEATURED_GAME_LIMIT)} /> : null}
+        {!loading && !error && games.length > 0 ? <GameWall games={games.slice(0, HOME_MOSAIC_SLOTS.length)} /> : null}
       </section>
     </main>
   );
@@ -152,26 +191,29 @@ function HomePage() {
 
 function GameWall({ games }: { games: PublishCommunityGame[] }) {
   const slots = getGameMosaicSlots(games.length);
-  const complete = games.length === MOSAIC_SLOTS.length;
+  const complete = games.length === HOME_MOSAIC_SLOTS.length;
   return (
     <div className={`game-wall${complete ? " game-wall-complete" : ""}`}>
       {games.map((game, index) => (
-        <article
-          className={`game-tile game-tile-size-${slots[index]?.size ?? 1}`}
+        <GameTile
+          className={`game-tile-size-${slots[index]?.size ?? 1}`}
+          game={game}
           key={game.id}
-          style={complete ? {
-            "--mosaic-column": slots[index]?.column,
-            "--mosaic-row": slots[index]?.row,
-            "--mosaic-size": slots[index]?.size,
-          } as CSSProperties : undefined}
-        >
-          <GameCover game={game} />
-          <a className="game-link" href={`/games/${encodeURIComponent(game.id)}`} aria-label={`View ${game.title}`}>
-            <span className="game-overlay"><span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span><Play size={17} /></span>
-          </a>
-        </article>
+          style={complete ? mosaicStyle(slots[index]!) : undefined}
+        />
       ))}
     </div>
+  );
+}
+
+function GameTile({ game, className, style }: { game: PublishCommunityGame; className: string; style?: CSSProperties }) {
+  return (
+    <article className={`game-tile ${className}`} style={style}>
+      <GameCover game={game} />
+      <a className="game-link" href={`/games/${encodeURIComponent(game.id)}`} aria-label={`View ${game.title}`}>
+        <span className="game-overlay"><span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span><Play size={17} /></span>
+      </a>
+    </article>
   );
 }
 
@@ -186,12 +228,23 @@ function GameCover({ game }: { game: PublishCommunityGame }) {
 
 function GamePage({ gameId }: { gameId: string }) {
   const [game, setGame] = useState<PublishCommunityGame>();
+  const [relatedGames, setRelatedGames] = useState<PublishCommunityGame[]>([]);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let active = true;
-    void getCommunityGame(gameId)
-      .then((value) => { if (active) setGame(value); })
+    setGame(undefined);
+    setRelatedGames([]);
+    setError(undefined);
+    void Promise.all([
+      getCommunityGame(gameId),
+      listCommunityGames().catch(() => []),
+    ])
+      .then(([value, games]) => {
+        if (!active) return;
+        setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, GAME_DETAIL_SLOTS.length));
+        setGame(value);
+      })
       .catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, [gameId]);
@@ -204,12 +257,13 @@ function GamePage({ gameId }: { gameId: string }) {
 
   if (error) return <main className="game-detail content-width"><Status error={error} /></main>;
   if (!game) return <main className="game-detail content-width"><Status><LoaderCircle className="spin" size={18} />Loading game</Status></main>;
-  return <GameDetail game={game} />;
+  return <GameDetail game={game} relatedGames={relatedGames} />;
 }
 
-function GameDetail({ game }: { game: PublishCommunityGame }) {
+function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relatedGames: PublishCommunityGame[] }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const [shared, setShared] = useState(false);
+  const relatedSlots = getGameDetailMosaicSlots(relatedGames.length);
 
   async function shareGame() {
     const data = { title: game.title, text: game.description, url: window.location.href };
@@ -231,17 +285,17 @@ function GameDetail({ game }: { game: PublishCommunityGame }) {
 
   return (
     <main className="game-detail content-width">
-      <div className="game-player" ref={playerRef}>
-        <div className="game-stage"><iframe src={game.playUrl} title={game.title} sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts" allow="autoplay; fullscreen" /></div>
-        <div className="player-toolbar">
-          <div className="player-identity"><strong>{game.title}</strong><span>Made with OpenGame</span></div>
-          <div className="player-actions">
-            <button type="button" onClick={() => void shareGame()} aria-label="Share game" title={shared ? "Link copied" : "Share game"}><img src={shareIcon} alt="" /></button>
-            <button type="button" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen" title="Fullscreen"><img src={fullscreenIcon} alt="" /></button>
+      <div className={`game-detail-mosaic${relatedGames.length ? " has-related-games" : ""}`}>
+        <div className="game-player" ref={playerRef}>
+          <div className="game-stage"><iframe src={game.playUrl} title={game.title} sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts" allow="autoplay; fullscreen" /></div>
+          <div className="player-toolbar">
+            <div className="player-identity"><strong>{game.title}</strong><span>Made with OpenGame</span></div>
+            <div className="player-actions">
+              <button type="button" onClick={() => void shareGame()} aria-label="Share game" title={shared ? "Link copied" : "Share game"}><img src={shareIcon} alt="" /></button>
+              <button type="button" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen" title="Fullscreen"><img src={fullscreenIcon} alt="" /></button>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="game-detail-grid">
         <article className="game-information">
           <span className="detail-label">GAME INFO</span>
           <h1>{game.title}</h1>
@@ -254,6 +308,19 @@ function GameDetail({ game }: { game: PublishCommunityGame }) {
           <p>Create, play, and publish with OpenGame. Your next world starts here.</p>
           <a href={DOWNLOAD_URL}>Download OpenGame</a>
         </aside>
+        {relatedGames.length ? (
+          <div className="detail-related-games">
+            <h2>More games</h2>
+            {relatedGames.map((relatedGame, index) => (
+              <GameTile
+                className={`detail-related-tile game-tile-size-${relatedSlots[index]?.size ?? 1}`}
+                game={relatedGame}
+                key={relatedGame.id}
+                style={mosaicStyle(relatedSlots[index]!)}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </main>
   );
@@ -273,4 +340,16 @@ function errorMessage(cause: unknown): string {
 
 function publishedDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
+}
+
+function mosaicStyle(slot: MosaicSlot): MosaicStyle {
+  return {
+    "--mosaic-column": slot.column,
+    "--mosaic-row": slot.row,
+    "--mosaic-size": slot.size,
+  };
+}
+
+function takeMosaicSlots(slots: readonly MosaicSlot[], count: number): readonly MosaicSlot[] {
+  return slots.slice(0, Math.max(0, Math.min(Math.floor(count), slots.length)));
 }
