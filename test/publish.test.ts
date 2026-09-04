@@ -227,16 +227,18 @@ describe("remote publish", () => {
       payload: cover,
     })).statusCode).toBe(204);
 
-    const response = await publishProject(runtime.daemon, project.id);
+    const response = await publishProject(runtime.daemon, project.id, { title: "Published title", description: "A fast static game" });
 
     expect(response.statusCode).toBe(201);
     const published = response.json();
-    expect(published.game).toMatchObject({ title: "Static game", description: "", deploymentId: published.deployment.id });
+    expect(published.game).toMatchObject({ title: "Published title", description: "A fast static game", deploymentId: published.deployment.id });
     expect(published.game.coverUrl).toBe(published.deployment.coverUrl);
     expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, "index.html"), "utf8")).toContain("Game");
     expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, PUBLISH_GAME_COVER_PATH))).toEqual(cover);
     expect(await readdir(path.join(runtime.publishData, "artifacts", published.deployment.id))).not.toContain(".env");
-    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([published.game]);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([
+      { ...published.game, author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 } },
+    ]);
   });
 
   it("reuses the remote Game and persists its latest publication across restarts", async () => {
@@ -246,9 +248,10 @@ describe("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
     const first = (await publishProject(runtime.daemon, project.id)).json();
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
-    const second = (await publishProject(runtime.daemon, project.id)).json();
+    const second = (await publishProject(runtime.daemon, project.id, { title: "Persistent update", description: "Second release" })).json();
 
     expect(second.game.id).toBe(first.game.id);
+    expect(second.game).toMatchObject({ title: "Persistent update", description: "Second release" });
     expect(second.deployment.id).not.toBe(first.deployment.id);
     expect(await readFile(path.join(runtime.publishData, "artifacts", first.deployment.id, "index.html"), "utf8")).toBe("one");
     expect(await readFile(path.join(runtime.publishData, "artifacts", second.deployment.id, "index.html"), "utf8")).toBe("two");
@@ -263,6 +266,8 @@ describe("remote publish", () => {
       deploymentId: second.deployment.id,
       playUrl: second.game.playUrl,
       publishedAt: second.game.publishedAt,
+      title: second.game.title,
+      description: second.game.description,
     });
   });
 
@@ -562,11 +567,12 @@ async function createProject(app: FastifyInstance, name: string) {
   return (await app.inject({ method: "POST", url: "/projects", payload: { name } })).json();
 }
 
-function publishProject(app: FastifyInstance, projectId: string) {
+async function publishProject(app: FastifyInstance, projectId: string, metadata?: { title: string; description?: string }) {
+  const project = (await app.inject({ method: "GET", url: `/projects/${projectId}` })).json();
   return app.inject({
     method: "POST",
     url: `/projects/${projectId}/publish`,
-    payload: { accessToken: token },
+    payload: { accessToken: token, title: metadata?.title ?? project.name, description: metadata?.description ?? "" },
   });
 }
 

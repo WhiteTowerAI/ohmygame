@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import type { PluginManifest, PluginSkillContent } from "../../shared/plugins.js";
 import type {
+  CommunityInteractionResult,
+  CommunityStats,
+  CommunitySubjectType,
+  CommunityViewerState,
   CreatePublishAssetReleaseResult,
   CreatePublishDeploymentResult,
   CreatePublishPluginReleaseResult,
@@ -39,9 +43,9 @@ export class RemotePublisher {
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async publish(project: ProjectState, artifact: Buffer, accessToken: string): Promise<PublishResult> {
+  async publish(project: ProjectState, artifact: Buffer, accessToken: string, metadata: { title: string; description?: string }): Promise<PublishResult> {
     const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
-    const game = await this.#game(project, accessToken);
+    const game = await this.#game(project, metadata, accessToken);
     const created = await this.#createDeployment(project, game.id, artifact, artifactSha256, accessToken);
     await this.#list(game.id, accessToken);
     return publishResult(created.game, created.deployment);
@@ -201,23 +205,40 @@ export class RemotePublisher {
     return this.#request("/v1/explore/templates");
   }
 
-  async #game(project: ProjectState, accessToken: string): Promise<PublishGame> {
+  communityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {
+    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/viewer`, {}, accessToken);
+  }
+
+  setCommunityLike(type: CommunitySubjectType, id: string, liked: boolean, accessToken: string): Promise<CommunityInteractionResult> {
+    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/like`, {
+      method: liked ? "PUT" : "DELETE",
+    }, accessToken);
+  }
+
+  recordCommunityUse(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityStats> {
+    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/use`, { method: "POST" }, accessToken);
+  }
+
+  async #game(project: ProjectState, metadata: { title: string; description?: string }, accessToken: string): Promise<PublishGame> {
     let game: PublishGame;
-    const gameId = project.publication?.gameId ?? (await this.#createGame(project, accessToken)).id;
+    const gameId = project.publication?.gameId ?? (await this.#createGame(project, metadata, accessToken)).id;
     try {
       game = await this.#request<PublishGame>(`/v1/games/${gameId}`, {}, accessToken);
     } catch (error) {
       if (!(error instanceof RemotePublishError) || error.statusCode !== 404) throw error;
-      game = await this.#createGame(project, accessToken);
+      game = await this.#createGame(project, metadata, accessToken);
     }
-    return game;
+    return this.#request(`/v1/games/${game.id}`, {
+      method: "PUT",
+      body: JSON.stringify(metadata),
+    }, accessToken);
   }
 
-  #createGame(project: Pick<ProjectState, "id" | "name">, accessToken: string): Promise<PublishGame> {
+  #createGame(project: Pick<ProjectState, "id">, metadata: { title: string; description?: string }, accessToken: string): Promise<PublishGame> {
     return this.#request("/v1/games", {
       method: "POST",
       headers: { "idempotency-key": `project-${project.id}` },
-      body: JSON.stringify({ title: project.name }),
+      body: JSON.stringify(metadata),
     }, accessToken);
   }
 

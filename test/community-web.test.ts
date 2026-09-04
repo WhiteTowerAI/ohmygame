@@ -27,7 +27,8 @@ describe("Community Web game mosaic", () => {
         }
       }
     }
-    expect(occupied.size).toBe(80);
+    expect(occupied.size).toBe(85);
+    expect(Math.max(...slots.map((slot) => slot.column + slot.size - 1))).toBe(10);
   });
 
   it("returns only available slots for an incomplete wall", () => {

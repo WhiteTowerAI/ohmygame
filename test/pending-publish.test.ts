@@ -4,26 +4,26 @@ import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from
 describe("pending Web publish", () => {
   it("resumes the matching project once", () => {
     const storage = new MemoryStorage();
-    rememberPendingPublish(storage, "project-1", 1_000);
+    rememberPendingPublish(storage, "project-1", { title: "Game", description: "Description" }, 1_000);
 
-    expect(takePendingPublish(storage, "project-1", 2_000)).toBe(true);
-    expect(takePendingPublish(storage, "project-1", 2_000)).toBe(false);
+    expect(takePendingPublish(storage, "project-1", 2_000)).toEqual({ title: "Game", description: "Description" });
+    expect(takePendingPublish(storage, "project-1", 2_000)).toBeUndefined();
   });
 
   it("does not resume another project or an expired request", () => {
     const storage = new MemoryStorage();
-    rememberPendingPublish(storage, "project-1", 1_000);
-    expect(takePendingPublish(storage, "project-2", 2_000)).toBe(false);
+    rememberPendingPublish(storage, "project-1", { title: "Game", description: "" }, 1_000);
+    expect(takePendingPublish(storage, "project-2", 2_000)).toBeUndefined();
 
-    rememberPendingPublish(storage, "project-1", 1_000);
-    expect(takePendingPublish(storage, "project-1", 16 * 60 * 1_000)).toBe(false);
+    rememberPendingPublish(storage, "project-1", { title: "Game", description: "" }, 1_000);
+    expect(takePendingPublish(storage, "project-1", 16 * 60 * 1_000)).toBeUndefined();
   });
 
   it("can discard a cancelled request", () => {
     const storage = new MemoryStorage();
-    rememberPendingPublish(storage, "project-1");
+    rememberPendingPublish(storage, "project-1", { title: "Game", description: "" });
     forgetPendingPublish(storage);
-    expect(takePendingPublish(storage, "project-1")).toBe(false);
+    expect(takePendingPublish(storage, "project-1")).toBeUndefined();
   });
 });
 

@@ -22,7 +22,7 @@ import {
   type VideoAspectRatio,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, MODELS_CHANGED_EVENT, publishAssetTemplate, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { defaultTemplateForMode, templatesForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { AppSidebar } from "./app-sidebar.js";
@@ -30,6 +30,7 @@ import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { CommunityMeta } from "./community-meta.js";
 
 interface AssetStudioPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -306,6 +307,9 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
   function applyTemplate(template: AssetTemplate): void {
     setTemplateId(template.id);
+    if (template.source === "catalog" && auth.state.status === "signed-in") {
+      void auth.requestAccessToken().then((token) => token ? recordCommunityUse("template", template.id, token) : undefined).catch(() => undefined);
+    }
     const prompt = template.defaultPrompt ?? "";
     const defaults = template.defaults;
     if (template.mode === "image") {
@@ -577,7 +581,7 @@ function PanelViewSwitcher({ view, disabled, onChange }: { view: AssetPanelView;
 }
 
 function TemplateGallery({ templates, selectedId, onSelect }: { templates: readonly AssetTemplate[]; selectedId: string; onSelect: (template: AssetTemplate) => void }) {
-  return <div className="asset-template-list">{templates.map((template) => <button className={`asset-template-card${template.id === selectedId ? " is-selected" : ""}`} type="button" key={`${template.source}:${template.id}`} aria-label={`${template.name}: ${template.description}`} aria-pressed={template.id === selectedId} onClick={() => onSelect(template)}><span className="asset-template-preview"><img src={template.previewImage} alt="" /></span><span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" ? null : <small>{template.source === "local" ? "Saved" : "Explore"}</small>}</span></button>)}</div>;
+  return <div className="asset-template-list">{templates.map((template) => <article className={`asset-template-card${template.id === selectedId ? " is-selected" : ""}`} key={`${template.source}:${template.id}`}><button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={template.id === selectedId} onClick={() => onSelect(template)}><span className="asset-template-preview"><img src={template.previewImage} alt="" /></span><span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" ? null : <small>{template.source === "local" ? "Saved" : "Explore"}</small>}</span></button>{template.source === "catalog" && template.author && template.stats ? <CommunityMeta type="template" id={template.id} author={template.author} stats={template.stats} useLabel="uses" /> : null}</article>)}</div>;
 }
 
 function templateForGallery(template: LocalAssetTemplate | ExploreAssetTemplate): AssetTemplate {

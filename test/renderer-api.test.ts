@@ -201,11 +201,11 @@ describe("renderer project API", () => {
     const fetchMock = vi.fn(async () => Response.json({ deployment: {}, game: {} }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await publishProject("project", "user-access-token");
+    await publishProject("project", "user-access-token", { title: "Game", description: "Description" });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/project/publish", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ accessToken: "user-access-token" }),
+      body: JSON.stringify({ accessToken: "user-access-token", title: "Game", description: "Description" }),
     }));
   });
 

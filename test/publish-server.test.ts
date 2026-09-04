@@ -21,6 +21,39 @@ afterEach(async () => {
 });
 
 describe("public publish server", () => {
+  it("exposes verified author metadata and records unique community interactions", async () => {
+    const app = createPublishApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-community-interactions-")),
+      verifyPublisherToken: async (value) => value === token
+        ? { id: "publisher", displayName: "Ada", avatarUrl: "https://example.com/ada.png" }
+        : value === "other-publisher-token" ? "other-publisher" : undefined,
+    });
+    apps.push(app);
+    const asset = (await createAsset(app, "community-asset", { title: "Sprite", mediaType: "image" })).json();
+    await publishAsset(app, asset.id, "community-release", Buffer.from("image"), "sprite.png", "image/png");
+    await app.inject({ method: "PUT", url: `/v1/assets/${asset.id}/listing`, headers: authorization, payload: { status: "listed" } });
+
+    const listed = (await app.inject({ method: "GET", url: `/v1/explore/assets/${asset.id}` })).json();
+    expect(listed).toMatchObject({
+      author: { id: "publisher", displayName: "Ada", avatarUrl: "https://example.com/ada.png" },
+      stats: { likes: 0, uses: 0 },
+    });
+    expect((await app.inject({ method: "PUT", url: `/v1/community/asset/${asset.id}/like` })).statusCode).toBe(401);
+
+    for (let index = 0; index < 2; index += 1) {
+      expect((await app.inject({ method: "PUT", url: `/v1/community/asset/${asset.id}/like`, headers: authorization })).json())
+        .toMatchObject({ liked: true, stats: { likes: 1, uses: index === 0 ? 0 : 1 } });
+      expect((await app.inject({ method: "POST", url: `/v1/community/asset/${asset.id}/use`, headers: authorization })).json())
+        .toMatchObject({ likes: 1, uses: 1 });
+    }
+    expect((await app.inject({ method: "GET", url: `/v1/community/asset/${asset.id}/viewer`, headers: authorization })).json())
+      .toEqual({ liked: true });
+    expect((await app.inject({ method: "DELETE", url: `/v1/community/asset/${asset.id}/like`, headers: authorization })).json())
+      .toMatchObject({ liked: false, stats: { likes: 0, uses: 1 } });
+    expect((await app.inject({ method: "POST", url: "/v1/community/asset/missing/use", headers: authorization })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: `/v1/community/unknown/${asset.id}/like`, headers: authorization })).statusCode).toBe(404);
+  });
+
   it("publishes and lists immutable Asset Template definitions", async () => {
     const app = await testApp();
     const created = await app.inject({
@@ -42,7 +75,10 @@ describe("public publish server", () => {
       method: "PUT", url: `/v1/templates/${templateId}/listing`, headers: authorization, payload: { status: "listed" },
     })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/v1/explore/templates" })).json()).toEqual([
-      expect.objectContaining({ id: templateId, releaseId: release.json().release.id, ...definition }),
+      expect.objectContaining({
+        id: templateId, releaseId: release.json().release.id, ...definition,
+        author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 },
+      }),
     ]);
   });
 
@@ -59,6 +95,7 @@ describe("public publish server", () => {
     expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toMatchObject([{
       id: pluginId, name: "level-tools", version: "1.0.0", manifest: { name: "level-tools" },
       skills: [{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }],
+      author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 },
     }]);
     const content = await app.inject({
       method: "GET", url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/content`,
@@ -140,6 +177,31 @@ describe("public publish server", () => {
     const columns = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
     expect(columns.prepare("PRAGMA table_info(deployments)").all())
       .toEqual(expect.arrayContaining([expect.objectContaining({ name: "has_cover" })]));
+    columns.close();
+  });
+
+  it("migrates publisher profiles and community interaction tables", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-community-migration-"));
+    const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
+    await initial.ready();
+    await initial.close();
+
+    const database = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    database.exec("DROP TABLE community_usage; DROP TABLE community_likes;");
+    database.exec("ALTER TABLE publishers DROP COLUMN avatar_url; ALTER TABLE publishers DROP COLUMN display_name;");
+    database.close();
+
+    const migrated = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(migrated);
+    await migrated.ready();
+    const columns = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    expect(columns.prepare("PRAGMA table_info(publishers)").all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "display_name" }),
+      expect.objectContaining({ name: "avatar_url" }),
+    ]));
+    expect(columns.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual(expect.arrayContaining([
+      { name: "community_likes" }, { name: "community_usage" },
+    ]));
     columns.close();
   });
 
@@ -226,6 +288,14 @@ describe("public publish server", () => {
     const gameId = first.json().id;
     const detail = await app.inject({ method: "GET", url: `/v1/games/${gameId}`, headers: authorization });
     expect(detail.json()).toMatchObject({ id: gameId, title: "Game" });
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/v1/games/${gameId}`,
+      headers: authorization,
+      payload: { title: "Updated game", description: "Updated description" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ id: gameId, title: "Updated game", description: "Updated description" });
     const listing = await app.inject({
       method: "PUT",
       url: `/v1/games/${gameId}/listing`,

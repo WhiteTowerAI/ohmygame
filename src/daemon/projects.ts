@@ -505,5 +505,7 @@ function validPublication(value: unknown): value is PublicationState {
   if (!value || typeof value !== "object") return false;
   const publication = value as Partial<PublicationState>;
   return typeof publication.gameId === "string" && typeof publication.deploymentId === "string" &&
-    typeof publication.playUrl === "string" && typeof publication.publishedAt === "string";
+    typeof publication.playUrl === "string" && typeof publication.publishedAt === "string" &&
+    (publication.title === undefined || typeof publication.title === "string") &&
+    (publication.description === undefined || typeof publication.description === "string");
 }

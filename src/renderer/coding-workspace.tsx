@@ -25,6 +25,7 @@ import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../share
 import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
 import { AssetCard, AssetDetailDialog, AssetToolbar, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type PreviewViewport = "fit" | "tablet" | "mobile";
@@ -34,7 +35,7 @@ interface CodingWorkspaceProps {
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision: number;
-  onPublish: () => void;
+  onPublish: (details: PublishDetails) => Promise<boolean>;
   onRestart: () => void;
 }
 
@@ -58,6 +59,7 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const fileRequest = useRef(0);
   const preview = project?.preview;
   const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
@@ -171,7 +173,7 @@ export function CodingWorkspace({
           <button
             className="publish-button workspace-publish-button"
             type="button"
-            onClick={onPublish}
+            onClick={() => setPublishDialogOpen(true)}
             disabled={!project || publishing || agentBusy}
             title={publishing ? "Publishing" : "Publish"}
             aria-label={publishing ? "Publishing" : "Publish"}
@@ -203,6 +205,7 @@ export function CodingWorkspace({
           onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
       )}
+      {project && publishDialogOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishDialogOpen(false)} onPublish={onPublish} /> : null}
     </section>
   );
 }

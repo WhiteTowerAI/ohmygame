@@ -117,6 +117,8 @@ export interface PublicationState {
   deploymentId: string;
   playUrl: string;
   publishedAt: string;
+  title?: string;
+  description?: string;
 }
 
 export interface ProjectState {
@@ -218,11 +220,13 @@ export type CommunityGame = PublishCommunityGame;
 
 export interface PublishResult {
   deployment: PublishDeployment;
-  game: CommunityGame;
+  game: Omit<CommunityGame, "author" | "stats">;
 }
 
 export interface PublishProjectRequest {
   accessToken: string;
+  title: string;
+  description?: string;
 }
 
 export type ExploreAsset = PublishExploreAsset;
@@ -599,7 +603,7 @@ export interface RuntimeEventData {
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
-  "publish.completed": { game: CommunityGame };
+  "publish.completed": { game: PublishResult["game"] };
   "publish.error": { error: string };
 }
 

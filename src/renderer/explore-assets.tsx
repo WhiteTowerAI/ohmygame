@@ -8,6 +8,7 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useExploreAssetUrl } from "./use-explore-asset-url.js";
+import { CommunityMeta, useCommunityUseRecorder } from "./community-meta.js";
 
 export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -100,6 +101,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
   const [addedProject, setAddedProject] = useState<ProjectState>();
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
+  const recordUse = useCommunityUseRecorder();
   onCloseRef.current = onClose;
 
   useEffect(() => {
@@ -131,6 +133,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
     setNotice(undefined);
     try {
       await addExploreAssetToProject(project.id, asset.id);
+      void recordUse("asset", asset.id).catch(() => undefined);
       setAddedProject(project);
       setPickerOpen(false);
       setNotice(`Added to ${project.name}`);
@@ -158,7 +161,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
         {preview.url && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={asset.title} minHeight={420} /> : null}
       </div>
       <footer className="library-dialog-footer">
-        <dl><div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.artifactBytes)}</dd></div><div className="library-dialog-path"><dt>File</dt><dd>{fileName(asset.fileName)}</dd></div></dl>
+        <div><CommunityMeta type="asset" id={asset.id} author={asset.author} stats={asset.stats} useLabel="adds" /><dl><div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.artifactBytes)}</dd></div><div className="library-dialog-path"><dt>File</dt><dd>{fileName(asset.fileName)}</dd></div></dl></div>
         <div className="library-dialog-footer-actions">
           {notice ? <span role="status">{notice}</span> : null}
           {addedProject ? <button type="button" onClick={() => onOpenProject(addedProject.id)}><Check size={15} />Open project</button> : null}

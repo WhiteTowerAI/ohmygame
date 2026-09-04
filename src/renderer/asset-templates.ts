@@ -17,6 +17,8 @@ export interface AssetTemplate extends AssetTemplateDefinition {
   previewImage: string;
   source: "builtIn" | "local" | "catalog";
   publication?: import("../shared/asset-templates.js").LocalAssetTemplate["publication"];
+  author?: import("../shared/publish-v1.js").CommunityAuthor;
+  stats?: import("../shared/publish-v1.js").CommunityStats;
 }
 
 const BUILT_IN_TEMPLATES: readonly Omit<AssetTemplate, "source">[] = [

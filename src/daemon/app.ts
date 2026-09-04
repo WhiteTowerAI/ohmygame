@@ -9,7 +9,7 @@ import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -144,12 +144,43 @@ const saveConnectionSchema = {
   },
 } as const;
 
+const publishAccessTokenBody = {
+  type: "object",
+  additionalProperties: false,
+  required: ["accessToken"],
+  properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+} as const;
+
+const communitySubjectParams = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "id"],
+  properties: {
+    type: { enum: ["game", "asset", "plugin", "template"] },
+    id: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+const communityLikeBody = {
+  type: "object",
+  additionalProperties: false,
+  required: ["accessToken", "liked"],
+  properties: {
+    accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+    liked: { type: "boolean" },
+  },
+} as const;
+
 const publishProjectSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    required: ["accessToken"],
-    properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+    required: ["accessToken", "title"],
+    properties: {
+      accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+      title: { type: "string", minLength: 1, maxLength: 200 },
+      description: { type: "string", maxLength: 2_000 },
+    },
   },
 } as const;
 
@@ -167,7 +198,7 @@ const publishPluginSchema = {
 
 const publishAssetSchema = {
   querystring: assetPathQuerySchema,
-  body: publishProjectSchema.body,
+  body: publishAccessTokenBody,
 } as const;
 
 const importAssetSchema = {
@@ -971,6 +1002,45 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string } }>(
+    "/community/:type/:id/viewer",
+    { schema: { params: communitySubjectParams, body: publishAccessTokenBody } },
+    async (request, reply) => {
+      try {
+        return await publisher.communityViewerState(request.params.type, request.params.id, request.body.accessToken);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+      }
+    },
+  );
+
+  app.put<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string; liked: boolean } }>(
+    "/community/:type/:id/like",
+    { schema: { params: communitySubjectParams, body: communityLikeBody } },
+    async (request, reply) => {
+      try {
+        return await publisher.setCommunityLike(request.params.type, request.params.id, request.body.liked, request.body.accessToken);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+      }
+    },
+  );
+
+  app.post<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string } }>(
+    "/community/:type/:id/use",
+    { schema: { params: communitySubjectParams, body: publishAccessTokenBody } },
+    async (request, reply) => {
+      try {
+        return await publisher.recordCommunityUse(request.params.type, request.params.id, request.body.accessToken);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+      }
+    },
+  );
+
   app.get<{ Params: { gameId: string } }>("/community/games/:gameId", async (request, reply) => {
     try {
       return await publisher.communityGame(request.params.gameId);
@@ -1024,9 +1094,9 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { templateId: string }; Body: PublishProjectRequest }>(
+  app.post<{ Params: { templateId: string }; Body: { accessToken: string } }>(
     "/asset-templates/:templateId/publish",
-    { schema: { body: publishProjectSchema.body } },
+    { schema: { body: publishAccessTokenBody } },
     async (request, reply) => {
       try {
         const template = await assetTemplates.read(request.params.templateId);
@@ -1873,12 +1943,15 @@ export function createApp(options: AppOptions = {}) {
           project,
           await artifacts.create(project, await projects.cover(project.id)),
           request.body.accessToken,
+          { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
         await projects.setPublication(project.id, {
           gameId: result.game.id,
           deploymentId: result.game.deploymentId,
           playUrl: result.game.playUrl,
           publishedAt: result.game.publishedAt,
+          title: result.game.title,
+          description: result.game.description,
         });
         events.publish(project.id, "publish.completed", { game: result.game });
         return reply.code(201).send(result);

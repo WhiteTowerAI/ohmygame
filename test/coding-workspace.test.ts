@@ -18,7 +18,7 @@ describe("preview path", () => {
       agentBusy: false,
       publishing: false,
       workspaceRevision: 0,
-      onPublish: () => undefined,
+      onPublish: async () => true,
       onRestart: () => undefined,
     }));
 

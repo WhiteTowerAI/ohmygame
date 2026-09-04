@@ -57,6 +57,8 @@ export interface ExploreAssetTemplate extends AssetTemplateDefinition {
   source: "catalog";
   releaseId: string;
   publishedAt: string;
+  author: import("./publish-v1.js").CommunityAuthor;
+  stats: import("./publish-v1.js").CommunityStats;
 }
 
 export interface CreateAssetTemplateRequest extends AssetTemplateDefinition {}

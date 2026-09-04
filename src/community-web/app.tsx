@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { LoaderCircle, Play } from "../renderer/icons.js";
+import { LoaderCircle } from "../renderer/icons.js";
 import {
   GAME_DETAIL_MOSAIC_SLOTS,
   HOME_GAME_MOSAIC_SLOTS,
@@ -154,7 +154,18 @@ function GameTile({ game, className, style }: { game: PublishCommunityGame; clas
     <article className={`game-tile ${className}`} style={style}>
       <GameCover game={game} />
       <a className="game-link" href={`/games/${encodeURIComponent(game.id)}`} aria-label={`View ${game.title}`}>
-        <span className="game-overlay"><span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span><Play size={17} /></span>
+        <span className="game-overlay">
+          <span className="game-overlay-copy">
+            <strong>{game.title}</strong>
+            <span className="game-creator">
+              <span className="game-creator-avatar" aria-hidden="true">
+                <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
+                {game.author.avatarUrl ? <img src={game.author.avatarUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+              </span>
+              <small>{game.author.displayName}</small>
+            </span>
+          </span>
+        </span>
       </a>
     </article>
   );
@@ -167,6 +178,14 @@ function GameCover({ game }: { game: PublishCommunityGame }) {
   }
   const source = `/v1/community/games/${encodeURIComponent(game.id)}/deployments/${encodeURIComponent(game.deploymentId)}/cover`;
   return <span className="game-preview"><img className="game-cover" src={source} alt="" loading="lazy" onError={() => setFailed(true)} /></span>;
+}
+
+function GameThumbnail({ game }: { game: PublishCommunityGame }) {
+  const [failed, setFailed] = useState(false);
+  const source = `/v1/community/games/${encodeURIComponent(game.id)}/deployments/${encodeURIComponent(game.deploymentId)}/cover`;
+  return <span className="player-thumbnail" aria-hidden="true">
+    {game.coverUrl && !failed ? <img src={source} alt="" onError={() => setFailed(true)} /> : <img className="is-placeholder" src={brandMark} alt="" />}
+  </span>;
 }
 
 function GamePage({ gameId }: { gameId: string }) {
@@ -232,7 +251,7 @@ function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relate
         <div className="game-player" ref={playerRef}>
           <div className="game-stage"><iframe src={game.playUrl} title={game.title} sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts" allow="autoplay; fullscreen" /></div>
           <div className="player-toolbar">
-            <div className="player-identity"><strong>{game.title}</strong><span>Made with OpenGame</span></div>
+            <div className="player-summary"><GameThumbnail game={game} /><div className="player-identity"><strong>{game.title}</strong><span>by {game.author.displayName}</span></div></div>
             <div className="player-actions">
               <button type="button" onClick={() => void shareGame()} aria-label="Share game" title={shared ? "Link copied" : "Share game"}><img src={shareIcon} alt="" /></button>
               <button type="button" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen" title="Fullscreen"><img src={fullscreenIcon} alt="" /></button>
@@ -243,6 +262,7 @@ function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relate
           <span className="detail-label">GAME INFO</span>
           <h1>{game.title}</h1>
           {game.description ? <p>{game.description}</p> : null}
+          <div className="game-community-meta"><span>{game.author.avatarUrl ? <img src={game.author.avatarUrl} alt="" /> : <i aria-hidden="true">{game.author.displayName.slice(0, 1).toUpperCase()}</i>}<strong>{game.author.displayName}</strong></span><span>{game.stats.likes} likes · {game.stats.uses} players</span></div>
           <dl><dt>RELEASED</dt><dd>{publishedDate(game.publishedAt)}</dd></dl>
         </article>
         <aside className="download-cta">

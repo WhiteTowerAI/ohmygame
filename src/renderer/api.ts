@@ -43,6 +43,7 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
+import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { CreatePublishTemplateReleaseResult } from "../shared/publish-v1.js";
 
@@ -295,8 +296,8 @@ export async function addToolResultToProject(
   return request(`/projects/${projectId}/tool-results`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function publishProject(projectId: string, accessToken: string): Promise<PublishResult> {
-  const body: PublishProjectRequest = { accessToken };
+export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
+  const body: PublishProjectRequest = { accessToken, ...metadata };
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -396,6 +397,24 @@ export async function publishAssetTemplate(templateId: string, accessToken: stri
 
 export async function listExploreTemplates(): Promise<ExploreAssetTemplate[]> {
   return request("/explore/templates");
+}
+
+export async function getCommunityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {
+  return request(`/community/${type}/${encodeURIComponent(id)}/viewer`, {
+    method: "POST", body: JSON.stringify({ accessToken }),
+  });
+}
+
+export async function setCommunityLike(type: CommunitySubjectType, id: string, liked: boolean, accessToken: string): Promise<CommunityInteractionResult> {
+  return request(`/community/${type}/${encodeURIComponent(id)}/like`, {
+    method: "PUT", body: JSON.stringify({ accessToken, liked }),
+  });
+}
+
+export async function recordCommunityUse(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityStats> {
+  return request(`/community/${type}/${encodeURIComponent(id)}/use`, {
+    method: "POST", body: JSON.stringify({ accessToken }),
+  });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {

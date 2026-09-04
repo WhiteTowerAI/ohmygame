@@ -12,7 +12,7 @@ describe("publish authentication", () => {
       "https://project.supabase.co",
       createLocalJWKSet({ keys: [{ ...publicJwk, kid: "test-key", alg: "ES256", use: "sig" }] }),
     );
-    const token = await new SignJWT({ role: "authenticated" })
+    const token = await new SignJWT({ role: "authenticated", user_metadata: { full_name: "Ada", avatar_url: "https://example.com/ada.png" } })
       .setProtectedHeader({ alg: "ES256", kid: "test-key" })
       .setIssuer(issuer)
       .setAudience("authenticated")
@@ -21,7 +21,9 @@ describe("publish authentication", () => {
       .setExpirationTime("5m")
       .sign(privateKey);
 
-    await expect(verifier(token)).resolves.toBe("user-123");
+    await expect(verifier(token)).resolves.toEqual({
+      id: "user-123", displayName: "Ada", avatarUrl: "https://example.com/ada.png",
+    });
 
     const wrongAudience = await new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: "test-key" })

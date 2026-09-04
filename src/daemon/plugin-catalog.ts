@@ -191,6 +191,8 @@ function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishEx
     source: { type: "catalog", pluginId: plugin.id, releaseId: plugin.releaseId },
     installed: false,
     enabled: false,
+    author: plugin.author,
+    stats: plugin.stats,
   };
 }
 

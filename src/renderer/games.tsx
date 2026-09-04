@@ -1,8 +1,7 @@
-import { ArrowLeft, ExternalLink, LoaderCircle, Maximize, Play, RefreshCw, X } from "./icons.js";
+import { ExternalLink, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import {
-  GAME_DETAIL_MOSAIC_SLOTS,
   HOME_GAME_MOSAIC_SLOTS,
   takeGameMosaicSlots,
   type GameMosaicSlot,
@@ -11,6 +10,9 @@ import brandMark from "../shared/assets/opengame-mark.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { CommunityLikeButton, CommunityMetaSummary, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
+
+const RELATED_GAMES_LIMIT = 10;
 
 export function GamesPage({
   onNavigate,
@@ -85,28 +87,37 @@ function GameMosaic({ games, onOpenGame }: { games: CommunityGame[]; onOpenGame:
   );
 }
 
-function GameTile({ className = "", game, onOpen, slot, useFixedSlot }: {
+function GameTile({ className = "", game, onOpen, slot, useFixedSlot = false }: {
   className?: string;
   game: CommunityGame;
   onOpen: () => void;
-  slot: GameMosaicSlot;
-  useFixedSlot: boolean;
+  slot?: GameMosaicSlot;
+  useFixedSlot?: boolean;
 }) {
   const coverUrl = useGameCover(game);
-  const style: MosaicStyle = {
+  const size = slot?.size ?? 1;
+  const style: MosaicStyle | undefined = slot ? {
     "--mosaic-column": slot.column,
     "--mosaic-row": slot.row,
     "--mosaic-size": slot.size,
-  };
+  } : undefined;
   return (
-    <article className={`explore-game-tile explore-game-tile-size-${slot.size}${className ? ` ${className}` : ""}`} style={useFixedSlot ? style : undefined}>
+    <article className={`explore-game-tile explore-game-tile-size-${size}${className ? ` ${className}` : ""}`} style={useFixedSlot ? style : undefined}>
       {coverUrl
         ? <img className="explore-game-cover" src={coverUrl} alt="" />
         : <span className="explore-game-cover-placeholder" aria-hidden="true"><img src={brandMark} alt="" /></span>}
       <button type="button" onClick={onOpen} aria-label={`Play ${game.title}`}>
         <span className="explore-game-overlay">
-          <span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span>
-          <Play size={17} />
+          <span className="explore-game-overlay-copy">
+            <strong>{game.title}</strong>
+            <span className="explore-game-creator">
+              <span className="explore-game-creator-avatar" aria-hidden="true">
+                <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
+                {game.author.avatarUrl ? <img src={game.author.avatarUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+              </span>
+              <small>{game.author.displayName}</small>
+            </span>
+          </span>
         </span>
       </button>
     </article>
@@ -137,9 +148,10 @@ function useGameCover(game: CommunityGame): string | undefined {
   return url;
 }
 
-export function GamePlayer({ gameId, onBack, onOpenGame }: {
+export function GamePlayer({ gameId, onBack, onNavigate, onOpenGame }: {
   gameId: string;
   onBack: () => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onOpenGame: (gameId: string) => void;
 }) {
   const [game, setGame] = useState<CommunityGame>();
@@ -160,7 +172,7 @@ export function GamePlayer({ gameId, onBack, onOpenGame }: {
       ]);
       if (version !== loadVersion.current) return;
       setGame(currentGame);
-      setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, GAME_DETAIL_MOSAIC_SLOTS.length));
+      setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, RELATED_GAMES_LIMIT));
     } catch (cause) {
       if (version !== loadVersion.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -173,15 +185,8 @@ export function GamePlayer({ gameId, onBack, onOpenGame }: {
   }, [gameId]);
 
   return (
-    <main className="game-detail-page">
-      <header className="game-detail-page-header window-drag-handle">
-        <button className="game-player-back" type="button" onClick={onBack}>
-          <ArrowLeft size={15} />
-          Games
-        </button>
-        {game ? <span aria-hidden="true">/</span> : null}
-        {game ? <strong title={game.title}>{game.title}</strong> : null}
-      </header>
+    <SidebarPageLayout active="games" onNavigate={onNavigate}>
+      <SidebarPageHeader title={game?.title ?? "Game"} breadcrumb={{ label: "Games", onClick: onBack }} />
       <section className="game-detail-scroll">
         {!game && !error ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading game</div> : null}
         {error ? (
@@ -193,7 +198,7 @@ export function GamePlayer({ gameId, onBack, onOpenGame }: {
         ) : null}
         {game ? <GameDetail game={game} relatedGames={relatedGames} onOpenGame={onOpenGame} /> : null}
       </section>
-    </main>
+    </SidebarPageLayout>
   );
 }
 
@@ -203,7 +208,29 @@ function GameDetail({ game, relatedGames, onOpenGame }: {
   onOpenGame: (gameId: string) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
-  const slots = takeGameMosaicSlots(GAME_DETAIL_MOSAIC_SLOTS, relatedGames.length);
+  const recorded = useRef(false);
+  const recordUse = useCommunityUseRecorder();
+  const like = useCommunityLike("game", game.id, game.stats);
+  const coverUrl = useGameCover(game);
+  const [shared, setShared] = useState(false);
+
+  useEffect(() => {
+    recorded.current = false;
+    setShared(false);
+  }, [game.id]);
+
+  async function shareGame() {
+    const data = { title: game.title, text: game.description, url: game.playUrl };
+    try {
+      if (navigator.share) await navigator.share(data);
+      else {
+        await navigator.clipboard.writeText(data.url);
+        setShared(true);
+      }
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) console.error(cause);
+    }
+  }
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -212,53 +239,61 @@ function GameDetail({ game, relatedGames, onOpenGame }: {
 
   return (
     <div className="electron-game-detail-content">
-      <div className={`electron-game-detail-mosaic${relatedGames.length ? " has-related-games" : ""}`}>
-        <div className="electron-game-player" ref={playerRef}>
-          <div className="electron-game-stage">
-            <iframe
-              src={game.playUrl}
-              title={game.title}
-              sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
-              allow="autoplay; fullscreen"
-            />
+      <div className="electron-game-player" ref={playerRef}>
+        <div className="electron-game-stage">
+          <iframe
+            src={game.playUrl}
+            title={game.title}
+            sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
+            allow="autoplay; fullscreen"
+            onLoad={() => {
+              if (recorded.current) return;
+              recorded.current = true;
+              void recordUse("game", game.id).catch(() => undefined);
+            }}
+          />
+        </div>
+        <div className="electron-game-toolbar">
+          <div className="electron-game-summary">
+            <span className="electron-game-thumbnail" aria-hidden="true">{coverUrl ? <img src={coverUrl} alt="" /> : <img className="is-placeholder" src={brandMark} alt="" />}</span>
+            <div className="electron-game-identity"><strong>{game.title}</strong><span>by {game.author.displayName}</span></div>
           </div>
-          <div className="electron-game-toolbar">
-            <div><strong>{game.title}</strong><span>Made with OpenGame</span></div>
-            <div className="electron-game-toolbar-actions">
-              <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
-            </div>
+          <div className="electron-game-toolbar-actions">
+            <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} showCount={false} />
+            <button type="button" onClick={() => void shareGame()} title={shared ? "Link copied" : "Share game"} aria-label="Share game"><Share2 size={17} /></button>
+            <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
           </div>
         </div>
+      </div>
 
-        <article className="electron-game-information">
+      <article className="electron-game-information">
+        <div className="electron-game-information-copy">
           <span className="electron-game-detail-label">GAME INFO</span>
           <h1>{game.title}</h1>
           {game.description ? <p>{game.description}</p> : null}
+        </div>
+        <div className="electron-game-information-meta">
+          <CommunityMetaSummary author={game.author} stats={like.counts} useLabel="players" />
           <dl><dt>RELEASED</dt><dd>{publishedDate(game.publishedAt)}</dd></dl>
-        </article>
-
-        <aside className="electron-game-open-panel">
-          <span className="electron-game-detail-label">PLAY ANYWHERE</span>
-          <h2>OPEN IN YOUR BROWSER</h2>
           <button type="button" onClick={() => void openExternal(game.playUrl)}>Open game<ExternalLink size={15} /></button>
-        </aside>
+        </div>
+      </article>
 
-        {relatedGames.length ? (
-          <section className="electron-game-related" aria-label="More games">
-            <h2>More games</h2>
-            {relatedGames.map((relatedGame, index) => (
+      {relatedGames.length ? (
+        <section className="electron-game-related" aria-label="More games">
+          <h2>More games</h2>
+          <div className="electron-game-related-grid">
+            {relatedGames.map((relatedGame) => (
               <GameTile
                 className="electron-game-related-tile"
                 game={relatedGame}
                 key={relatedGame.id}
                 onOpen={() => onOpenGame(relatedGame.id)}
-                slot={slots[index]!}
-                useFixedSlot
               />
             ))}
-          </section>
-        ) : null}
-      </div>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

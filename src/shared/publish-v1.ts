@@ -5,6 +5,27 @@ export const PUBLISH_GAME_COVER_PATH = "__opengame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
 
+export type CommunitySubjectType = "game" | "asset" | "plugin" | "template";
+
+export interface CommunityAuthor {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
+export interface CommunityStats {
+  likes: number;
+  uses: number;
+}
+
+export interface CommunityViewerState {
+  liked: boolean;
+}
+
+export interface CommunityInteractionResult extends CommunityViewerState {
+  stats: CommunityStats;
+}
+
 export interface PublishGame {
   id: string;
   publisherId: string;
@@ -43,12 +64,16 @@ export interface PublishCommunityGame {
   playUrl: string;
   coverUrl?: string;
   publishedAt: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export interface CreatePublishGameRequest {
   title: string;
   description?: string;
 }
+
+export type UpdatePublishGameRequest = CreatePublishGameRequest;
 
 export interface CreatePublishDeploymentMetadata {
   artifactSha256: string;
@@ -98,6 +123,8 @@ export interface PublishExploreAsset {
   fileName: string;
   contentType: string;
   publishedAt: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export type PublishAssetListing = {
@@ -155,6 +182,8 @@ export type PublishExploreTemplate = import("./asset-templates.js").AssetTemplat
   id: string;
   releaseId: string;
   publishedAt: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 };
 
 export interface CreatePublishTemplateRequest {
@@ -203,6 +232,8 @@ export interface PublishExplorePlugin {
   manifest: import("./plugins.js").PluginManifest;
   skills: PublishPluginSkill[];
   publishedAt: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export interface CreatePublishPluginRequest {

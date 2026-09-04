@@ -57,6 +57,7 @@ import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import { ProjectSwitcher } from "./project-switcher.js";
+import type { PublishDetails } from "./publish-dialog.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -321,7 +322,8 @@ export function ProjectShell({
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
     if (project?.type !== "web-game" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
-    if (takePendingPublish(sessionStorage, project.id)) void publish();
+    const pending = takePendingPublish(sessionStorage, project.id);
+    if (pending) void publish(pending);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
@@ -478,25 +480,27 @@ export function ProjectShell({
     }
   }
 
-  async function publish() {
-    if (!project || publishing || agentBusy) return;
+  async function publish(details: PublishDetails = { title: project?.publication?.title ?? project?.name ?? "Untitled game", description: project?.publication?.description ?? "" }): Promise<boolean> {
+    if (!project || publishing || agentBusy) return false;
     const resumeAfterWebSignIn = !window.openGameDesktop && auth.state.status !== "signed-in";
-    if (resumeAfterWebSignIn) rememberPendingPublish(sessionStorage, project.id);
+    if (resumeAfterWebSignIn) rememberPendingPublish(sessionStorage, project.id, details);
     setPublishing(true);
     dispatch({ type: "notice", message: undefined });
     try {
       const accessToken = await auth.requestAccessToken();
       if (!accessToken) {
         if (resumeAfterWebSignIn) forgetPendingPublish(sessionStorage);
-        return;
+        return false;
       }
       forgetPendingPublish(sessionStorage);
-      await publishProject(project.id, accessToken);
+      await publishProject(project.id, accessToken, details);
+      return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally {
       setPublishing(false);
     }
+    return false;
   }
 
   async function newConversation() {

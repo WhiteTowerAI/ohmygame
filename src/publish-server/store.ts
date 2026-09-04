@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AssetTemplateDefinition } from "../shared/asset-templates.js";
 import type { PluginManifest } from "../shared/plugins.js";
-import type { PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishPluginSkill, PublishTemplateListing } from "../shared/publish-v1.js";
+import type { CommunityAuthor, CommunityStats, CommunitySubjectType, PublishAssetListing, PublishAssetMediaType, PublishCommunityListing, PublishPluginListing, PublishPluginSkill, PublishTemplateListing } from "../shared/publish-v1.js";
 import { nextListingState, type ListingState } from "./listings.js";
 
 export interface StoredGame {
@@ -31,6 +31,8 @@ export interface StoredCommunityGame {
   deploymentId: string;
   hasCover: boolean;
   publishedAt: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export interface StoredAsset {
@@ -58,6 +60,8 @@ export interface StoredExploreAsset extends StoredAssetRelease {
   title: string;
   description: string;
   mediaType: PublishAssetMediaType;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export interface StoredPlugin {
@@ -82,6 +86,8 @@ export interface StoredPluginRelease {
 
 export interface StoredExplorePlugin extends StoredPluginRelease {
   name: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export interface StoredTemplate {
@@ -102,6 +108,8 @@ export interface StoredTemplateRelease {
 
 export interface StoredExploreTemplate extends StoredTemplateRelease {
   name: string;
+  author: CommunityAuthor;
+  stats: CommunityStats;
 }
 
 export type IdempotencyReservation =
@@ -128,6 +136,13 @@ export class PublishStore {
     if (!deploymentColumns.some((column) => column.name === "has_cover")) {
       this.#database.exec("ALTER TABLE deployments ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0");
     }
+    const publisherColumns = this.#database.prepare("PRAGMA table_info(publishers)").all() as Row[];
+    if (!publisherColumns.some((column) => column.name === "display_name")) {
+      this.#database.exec("ALTER TABLE publishers ADD COLUMN display_name TEXT NOT NULL DEFAULT 'OpenGame Creator'");
+    }
+    if (!publisherColumns.some((column) => column.name === "avatar_url")) {
+      this.#database.exec("ALTER TABLE publishers ADD COLUMN avatar_url TEXT");
+    }
     this.#database.exec("DELETE FROM idempotency_keys WHERE response_json IS NULL");
   }
 
@@ -135,12 +150,43 @@ export class PublishStore {
     this.#database.close();
   }
 
-  ensurePublisher(id: string, createdAt: string): void {
+  ensurePublisher(publisher: CommunityAuthor, createdAt: string): void {
     this.#database.prepare(`
-      INSERT INTO publishers (id, created_at)
-      VALUES (?, ?)
-      ON CONFLICT(id) DO NOTHING
-    `).run(id, createdAt);
+      INSERT INTO publishers (id, display_name, avatar_url, created_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name, avatar_url = excluded.avatar_url
+    `).run(publisher.id, publisher.displayName, publisher.avatarUrl ?? null, createdAt);
+  }
+
+  communityViewerState(publisherId: string, type: CommunitySubjectType, id: string): { liked: boolean } | undefined {
+    if (!this.#listedSubjectExists(type, id)) return undefined;
+    return { liked: Boolean(this.#database.prepare(`
+      SELECT 1 FROM community_likes WHERE publisher_id = ? AND subject_type = ? AND subject_id = ?
+    `).get(publisherId, type, id)) };
+  }
+
+  setCommunityLike(publisherId: string, type: CommunitySubjectType, id: string, liked: boolean, now: string): CommunityStats | undefined {
+    if (!this.#listedSubjectExists(type, id)) return undefined;
+    if (liked) {
+      this.#database.prepare(`
+        INSERT INTO community_likes (publisher_id, subject_type, subject_id, created_at)
+        VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING
+      `).run(publisherId, type, id, now);
+    } else {
+      this.#database.prepare(`
+        DELETE FROM community_likes WHERE publisher_id = ? AND subject_type = ? AND subject_id = ?
+      `).run(publisherId, type, id);
+    }
+    return this.#communityStats(type, id);
+  }
+
+  recordCommunityUse(publisherId: string, type: CommunitySubjectType, id: string, now: string): CommunityStats | undefined {
+    if (!this.#listedSubjectExists(type, id)) return undefined;
+    this.#database.prepare(`
+      INSERT INTO community_usage (publisher_id, subject_type, subject_id, created_at)
+      VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING
+    `).run(publisherId, type, id, now);
+    return this.#communityStats(type, id);
   }
 
   reserveIdempotency(
@@ -218,6 +264,14 @@ export class PublishStore {
     `).get(gameId, publisherId) as Row | undefined);
   }
 
+  updateGame(publisherId: string, gameId: string, title: string, description: string, updatedAt: string): StoredGame | undefined {
+    const result = this.#database.prepare(`
+      UPDATE games SET title = ?, description = ?, updated_at = ?
+      WHERE id = ? AND publisher_id = ?
+    `).run(title, description, updatedAt, gameId, publisherId);
+    return result.changes ? this.game(publisherId, gameId) : undefined;
+  }
+
   listing(publisherId: string, gameId: string): PublishCommunityListing | undefined {
     if (!this.game(publisherId, gameId)) return undefined;
     const row = this.#database.prepare("SELECT * FROM community_listings WHERE game_id = ?").get(gameId) as Row | undefined;
@@ -291,8 +345,11 @@ export class PublishStore {
 
   communityGames(): StoredCommunityGame[] {
     return (this.#database.prepare(`
-      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at
+      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at,
+        p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("game", "g.id")}
       FROM games g
+      JOIN publishers p ON p.id = g.publisher_id
       JOIN community_listings l ON l.game_id = g.id AND l.status = 'listed'
       JOIN deployments d ON d.id = g.current_deployment_id
       ORDER BY d.published_at DESC, g.id DESC
@@ -301,8 +358,11 @@ export class PublishStore {
 
   communityGame(gameId: string): StoredCommunityGame | undefined {
     const row = this.#database.prepare(`
-      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at
+      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at,
+        p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("game", "g.id")}
       FROM games g
+      JOIN publishers p ON p.id = g.publisher_id
       JOIN community_listings l ON l.game_id = g.id AND l.status = 'listed'
       JOIN deployments d ON d.id = g.current_deployment_id
       WHERE g.id = ?
@@ -387,8 +447,11 @@ export class PublishStore {
 
   exploreAssets(): StoredExploreAsset[] {
     return (this.#database.prepare(`
-      SELECT a.title, a.description, a.media_type, r.*
+      SELECT a.title, a.description, a.media_type, r.*,
+        p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("asset", "a.id")}
       FROM assets a
+      JOIN publishers p ON p.id = a.publisher_id
       JOIN asset_listings l ON l.asset_id = a.id AND l.status = 'listed'
       JOIN asset_releases r ON r.id = a.current_release_id
       ORDER BY r.published_at DESC, a.id DESC
@@ -397,8 +460,11 @@ export class PublishStore {
 
   exploreAsset(assetId: string): StoredExploreAsset | undefined {
     const row = this.#database.prepare(`
-      SELECT a.title, a.description, a.media_type, r.*
+      SELECT a.title, a.description, a.media_type, r.*,
+        p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("asset", "a.id")}
       FROM assets a
+      JOIN publishers p ON p.id = a.publisher_id
       JOIN asset_listings l ON l.asset_id = a.id AND l.status = 'listed'
       JOIN asset_releases r ON r.id = a.current_release_id
       WHERE a.id = ?
@@ -510,8 +576,10 @@ export class PublishStore {
 
   explorePlugins(): StoredExplorePlugin[] {
     return (this.#database.prepare(`
-      SELECT p.name, r.*
+      SELECT p.name, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
+        publisher.avatar_url AS author_avatar, ${interactionCounts("plugin", "p.id")}
       FROM plugins p
+      JOIN publishers publisher ON publisher.id = p.publisher_id
       JOIN plugin_listings l ON l.plugin_id = p.id AND l.status = 'listed'
       JOIN plugin_releases r ON r.id = p.current_release_id
       ORDER BY r.published_at DESC, p.id DESC
@@ -520,8 +588,10 @@ export class PublishStore {
 
   explorePlugin(pluginId: string): StoredExplorePlugin | undefined {
     const row = this.#database.prepare(`
-      SELECT p.name, r.*
+      SELECT p.name, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
+        publisher.avatar_url AS author_avatar, ${interactionCounts("plugin", "p.id")}
       FROM plugins p
+      JOIN publishers publisher ON publisher.id = p.publisher_id
       JOIN plugin_listings l ON l.plugin_id = p.id AND l.status = 'listed'
       JOIN plugin_releases r ON r.id = p.current_release_id
       WHERE p.id = ?
@@ -608,7 +678,10 @@ export class PublishStore {
 
   exploreTemplates(): StoredExploreTemplate[] {
     return (this.#database.prepare(`
-      SELECT t.name, r.* FROM templates t
+      SELECT t.name, r.*, p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("template", "t.id")}
+      FROM templates t
+      JOIN publishers p ON p.id = t.publisher_id
       JOIN template_listings l ON l.template_id = t.id AND l.status = 'listed'
       JOIN template_releases r ON r.id = t.current_release_id
       ORDER BY r.published_at DESC, t.id DESC
@@ -617,7 +690,10 @@ export class PublishStore {
 
   exploreTemplate(templateId: string): StoredExploreTemplate | undefined {
     const row = this.#database.prepare(`
-      SELECT t.name, r.* FROM templates t
+      SELECT t.name, r.*, p.id AS author_id, p.display_name AS author_name, p.avatar_url AS author_avatar,
+        ${interactionCounts("template", "t.id")}
+      FROM templates t
+      JOIN publishers p ON p.id = t.publisher_id
       JOIN template_listings l ON l.template_id = t.id AND l.status = 'listed'
       JOIN template_releases r ON r.id = t.current_release_id
       WHERE t.id = ?
@@ -633,6 +709,25 @@ export class PublishStore {
       UPDATE idempotency_keys SET status_code = ?, response_json = ?
       WHERE publisher_id = ? AND method = ? AND route = ? AND key = ? AND response_json IS NULL
     `).run(value.statusCode, JSON.stringify(value.body), publisherId, value.method, value.route, value.key);
+  }
+
+  #communityStats(type: CommunitySubjectType, id: string): CommunityStats {
+    const row = this.#database.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM community_likes WHERE subject_type = ? AND subject_id = ?) AS likes,
+        (SELECT COUNT(*) FROM community_usage WHERE subject_type = ? AND subject_id = ?) AS uses
+    `).get(type, id, type, id) as Row;
+    return { likes: Number(row.likes), uses: Number(row.uses) };
+  }
+
+  #listedSubjectExists(type: CommunitySubjectType, id: string): boolean {
+    const queries: Record<CommunitySubjectType, string> = {
+      game: "SELECT 1 FROM community_listings WHERE game_id = ? AND status = 'listed'",
+      asset: "SELECT 1 FROM asset_listings WHERE asset_id = ? AND status = 'listed'",
+      plugin: "SELECT 1 FROM plugin_listings WHERE plugin_id = ? AND status = 'listed'",
+      template: "SELECT 1 FROM template_listings WHERE template_id = ? AND status = 'listed'",
+    };
+    return Boolean(this.#database.prepare(queries[type]).get(id));
   }
 
   #transaction<T>(run: () => T): T {
@@ -713,6 +808,7 @@ function exploreAssetFrom(row: Row): StoredExploreAsset {
     title: String(row.title),
     description: String(row.description),
     mediaType: String(row.media_type) as PublishAssetMediaType,
+    ...communityMetadataFrom(row),
   };
 }
 
@@ -743,7 +839,7 @@ function pluginReleaseFrom(row: Row | undefined): StoredPluginRelease | undefine
 }
 
 function explorePluginFrom(row: Row): StoredExplorePlugin {
-  return { ...pluginReleaseFrom(row)!, name: String(row.name) };
+  return { ...pluginReleaseFrom(row)!, name: String(row.name), ...communityMetadataFrom(row) };
 }
 
 function templateFrom(row: Row | undefined): StoredTemplate | undefined {
@@ -764,7 +860,7 @@ function templateReleaseFrom(row: Row): StoredTemplateRelease {
 }
 
 function exploreTemplateFrom(row: Row): StoredExploreTemplate {
-  return { ...templateReleaseFrom(row), name: String(row.name) };
+  return { ...templateReleaseFrom(row), name: String(row.name), ...communityMetadataFrom(row) };
 }
 
 function communityGameFrom(row: Row): StoredCommunityGame {
@@ -775,12 +871,31 @@ function communityGameFrom(row: Row): StoredCommunityGame {
     deploymentId: String(row.current_deployment_id),
     hasCover: Boolean(row.has_cover),
     publishedAt: String(row.published_at),
+    ...communityMetadataFrom(row),
   };
+}
+
+function communityMetadataFrom(row: Row): { author: CommunityAuthor; stats: CommunityStats } {
+  return {
+    author: {
+      id: String(row.author_id),
+      displayName: String(row.author_name),
+      ...(row.author_avatar ? { avatarUrl: String(row.author_avatar) } : {}),
+    },
+    stats: { likes: Number(row.likes), uses: Number(row.uses) },
+  };
+}
+
+function interactionCounts(type: CommunitySubjectType, idExpression: string): string {
+  return `(SELECT COUNT(*) FROM community_likes WHERE subject_type = '${type}' AND subject_id = ${idExpression}) AS likes,
+    (SELECT COUNT(*) FROM community_usage WHERE subject_type = '${type}' AND subject_id = ${idExpression}) AS uses`;
 }
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS publishers (
     id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT 'OpenGame Creator',
+    avatar_url TEXT,
     created_at TEXT NOT NULL
   );
 
@@ -900,4 +1015,23 @@ const SCHEMA = `
     created_at TEXT NOT NULL,
     PRIMARY KEY (publisher_id, method, route, key)
   );
+
+  CREATE TABLE IF NOT EXISTS community_likes (
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    subject_type TEXT NOT NULL CHECK(subject_type IN ('game', 'asset', 'plugin', 'template')),
+    subject_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (publisher_id, subject_type, subject_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS community_usage (
+    publisher_id TEXT NOT NULL REFERENCES publishers(id),
+    subject_type TEXT NOT NULL CHECK(subject_type IN ('game', 'asset', 'plugin', 'template')),
+    subject_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (publisher_id, subject_type, subject_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS community_likes_subject ON community_likes(subject_type, subject_id);
+  CREATE INDEX IF NOT EXISTS community_usage_subject ON community_usage(subject_type, subject_id);
 `;

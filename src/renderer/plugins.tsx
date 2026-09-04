@@ -32,6 +32,7 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { useAuth } from "./auth.js";
+import { CommunityMeta, useCommunityUseRecorder } from "./community-meta.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -60,6 +61,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const auth = useAuth();
+  const recordUse = useCommunityUseRecorder();
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -149,7 +151,11 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     setUpdating(plugin.id);
     setError(undefined);
     try {
+      const firstInstall = !plugin.installed;
       const installed = await installCatalogPlugin(plugin.id);
+      if (firstInstall && plugin.source.type === "catalog") {
+        void recordUse("plugin", plugin.source.pluginId).catch(() => undefined);
+      }
       setDetail(installed);
       await load();
     } catch (cause) {
@@ -626,7 +632,7 @@ function PluginDetailView({ phase, plugin, updating, error, notice, onRetry, onT
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
-        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{pluginQualifiedSource(plugin)}{plugin.version ? ` · v${plugin.version}` : ""}</span></div>
+        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{pluginQualifiedSource(plugin)}{plugin.version ? ` · v${plugin.version}` : ""}</span>{plugin.author && plugin.stats && plugin.source.type === "catalog" ? <CommunityMeta type="plugin" id={plugin.source.pluginId} author={plugin.author} stats={plugin.stats} useLabel="installs" /> : null}</div>
         <div className="plugin-detail-hero-actions" ref={tryMenu}>
           <PluginDetailActions
             plugin={plugin}

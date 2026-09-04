@@ -20,6 +20,8 @@ import type {
   CreatePublishTemplateRequest,
   CreatePublishDeploymentMetadata,
   CreatePublishGameRequest,
+  CommunityInteractionResult,
+  CommunitySubjectType,
   PublishAsset,
   PublishAssetRelease,
   PublishExploreAsset,
@@ -29,6 +31,7 @@ import type {
   PublishExplorePlugin,
   PublishExploreTemplate,
   SetPublishListingRequest,
+  UpdatePublishGameRequest,
 } from "../shared/publish-v1.js";
 import { ArtifactError, ArtifactStore, contentType, DEFAULT_ARTIFACT_LIMITS, type ArtifactLimits } from "./artifacts.js";
 import { requirePublisher, type PublisherTokenVerifier } from "./auth.js";
@@ -107,7 +110,7 @@ export function createPublishApp(options: PublishAppOptions) {
     request,
     reply,
     options.verifyPublisherToken,
-    (publisherId, createdAt) => store.ensurePublisher(publisherId, createdAt),
+    (publisher, createdAt) => store.ensurePublisher(publisher, createdAt),
   );
 
   void app.register(multipart, {
@@ -149,6 +152,60 @@ export function createPublishApp(options: PublishAppOptions) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  app.get<{ Params: { type: string; id: string } }>(
+    "/v1/community/:type/:id/viewer",
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const type = communitySubjectType(request.params.type);
+      if (!type) return sendPublishError(reply, request, 404, "not_found", "Community item not found");
+      return store.communityViewerState(publisherId, type, request.params.id)
+        ?? sendPublishError(reply, request, 404, "not_found", "Community item not found");
+    },
+  );
+
+  app.put<{ Params: { type: string; id: string } }>(
+    "/v1/community/:type/:id/like",
+    async (request, reply) => setLike(request, reply, true),
+  );
+
+  app.delete<{ Params: { type: string; id: string } }>(
+    "/v1/community/:type/:id/like",
+    async (request, reply) => setLike(request, reply, false),
+  );
+
+  app.post<{ Params: { type: string; id: string } }>(
+    "/v1/community/:type/:id/use",
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const type = communitySubjectType(request.params.type);
+      if (!type) return sendPublishError(reply, request, 404, "not_found", "Community item not found");
+      const stats = store.recordCommunityUse(publisherId, type, request.params.id, new Date().toISOString());
+      return stats ?? sendPublishError(reply, request, 404, "not_found", "Community item not found");
+    },
+  );
+
+  async function setLike(
+    request: FastifyRequest<{ Params: { type: string; id: string } }>,
+    reply: FastifyReply,
+    liked: boolean,
+  ): Promise<CommunityInteractionResult | undefined> {
+    const publisherId = await authenticatePublisher(request, reply);
+    if (!publisherId) return;
+    const type = communitySubjectType(request.params.type);
+    if (!type) {
+      sendPublishError(reply, request, 404, "not_found", "Community item not found");
+      return;
+    }
+    const stats = store.setCommunityLike(publisherId, type, request.params.id, liked, new Date().toISOString());
+    if (!stats) {
+      sendPublishError(reply, request, 404, "not_found", "Community item not found");
+      return;
+    }
+    return { liked, stats };
+  }
 
   app.post<{ Body: CreatePublishGameRequest }>(
     "/v1/games",
@@ -204,6 +261,27 @@ export function createPublishApp(options: PublishAppOptions) {
       ? publicGame(game, playOrigin)
       : sendPublishError(reply, request, 404, "not_found", "Game not found");
   });
+
+  app.put<{ Params: { gameId: string }; Body: UpdatePublishGameRequest }>(
+    "/v1/games/:gameId",
+    { schema: { body: gameBodySchema } },
+    async (request, reply) => {
+      const publisherId = await authenticatePublisher(request, reply);
+      if (!publisherId) return;
+      const title = request.body.title.trim();
+      if (!title) return sendPublishError(reply, request, 400, "validation_failed", "title must not be empty");
+      const game = store.updateGame(
+        publisherId,
+        request.params.gameId,
+        title,
+        request.body.description?.trim() ?? "",
+        new Date().toISOString(),
+      );
+      return game
+        ? publicGame(game, playOrigin)
+        : sendPublishError(reply, request, 404, "not_found", "Game not found");
+    },
+  );
 
   app.post<{ Params: { gameId: string } }>("/v1/games/:gameId/deployments", async (request, reply) => {
     const publisherId = await authenticatePublisher(request, reply);
@@ -905,6 +983,7 @@ function publicExploreAsset(asset: StoredExploreAsset): PublishExploreAsset {
     id: asset.assetId, title: asset.title, description: asset.description, mediaType: asset.mediaType,
     releaseId: asset.id, artifactSha256: asset.artifactSha256, artifactBytes: asset.artifactBytes,
     fileName: asset.fileName, contentType: asset.contentType, publishedAt: asset.publishedAt,
+    author: asset.author, stats: asset.stats,
   };
 }
 
@@ -913,6 +992,7 @@ function publicExplorePlugin(plugin: StoredExplorePlugin): PublishExplorePlugin 
     id: plugin.pluginId, name: plugin.name, version: plugin.version, releaseId: plugin.id,
     artifactSha256: plugin.artifactSha256, artifactBytes: plugin.artifactBytes,
     manifest: plugin.manifest, skills: plugin.skills, publishedAt: plugin.publishedAt,
+    author: plugin.author, stats: plugin.stats,
   };
 }
 
@@ -922,7 +1002,13 @@ function publicExploreTemplate(template: StoredExploreTemplate): PublishExploreT
     id: template.templateId,
     releaseId: template.id,
     publishedAt: template.publishedAt,
+    author: template.author,
+    stats: template.stats,
   };
+}
+
+function communitySubjectType(value: string): CommunitySubjectType | undefined {
+  return value === "game" || value === "asset" || value === "plugin" || value === "template" ? value : undefined;
 }
 
 function publicGame(game: StoredGame, playOrigin: string): PublishGame {
