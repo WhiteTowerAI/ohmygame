@@ -1,4 +1,4 @@
-import { ExternalLink, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
+import { LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import {
@@ -10,7 +10,7 @@ import brandMark from "../shared/assets/opengame-mark.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
-import { CommunityLikeButton, CommunityMetaSummary, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
+import { CommunityLikeButton, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 
 const RELATED_GAMES_LIMIT = 10;
 
@@ -256,28 +256,19 @@ function GameDetail({ game, relatedGames, onOpenGame }: {
         <div className="electron-game-toolbar">
           <div className="electron-game-summary">
             <span className="electron-game-thumbnail" aria-hidden="true">{coverUrl ? <img src={coverUrl} alt="" /> : <img className="is-placeholder" src={brandMark} alt="" />}</span>
-            <div className="electron-game-identity"><strong>{game.title}</strong><span>by {game.author.displayName}</span></div>
+            <div className="electron-game-identity">
+              <strong>{game.title}</strong>
+              <span>by {game.author.displayName} · {like.counts.uses} {like.counts.uses === 1 ? "player" : "players"} · {publishedDate(game.publishedAt)}</span>
+              {game.description ? <p>{game.description}</p> : null}
+            </div>
           </div>
           <div className="electron-game-toolbar-actions">
-            <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} showCount={false} />
+            <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} />
             <button type="button" onClick={() => void shareGame()} title={shared ? "Link copied" : "Share game"} aria-label="Share game"><Share2 size={17} /></button>
             <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
           </div>
         </div>
       </div>
-
-      <article className="electron-game-information">
-        <div className="electron-game-information-copy">
-          <span className="electron-game-detail-label">GAME INFO</span>
-          <h1>{game.title}</h1>
-          {game.description ? <p>{game.description}</p> : null}
-        </div>
-        <div className="electron-game-information-meta">
-          <CommunityMetaSummary author={game.author} stats={like.counts} useLabel="players" />
-          <dl><dt>RELEASED</dt><dd>{publishedDate(game.publishedAt)}</dd></dl>
-          <button type="button" onClick={() => void openExternal(game.playUrl)}>Open game<ExternalLink size={15} /></button>
-        </div>
-      </article>
 
       {relatedGames.length ? (
         <section className="electron-game-related" aria-label="More games">
@@ -296,11 +287,6 @@ function GameDetail({ game, relatedGames, onOpenGame }: {
       ) : null}
     </div>
   );
-}
-
-async function openExternal(url: string): Promise<void> {
-  if (window.openGameDesktop) await window.openGameDesktop.openExternal(url);
-  else window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function publishedDate(value: string): string {

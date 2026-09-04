@@ -50,23 +50,9 @@ export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = 
   onToggle: () => void;
   showCount?: boolean;
 }) {
-  return <button type="button" className={liked ? "is-liked" : ""} disabled={busy} onClick={onToggle} title={liked ? "Unlike" : "Like"} aria-label={liked ? "Unlike" : "Like"} aria-pressed={liked}>
+  return <button type="button" className={[liked ? "is-liked" : "", showCount ? "has-count" : ""].filter(Boolean).join(" ")} disabled={busy} onClick={onToggle} title={liked ? "Unlike" : "Like"} aria-label={liked ? "Unlike" : "Like"} aria-pressed={liked}>
     <Heart size={showCount ? 14 : 17} />{showCount ? count : null}
   </button>;
-}
-
-export function CommunityMetaSummary({ author, stats, useLabel }: {
-  author: CommunityAuthor;
-  stats: CommunityStats;
-  useLabel: string;
-}) {
-  return <div className="community-meta">
-    <CommunityAuthorView author={author} />
-    <span className="community-stats">
-      <span>{stats.likes} likes</span>
-      <span>{stats.uses} {useLabel}</span>
-    </span>
-  </div>;
 }
 
 export function CommunityMeta({ type, id, author, stats, useLabel }: {

@@ -7554,105 +7554,50 @@ button {
 
 .electron-game-toolbar {
   display: flex;
-  min-height: 90px;
+  min-height: 76px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 8px 12px 8px 14px;
   border-top: 1px solid rgb(255 255 255 / 7%);
-  background: #0b100f;
+  background: var(--surface-raised);
 }
 
 .electron-game-summary { display: flex; min-width: 0; align-items: center; gap: 12px; }
-.electron-game-thumbnail { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; overflow: hidden; border-radius: 6px; background: #05080a; }
+.electron-game-thumbnail { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; overflow: hidden; border-radius: 6px; background: #05080a; }
 .electron-game-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
-.electron-game-thumbnail img.is-placeholder { width: 25px; height: auto; object-fit: contain; opacity: .55; }
-.electron-game-identity { display: grid; min-width: 0; gap: 1px; }
+.electron-game-thumbnail img.is-placeholder { width: 23px; height: auto; object-fit: contain; opacity: .55; }
+.electron-game-identity { display: grid; min-width: 0; gap: 2px; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .electron-game-toolbar strong,
 .electron-game-toolbar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.electron-game-toolbar strong { font-size: 17px; font-weight: 600; }
-.electron-game-identity span { color: #9eaba6; font-size: 12px; }
+.electron-game-toolbar strong { font-size: 14px; font-weight: 600; line-height: 18px; }
+.electron-game-identity span { color: #9eaba6; font-size: 11px; line-height: 15px; }
+.electron-game-identity p { max-width: 620px; margin: 2px 0 0; overflow: hidden; color: var(--text-muted); font-size: 11px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
 
 .electron-game-toolbar-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 
 .electron-game-toolbar-actions button {
   display: grid;
-  width: 36px;
+  min-width: 36px;
   height: 36px;
   place-items: center;
+  grid-auto-flow: column;
+  gap: 5px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
+  font-size: 11px;
 }
+
+.electron-game-toolbar-actions button.has-count { padding: 0 10px; }
 
 .electron-game-toolbar-actions button:hover { background: var(--surface-hover); }
 .electron-game-toolbar-actions button.is-liked { color: var(--theme-accent); }
 .electron-game-toolbar-actions button.is-liked svg { fill: currentColor; }
 .electron-game-toolbar-actions button:disabled { cursor: default; opacity: .6; }
-
-.electron-game-information {
-  min-width: 0;
-  margin-top: 40px;
-  padding-bottom: 36px;
-  border-bottom: 1px solid rgb(255 255 255 / 7%);
-}
-
-.electron-game-detail-label { color: var(--theme-accent); font-size: 10px; font-weight: 600; }
-
-.electron-game-information-copy { max-width: 760px; }
-
-.electron-game-information h1 {
-  margin: 8px 0 0;
-  font-family: "Jersey 20", sans-serif;
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
-
-.electron-game-information h1 { font-size: 38px; line-height: 1; }
-.electron-game-information-copy > p { margin: 14px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
-
-.electron-game-information-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 28px;
-  margin-top: 28px;
-}
-
-.electron-game-information-meta > .community-meta { min-width: 280px; }
-
-.electron-game-information dl {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 0;
-}
-
-.electron-game-information dt { color: var(--text-muted); font-size: 10px; font-weight: 600; }
-.electron-game-information dd { margin: 0; font-size: 11px; font-weight: 600; }
-
-.electron-game-information-meta > button {
-  display: inline-flex;
-  min-height: 36px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-left: auto;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 5px;
-  background: var(--theme-accent);
-  color: #171a1b;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.electron-game-information-meta > button:hover { background: var(--theme-accent-hover); }
 
 .electron-game-related { margin-top: 40px; }
 
@@ -7690,16 +7635,11 @@ button {
 .electron-game-player:fullscreen .electron-game-toolbar { display: none; }
 
 @container (max-width: 900px) {
-  .electron-game-information-meta { flex-wrap: wrap; }
-  .electron-game-information-meta > button { margin-left: 0; }
   .electron-game-related-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @container (max-width: 520px) {
   .electron-game-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 12px; }
-  .electron-game-information-meta { align-items: stretch; flex-direction: column; gap: 18px; }
-  .electron-game-information-meta > .community-meta { min-width: 0; }
-  .electron-game-information-meta > button { width: max-content; }
   .electron-game-related-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
