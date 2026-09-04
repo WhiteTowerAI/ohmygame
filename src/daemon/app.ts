@@ -1853,7 +1853,11 @@ export function createApp(options: AppOptions = {}) {
       publishing.add(project.id);
       events.publish(project.id, "publish.started", {});
       try {
-        const result = await publisher.publish(project, await artifacts.create(project), request.body.accessToken);
+        const result = await publisher.publish(
+          project,
+          await artifacts.create(project, await projects.cover(project.id)),
+          request.body.accessToken,
+        );
         await projects.setPublication(project.id, {
           gameId: result.game.id,
           deploymentId: result.game.deploymentId,

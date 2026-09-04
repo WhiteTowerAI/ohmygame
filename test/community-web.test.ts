@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { getCommunityGame, listCommunityGames } from "../src/community-web/api.js";
-import { parseCommunityRoute } from "../src/community-web/app.js";
+import { getGameMosaicSlots, parseCommunityRoute } from "../src/community-web/app.js";
 
 describe("Community Web routes", () => {
   it("parses home and game detail paths", () => {
@@ -9,6 +9,31 @@ describe("Community Web routes", () => {
     expect(parseCommunityRoute("/games/game-1/")).toEqual({ page: "game", gameId: "game-1" });
     expect(parseCommunityRoute("/games")).toEqual({ page: "not-found" });
     expect(parseCommunityRoute("/games/%")).toEqual({ page: "not-found" });
+  });
+});
+
+describe("Community Web game mosaic", () => {
+  it("fills the complete desktop mosaic without overlaps", () => {
+    const occupied = new Set<string>();
+    const slots = getGameMosaicSlots(28);
+
+    expect(slots).toHaveLength(28);
+    for (const slot of slots) {
+      for (let row = slot.row; row < slot.row + slot.size; row += 1) {
+        for (let column = slot.column; column < slot.column + slot.size; column += 1) {
+          const cell = `${column}:${row}`;
+          expect(occupied.has(cell)).toBe(false);
+          occupied.add(cell);
+        }
+      }
+    }
+    expect(occupied.size).toBe(80);
+  });
+
+  it("returns only available slots for an incomplete wall", () => {
+    expect(getGameMosaicSlots(3)).toHaveLength(3);
+    expect(getGameMosaicSlots(100)).toHaveLength(28);
+    expect(getGameMosaicSlots(-1)).toEqual([]);
   });
 });
 

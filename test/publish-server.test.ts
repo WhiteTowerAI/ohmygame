@@ -124,6 +124,25 @@ describe("public publish server", () => {
     columns.close();
   });
 
+  it("migrates deployments created before game covers", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-cover-migration-"));
+    const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
+    await initial.ready();
+    await initial.close();
+
+    const database = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    database.exec("ALTER TABLE deployments DROP COLUMN has_cover");
+    database.close();
+
+    const migrated = createPublishApp({ dataDirectory, verifyPublisherToken });
+    apps.push(migrated);
+    await migrated.ready();
+    const columns = new DatabaseSync(path.join(dataDirectory, "publish.sqlite"));
+    expect(columns.prepare("PRAGMA table_info(deployments)").all())
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: "has_cover" })]));
+    columns.close();
+  });
+
   it("reserves public Plugin names across publishers", async () => {
     const app = await testApp();
     expect((await createPlugin(app, "first", "level-tools")).statusCode).toBe(201);
@@ -226,12 +245,18 @@ describe("public publish server", () => {
   it("publishes immutable versions, switches the stable URL, and controls Community discovery", async () => {
     const app = await testApp();
     const game = (await createGame(app, "game", { title: "Playable", description: "A game" })).json();
-    const firstZip = await zipFiles({ "index.html": "<h1>Version one</h1>", "assets/game.js": "console.log('one')" });
+    const firstZip = await zipFiles({
+      "index.html": "<h1>Version one</h1>",
+      "assets/game.js": "console.log('one')",
+      "__opengame/cover.webp": "cover",
+    });
     const first = await publish(app, game.id, "deployment-one", firstZip);
     expect(first.statusCode).toBe(201);
     expect(first.json().game.currentDeploymentId).toBe(first.json().deployment.id);
 
     const firstDeployment = first.json().deployment;
+    expect(firstDeployment.coverUrl).toBe(`${firstDeployment.versionUrl}__opengame/cover.webp`);
+    expect((await play(app, firstDeployment.coverUrl, "/__opengame/cover.webp")).body).toBe("cover");
     expect((await play(app, firstDeployment.versionUrl, "/")).body).toContain("Version one");
     expect((await play(app, firstDeployment.versionUrl, "/assets/game.js")).body).toContain("one");
     expect((await play(app, first.json().game.playUrl, "/")).body).toContain("Version one");
@@ -250,10 +275,24 @@ describe("public publish server", () => {
     expect((await app.inject({ method: "GET", url: "/v1/community/games" })).json()[0]).toMatchObject({
       id: game.id,
       deploymentId: firstDeployment.id,
+      coverUrl: `${firstDeployment.versionUrl}__opengame/cover.webp`,
     });
+    const communityCover = await app.inject({
+      method: "GET",
+      url: `/v1/community/games/${game.id}/deployments/${firstDeployment.id}/cover`,
+    });
+    expect(communityCover.statusCode).toBe(200);
+    expect(communityCover.headers["content-type"]).toBe("image/webp");
+    expect(communityCover.body).toBe("cover");
 
     const secondZip = await zipFiles({ "index.html": "<h1>Version two</h1>" });
     const second = await publish(app, game.id, "deployment-two", secondZip);
+    expect(second.json().deployment.coverUrl).toBeUndefined();
+    expect((await app.inject({ method: "GET", url: "/v1/community/games" })).json()[0].coverUrl).toBeUndefined();
+    expect((await app.inject({
+      method: "GET",
+      url: `/v1/community/games/${game.id}/deployments/${firstDeployment.id}/cover`,
+    })).body).toBe("cover");
     expect((await play(app, second.json().game.playUrl, "/")).body).toContain("Version two");
     expect((await play(app, firstDeployment.versionUrl, "/")).body).toContain("Version one");
     expect((await publish(app, game.id, "deployment-two", secondZip)).json()).toEqual(second.json());
@@ -266,6 +305,10 @@ describe("public publish server", () => {
     });
     expect(unlisted.json()).toMatchObject({ status: "unlisted", listedAt: null });
     expect((await app.inject({ method: "GET", url: "/v1/community/games" })).json()).toEqual([]);
+    expect((await app.inject({
+      method: "GET",
+      url: `/v1/community/games/${game.id}/deployments/${firstDeployment.id}/cover`,
+    })).statusCode).toBe(404);
     expect((await play(app, second.json().game.playUrl, "/")).body).toContain("Version two");
   });
 

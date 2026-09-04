@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { LoaderCircle, Play } from "../renderer/icons.js";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
 import { getCommunityGame, listCommunityGames } from "./api.js";
@@ -11,7 +11,44 @@ import windowsIcon from "./assets/windows.svg";
 
 const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
 const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
-const FEATURED_GAME_LIMIT = 14;
+const FEATURED_GAME_LIMIT = 28;
+
+type MosaicSlot = { column: number; row: number; size: 1 | 2 | 3 };
+
+const MOSAIC_SLOTS: readonly MosaicSlot[] = [
+  { column: 1, row: 1, size: 3 },
+  { column: 4, row: 1, size: 2 },
+  { column: 6, row: 1, size: 2 },
+  { column: 8, row: 1, size: 1 },
+  { column: 8, row: 2, size: 1 },
+  { column: 4, row: 3, size: 1 },
+  { column: 5, row: 3, size: 2 },
+  { column: 7, row: 3, size: 2 },
+  { column: 1, row: 4, size: 1 },
+  { column: 2, row: 4, size: 1 },
+  { column: 3, row: 4, size: 2 },
+  { column: 1, row: 5, size: 2 },
+  { column: 5, row: 5, size: 1 },
+  { column: 6, row: 5, size: 3 },
+  { column: 3, row: 6, size: 1 },
+  { column: 4, row: 6, size: 2 },
+  { column: 1, row: 7, size: 2 },
+  { column: 3, row: 7, size: 1 },
+  { column: 3, row: 8, size: 2 },
+  { column: 5, row: 8, size: 1 },
+  { column: 6, row: 8, size: 1 },
+  { column: 7, row: 8, size: 2 },
+  { column: 1, row: 9, size: 2 },
+  { column: 5, row: 9, size: 2 },
+  { column: 3, row: 10, size: 1 },
+  { column: 4, row: 10, size: 1 },
+  { column: 7, row: 10, size: 1 },
+  { column: 8, row: 10, size: 1 },
+];
+
+export function getGameMosaicSlots(count: number): readonly MosaicSlot[] {
+  return MOSAIC_SLOTS.slice(0, Math.max(0, Math.min(Math.floor(count), MOSAIC_SLOTS.length)));
+}
 
 export type CommunityRoute =
   | { page: "home" }
@@ -114,11 +151,21 @@ function HomePage() {
 }
 
 function GameWall({ games }: { games: PublishCommunityGame[] }) {
+  const slots = getGameMosaicSlots(games.length);
+  const complete = games.length === MOSAIC_SLOTS.length;
   return (
-    <div className="game-wall">
+    <div className={`game-wall${complete ? " game-wall-complete" : ""}`}>
       {games.map((game, index) => (
-        <article className={`game-tile game-tile-${index % 7}`} key={game.id}>
-          <span className="game-preview"><iframe src={game.playUrl} title={game.title} loading="lazy" tabIndex={-1} sandbox="allow-scripts" /></span>
+        <article
+          className={`game-tile game-tile-size-${slots[index]?.size ?? 1}`}
+          key={game.id}
+          style={complete ? {
+            "--mosaic-column": slots[index]?.column,
+            "--mosaic-row": slots[index]?.row,
+            "--mosaic-size": slots[index]?.size,
+          } as CSSProperties : undefined}
+        >
+          <GameCover game={game} />
           <a className="game-link" href={`/games/${encodeURIComponent(game.id)}`} aria-label={`View ${game.title}`}>
             <span className="game-overlay"><span><strong>{game.title}</strong><small>{publishedDate(game.publishedAt)}</small></span><Play size={17} /></span>
           </a>
@@ -126,6 +173,15 @@ function GameWall({ games }: { games: PublishCommunityGame[] }) {
       ))}
     </div>
   );
+}
+
+function GameCover({ game }: { game: PublishCommunityGame }) {
+  const [failed, setFailed] = useState(false);
+  if (!game.coverUrl || failed) {
+    return <span className="game-preview game-cover-placeholder" aria-hidden="true"><img src={brandMark} alt="" /></span>;
+  }
+  const source = `/v1/community/games/${encodeURIComponent(game.id)}/deployments/${encodeURIComponent(game.deploymentId)}/cover`;
+  return <span className="game-preview"><img className="game-cover" src={source} alt="" loading="lazy" onError={() => setFailed(true)} /></span>;
 }
 
 function GamePage({ gameId }: { gameId: string }) {

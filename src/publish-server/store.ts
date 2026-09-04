@@ -20,6 +20,7 @@ export interface StoredDeployment {
   id: string;
   gameId: string;
   artifactSha256: string;
+  hasCover: boolean;
   publishedAt: string;
 }
 
@@ -28,6 +29,7 @@ export interface StoredCommunityGame {
   title: string;
   description: string;
   deploymentId: string;
+  hasCover: boolean;
   publishedAt: string;
 }
 
@@ -121,6 +123,10 @@ export class PublishStore {
     const pluginReleaseColumns = this.#database.prepare("PRAGMA table_info(plugin_releases)").all() as Row[];
     if (!pluginReleaseColumns.some((column) => column.name === "skills_json")) {
       this.#database.exec("ALTER TABLE plugin_releases ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    const deploymentColumns = this.#database.prepare("PRAGMA table_info(deployments)").all() as Row[];
+    if (!deploymentColumns.some((column) => column.name === "has_cover")) {
+      this.#database.exec("ALTER TABLE deployments ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0");
     }
     this.#database.exec("DELETE FROM idempotency_keys WHERE response_json IS NULL");
   }
@@ -247,9 +253,9 @@ export class PublishStore {
       if (!this.game(publisherId, deployment.gameId)) throw new Error("Game not found");
       this.#database.prepare(`
         INSERT INTO deployments
-          (id, game_id, artifact_sha256, published_at)
-        VALUES (?, ?, ?, ?)
-      `).run(deployment.id, deployment.gameId, deployment.artifactSha256, deployment.publishedAt);
+          (id, game_id, artifact_sha256, has_cover, published_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(deployment.id, deployment.gameId, deployment.artifactSha256, Number(deployment.hasCover), deployment.publishedAt);
       this.#database.prepare(`
         UPDATE games SET current_deployment_id = ?, updated_at = ? WHERE id = ?
       `).run(deployment.id, deployment.publishedAt, deployment.gameId);
@@ -285,7 +291,7 @@ export class PublishStore {
 
   communityGames(): StoredCommunityGame[] {
     return (this.#database.prepare(`
-      SELECT g.id, g.title, g.description, g.current_deployment_id, d.published_at
+      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at
       FROM games g
       JOIN community_listings l ON l.game_id = g.id AND l.status = 'listed'
       JOIN deployments d ON d.id = g.current_deployment_id
@@ -295,7 +301,7 @@ export class PublishStore {
 
   communityGame(gameId: string): StoredCommunityGame | undefined {
     const row = this.#database.prepare(`
-      SELECT g.id, g.title, g.description, g.current_deployment_id, d.published_at
+      SELECT g.id, g.title, g.description, g.current_deployment_id, d.has_cover, d.published_at
       FROM games g
       JOIN community_listings l ON l.game_id = g.id AND l.status = 'listed'
       JOIN deployments d ON d.id = g.current_deployment_id
@@ -661,6 +667,7 @@ function deploymentFrom(row: Row | undefined): StoredDeployment | undefined {
     id: String(row.id),
     gameId: String(row.game_id),
     artifactSha256: String(row.artifact_sha256),
+    hasCover: Boolean(row.has_cover),
     publishedAt: String(row.published_at),
   };
 }
@@ -766,6 +773,7 @@ function communityGameFrom(row: Row): StoredCommunityGame {
     title: String(row.title),
     description: String(row.description),
     deploymentId: String(row.current_deployment_id),
+    hasCover: Boolean(row.has_cover),
     publishedAt: String(row.published_at),
   };
 }
@@ -790,6 +798,7 @@ const SCHEMA = `
     id TEXT PRIMARY KEY,
     game_id TEXT NOT NULL REFERENCES games(id),
     artifact_sha256 TEXT NOT NULL,
+    has_cover INTEGER NOT NULL DEFAULT 0,
     published_at TEXT NOT NULL
   );
 

@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { createPublishApp } from "../src/publish-server/app.js";
+import { PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -218,13 +219,22 @@ describe("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "index.html"), "<h1>Game</h1>");
     await writeFile(path.join(project.workspacePath, "game.js"), "window.ready = true");
     await writeFile(path.join(project.workspacePath, ".env"), "SECRET=hidden");
+    const cover = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+    expect((await runtime.daemon.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/cover`,
+      headers: { "content-type": "image/webp" },
+      payload: cover,
+    })).statusCode).toBe(204);
 
     const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(201);
     const published = response.json();
     expect(published.game).toMatchObject({ title: "Static game", description: "", deploymentId: published.deployment.id });
+    expect(published.game.coverUrl).toBe(published.deployment.coverUrl);
     expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, "index.html"), "utf8")).toContain("Game");
+    expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, PUBLISH_GAME_COVER_PATH))).toEqual(cover);
     expect(await readdir(path.join(runtime.publishData, "artifacts", published.deployment.id))).not.toContain(".env");
     expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([published.game]);
   });

@@ -291,6 +291,7 @@ function publishResult(game: PublishGame, deployment: PublishDeployment): Publis
       description: game.description,
       deploymentId: deployment.id,
       playUrl: game.playUrl,
+      ...(deployment.coverUrl ? { coverUrl: deployment.coverUrl } : {}),
       publishedAt: deployment.publishedAt,
     },
   };

@@ -7,7 +7,7 @@ import multipart from "@fastify/multipart";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { isAssetTemplateDefinition } from "../shared/asset-templates.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, PLUGIN_SKILL_CONTENT_MAX_BYTES, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
-import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_COVER_PATH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import type {
   CreatePublishAssetReleaseMetadata,
   CreatePublishAssetReleaseResult,
@@ -260,14 +260,16 @@ export function createPublishApp(options: PublishAppOptions) {
         return replay;
       }
 
-      const deployment: StoredDeployment = {
-        id: randomUUID(),
-        gameId: game.id,
-        artifactSha256: metadata.artifactSha256,
-        publishedAt: new Date().toISOString(),
-      };
+      const deploymentId = randomUUID();
       try {
-        await artifacts.installArchive(zipPath, deployment.id, { requiredFiles: ["index.html"] });
+        await artifacts.installArchive(zipPath, deploymentId, { requiredFiles: ["index.html"] });
+        const deployment: StoredDeployment = {
+          id: deploymentId,
+          gameId: game.id,
+          artifactSha256: metadata.artifactSha256,
+          hasCover: Boolean(await artifacts.internalFile(deploymentId, PUBLISH_GAME_COVER_PATH)),
+          publishedAt: new Date().toISOString(),
+        };
         const expectedDeployment = publicDeployment(deployment, playOrigin);
         const expectedGame = publicGame(
           { ...game, currentDeploymentId: deployment.id, updatedAt: deployment.publishedAt },
@@ -279,7 +281,7 @@ export function createPublishApp(options: PublishAppOptions) {
         });
         return reply.code(201).send(body);
       } catch (error) {
-        await artifacts.remove(deployment.id);
+        await artifacts.remove(deploymentId);
         store.releaseIdempotency(publisherId, "POST", route, key);
         throw error;
       }
@@ -313,6 +315,24 @@ export function createPublishApp(options: PublishAppOptions) {
       ? publicCommunityGame(game, playOrigin)
       : sendPublishError(reply, request, 404, "not_found", "Community game not found");
   });
+
+  app.get<{ Params: { gameId: string; deploymentId: string } }>(
+    "/v1/community/games/:gameId/deployments/:deploymentId/cover",
+    async (request, reply) => {
+      const game = store.communityGame(request.params.gameId);
+      const deployment = store.deployment(request.params.deploymentId);
+      if (!game || deployment?.gameId !== game.id || !deployment.hasCover) {
+        return sendPublishError(reply, request, 404, "not_found", "Game cover not found");
+      }
+      const file = await artifacts.internalFile(deployment.id, PUBLISH_GAME_COVER_PATH);
+      if (!file) return sendPublishError(reply, request, 404, "not_found", "Game cover not found");
+      return reply
+        .header("content-type", "image/webp")
+        .header("x-content-type-options", "nosniff")
+        .header("cache-control", "public, max-age=31536000, immutable")
+        .send(createReadStream(file));
+    },
+  );
 
   app.post<{ Body: CreatePublishAssetRequest }>(
     "/v1/assets",
@@ -910,11 +930,25 @@ function publicGame(game: StoredGame, playOrigin: string): PublishGame {
 }
 
 function publicDeployment(deployment: StoredDeployment, playOrigin: string): PublishDeployment {
-  return { ...deployment, versionUrl: deploymentUrl(playOrigin, deployment.id) };
+  const versionUrl = deploymentUrl(playOrigin, deployment.id);
+  const { hasCover, ...stored } = deployment;
+  return {
+    ...stored,
+    versionUrl,
+    ...(hasCover ? { coverUrl: new URL(PUBLISH_GAME_COVER_PATH, versionUrl).toString() } : {}),
+  };
 }
 
 function publicCommunityGame(game: StoredCommunityGame, playOrigin: string): PublishCommunityGame {
-  return { ...game, playUrl: gameUrl(playOrigin, game.id) };
+  const playUrl = gameUrl(playOrigin, game.id);
+  const { hasCover, ...stored } = game;
+  return {
+    ...stored,
+    playUrl,
+    ...(hasCover ? {
+      coverUrl: new URL(PUBLISH_GAME_COVER_PATH, deploymentUrl(playOrigin, game.deploymentId)).toString(),
+    } : {}),
+  };
 }
 
 async function serveGame(
@@ -948,17 +982,23 @@ function withCurrentUrls(game: Omit<PublishGame, "playUrl">, playOrigin: string)
 }
 
 function withoutResultUrls(value: { deployment: PublishDeployment; game: PublishGame }) {
-  const { versionUrl: _, ...deployment } = value.deployment;
-  return { deployment, game: withoutGameUrl(value.game) };
+  const { versionUrl: _, coverUrl, ...deployment } = value.deployment;
+  return { deployment: { ...deployment, hasCover: Boolean(coverUrl) }, game: withoutGameUrl(value.game) };
 }
 
 function withCurrentResultUrls(value: unknown, playOrigin: string) {
   const result = value as {
-    deployment: Omit<PublishDeployment, "versionUrl">;
+    deployment: Omit<PublishDeployment, "versionUrl" | "coverUrl"> & { hasCover: boolean };
     game: Omit<PublishGame, "playUrl">;
   };
+  const { hasCover, ...deployment } = result.deployment;
+  const versionUrl = deploymentUrl(playOrigin, deployment.id);
   return {
-    deployment: { ...result.deployment, versionUrl: deploymentUrl(playOrigin, result.deployment.id) },
+    deployment: {
+      ...deployment,
+      versionUrl,
+      ...(hasCover ? { coverUrl: new URL(PUBLISH_GAME_COVER_PATH, versionUrl).toString() } : {}),
+    },
     game: withCurrentUrls(result.game, playOrigin),
   };
 }

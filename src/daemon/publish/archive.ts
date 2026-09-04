@@ -5,7 +5,7 @@ import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES } from "../../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -24,10 +24,10 @@ export class PublishError extends Error {
 export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
 
-  async create(project: ProjectState): Promise<Buffer> {
+  async create(project: ProjectState, cover?: Buffer): Promise<Buffer> {
     try {
       const source = await prepareSource(project.workspacePath, (child) => this.#running.set(project.id, child));
-      return createZip(source);
+      return createZip(source, false, cover);
     } finally {
       this.#running.delete(project.id);
     }
@@ -62,11 +62,16 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
   throw new PublishError("Project has no build script or static index.html yet");
 }
 
-async function createZip(source: string, plugin = false): Promise<Buffer> {
+async function createZip(source: string, plugin = false, cover?: Buffer): Promise<Buffer> {
   const zip = new ZipFile();
-  for (const file of await filesIn(source, "", plugin)) {
+  const files = await filesIn(source, "", plugin);
+  if (cover !== undefined && files.includes(PUBLISH_GAME_COVER_PATH)) {
+    throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
+  }
+  for (const file of files) {
     zip.addFile(path.join(source, ...file.split("/")), file, { mtime: ZIP_TIMESTAMP });
   }
+  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, { mtime: ZIP_TIMESTAMP });
   const chunks: Buffer[] = [];
   const output = zip.outputStream as Readable;
   const completed = new Promise<Buffer>((resolve, reject) => {
