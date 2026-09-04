@@ -980,6 +980,22 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get<{ Params: { gameId: string; deploymentId: string } }>(
+    "/community/games/:gameId/deployments/:deploymentId/cover",
+    async (request, reply) => {
+      try {
+        const cover = await publisher.communityGameCover(request.params.gameId, request.params.deploymentId);
+        reply.header("content-type", "image/webp");
+        reply.header("cache-control", "private, max-age=31536000, immutable");
+        reply.header("x-content-type-options", "nosniff");
+        return reply.send(cover);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+      }
+    },
+  );
+
   app.get("/explore/assets", async (_request, reply) => {
     try {
       return await publisher.exploreAssets();

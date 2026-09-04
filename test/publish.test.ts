@@ -485,6 +485,32 @@ describe("remote publish", () => {
     );
   });
 
+  it("proxies a remote Community game cover", async () => {
+    const cover = Buffer.from("cover");
+    const publishFetch = vi.fn(async () => new Response(cover, { headers: { "content-type": "image/webp" } }));
+    const daemon = createApp({
+      dataDirectory: await temporary("open-game-daemon-"),
+      publishApiUrl: "https://publish.example",
+      publishFetch,
+    });
+    apps.push(daemon);
+
+    const response = await daemon.inject({
+      method: "GET",
+      url: "/community/games/game%201/deployments/deployment%201/cover",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("image/webp");
+    expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.rawPayload).toEqual(cover);
+    expect(publishFetch).toHaveBeenCalledWith(
+      "https://publish.example/v1/community/games/game%201/deployments/deployment%201/cover",
+      expect.anything(),
+    );
+  });
+
   it("rejects an artifact larger than the publish limit before upload", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);

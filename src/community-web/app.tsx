@@ -1,92 +1,35 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { LoaderCircle, Play } from "../renderer/icons.js";
+import {
+  GAME_DETAIL_MOSAIC_SLOTS,
+  HOME_GAME_MOSAIC_SLOTS,
+  takeGameMosaicSlots,
+  type GameMosaicSlot,
+} from "../shared/game-mosaic.js";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
 import { getCommunityGame, listCommunityGames } from "./api.js";
 import appleIcon from "./assets/apple.svg";
 import fullscreenIcon from "./assets/fullscreen.svg";
 import githubIcon from "./assets/github.svg";
-import brandMark from "./assets/opengame-mark.svg";
+import brandMark from "../shared/assets/opengame-mark.svg";
 import shareIcon from "./assets/share.svg";
 import windowsIcon from "./assets/windows.svg";
 
 const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
 const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
 
-type MosaicSlot = { column: number; row: number; size: 1 | 2 | 3 };
 type MosaicStyle = CSSProperties & {
   "--mosaic-column": number;
   "--mosaic-row": number;
   "--mosaic-size": number;
 };
 
-const HOME_MOSAIC_SLOTS: readonly MosaicSlot[] = [
-  { column: 1, row: 1, size: 3 },
-  { column: 4, row: 1, size: 2 },
-  { column: 6, row: 1, size: 2 },
-  { column: 8, row: 1, size: 1 },
-  { column: 8, row: 2, size: 1 },
-  { column: 4, row: 3, size: 1 },
-  { column: 5, row: 3, size: 2 },
-  { column: 7, row: 3, size: 2 },
-  { column: 1, row: 4, size: 1 },
-  { column: 2, row: 4, size: 1 },
-  { column: 3, row: 4, size: 2 },
-  { column: 1, row: 5, size: 2 },
-  { column: 5, row: 5, size: 1 },
-  { column: 6, row: 5, size: 3 },
-  { column: 3, row: 6, size: 1 },
-  { column: 4, row: 6, size: 2 },
-  { column: 1, row: 7, size: 2 },
-  { column: 3, row: 7, size: 1 },
-  { column: 3, row: 8, size: 2 },
-  { column: 5, row: 8, size: 1 },
-  { column: 6, row: 8, size: 1 },
-  { column: 7, row: 8, size: 2 },
-  { column: 1, row: 9, size: 2 },
-  { column: 5, row: 9, size: 2 },
-  { column: 3, row: 10, size: 1 },
-  { column: 4, row: 10, size: 1 },
-  { column: 7, row: 10, size: 1 },
-  { column: 8, row: 10, size: 1 },
-];
-
-const GAME_DETAIL_SLOTS: readonly MosaicSlot[] = [
-  { column: 8, row: 1, size: 1 },
-  { column: 8, row: 2, size: 1 },
-  { column: 8, row: 3, size: 1 },
-  { column: 8, row: 4, size: 1 },
-  { column: 8, row: 5, size: 1 },
-  { column: 6, row: 6, size: 2 },
-  { column: 8, row: 6, size: 1 },
-  { column: 8, row: 7, size: 1 },
-  { column: 6, row: 8, size: 3 },
-  { column: 1, row: 9, size: 2 },
-  { column: 3, row: 9, size: 1 },
-  { column: 3, row: 10, size: 1 },
-  { column: 4, row: 8, size: 2 },
-  { column: 1, row: 11, size: 3 },
-  { column: 4, row: 11, size: 2 },
-  { column: 7, row: 11, size: 2 },
-  { column: 6, row: 11, size: 1 },
-  { column: 6, row: 12, size: 1 },
-  { column: 4, row: 13, size: 1 },
-  { column: 5, row: 13, size: 1 },
-  { column: 6, row: 13, size: 1 },
-  { column: 7, row: 13, size: 1 },
-  { column: 8, row: 13, size: 1 },
-  { column: 1, row: 14, size: 1 },
-  { column: 2, row: 14, size: 1 },
-  { column: 3, row: 14, size: 2 },
-  { column: 5, row: 14, size: 1 },
-  { column: 6, row: 14, size: 2 },
-];
-
-export function getGameMosaicSlots(count: number): readonly MosaicSlot[] {
-  return takeMosaicSlots(HOME_MOSAIC_SLOTS, count);
+export function getGameMosaicSlots(count: number): readonly GameMosaicSlot[] {
+  return takeGameMosaicSlots(HOME_GAME_MOSAIC_SLOTS, count);
 }
 
-export function getGameDetailMosaicSlots(count: number): readonly MosaicSlot[] {
-  return takeMosaicSlots(GAME_DETAIL_SLOTS, count);
+export function getGameDetailMosaicSlots(count: number): readonly GameMosaicSlot[] {
+  return takeGameMosaicSlots(GAME_DETAIL_MOSAIC_SLOTS, count);
 }
 
 export type CommunityRoute =
@@ -183,7 +126,7 @@ function HomePage() {
         {loading ? <Status><LoaderCircle className="spin" size={18} />Loading games</Status> : null}
         {!loading && error ? <Status error={error} onRetry={loadGames} /> : null}
         {!loading && !error && games.length === 0 ? <Status>No published games yet</Status> : null}
-        {!loading && !error && games.length > 0 ? <GameWall games={games.slice(0, HOME_MOSAIC_SLOTS.length)} /> : null}
+        {!loading && !error && games.length > 0 ? <GameWall games={games.slice(0, HOME_GAME_MOSAIC_SLOTS.length)} /> : null}
       </section>
     </main>
   );
@@ -191,7 +134,7 @@ function HomePage() {
 
 function GameWall({ games }: { games: PublishCommunityGame[] }) {
   const slots = getGameMosaicSlots(games.length);
-  const complete = games.length === HOME_MOSAIC_SLOTS.length;
+  const complete = games.length === HOME_GAME_MOSAIC_SLOTS.length;
   return (
     <div className={`game-wall${complete ? " game-wall-complete" : ""}`}>
       {games.map((game, index) => (
@@ -242,7 +185,7 @@ function GamePage({ gameId }: { gameId: string }) {
     ])
       .then(([value, games]) => {
         if (!active) return;
-        setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, GAME_DETAIL_SLOTS.length));
+        setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, GAME_DETAIL_MOSAIC_SLOTS.length));
         setGame(value);
       })
       .catch((cause) => { if (active) setError(errorMessage(cause)); });
@@ -342,14 +285,10 @@ function publishedDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
 }
 
-function mosaicStyle(slot: MosaicSlot): MosaicStyle {
+function mosaicStyle(slot: GameMosaicSlot): MosaicStyle {
   return {
     "--mosaic-column": slot.column,
     "--mosaic-row": slot.row,
     "--mosaic-size": slot.size,
   };
-}
-
-function takeMosaicSlots(slots: readonly MosaicSlot[], count: number): readonly MosaicSlot[] {
-  return slots.slice(0, Math.max(0, Math.min(Math.floor(count), slots.length)));
 }

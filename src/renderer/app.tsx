@@ -39,7 +39,7 @@ export function App() {
   }
   if (route.page === "games") return <GamesPage onNavigate={navigateToSidebarPage} onOpenGame={openGame} />;
   if (route.page === "assets") return <ExploreAssetsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} />;
+  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onOpenGame={openGame} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;

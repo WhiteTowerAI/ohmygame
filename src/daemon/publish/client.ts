@@ -55,6 +55,13 @@ export class RemotePublisher {
     return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}`);
   }
 
+  async communityGameCover(gameId: string, deploymentId: string): Promise<Buffer> {
+    const response = await this.#response(
+      `/v1/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
+    );
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   async publishAsset(input: {
     projectId: string;
     path: string;

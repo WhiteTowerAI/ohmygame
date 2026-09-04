@@ -197,6 +197,15 @@ export async function getExploreGame(gameId: string): Promise<CommunityGame> {
   return request(`/community/games/${encodeURIComponent(gameId)}`);
 }
 
+export async function getExploreGameCover(gameId: string, deploymentId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(
+    `/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
+  ), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 export async function listTools(): Promise<ToolDefinition[]> {
   return request("/tools");
 }
