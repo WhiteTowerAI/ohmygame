@@ -1,6 +1,6 @@
 {
   "name": "open-game",
-  "version": "0.0.0-alpha.2",
+  "version": "0.0.0-alpha.3",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "private": true,
