@@ -92,6 +92,19 @@ describe("public publish server", () => {
     expect(first.statusCode).toBe(201);
     expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toEqual([]);
     await app.inject({ method: "PUT", url: `/v1/plugins/${pluginId}/listing`, headers: authorization, payload: { status: "listed" } });
+    expect((await app.inject({ method: "GET", url: `/v1/plugins/${pluginId}/publication`, headers: authorization })).json()).toMatchObject({
+      pluginId,
+      releaseId: first.json().release.id,
+      version: "1.0.0",
+      status: "listed",
+    });
+    expect((await app.inject({
+      method: "GET", url: `/v1/plugins/${pluginId}/publication`,
+      headers: { authorization: "Bearer other-publisher-token" },
+    })).statusCode).toBe(404);
+    await app.inject({ method: "PUT", url: `/v1/plugins/${pluginId}/listing`, headers: authorization, payload: { status: "unlisted" } });
+    expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toEqual([]);
+    await app.inject({ method: "PUT", url: `/v1/plugins/${pluginId}/listing`, headers: authorization, payload: { status: "listed" } });
     expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toMatchObject([{
       id: pluginId, name: "level-tools", version: "1.0.0", manifest: { name: "level-tools" },
       skills: [{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }],

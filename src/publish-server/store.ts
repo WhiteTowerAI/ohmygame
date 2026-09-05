@@ -600,6 +600,15 @@ export class PublishStore {
     `).get(pluginId, publisherId) as Row | undefined);
   }
 
+  pluginListing(publisherId: string, pluginId: string): PublishPluginListing | undefined {
+    if (!this.plugin(publisherId, pluginId)) return undefined;
+    const row = this.#database.prepare("SELECT * FROM plugin_listings WHERE plugin_id = ?").get(pluginId) as Row | undefined;
+    if (!row) return undefined;
+    return row.status === "listed"
+      ? { pluginId, status: "listed", listedAt: String(row.listed_at), updatedAt: String(row.updated_at) }
+      : { pluginId, status: "unlisted", listedAt: null, updatedAt: String(row.updated_at) };
+  }
+
   setPluginListing(
     publisherId: string,
     pluginId: string,

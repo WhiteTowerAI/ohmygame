@@ -778,6 +778,44 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post<{ Params: { pluginId: string }; Body: { accessToken: string } }>("/plugins/:pluginId/publication", {
+    schema: { body: publishAccessTokenBody },
+  }, async (request, reply) => {
+    try {
+      const plugin = await plugins.read(request.params.pluginId);
+      const catalog = plugin?.catalog ?? (plugin?.source.type === "catalog" ? plugin.source : undefined);
+      if (!plugin?.installed || !catalog) return null;
+      return await publisher.pluginPublication(catalog.pluginId, request.body.accessToken) ?? null;
+    } catch (cause) {
+      const statusCode = cause instanceof RemotePublishError ? cause.statusCode : 502;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.put<{ Params: { pluginId: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>("/plugins/:pluginId/publication", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["accessToken", "status"],
+        properties: {
+          accessToken: { type: "string", minLength: 1 },
+          status: { type: "string", enum: ["listed", "unlisted"] },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const plugin = await plugins.read(request.params.pluginId);
+      const catalog = plugin?.catalog ?? (plugin?.source.type === "catalog" ? plugin.source : undefined);
+      if (!plugin?.installed || !catalog) return reply.code(404).send({ error: "Plugin publication not found" });
+      return await publisher.setPluginListing(catalog.pluginId, request.body.status, request.body.accessToken);
+    } catch (cause) {
+      const statusCode = cause instanceof RemotePublishError ? cause.statusCode : 502;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
   app.post<{ Body: InstallPluginRequest }>("/plugins/inspect", { schema: pluginInstallRequestSchema }, async (request, reply) => {
     try {
       const candidates = (await inspectPluginSource(request.body)).map(({ manifest: _manifest, ...candidate }) => candidate);

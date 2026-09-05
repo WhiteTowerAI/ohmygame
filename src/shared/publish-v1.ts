@@ -270,6 +270,12 @@ export type PublishPluginListing = {
   | { status: "unlisted"; listedAt: null }
 );
 
+export type PublishPluginPublication = PublishPluginListing & {
+  releaseId: string;
+  version: string;
+  publishedAt: string;
+};
+
 export type PublishErrorCode =
   | "authentication_required"
   | "not_found"

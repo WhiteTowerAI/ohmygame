@@ -30,6 +30,7 @@ import type {
   PublishGame,
   PublishExplorePlugin,
   PublishExploreTemplate,
+  PublishPluginPublication,
   SetPublishListingRequest,
   UpdatePublishGameRequest,
 } from "../shared/publish-v1.js";
@@ -594,6 +595,21 @@ export function createPublishApp(options: PublishAppOptions) {
     if (!publisherId) return;
     return store.plugin(publisherId, request.params.pluginId)
       ?? sendPublishError(reply, request, 404, "not_found", "Plugin not found");
+  });
+
+  app.get<{ Params: { pluginId: string } }>("/v1/plugins/:pluginId/publication", async (request, reply) => {
+    const publisherId = await authenticatePublisher(request, reply);
+    if (!publisherId) return;
+    const release = store.currentPluginRelease(publisherId, request.params.pluginId);
+    const listing = store.pluginListing(publisherId, request.params.pluginId);
+    if (!release || !listing) return sendPublishError(reply, request, 404, "not_found", "Plugin publication not found");
+    const publication: PublishPluginPublication = {
+      ...listing,
+      releaseId: release.id,
+      version: release.version,
+      publishedAt: release.publishedAt,
+    };
+    return publication;
   });
 
   app.post<{ Params: { pluginId: string } }>("/v1/plugins/:pluginId/releases", async (request, reply) => {

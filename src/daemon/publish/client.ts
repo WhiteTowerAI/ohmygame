@@ -18,6 +18,8 @@ import type {
   PublishDeployment,
   PublishGame,
   PublishPlugin,
+  PublishPluginListing,
+  PublishPluginPublication,
   PublishPluginOrigin,
   PublishPluginSkill,
   PublishTemplate,
@@ -160,6 +162,22 @@ export class RemotePublisher {
 
   explorePlugins(): Promise<PublishExplorePlugin[]> {
     return this.#request("/v1/explore/plugins");
+  }
+
+  async pluginPublication(pluginId: string, accessToken: string): Promise<PublishPluginPublication | undefined> {
+    try {
+      return await this.#request(`/v1/plugins/${encodeURIComponent(pluginId)}/publication`, {}, accessToken);
+    } catch (cause) {
+      if (cause instanceof RemotePublishError && cause.statusCode === 404) return undefined;
+      throw cause;
+    }
+  }
+
+  setPluginListing(pluginId: string, status: "listed" | "unlisted", accessToken: string): Promise<PublishPluginListing> {
+    return this.#request(`/v1/plugins/${encodeURIComponent(pluginId)}/listing`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }, accessToken);
   }
 
   explorePlugin(pluginId: string): Promise<PublishExplorePlugin> {

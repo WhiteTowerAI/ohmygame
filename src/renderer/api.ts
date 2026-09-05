@@ -43,9 +43,8 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
-import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState } from "../shared/publish-v1.js";
+import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
-import type { CreatePublishTemplateReleaseResult } from "../shared/publish-v1.js";
 
 const API_BASE = "/api";
 
@@ -234,6 +233,18 @@ export async function installCatalogPlugin(id: string): Promise<PluginDetail> {
 export async function publishPlugin(id: string, accessToken: string, version?: string): Promise<void> {
   await request(`/plugins/${encodeURIComponent(id)}/publish`, {
     method: "POST", body: JSON.stringify({ accessToken, version }),
+  });
+}
+
+export async function getPluginPublication(id: string, accessToken: string): Promise<PublishPluginPublication | null> {
+  return request(`/plugins/${encodeURIComponent(id)}/publication`, {
+    method: "POST", body: JSON.stringify({ accessToken }),
+  });
+}
+
+export async function setPluginPublicationStatus(id: string, accessToken: string, status: "listed" | "unlisted"): Promise<PublishPluginListing> {
+  return request(`/plugins/${encodeURIComponent(id)}/publication`, {
+    method: "PUT", body: JSON.stringify({ accessToken, status }),
   });
 }
 

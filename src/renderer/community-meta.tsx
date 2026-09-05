@@ -43,15 +43,16 @@ export function useCommunityLike(type: CommunitySubjectType, id: string, stats: 
   return { busy, counts, liked, toggle };
 }
 
-export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = true }: {
+export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = true, showLabel = false }: {
   busy: boolean;
   count: number;
   liked: boolean;
   onToggle: () => void;
   showCount?: boolean;
+  showLabel?: boolean;
 }) {
-  return <button type="button" className={[liked ? "is-liked" : "", showCount ? "has-count" : ""].filter(Boolean).join(" ")} disabled={busy} onClick={onToggle} title={liked ? "Unlike" : "Like"} aria-label={liked ? "Unlike" : "Like"} aria-pressed={liked}>
-    <Heart size={showCount ? 14 : 17} />{showCount ? count : null}
+  return <button type="button" className={["community-like-button", liked ? "is-liked" : "", showCount ? "has-count" : "", showLabel ? "has-label" : ""].filter(Boolean).join(" ")} disabled={busy} onClick={onToggle} title={liked ? "Unlike" : "Like"} aria-label={liked ? "Unlike" : "Like"} aria-pressed={liked}>
+    <Heart size={showCount ? 14 : 17} />{showLabel ? <span>{liked ? "Liked" : "Like"}</span> : null}{showCount ? count : null}
   </button>;
 }
 

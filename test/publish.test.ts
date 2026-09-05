@@ -68,6 +68,23 @@ describe("remote publish", () => {
     expect(publisherCatalog.explore).toEqual([
       expect.objectContaining({ id: "personal:level-tools", installed: true }),
     ]);
+    expect((await runtime.daemon.inject({
+      method: "POST", url: "/plugins/personal%3Alevel-tools/publication", payload: { accessToken: token },
+    })).json()).toMatchObject({
+      pluginId: published.json().plugin.id,
+      releaseId: published.json().release.id,
+      version: "1.0.0",
+      status: "listed",
+    });
+    expect((await runtime.daemon.inject({
+      method: "PUT", url: "/plugins/personal%3Alevel-tools/publication",
+      payload: { accessToken: token, status: "unlisted" },
+    })).statusCode).toBe(200);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json().explore).toEqual([]);
+    expect((await runtime.daemon.inject({
+      method: "PUT", url: "/plugins/personal%3Alevel-tools/publication",
+      payload: { accessToken: token, status: "listed" },
+    })).statusCode).toBe(200);
 
     const consumer = createApp({ dataDirectory: await temporary("open-game-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
     apps.push(consumer);

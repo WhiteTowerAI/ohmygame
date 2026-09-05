@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteProject, duplicateProject, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -243,6 +243,25 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/opengame%3Atools/install", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
       method: "POST", body: JSON.stringify({ accessToken: "user-access-token", version: "0.1.0" }),
+    }));
+  });
+
+  it("reads and updates the current user's Plugin publication through the daemon API", async () => {
+    installWindow();
+    const publication = { pluginId: "plugin-1", releaseId: "release-1", version: "1.0.0", status: "listed" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(publication))
+      .mockResolvedValueOnce(Response.json({ pluginId: "plugin-1", status: "unlisted" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPluginPublication("personal:tools", "user-access-token")).resolves.toEqual(publication);
+    await setPluginPublicationStatus("personal:tools", "user-access-token", "unlisted");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/personal%3Atools/publication", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publication", expect.objectContaining({
+      method: "PUT", body: JSON.stringify({ accessToken: "user-access-token", status: "unlisted" }),
     }));
   });
 
