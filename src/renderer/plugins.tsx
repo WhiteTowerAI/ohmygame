@@ -410,9 +410,10 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         <InstalledPlugins
           plugins={installed}
           collapsible={!normalizedQuery}
+          viewerId={auth.state.status === "signed-in" ? auth.state.user.id : undefined}
           onOpenPlugin={(id) => void openPlugin(id)}
         />
-        <ExplorePlugins plugins={explore} onOpenPlugin={(id) => void openPlugin(id)} />
+        <ExplorePlugins plugins={explore} viewerId={auth.state.status === "signed-in" ? auth.state.user.id : undefined} onOpenPlugin={(id) => void openPlugin(id)} />
       </> : null}
     </>}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
@@ -471,9 +472,10 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
 
 const INSTALLED_PLUGIN_LIMIT = 6;
 
-function InstalledPlugins({ plugins, collapsible, onOpenPlugin }: {
+function InstalledPlugins({ plugins, collapsible, viewerId, onOpenPlugin }: {
   plugins: PluginSummary[];
   collapsible: boolean;
+  viewerId?: string;
   onOpenPlugin: (id: string) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
@@ -482,25 +484,25 @@ function InstalledPlugins({ plugins, collapsible, onOpenPlugin }: {
   return <section className="plugins-installed" aria-labelledby="installed-plugins-title">
     <h2 id="installed-plugins-title">Installed</h2>
     {plugins.length ? <div className="plugins-installed-grid">
-      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}
+      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} viewerId={viewerId} onOpen={() => onOpenPlugin(plugin.id)} />)}
     </div> : <p className="plugins-empty">No installed plugins match your search.</p>}
     {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "Show less" : `Show more (${plugins.length - INSTALLED_PLUGIN_LIMIT})`}</button> : null}
   </section>;
 }
 
-function ExplorePlugins({ plugins, onOpenPlugin }: { plugins: PluginSummary[]; onOpenPlugin: (id: string) => void }): ReactNode {
+function ExplorePlugins({ plugins, viewerId, onOpenPlugin }: { plugins: PluginSummary[]; viewerId?: string; onOpenPlugin: (id: string) => void }): ReactNode {
   return <section className="plugins-explore" aria-labelledby="explore-plugins-title">
     <header className="plugins-section-heading"><h2 id="explore-plugins-title">Explore</h2><span>Discover more capabilities for your agent.</span></header>
-    {plugins.length ? <div className="plugins-explore-grid">{plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}</div> : <p className="plugins-empty">No additional plugins match your search.</p>}
+    {plugins.length ? <div className="plugins-explore-grid">{plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} viewerId={viewerId} onOpen={() => onOpenPlugin(plugin.id)} />)}</div> : <p className="plugins-empty">No additional plugins match your search.</p>}
   </section>;
 }
 
-function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
+function PluginCard({ plugin, viewerId, onOpen }: { plugin: PluginSummary; viewerId?: string; onOpen: () => void }): ReactNode {
   return <article className={`plugin-catalog-card${plugin.installed && !plugin.enabled ? " is-disabled" : ""}`}>
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}<ExplorePluginStatus plugin={plugin} /></span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}{viewerId && plugin.author?.id === viewerId ? <small className="plugin-yours-badge">Yours</small> : null}<ExplorePluginStatus plugin={plugin} /></span>
         <span className="plugin-card-description">{plugin.description}</span>
         <PluginCardMeta plugin={plugin} />
       </span>

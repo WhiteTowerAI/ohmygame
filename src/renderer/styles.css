@@ -2943,6 +2943,8 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-card-title .plugin-featured-badge,
+.plugin-card-title .plugin-yours-badge,
+.plugin-card-title .plugin-explore-status,
 .plugin-detail-title .plugin-featured-badge,
 .plugin-detail-badge {
   display: inline-flex;
