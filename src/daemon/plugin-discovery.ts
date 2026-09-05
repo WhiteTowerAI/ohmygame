@@ -1,6 +1,5 @@
 import { glob, lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { parse as parseYaml } from "yaml";
 import {
   PLUGIN_MANIFEST_PATH,
   PERSONAL_MARKETPLACE,
@@ -10,6 +9,7 @@ import {
   type ResolvedPluginManifest,
 } from "../shared/plugins.js";
 import { LocalPluginError } from "./local-plugins.js";
+import { parseSkillMetadata } from "./skill-metadata.js";
 
 export interface DiscoveredPlugin extends PluginInstallCandidate {
   manifest: ResolvedPluginManifest;
@@ -206,11 +206,8 @@ async function findSkills(root: string, directory: string, result: string[]): Pr
 
 async function skillMetadata(skillPath: string): Promise<{ name?: string; description?: string }> {
   const content = await readFile(skillPath, "utf8");
-  const frontmatter = /^---\s*\n([\s\S]*?)\n---/.exec(content)?.[1];
-  if (!frontmatter) return {};
   try {
-    const metadata = asRecord(parseYaml(frontmatter, { maxAliasCount: 0 }));
-    return { name: stringValue(metadata.name), description: stringValue(metadata.description) };
+    return parseSkillMetadata(content);
   } catch (cause) {
     throw new LocalPluginError(`Could not read Skill metadata: ${cause instanceof Error ? cause.message : String(cause)}`);
   }

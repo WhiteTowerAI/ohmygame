@@ -662,9 +662,9 @@ export function createPublishApp(options: PublishAppOptions) {
         });
         await validatePluginArtifact(artifacts, release.id, metadata.manifest, metadata.skills);
         const body: CreatePublishPluginReleaseResult = {
-          plugin: { ...plugin, currentReleaseId: release.id, updatedAt: release.publishedAt }, release,
+          plugin: { ...plugin, currentReleaseId: release.id, updatedAt: release.publishedAt, origin: metadata.origin }, release,
         };
-        store.activatePluginRelease(publisherId, release, { method: "POST", route, key, statusCode: 201, body });
+        store.activatePluginRelease(publisherId, release, metadata.origin, { method: "POST", route, key, statusCode: 201, body });
         return reply.code(201).send(body);
       } catch (error) {
         await artifacts.remove(release.id);
@@ -949,7 +949,26 @@ function pluginReleaseMetadata(value: unknown, pluginName: string): CreatePublis
     }
     return { id, name, ...(description ? { description } : {}) };
   });
-  return { artifactSha256, artifactBytes, manifest: record.manifest, skills };
+  const origin = pluginOrigin(record.origin);
+  return { artifactSha256, artifactBytes, manifest: record.manifest, skills, ...(origin ? { origin } : {}) };
+}
+
+function pluginOrigin(value: unknown): import("../shared/publish-v1.js").PublishPluginOrigin | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ArtifactError("Plugin origin is invalid");
+  const origin = value as Record<string, unknown>;
+  if (origin.type === "github" && Object.keys(origin).every((key) => ["type", "repository", "commit", "release"].includes(key)) &&
+    typeof origin.repository === "string" && origin.repository.length > 0 && origin.repository.length <= 500 &&
+    typeof origin.commit === "string" && /^[a-f0-9]{40}$/.test(origin.commit) &&
+    (origin.release === undefined || typeof origin.release === "string" && origin.release.length <= 256)) {
+    return { type: "github", repository: origin.repository, commit: origin.commit, ...(origin.release ? { release: origin.release } : {}) };
+  }
+  if (origin.type === "claude-marketplace" && Object.keys(origin).every((key) => ["type", "marketplace", "repository"].includes(key)) &&
+    typeof origin.marketplace === "string" && origin.marketplace.length > 0 && origin.marketplace.length <= 200 &&
+    (origin.repository === undefined || typeof origin.repository === "string" && origin.repository.length <= 500)) {
+    return { type: "claude-marketplace", marketplace: origin.marketplace, ...(origin.repository ? { repository: origin.repository } : {}) };
+  }
+  throw new ArtifactError("Plugin origin is invalid");
 }
 
 async function validatePluginArtifact(

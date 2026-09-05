@@ -22,12 +22,9 @@ export interface CommunityViewerState {
   liked: boolean;
 }
 
-export interface PublishPluginOrigin {
-  type: "github";
-  repository: string;
-  commit: string;
-  release?: string;
-}
+export type PublishPluginOrigin =
+  | { type: "github"; repository: string; commit: string; release?: string }
+  | { type: "claude-marketplace"; marketplace: string; repository?: string };
 
 export type PublishPluginCuration = "featured";
 
@@ -169,6 +166,7 @@ export interface PublishPlugin {
   currentReleaseId: string | null;
   createdAt: string;
   updatedAt: string;
+  origin?: PublishPluginOrigin;
 }
 
 export interface PublishTemplate {
@@ -256,6 +254,7 @@ export interface CreatePublishPluginReleaseMetadata {
   artifactBytes: number;
   manifest: import("./plugins.js").PluginManifest;
   skills: PublishPluginSkill[];
+  origin?: PublishPluginOrigin;
 }
 
 export interface CreatePublishPluginReleaseResult {

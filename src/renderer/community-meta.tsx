@@ -55,17 +55,18 @@ export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = 
   </button>;
 }
 
-export function CommunityMeta({ type, id, author, stats, useLabel }: {
+export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix }: {
   type: CommunitySubjectType;
   id: string;
   author: CommunityAuthor;
   stats: CommunityStats;
   useLabel: string;
+  authorPrefix?: string;
 }) {
   const like = useCommunityLike(type, id, stats);
 
   return <div className="community-meta">
-    <CommunityAuthorView author={author} />
+    <CommunityAuthorView author={author} prefix={authorPrefix} />
     <span className="community-stats">
       <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} />
       <span>{like.counts.uses} {useLabel}</span>
@@ -73,10 +74,10 @@ export function CommunityMeta({ type, id, author, stats, useLabel }: {
   </div>;
 }
 
-function CommunityAuthorView({ author }: { author: CommunityAuthor }) {
+export function CommunityAuthorView({ author, prefix }: { author: CommunityAuthor; prefix?: string }) {
   return <span className="community-author">
     {author.avatarUrl ? <img src={author.avatarUrl} alt="" /> : <span aria-hidden="true">{author.displayName.slice(0, 1).toUpperCase()}</span>}
-    <strong>{author.displayName}</strong>
+    <strong>{prefix ? `${prefix} ${author.displayName}` : author.displayName}</strong>
   </span>;
 }
 

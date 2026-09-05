@@ -4,6 +4,7 @@ import {
   PERSONAL_MARKETPLACE,
   isNewerPluginVersion,
   type PluginCatalog,
+  type PluginCatalogRef,
   type PluginDetail,
   type PluginMarketplaceRef,
   type PluginSummary,
@@ -20,6 +21,7 @@ export interface PluginCatalogAdapter {
   readonly marketplace: PluginMarketplaceRef;
   list(): Promise<PluginCatalogResult>;
   read(id: string): Promise<PluginDetail | undefined>;
+  readCatalog?(pluginId: string): Promise<PluginDetail | undefined>;
 }
 
 export class PluginCatalogService {
@@ -38,8 +40,12 @@ export class PluginCatalogService {
       }
     }));
     const adapterResults = results.flatMap((entry) => entry.result ? [entry.result] : []);
+    const allPlugins = adapterResults.flatMap((result) => result.plugins);
+    const plugins = uniquePlugins(allPlugins);
     return {
-      plugins: uniquePlugins(adapterResults.flatMap((result) => result.plugins))
+      plugins: plugins
+        .map((plugin) => this.decoratePlugin(this.settings.decorateSummary(plugin))),
+      explore: catalogListings(allPlugins, plugins)
         .map((plugin) => this.decoratePlugin(this.settings.decorateSummary(plugin))),
       errors: results.flatMap((entry) => {
         const messages = entry.error ? [entry.error] : entry.result?.errors ?? [];
@@ -56,10 +62,22 @@ export class PluginCatalogService {
         return { error };
       }
     }));
-    const plugins = results.flatMap((result) => result.plugin ? [result.plugin] : []);
-    const installed = plugins.find((plugin) => plugin.installed);
-    const remote = plugins.find((plugin) => plugin.source.type === "catalog" && !plugin.installed);
-    const plugin = installed && remote && installed.source.type === "catalog"
+    const found = results.flatMap((result) => result.plugin ? [result.plugin] : []);
+    const installed = found.find((plugin) => plugin.installed);
+    const catalog = installed ? pluginCatalogRef(installed) : undefined;
+    const catalogResults = installed && catalog && !found.some((plugin) => !plugin.installed && pluginCatalogRef(plugin)?.pluginId === catalog.pluginId)
+      ? await Promise.all(this.adapters.map(async (adapter) => {
+          try {
+            return await adapter.readCatalog?.(catalog.pluginId);
+          } catch {
+            return undefined;
+          }
+        }))
+      : [];
+    const plugins = [...found, ...catalogResults.flatMap((plugin) => plugin ? [plugin] : [])];
+    const remote = plugins.find((plugin) => !plugin.installed && catalog && pluginCatalogRef(plugin)?.pluginId === catalog.pluginId)
+      ?? plugins.find((plugin) => plugin.source.type === "catalog" && !plugin.installed);
+    const plugin = installed && remote && sameCatalogPlugin(installed, remote)
       ? {
           ...installed,
           latestVersion: remote.version,
@@ -150,6 +168,15 @@ export class RemotePluginAdapter implements PluginCatalogAdapter {
       throw cause;
     }
   }
+
+  async readCatalog(pluginId: string): Promise<PluginDetail | undefined> {
+    try {
+      return remotePluginDetail(await this.publisher.explorePlugin(pluginId));
+    } catch (cause) {
+      if ((cause as { statusCode?: number }).statusCode === 404) return undefined;
+      throw cause;
+    }
+  }
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
@@ -159,16 +186,20 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 
 function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
   const unique = new Map<string, PluginSummary>();
+  const catalog = new Map<string, PluginSummary>();
   for (const plugin of plugins) {
-    const current = unique.get(plugin.id);
+    const catalogId = pluginCatalogRef(plugin)?.pluginId;
+    const current = unique.get(plugin.id) ?? (catalogId ? catalog.get(catalogId) : undefined);
     if (!current) {
       unique.set(plugin.id, plugin);
+      if (catalogId) catalog.set(catalogId, plugin);
       continue;
     }
+    let merged = current;
     if (plugin.installed) {
-      unique.set(plugin.id, {
+      merged = {
         ...plugin,
-        ...(plugin.source.type === "catalog" && current.source.type === "catalog" ? {
+        ...(sameCatalogPlugin(plugin, current) ? {
           latestVersion: current.version,
           updateAvailable: Boolean(plugin.version && current.version && isNewerPluginVersion(current.version, plugin.version)),
           author: current.author,
@@ -176,9 +207,9 @@ function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
           origin: current.origin,
           curation: current.curation,
         } : {}),
-      });
-    } else if (current.installed && current.source.type === "catalog" && plugin.source.type === "catalog") {
-      unique.set(plugin.id, {
+      };
+    } else if (current.installed && sameCatalogPlugin(current, plugin)) {
+      merged = {
         ...current,
         latestVersion: plugin.version,
         updateAvailable: Boolean(current.version && plugin.version && isNewerPluginVersion(plugin.version, current.version)),
@@ -186,10 +217,49 @@ function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
         stats: plugin.stats,
         origin: plugin.origin,
         curation: plugin.curation,
-      });
+      };
     }
+    if (merged.id !== current.id) unique.delete(current.id);
+    unique.set(merged.id, merged);
+    const mergedCatalogId = pluginCatalogRef(merged)?.pluginId;
+    if (mergedCatalogId) catalog.set(mergedCatalogId, merged);
   }
   return [...unique.values()];
+}
+
+function catalogListings(allPlugins: PluginSummary[], plugins: PluginSummary[]): PluginSummary[] {
+  const installedByCatalog = new Map(plugins.flatMap((plugin) => {
+    const catalog = plugin.installed ? pluginCatalogRef(plugin) : undefined;
+    return catalog ? [[catalog.pluginId, plugin] as const] : [];
+  }));
+  return allPlugins
+    .filter((plugin) => plugin.source.type === "catalog" && !plugin.installed)
+    .map((plugin) => {
+      const installed = installedByCatalog.get(pluginCatalogRef(plugin)!.pluginId);
+      if (!installed) return plugin;
+      return {
+        ...plugin,
+        id: installed.id,
+        marketplace: installed.marketplace,
+        source: installed.source,
+        catalog: pluginCatalogRef(installed),
+        installed: true,
+        enabled: installed.enabled,
+        version: installed.version,
+        latestVersion: plugin.version,
+        updateAvailable: Boolean(installed.version && plugin.version && isNewerPluginVersion(plugin.version, installed.version)),
+        preinstalled: installed.preinstalled,
+      };
+    });
+}
+
+function pluginCatalogRef(plugin: Pick<PluginSummary, "source" | "catalog">): PluginCatalogRef | undefined {
+  return plugin.catalog ?? (plugin.source.type === "catalog" ? plugin.source : undefined);
+}
+
+function sameCatalogPlugin(left: Pick<PluginSummary, "source" | "catalog">, right: Pick<PluginSummary, "source" | "catalog">): boolean {
+  const leftId = pluginCatalogRef(left)?.pluginId;
+  return Boolean(leftId && leftId === pluginCatalogRef(right)?.pluginId);
 }
 
 function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginSummary {

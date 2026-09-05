@@ -18,6 +18,7 @@ import type {
   PublishDeployment,
   PublishGame,
   PublishPlugin,
+  PublishPluginOrigin,
   PublishPluginSkill,
   PublishTemplate,
   PublishExploreAsset,
@@ -128,6 +129,7 @@ export class RemotePublisher {
     manifest: PluginManifest;
     skills: PublishPluginSkill[];
     archive: Buffer;
+    origin?: PublishPluginOrigin;
   }, accessToken: string): Promise<CreatePublishPluginReleaseResult> {
     const plugin = await this.#request<PublishPlugin>("/v1/plugins", {
       method: "POST",
@@ -139,6 +141,7 @@ export class RemotePublisher {
       artifactBytes: input.archive.length,
       manifest: input.manifest,
       skills: input.skills,
+      ...(input.origin ? { origin: input.origin } : {}),
     };
     const form = new FormData();
     form.set("metadata", JSON.stringify(metadata));

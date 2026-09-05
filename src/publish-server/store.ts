@@ -566,6 +566,7 @@ export class PublishStore {
   activatePluginRelease(
     publisherId: string,
     release: StoredPluginRelease,
+    origin: PublishPluginOrigin | undefined,
     idempotency: { method: string; route: string; key: string; statusCode: number; body: unknown },
   ): { plugin: StoredPlugin; release: StoredPluginRelease } {
     let result!: { plugin: StoredPlugin; release: StoredPluginRelease };
@@ -577,8 +578,8 @@ export class PublishStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(release.id, release.pluginId, release.version, release.artifactSha256, release.artifactBytes, JSON.stringify(release.manifest), JSON.stringify(release.skills), release.publishedAt);
       this.#database.prepare(`
-        UPDATE plugins SET current_release_id = ?, updated_at = ? WHERE id = ?
-      `).run(release.id, release.publishedAt, release.pluginId);
+        UPDATE plugins SET current_release_id = ?, updated_at = ?, origin_json = ? WHERE id = ?
+      `).run(release.id, release.publishedAt, origin ? JSON.stringify(origin) : null, release.pluginId);
       this.#completeIdempotency(publisherId, idempotency);
       result = { plugin: this.plugin(publisherId, release.pluginId)!, release };
     });

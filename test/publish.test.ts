@@ -55,6 +55,19 @@ describe("remote publish", () => {
       method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
     });
     expect(published.statusCode).toBe(201);
+    const publisherCatalog = (await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json();
+    const publisherPlugins = publisherCatalog.plugins
+      .filter((plugin: { name: string }) => plugin.name === "level-tools");
+    expect(publisherPlugins).toHaveLength(1);
+    expect(publisherPlugins[0]).toMatchObject({
+      id: "personal:level-tools",
+      installed: true,
+      catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
+      author: { id: "publisher", displayName: "OpenGame Creator" },
+    });
+    expect(publisherCatalog.explore).toEqual([
+      expect.objectContaining({ id: "personal:level-tools", installed: true }),
+    ]);
 
     const consumer = createApp({ dataDirectory: await temporary("open-game-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
     apps.push(consumer);
@@ -78,24 +91,31 @@ describe("remote publish", () => {
     expect(installed.json()).toMatchObject({
       id: "opengame:level-tools", version: "1.0.0", installed: true, enabled: true,
       source: { type: "catalog" },
+      author: { id: "publisher", displayName: "OpenGame Creator" },
+      stats: { likes: 0, uses: 0 },
     });
+    expect((await consumer.inject({ method: "GET", url: "/plugins" })).json().explore).toEqual([
+      expect.objectContaining({ id: "opengame:level-tools", installed: true }),
+    ]);
     await consumer.inject({
       method: "PUT", url: "/plugins/opengame%3Alevel-tools/settings", payload: { enabled: false, components: {} },
     });
 
     await writeManifest("1.1.0");
     await runtime.daemon.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
-    expect((await runtime.daemon.inject({
+    const secondPublished = await runtime.daemon.inject({
       method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
-    })).statusCode).toBe(201);
+    });
+    expect(secondPublished.statusCode).toBe(201);
     const update = (await consumer.inject({ method: "GET", url: "/plugins" })).json().plugins
       .find((plugin: { id: string }) => plugin.id === "opengame:level-tools");
     expect(update).toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
     expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
       .toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
-    expect((await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" })).statusCode).toBe(201);
+    const updated = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    expect(updated.statusCode).toBe(201);
     expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
-      .toMatchObject({ version: "1.1.0", enabled: false });
+      .toMatchObject({ version: "1.1.0", enabled: false, source: { type: "catalog", releaseId: secondPublished.json().release.id } });
   });
 
   it("publishes and installs a Claude marketplace Plugin without rewriting its manifest", async () => {
@@ -128,6 +148,16 @@ describe("remote publish", () => {
     });
     expect(published.statusCode, published.body).toBe(201);
     expect(published.json().release.manifest).toMatchObject({ name: "level-tools", version: "0.1.0" });
+    const publisherPlugins = (await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json().plugins
+      .filter((plugin: { name: string }) => plugin.name === "level-tools");
+    expect(publisherPlugins).toHaveLength(1);
+    expect(publisherPlugins[0]).toMatchObject({
+      id: "marketplace:game-skills:level-tools",
+      installed: true,
+      catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
+      origin: { type: "claude-marketplace", marketplace: "Game Skills" },
+      author: { id: "publisher", displayName: "OpenGame Creator" },
+    });
 
     const consumer = createApp({ dataDirectory: await temporary("open-game-claude-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
     apps.push(consumer);

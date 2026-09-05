@@ -152,6 +152,7 @@ describe("plugin catalog API", () => {
       plugins: [
         { id: "opengame:godot", installed: true },
       ],
+      explore: [],
       errors: [],
     });
     expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);

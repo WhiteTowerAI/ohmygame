@@ -10,12 +10,14 @@ import {
   isPluginManifest,
   isPluginVersion,
   type PluginComponentSummary,
+  type PluginCatalogRef,
   type PluginDetail,
   type PluginMarketplaceRef,
   type PluginManifest,
   type ResolvedPluginManifest,
   type PluginSource,
 } from "../shared/plugins.js";
+import { parseSkillMetadata } from "./skill-metadata.js";
 
 const MAX_PLUGIN_DEPTH = 64;
 
@@ -30,6 +32,7 @@ interface LocalPluginRecord {
   provenance: PluginProvenance;
   manifest: ResolvedPluginManifest;
   marketplace: PluginMarketplaceRef;
+  catalog?: PluginCatalogRef;
 }
 
 export interface PluginCapabilityRegistry {
@@ -45,6 +48,8 @@ export interface PluginBundleIdentity {
 export interface InstalledPluginBundle {
   path: string;
   manifest: ResolvedPluginManifest;
+  provenance: PluginProvenance;
+  marketplace: PluginMarketplaceRef;
 }
 
 export class LocalPluginError extends Error {
@@ -103,8 +108,24 @@ export class LocalPluginStore {
     sourcePath: string,
     provenance: Extract<PluginProvenance, { type: "catalog" }>,
     manifest: PluginManifest,
+    replaceId?: string,
   ): Promise<PluginDetail> {
-    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, OPENGAME_MARKETPLACE, true));
+    return this.#mutate(async () => {
+      const replaced = replaceId ? (await this.#readIndex()).find((record) => pluginRecordId(record) === replaceId) : undefined;
+      if (replaceId && !replaced) throw new LocalPluginError("Installed Plugin not found", 404);
+      if (replaced?.catalog && replaced.catalog.pluginId !== provenance.pluginId) {
+        throw new LocalPluginError("Installed Plugin belongs to another Catalog entry");
+      }
+      const installedProvenance = replaced?.provenance.type === "catalog" ? provenance : replaced?.provenance ?? provenance;
+      return this.#install(
+        sourcePath,
+        installedProvenance,
+        manifest,
+        replaced?.marketplace ?? OPENGAME_MARKETPLACE,
+        !replaced || replaced.marketplace.id === OPENGAME_MARKETPLACE.id,
+        { pluginId: provenance.pluginId, releaseId: provenance.releaseId },
+      );
+    });
   }
 
   async #install(
@@ -113,6 +134,7 @@ export class LocalPluginStore {
     normalizedManifest: ResolvedPluginManifest | undefined,
     marketplace: PluginMarketplaceRef,
     trustedMarketplace = false,
+    catalog?: PluginCatalogRef,
   ): Promise<PluginDetail> {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
@@ -155,7 +177,8 @@ export class LocalPluginStore {
       }
       await rename(temporary, destination);
       installedReplacement = true;
-      const record = { name: inspected.name, version: inspected.version, provenance, manifest, marketplace };
+      const catalogRef = catalog ?? previousRecord?.catalog;
+      const record = { name: inspected.name, version: inspected.version, provenance, manifest, marketplace, ...(catalogRef ? { catalog: catalogRef } : {}) };
       const installed = await this.#readRecord(record);
       const records = currentRecords.filter((item) => pluginRecordId(item) !== inspected.id);
       records.push(record);
@@ -213,7 +236,24 @@ export class LocalPluginStore {
     return record ? {
       path: this.#installedPath(record.marketplace.id, record.name, record.version),
       manifest: record.manifest,
+      provenance: record.provenance,
+      marketplace: record.marketplace,
     } : undefined;
+  }
+
+  async linkCatalog(id: string, catalog: PluginCatalogRef): Promise<void> {
+    return this.#mutate(async () => {
+      const records = await this.#readIndex();
+      const index = records.findIndex((record) => pluginRecordId(record) === id);
+      if (index < 0) throw new LocalPluginError("Installed Plugin not found", 404);
+      const current = records[index]!;
+      if (current.catalog && current.catalog.pluginId !== catalog.pluginId) {
+        throw new LocalPluginError("Installed Plugin belongs to another Catalog entry");
+      }
+      records[index] = { ...current, catalog };
+      await this.#writeIndex(records);
+      this.#loaded.delete(id);
+    });
   }
 
   async directoryPath(id: string): Promise<string | undefined> {
@@ -235,12 +275,13 @@ export class LocalPluginStore {
 
   async #readRecord(record: LocalPluginRecord): Promise<PluginDetail> {
     try {
-      return await inspectPluginBundle(
+      const plugin = await inspectPluginBundle(
         this.#installedPath(record.marketplace.id, record.name, record.version),
         pluginIdentity(record.marketplace, publicSource(record.provenance)),
         this.capabilities,
         record.manifest,
       );
+      return { ...plugin, ...(record.catalog ? { catalog: record.catalog } : {}) };
     } catch (cause) {
       if (cause instanceof LocalPluginError) throw cause;
       throw new LocalPluginError(`Could not read installed plugin ${record.name}: ${errorMessage(cause)}`);
@@ -366,7 +407,7 @@ async function skillComponents(root: string, relativePath: string): Promise<Plug
   const stats = await lstat(target);
   if (stats.isFile()) {
     if (path.basename(target) !== "SKILL.md") throw new LocalPluginError("The skills path must point to a directory or SKILL.md");
-    return [component(root, target, "Skill")];
+    return [await component(root, target, "Skill")];
   }
   if (!stats.isDirectory()) throw new LocalPluginError("The skills path must point to a directory or SKILL.md");
   const files: string[] = [];
@@ -379,7 +420,7 @@ async function skillComponents(root: string, relativePath: string): Promise<Plug
   }
   await visit(target);
   if (!files.length) throw new LocalPluginError("The skills directory does not contain a SKILL.md file");
-  return files.sort().map((file) => component(root, file, "Skill"));
+  return Promise.all(files.sort().map((file) => component(root, file, "Skill")));
 }
 
 async function referencedComponents(ids: string[] | undefined, available: readonly string[] | undefined, label: string): Promise<PluginComponentSummary[]> {
@@ -406,23 +447,42 @@ async function declaredPath(root: string, relativePath: string): Promise<string>
   }
 }
 
-function component(
+async function component(
   root: string,
   target: string,
   fallbackName: string,
-): PluginComponentSummary {
+): Promise<PluginComponentSummary> {
   const id = path.relative(root, target).split(path.sep).join("/");
   const parent = path.basename(path.dirname(target));
   const base = path.basename(target, path.extname(target));
-  const name = path.basename(target) === "SKILL.md" ? parent : base;
-  return { id, name: displayName(name) || fallbackName, enabled: true };
+  const fallback = path.basename(target) === "SKILL.md" ? parent : base;
+  try {
+    const metadata = parseSkillMetadata(await readFile(target, "utf8"));
+    return {
+      id,
+      name: displayName(metadata.name ?? fallback) || fallbackName,
+      ...(metadata.description ? { description: metadata.description } : {}),
+      enabled: true,
+    };
+  } catch (cause) {
+    throw new LocalPluginError(`Could not read Skill metadata: ${errorMessage(cause)}`);
+  }
 }
 
 function isLocalPluginRecord(value: unknown): value is LocalPluginRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<LocalPluginRecord>;
   return isPluginName(record.name) && (record.version === undefined || isPluginVersion(record.version)) &&
-    isPluginProvenance(record.provenance) && isResolvedPluginManifest(record.manifest) && isPluginMarketplace(record.marketplace);
+    isPluginProvenance(record.provenance) && isResolvedPluginManifest(record.manifest) && isPluginMarketplace(record.marketplace) &&
+    (record.catalog === undefined || isPluginCatalogRef(record.catalog));
+}
+
+function isPluginCatalogRef(value: unknown): value is PluginCatalogRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const catalog = value as Partial<PluginCatalogRef>;
+  return Object.keys(catalog).every((key) => key === "pluginId" || key === "releaseId") &&
+    typeof catalog.pluginId === "string" && Boolean(catalog.pluginId) &&
+    typeof catalog.releaseId === "string" && Boolean(catalog.releaseId);
 }
 
 function isResolvedPluginManifest(value: unknown): value is ResolvedPluginManifest {

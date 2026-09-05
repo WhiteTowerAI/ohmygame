@@ -2616,8 +2616,8 @@ button.home-nav-item-active:hover {
 
 .plugin-row-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 52px;
+  height: 52px;
   place-items: center;
   border-radius: 9px;
 }
@@ -2765,7 +2765,7 @@ button.home-nav-item-active:hover {
   }
 
   .plugin-detail-hero {
-    grid-template-columns: 60px minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr);
   }
 
   .plugin-detail-hero-actions {
@@ -2795,7 +2795,7 @@ button.home-nav-item-active:hover {
 .plugin-catalog-card {
   position: relative;
   min-width: 0;
-  min-height: 78px;
+  min-height: 112px;
   border-radius: 8px;
   background: var(--surface-raised);
 }
@@ -2808,11 +2808,11 @@ button.home-nav-item-active:hover {
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 78px;
-  grid-template-columns: 34px minmax(0, 1fr);
-  align-items: center;
+  min-height: 112px;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
   gap: 14px;
-  padding: 12px;
+  padding: 15px 14px;
   border: 0;
   border-radius: inherit;
   background: transparent;
@@ -2820,10 +2820,6 @@ button.home-nav-item-active:hover {
   cursor: pointer;
   font: inherit;
   text-align: left;
-}
-
-.plugin-catalog-card.is-trailing .plugin-card-open {
-  grid-template-columns: 34px minmax(0, 1fr) 15px;
 }
 
 .plugin-catalog-card.has-actions .plugin-card-open {
@@ -2837,11 +2833,15 @@ button.home-nav-item-active:hover {
 .plugin-card-copy {
   display: grid;
   min-width: 0;
+  align-self: stretch;
+  grid-template-rows: auto 1fr auto;
   gap: 4px;
 }
 
 .plugin-card-copy > strong,
 .plugin-card-title strong {
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   color: var(--text);
   font-size: 13px;
@@ -2869,6 +2869,49 @@ button.home-nav-item-active:hover {
   white-space: nowrap;
 }
 
+.plugin-card-community {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.plugin-card-community .community-author {
+  gap: 5px;
+}
+
+.plugin-card-community .community-author > img,
+.plugin-card-community .community-author > span {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+  font-size: 8px;
+}
+
+.plugin-card-community .community-author > span {
+  background: var(--menu-hover);
+}
+
+.plugin-card-community .community-author strong {
+  font-size: 9px;
+}
+
+.plugin-card-stats,
+.plugin-card-stats > span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.plugin-card-stats {
+  gap: 8px;
+}
+
 .plugin-card-title {
   display: flex;
   min-width: 0;
@@ -2883,12 +2926,31 @@ button.home-nav-item-active:hover {
   font-weight: 500;
 }
 
-.plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {
-  opacity: 0.58;
+.plugin-card-title .plugin-featured-badge,
+.plugin-detail-title .plugin-featured-badge,
+.plugin-detail-badge {
+  display: inline-flex;
+  height: 16px;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--menu-hover);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 16px;
 }
 
-.plugin-card-open > svg:last-child {
-  color: var(--text-faint);
+.plugin-card-title .plugin-explore-status {
+  margin-left: auto;
+}
+
+.plugin-card-title .plugin-explore-status.is-update {
+  color: var(--accent);
+}
+
+.plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {
+  opacity: 0.58;
 }
 
 .plugin-card-actions {
@@ -3005,9 +3067,9 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-row-icon-large {
-  width: 60px;
-  height: 60px;
-  border-radius: 10px;
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
 }
 
 .plugin-detail {
@@ -3019,10 +3081,23 @@ button.home-nav-item-active:hover {
 
 .plugin-detail-hero {
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
   padding-bottom: 22px;
+}
+
+.plugin-detail-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.plugin-detail-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
 }
 
 .plugin-detail-hero h2 {
@@ -3033,14 +3108,44 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-detail-hero p {
-  margin: 4px 0 6px;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
 }
 
-.plugin-detail-copy > span {
+.plugin-detail-meta {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.plugin-detail-meta-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.plugin-detail-meta a {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-detail-meta a:hover {
+  color: var(--text);
+}
+
+.plugin-detail-meta a svg {
+  flex: 0 0 auto;
 }
 
 .plugin-detail-hero-actions {
@@ -3049,6 +3154,13 @@ button.home-nav-item-active:hover {
   align-items: center;
   justify-self: end;
   gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .plugin-row-icon-large {
+    width: 72px;
+    height: 72px;
+  }
 }
 
 .plugin-detail-menu {
@@ -8348,5 +8460,9 @@ button {
 .community-stats button:hover, .community-stats button.is-liked { color: var(--theme-accent); }
 .community-stats button.is-liked svg { fill: currentColor; }
 .community-stats button:disabled { cursor: default; opacity: .6; }
-.plugin-detail-copy .community-meta { margin-top: 8px; }
+.plugin-detail-copy .community-meta {
+  justify-content: flex-start;
+  gap: 16px;
+  margin-top: 3px;
+}
 .library-dialog-footer > div:first-child { display: grid; min-width: 0; gap: 10px; }

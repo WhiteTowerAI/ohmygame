@@ -20,6 +20,11 @@ export type PluginSource =
   | { type: "git"; url: string; commit: string }
   | { type: "catalog"; pluginId: string; releaseId: string };
 
+export interface PluginCatalogRef {
+  pluginId: string;
+  releaseId: string;
+}
+
 export type InstallPluginRequest =
   | { type: "directory"; path: string; candidate?: string }
   | { type: "git"; url: string; candidate?: string };
@@ -103,6 +108,7 @@ export interface PluginSummary {
   version?: string;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
+  catalog?: PluginCatalogRef;
   installed: boolean;
   enabled: boolean;
   latestVersion?: string;
@@ -151,6 +157,7 @@ export interface PluginSkillContent {
 
 export interface PluginCatalog {
   plugins: PluginSummary[];
+  explore: PluginSummary[];
   errors: PluginMarketplaceError[];
 }
 

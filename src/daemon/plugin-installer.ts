@@ -31,7 +31,7 @@ export async function inspectPluginSource(input: InstallPluginRequest, git: GitR
 
 export async function installCatalogPlugin(
   store: LocalPluginStore,
-  input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer },
+  input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer; replaceId?: string },
 ): Promise<PluginDetail> {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), "open-game-catalog-plugin-"));
   const archivePath = path.join(temporaryRoot, "plugin.zip");
@@ -40,7 +40,7 @@ export async function installCatalogPlugin(
     await writeFile(archivePath, input.archive, { flag: "wx" });
     await mkdir(source);
     await extractPluginArchive(archivePath, source);
-    return await store.installCatalog(source, { type: "catalog", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest);
+    return await store.installCatalog(source, { type: "catalog", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest, input.replaceId);
   } catch (cause) {
     if (cause instanceof LocalPluginError) throw cause;
     throw new LocalPluginError(`Could not install Catalog Plugin: ${cause instanceof Error ? cause.message : String(cause)}`);

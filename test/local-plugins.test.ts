@@ -57,6 +57,35 @@ describe("local plugins", () => {
     await expect(store.directoryPath(installed.id)).resolves.toBeUndefined();
   });
 
+  it("uses root Skill frontmatter instead of the installed version directory", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "image-to-threejs");
+    await writePluginManifest(source, {
+      name: "image-to-threejs",
+      version: "1.5.1",
+      description: "Create Three.js scenes from images",
+      skills: "./SKILL.md",
+    });
+    await writeFile(path.join(source, "SKILL.md"), [
+      "---",
+      "name: img2threejs",
+      "description: Turn an image into a Three.js scene.",
+      "---",
+      "",
+      "# Image to Three.js",
+      "",
+    ].join("\n"), "utf8");
+
+    const installed = await new LocalPluginStore(path.join(root, "data")).install(source);
+
+    expect(installed.skills).toEqual([{
+      id: "SKILL.md",
+      name: "Img2threejs",
+      description: "Turn an image into a Three.js scene.",
+      enabled: true,
+    }]);
+  });
+
   it("rejects missing resources and paths outside the bundle", async () => {
     const root = await temporaryDirectory();
     const dataDirectory = path.join(root, "data");
@@ -163,6 +192,25 @@ describe("local plugins", () => {
     await expect(store.install(conflicting, { type: "directory", path: conflicting }, undefined, {
       id: "first-marketplace", displayName: "First Marketplace",
     })).rejects.toThrow("Marketplace first-marketplace is already installed from another source");
+  });
+
+  it("persists a Catalog identity for a Plugin installed from another source", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const source = path.join(root, "catalog-linked-plugin");
+    await writePluginManifest(source, { name: "game-tools", version: "1.0.0", description: "Game tools" });
+    const store = new LocalPluginStore(dataDirectory);
+    const installed = await store.install(source, { type: "directory", path: source }, undefined, {
+      id: "game-skills", displayName: "Game Skills",
+    });
+
+    await store.linkCatalog(installed.id, { pluginId: "catalog-plugin-1", releaseId: "catalog-release-1" });
+
+    await expect(new LocalPluginStore(dataDirectory).read(installed.id)).resolves.toMatchObject({
+      id: installed.id,
+      source: { type: "directory" },
+      catalog: { pluginId: "catalog-plugin-1", releaseId: "catalog-release-1" },
+    });
   });
 
   it("rejects deeply nested bundles", async () => {

@@ -9,7 +9,7 @@ import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType } from "../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -33,7 +33,7 @@ import { ToolRunner, ToolRunError } from "./tools.js";
 import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, RemotePluginAdapter } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
-import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
+import { LocalPluginError, LocalPluginStore, type InstalledPluginBundle } from "./local-plugins.js";
 import { inspectPluginSource, installCatalogPlugin, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
@@ -723,8 +723,9 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { pluginId: string } }>("/plugins/:pluginId/install", async (request, reply) => {
     try {
       const available = await plugins.read(request.params.pluginId);
-      if (!available || available.source.type !== "catalog") return reply.code(404).send({ error: "Catalog Plugin not found" });
-      const remote = await publisher.explorePlugin(available.source.pluginId);
+      const catalog = available?.catalog ?? (available?.source.type === "catalog" ? available.source : undefined);
+      if (!available || !catalog) return reply.code(404).send({ error: "Catalog Plugin not found" });
+      const remote = await publisher.explorePlugin(catalog.pluginId);
       const archive = await publisher.pluginContent(remote.id, remote.releaseId);
       const sha256 = createHash("sha256").update(archive).digest("hex");
       if (archive.length !== remote.artifactBytes || sha256 !== remote.artifactSha256) {
@@ -732,9 +733,10 @@ export function createApp(options: AppOptions = {}) {
       }
       const installed = await installCatalogPlugin(localPlugins, {
         pluginId: remote.id, releaseId: remote.releaseId, manifest: remote.manifest, archive,
+        ...(available.installed ? { replaceId: available.id } : {}),
       });
       invalidatePluginSessions();
-      return reply.code(201).send(pluginSettings.decorate(installed));
+      return reply.code(201).send(await plugins.read(installed.id) ?? pluginSettings.decorate(installed));
     } catch (cause) {
       const statusCode = cause instanceof LocalPluginError ? cause.statusCode
         : cause instanceof RemotePublishError ? cause.statusCode
@@ -761,7 +763,12 @@ export function createApp(options: AppOptions = {}) {
         manifest,
         skills: plugin.skills.map(({ id, name, description }) => ({ id, name, description })),
         archive: await createPluginArchive(bundle.path),
+        origin: publishOrigin(bundle),
       }, request.body.accessToken);
+      await localPlugins.linkCatalog(request.params.pluginId, {
+        pluginId: result.plugin.id,
+        releaseId: result.release.id,
+      });
       return reply.code(201).send(result);
     } catch (cause) {
       const statusCode = cause instanceof PublishError ? cause.statusCode
@@ -2108,4 +2115,20 @@ function effectiveReasoningLevel(
 
 function defaultReasoningLevel(cwd: string, agentDir: string): AgentReasoningLevel {
   return parseReasoningLevel(SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel()) ?? "medium";
+}
+
+function publishOrigin(bundle: InstalledPluginBundle): PublishPluginOrigin | undefined {
+  const repository = bundle.provenance.type === "git" ? githubRepository(bundle.provenance.url) : undefined;
+  if (!["personal", "opengame"].includes(bundle.marketplace.id)) {
+    return { type: "claude-marketplace", marketplace: bundle.marketplace.displayName, ...(repository ? { repository } : {}) };
+  }
+  if (bundle.provenance.type === "git" && repository) return { type: "github", repository, commit: bundle.provenance.commit };
+  return undefined;
+}
+
+function githubRepository(value: string): string | undefined {
+  const url = new URL(value);
+  if (url.hostname.toLowerCase() !== "github.com") return undefined;
+  const repository = url.pathname.replace(/^\//, "").replace(/\.git$/, "").replace(/\/$/, "");
+  return repository.split("/").length >= 2 ? repository : undefined;
 }

@@ -170,7 +170,7 @@ describe("preinstalled plugins", () => {
         publisher.id, "POST", "/release", "newer-release", "request-hash", newer.publishedAt,
       );
       expect(reservation).toEqual({ kind: "new" });
-      store.activatePluginRelease(publisher.id, newer, {
+      store.activatePluginRelease(publisher.id, newer, undefined, {
         method: "POST", route: "/release", key: "newer-release", statusCode: 201, body: {},
       });
       expect(store.setPluginListing(publisher.id, plugin.id, "unlisted", newer.publishedAt)).toMatchObject({ status: "unlisted" });

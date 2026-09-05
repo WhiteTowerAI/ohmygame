@@ -20,6 +20,7 @@ describe("plugin catalog", () => {
     expect(result.plugins.map((plugin) => plugin.id)).toEqual([
       "personal:character-workflow",
     ]);
+    expect(result.explore).toEqual([]);
     expect(result.errors).toEqual([]);
   });
 
@@ -143,16 +144,58 @@ describe("plugin catalog", () => {
       stats: remote.stats,
     });
   });
+
+  it("merges a linked local Plugin with its Catalog entry despite different local IDs", async () => {
+    const installed: PluginDetail = {
+      ...localPlugin(),
+      id: "marketplace:game-skills:reference-tools",
+      marketplace: { id: "game-skills", displayName: "Game Skills" },
+      source: { type: "git", url: "https://github.com/example/reference-tools", commit: "old-commit" },
+      catalog: { pluginId: "plugin-1", releaseId: "release-1" },
+    };
+    const remote: PluginDetail = {
+      ...installed,
+      id: "opengame:reference-tools",
+      version: "0.2.0",
+      source: { type: "catalog", pluginId: "plugin-1", releaseId: "release-2" },
+      catalog: undefined,
+      installed: false,
+      enabled: false,
+      author: { id: "github:example", displayName: "Example" },
+      stats: { likes: 2, uses: 3 },
+    };
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    await settings.load();
+    const catalog = new PluginCatalogService([
+      adapter({ plugins: [installed], read: async (id) => id === installed.id ? installed : undefined }),
+      adapter({ plugins: [remote], readCatalog: async (id) => id === "plugin-1" ? remote : undefined }),
+    ], settings);
+
+    await expect(catalog.list()).resolves.toMatchObject({
+      plugins: [{ id: installed.id, installed: true, author: remote.author, stats: remote.stats }],
+      explore: [{ id: installed.id, installed: true, author: remote.author, stats: remote.stats }],
+    });
+    await expect(catalog.read(installed.id)).resolves.toMatchObject({
+      id: installed.id,
+      installed: true,
+      latestVersion: "0.2.0",
+      updateAvailable: true,
+      author: remote.author,
+      stats: remote.stats,
+    });
+  });
 });
 
 function adapter(overrides: {
   plugins?: PluginDetail[];
   read?: PluginCatalogAdapter["read"];
+  readCatalog?: PluginCatalogAdapter["readCatalog"];
 }): PluginCatalogAdapter {
   return {
     marketplace: { id: "test", displayName: "Test" },
     list: async () => ({ plugins: overrides.plugins ?? [] }),
     read: overrides.read ?? (async () => undefined),
+    ...(overrides.readCatalog ? { readCatalog: overrides.readCatalog } : {}),
   };
 }
 

@@ -1,8 +1,10 @@
 import {
   ChevronRight,
+  ExternalLink,
   FolderPlus,
   FolderOpen,
   GitBranch,
+  Heart,
   LoaderCircle,
   MoreHorizontal,
   Package,
@@ -32,7 +34,7 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { useAuth } from "./auth.js";
-import { CommunityMeta, useCommunityUseRecorder } from "./community-meta.js";
+import { CommunityAuthorView, CommunityMeta, useCommunityUseRecorder } from "./community-meta.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -42,6 +44,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [explorePlugins, setExplorePlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [view, setView] = useState<PluginsView>({ type: "catalog" });
   const [detail, setDetail] = useState<PluginDetail>();
@@ -71,6 +74,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       await waitForRuntime();
       const catalog = await listPlugins();
       setPlugins(catalog.plugins);
+      setExplorePlugins(catalog.explore);
       setCatalogWarning(catalog.errors.map((entry) => entry.message).join("\n") || undefined);
       setPhase("ready");
     } catch (cause) {
@@ -123,6 +127,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       const updated = await updatePluginSettings(plugin.id, settings);
       setDetail((current) => current?.id === updated.id ? updated : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
+      setExplorePlugins((items) => items.map((item) => item.id === updated.id ? { ...item, enabled: updated.enabled } : item));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -136,7 +141,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     setError(undefined);
     try {
       await uninstallPlugin(plugin.id);
-      setPlugins((items) => items.filter((item) => item.id !== plugin.id));
+      await load();
       setDetail(undefined);
       setView({ type: "catalog" });
     } catch (cause) {
@@ -198,6 +203,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     try {
       await publishPlugin(plugin.id, accessToken, version);
       await load();
+      setDetail(await readPlugin(plugin.id));
       setPublishVersion(undefined);
       setNotice("Shared to Explore");
     } catch (cause) {
@@ -300,7 +306,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const installed = visible.filter((plugin) => plugin.installed);
-  const available = visible.filter((plugin) => !plugin.installed);
+  const explore = explorePlugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const detailTitle = view.type === "detail"
     ? detail?.displayName ?? plugins.find((plugin) => plugin.id === view.pluginId)?.displayName ?? "Plugin"
     : undefined;
@@ -359,7 +365,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
           onRemove={(plugin) => void removePlugin(plugin)}
           onToggle={(plugin) => void toggleSummary(plugin)}
         />
-        <ExplorePlugins plugins={available} onOpenPlugin={(id) => void openPlugin(id)} />
+        <ExplorePlugins plugins={explore} onOpenPlugin={(id) => void openPlugin(id)} />
       </> : null}
     </>}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
@@ -470,13 +476,22 @@ function ExplorePlugins({ plugins, onOpenPlugin }: { plugins: PluginSummary[]; o
 }
 
 function ExplorePluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
-  return <article className="plugin-catalog-card is-trailing">
+  return <article className="plugin-catalog-card">
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
-      <span className="plugin-card-copy"><strong>{plugin.displayName}</strong><span className="plugin-card-description">{plugin.description}</span><small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small></span>
-      <ChevronRight size={15} />
+      <span className="plugin-card-copy">
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}<ExplorePluginStatus plugin={plugin} /></span>
+        <span className="plugin-card-description">{plugin.description}</span>
+        <PluginCardMeta plugin={plugin} />
+      </span>
     </button>
   </article>;
+}
+
+function ExplorePluginStatus({ plugin }: { plugin: PluginSummary }): ReactNode {
+  if (plugin.updateAvailable) return <small className="plugin-explore-status is-update">Update available</small>;
+  if (!plugin.installed) return null;
+  return <small className="plugin-explore-status">{plugin.enabled ? "Installed" : "Disabled"}</small>;
 }
 
 function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggle }: {
@@ -511,7 +526,7 @@ function InstalledPluginCard({ plugin, busy, onBrowse, onOpen, onRemove, onToggl
       <span className="plugin-card-copy">
         <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.updateAvailable ? <small>Update available</small> : plugin.enabled ? null : <small>Disabled</small>}</span>
         <span className="plugin-card-description">{plugin.description}</span>
-        <small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small>
+        <PluginCardMeta plugin={plugin} />
       </span>
     </button>
     <div className="plugin-card-actions">
@@ -632,7 +647,16 @@ function PluginDetailView({ phase, plugin, updating, error, notice, onRetry, onT
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
         <PluginIcon plugin={plugin} large />
-        <div className="plugin-detail-copy"><h2>{plugin.displayName}</h2><p>{plugin.description}</p><span>{pluginQualifiedSource(plugin)}{plugin.version ? ` · v${plugin.version}` : ""}</span>{plugin.author && plugin.stats && plugin.source.type === "catalog" ? <CommunityMeta type="plugin" id={plugin.source.pluginId} author={plugin.author} stats={plugin.stats} useLabel="installs" /> : null}</div>
+        <div className="plugin-detail-copy">
+          <div className="plugin-detail-title">
+            <h2>{plugin.displayName}</h2>
+            {plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}
+            {plugin.preinstalled ? <small className="plugin-detail-badge">Preinstalled</small> : null}
+          </div>
+          <p>{plugin.description}</p>
+          <PluginDetailMeta plugin={plugin} />
+          {plugin.author && plugin.stats && pluginCatalogId(plugin) ? <CommunityMeta type="plugin" id={pluginCatalogId(plugin)!} author={plugin.author} stats={plugin.stats} useLabel="installs" authorPrefix="Shared by" /> : null}
+        </div>
         <div className="plugin-detail-hero-actions" ref={tryMenu}>
           <PluginDetailActions
             plugin={plugin}
@@ -823,9 +847,23 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 }
 
 function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "source">; large?: boolean }): ReactNode {
-  const size = large ? 30 : 17;
+  const size = large ? 42 : 29;
   const godot = plugin.id === "opengame:godot";
   return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
+}
+
+function PluginCardMeta({ plugin }: { plugin: PluginSummary }): ReactNode {
+  if (!plugin.author || !plugin.stats || !pluginCatalogId(plugin)) {
+    return <small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small>;
+  }
+  return <span className="plugin-card-community">
+    <CommunityAuthorView author={plugin.author} prefix="Shared by" />
+    <span className="plugin-card-stats"><span><Heart size={11} />{plugin.stats.likes}</span><span>{plugin.stats.uses} installs</span></span>
+  </span>;
+}
+
+function pluginCatalogId(plugin: Pick<PluginSummary, "source" | "catalog">): string | undefined {
+  return plugin.catalog?.pluginId ?? (plugin.source.type === "catalog" ? plugin.source.pluginId : undefined);
 }
 
 function pluginSearchText(plugin: PluginSummary): string {
@@ -841,13 +879,24 @@ function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace" | "origin" 
     : `Marketplace · ${plugin.marketplace.displayName}`;
 }
 
-function pluginQualifiedSource(plugin: Pick<PluginSummary, "name" | "marketplace" | "origin" | "curation" | "preinstalled">): string {
-  if (plugin.origin?.type === "github") {
-    return `${plugin.origin.repository}${plugin.curation === "featured" ? " · Featured" : ""}${plugin.preinstalled ? " · Preinstalled" : ""}`;
-  }
-  return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
-    ? plugin.marketplace.displayName
-    : `${plugin.name}@${plugin.marketplace.id}`;
+function PluginDetailMeta({ plugin }: { plugin: PluginDetail }): ReactNode {
+  const repository = plugin.origin?.repository;
+  return <div className="plugin-detail-meta">
+    {plugin.origin?.type === "claude-marketplace" ? <span className="plugin-detail-meta-row">Claude Marketplace · {plugin.origin.marketplace}{!repository && plugin.version ? <span>v{plugin.version}</span> : null}</span> : null}
+    {plugin.origin?.type === "github" ? <span className="plugin-detail-meta-row"><RepositoryLink repository={plugin.origin.repository} />{plugin.version ? <span>v{plugin.version}</span> : null}</span> : null}
+    {plugin.origin?.type === "claude-marketplace" && repository ? <span className="plugin-detail-meta-row"><RepositoryLink repository={repository} />{plugin.version ? <span>v{plugin.version}</span> : null}</span> : null}
+    {!plugin.origin ? <span className="plugin-detail-meta-row">{plugin.marketplace.id === "opengame" && plugin.preinstalled
+      ? "OpenGame"
+      : plugin.marketplace.id === "opengame" && plugin.source.type === "catalog"
+        ? "Community plugin"
+        : plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
+          ? plugin.marketplace.displayName
+          : `${plugin.name}@${plugin.marketplace.id}`}{plugin.version ? <span>v{plugin.version}</span> : null}</span> : null}
+  </div>;
+}
+
+function RepositoryLink({ repository }: { repository: string }): ReactNode {
+  return <a href={`https://github.com/${repository}`} target="_blank" rel="noreferrer">GitHub · {repository}<ExternalLink size={11} /></a>;
 }
 
 function errorMessage(cause: unknown): string {
