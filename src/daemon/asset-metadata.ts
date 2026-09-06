@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { AssetPublicationState } from "../shared/contracts.js";
 
 const ASSET_METADATA_FILE = path.join(".data", "assets.json");
 
@@ -11,11 +12,7 @@ interface AssetMetadata {
   publications: Record<string, AssetPublication>;
 }
 
-export interface AssetPublication {
-  assetId: string;
-  releaseId: string;
-  publishedAt: string;
-}
+export type AssetPublication = AssetPublicationState;
 
 export async function readAssetMetadata(workspacePath: string): Promise<AssetMetadata> {
   try {
@@ -108,12 +105,17 @@ function parseAssetMetadata(value: unknown): AssetMetadata | undefined {
     Boolean(assetPath) && Boolean(publication) && typeof publication === "object" &&
     typeof (publication as AssetPublication).assetId === "string" &&
     typeof (publication as AssetPublication).releaseId === "string" &&
-    typeof (publication as AssetPublication).publishedAt === "string"
+    typeof (publication as AssetPublication).publishedAt === "string" &&
+    ((publication as Partial<AssetPublication>).status === undefined || (publication as AssetPublication).status === "listed" || (publication as AssetPublication).status === "unlisted")
   )))) return undefined;
+  const normalizedPublications = Object.fromEntries(Object.entries(publications ?? {}).map(([assetPath, publication]) => [
+    assetPath,
+    { ...(publication as Omit<AssetPublication, "status">), status: (publication as Partial<AssetPublication>).status ?? "listed" },
+  ]));
   return {
     version: 1,
     prompts: prompts as Record<string, string>,
     previews: (previews ?? {}) as Record<string, string>,
-    publications: (publications ?? {}) as Record<string, AssetPublication>,
+    publications: normalizedPublications,
   };
 }

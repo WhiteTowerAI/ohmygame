@@ -23,7 +23,7 @@ describe("workspace inspection", () => {
     ]);
   });
 
-  it("adds stored prompts to generated media without listing metadata", async () => {
+  it("adds stored Asset metadata and defaults legacy publications to listed", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
     await mkdir(path.join(workspace, "assets", "generated"), { recursive: true });
     await mkdir(path.join(workspace, ".data"));
@@ -32,10 +32,14 @@ describe("workspace inspection", () => {
       version: 1,
       prompts: { "assets/generated/image.webp": "A forest shrine" },
       previews: { "assets/generated/image.webp": ".data/asset-previews/image.jpg" },
+      publications: { "assets/generated/image.webp": { assetId: "asset-1", releaseId: "release-1", publishedAt: new Date(0).toISOString() } },
     }));
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
-      { path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".data/asset-previews/image.jpg" },
+      {
+        path: "assets/generated/image.webp", size: 5, mediaType: "image", prompt: "A forest shrine", previewPath: ".data/asset-previews/image.jpg",
+        publication: { assetId: "asset-1", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "listed" },
+      },
     ]);
   });
 

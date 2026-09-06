@@ -7,7 +7,7 @@ import multipart from "@fastify/multipart";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { isAssetTemplateDefinition } from "../shared/asset-templates.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_MANIFEST_PATH, PLUGIN_SKILL_CONTENT_MAX_BYTES, isNewerPluginVersion, isPluginManifest, type PluginManifest } from "../shared/plugins.js";
-import { PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_COVER_PATH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_COVER_PATH, PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import type {
   CreatePublishAssetReleaseMetadata,
   CreatePublishAssetReleaseResult,
@@ -70,7 +70,7 @@ const assetBodySchema = {
   required: ["title", "mediaType"],
   properties: {
     title: { type: "string", minLength: 1, maxLength: PUBLISH_ASSET_TITLE_MAX_LENGTH },
-    description: { type: "string", maxLength: 2_000 },
+    description: { type: "string", maxLength: PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH },
     mediaType: { type: "string", enum: ["image", "video", "audio", "model"] },
   },
 } as const;

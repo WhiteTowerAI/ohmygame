@@ -4,7 +4,7 @@ import { getCommunityViewerState, recordCommunityUse, setCommunityLike } from ".
 import { useAuth } from "./auth.js";
 import { Heart, VerifiedCheck } from "./icons.js";
 
-export function useCommunityLike(type: CommunitySubjectType, id: string, stats: CommunityStats) {
+export function useCommunityLike(type: CommunitySubjectType, id: string, stats: CommunityStats, onStatsChange?: (stats: CommunityStats) => void) {
   const auth = useAuth();
   const [liked, setLiked] = useState(false);
   const [counts, setCounts] = useState(stats);
@@ -33,12 +33,13 @@ export function useCommunityLike(type: CommunitySubjectType, id: string, stats: 
       const result = await setCommunityLike(type, id, !liked, token);
       setLiked(result.liked);
       setCounts(result.stats);
+      onStatsChange?.(result.stats);
     } catch {
       // The catalog remains usable if the optional social action fails.
     } finally {
       setBusy(false);
     }
-  }, [auth, busy, id, liked, type]);
+  }, [auth, busy, id, liked, onStatsChange, type]);
 
   return { busy, counts, liked, toggle };
 }
@@ -56,7 +57,7 @@ export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = 
   </button>;
 }
 
-export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix, verified = false }: {
+export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix, verified = false, onStatsChange }: {
   type: CommunitySubjectType;
   id: string;
   author: CommunityAuthor;
@@ -64,8 +65,9 @@ export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix,
   useLabel: string;
   authorPrefix?: string;
   verified?: boolean;
+  onStatsChange?: (stats: CommunityStats) => void;
 }) {
-  const like = useCommunityLike(type, id, stats);
+  const like = useCommunityLike(type, id, stats, onStatsChange);
 
   return <div className="community-meta">
     <CommunityAuthorView author={author} prefix={authorPrefix} verified={verified} />
@@ -86,9 +88,9 @@ export function CommunityAuthorView({ author, prefix, verified = false }: { auth
 
 export function useCommunityUseRecorder() {
   const auth = useAuth();
-  return useCallback(async (type: CommunitySubjectType, id: string): Promise<void> => {
+  return useCallback(async (type: CommunitySubjectType, id: string): Promise<CommunityStats | undefined> => {
     if (auth.state.status !== "signed-in") return;
     const token = await auth.requestAccessToken();
-    if (token) await recordCommunityUse(type, id, token);
+    return token ? recordCommunityUse(type, id, token) : undefined;
   }, [auth.state.status]);
 }

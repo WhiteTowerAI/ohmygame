@@ -73,6 +73,7 @@ export class RemotePublisher {
     projectId: string;
     path: string;
     title: string;
+    description?: string;
     mediaType: PublishAssetMediaType;
     fileName: string;
     contentType: string;
@@ -89,7 +90,7 @@ export class RemotePublisher {
     asset ??= await this.#request<PublishAsset>("/v1/assets", {
       method: "POST",
       headers: { "idempotency-key": `asset-${input.projectId}-${createHash("sha256").update(input.path).digest("hex")}` },
-      body: JSON.stringify({ title: input.title, mediaType: input.mediaType }),
+      body: JSON.stringify({ title: input.title, description: input.description, mediaType: input.mediaType }),
     }, accessToken);
     const metadata = {
       artifactSha256,
@@ -124,6 +125,13 @@ export class RemotePublisher {
   async assetContent(assetId: string, releaseId: string): Promise<Buffer> {
     const response = await this.#response(`/v1/explore/assets/${encodeURIComponent(assetId)}/releases/${encodeURIComponent(releaseId)}/content`);
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  setAssetListing(assetId: string, status: "listed" | "unlisted", accessToken: string): Promise<import("../../shared/publish-v1.js").PublishAssetListing> {
+    return this.#request(`/v1/assets/${encodeURIComponent(assetId)}/listing`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    }, accessToken);
   }
 
   async publishPlugin(input: {

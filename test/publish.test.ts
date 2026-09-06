@@ -6,7 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { createPublishApp } from "../src/publish-server/app.js";
-import { PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
+import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -222,12 +222,39 @@ describe("remote publish", () => {
     const source = await createProject(runtime.daemon, "Source");
     const target = await createProject(runtime.daemon, "Target");
     await writeFile(path.join(source.workspacePath, "sprite.png"), "image-one");
+    await mkdir(path.join(source.workspacePath, ".data"), { recursive: true });
+    await writeFile(path.join(source.workspacePath, ".data", "assets.json"), JSON.stringify({
+      version: 1,
+      prompts: { "sprite.png": "A forest sprite" },
+      previews: {},
+      publications: {},
+    }));
 
     const shared = await publishAsset(runtime.daemon, source.id, "sprite.png");
     expect(shared.statusCode).toBe(201);
     const first = shared.json();
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${source.id}/files` })).json()).toContainEqual(expect.objectContaining({
+      path: "sprite.png",
+      publication: expect.objectContaining({ assetId: first.asset.id, releaseId: first.release.id, status: "listed" }),
+    }));
     const explored = await runtime.daemon.inject({ method: "GET", url: "/explore/assets" });
-    expect(explored.json()).toMatchObject([{ id: first.asset.id, title: "sprite", mediaType: "image" }]);
+    expect(explored.json()).toMatchObject([{ id: first.asset.id, title: "sprite", description: "A forest sprite", mediaType: "image" }]);
+
+    const unlisted = await runtime.daemon.inject({
+      method: "PUT", url: `/projects/${source.id}/assets/publication?path=sprite.png`,
+      payload: { accessToken: token, status: "unlisted" },
+    });
+    expect(unlisted.statusCode, unlisted.body).toBe(200);
+    expect(unlisted.json().status).toBe("unlisted");
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toEqual([]);
+
+    const relisted = await runtime.daemon.inject({
+      method: "PUT", url: `/projects/${source.id}/assets/publication?path=sprite.png`,
+      payload: { accessToken: token, status: "listed" },
+    });
+    expect(relisted.statusCode, relisted.body).toBe(200);
+    expect(relisted.json().status).toBe("listed");
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toHaveLength(1);
 
     await writeFile(path.join(source.workspacePath, "sprite.png"), "image-two");
     const updated = (await publishAsset(runtime.daemon, source.id, "sprite.png")).json();
@@ -253,8 +280,26 @@ describe("remote publish", () => {
     expect(duplicate.json().path).toBe("assets/imported/hero-2.png");
 
     const metadata = JSON.parse(await readFile(path.join(source.workspacePath, ".data", "assets.json"), "utf8"));
-    expect(metadata.publications["hero.png"]).toMatchObject({ assetId: first.asset.id, releaseId: republished.json().release.id });
+    expect(metadata.publications["hero.png"]).toMatchObject({ assetId: first.asset.id, releaseId: republished.json().release.id, status: "listed" });
     expect(JSON.stringify(metadata)).not.toContain(token);
+  });
+
+  it("truncates a generated Asset prompt to the publish description limit", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Long prompt");
+    await writeFile(path.join(project.workspacePath, "asset.png"), "image");
+    await mkdir(path.join(project.workspacePath, ".data"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, ".data", "assets.json"), JSON.stringify({
+      version: 1,
+      prompts: { "asset.png": "x".repeat(PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH + 1) },
+      previews: {},
+      publications: {},
+    }));
+
+    const published = await publishAsset(runtime.daemon, project.id, "asset.png");
+
+    expect(published.statusCode, published.body).toBe(201);
+    expect(published.json().asset.description).toHaveLength(PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH);
   });
 
   it("rejects a downloaded Asset whose contents fail integrity verification", async () => {

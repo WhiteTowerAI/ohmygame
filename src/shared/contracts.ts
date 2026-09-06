@@ -440,6 +440,14 @@ export interface WorkspaceFile {
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
+  publication?: AssetPublicationState;
+}
+
+export interface AssetPublicationState {
+  assetId: string;
+  releaseId: string;
+  publishedAt: string;
+  status: "listed" | "unlisted";
 }
 
 export interface WorkspaceFileContent {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExploreAsset, ProjectState } from "../shared/contracts.js";
+import type { CommunityStats } from "../shared/publish-v1.js";
 import { addExploreAssetToProject, listExploreAssets, listProjects, waitForRuntime } from "./api.js";
 import { AssetToolbar, fileName, fileSize, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { Box, Check, Film, Image as ImageIcon, LoaderCircle, Music2, Plus, RefreshCw, Search, X } from "./icons.js";
@@ -8,7 +9,7 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useExploreAssetUrl } from "./use-explore-asset-url.js";
-import { CommunityMeta, useCommunityUseRecorder } from "./community-meta.js";
+import { CommunityAuthorView, CommunityLikeButton, CommunityMeta, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 
 export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -19,7 +20,7 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   const [error, setError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<ExploreAsset>();
+  const [selectedId, setSelectedId] = useState<string>();
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -40,6 +41,11 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
     (mediaFilter === "all" || asset.mediaType === mediaFilter) &&
     (!normalized || `${asset.title} ${asset.description} ${asset.fileName}`.toLowerCase().includes(normalized))
   )), [assets, mediaFilter, normalized]);
+  const selected = assets.find((asset) => asset.id === selectedId);
+
+  function updateStats(id: string, stats: CommunityStats): void {
+    setAssets((assets) => assets.map((asset) => asset.id === id ? { ...asset, stats } : asset));
+  }
 
   return (
     <SidebarPageLayout active="assets" onNavigate={onNavigate}>
@@ -49,13 +55,13 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
       {phase === "loading" && !assets.length ? <ExploreState><LoaderCircle className="spin" size={18} />Loading assets</ExploreState> : null}
       {phase === "error" ? <ExploreState><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></ExploreState> : null}
       {phase === "ready" && !visible.length ? <ExploreState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No shared assets yet"}</ExploreState> : null}
-      {visible.length ? <div className="library-grid">{visible.map((asset) => <ExploreAssetCard asset={asset} key={asset.id} onOpen={() => setSelected(asset)} />)}</div> : null}
-      {selected ? <ExploreAssetDialog asset={selected} onClose={() => setSelected(undefined)} onOpenProject={onOpenProject} /> : null}
+      {visible.length ? <div className="library-grid">{visible.map((asset) => <ExploreAssetCard asset={asset} key={asset.id} onOpen={() => setSelectedId(asset.id)} onStatsChange={(stats) => updateStats(asset.id, stats)} />)}</div> : null}
+      {selected ? <ExploreAssetDialog asset={selected} onClose={() => setSelectedId(undefined)} onOpenProject={onOpenProject} onStatsChange={(stats) => updateStats(selected.id, stats)} /> : null}
     </SidebarPageLayout>
   );
 }
 
-function ExploreAssetCard({ asset, onOpen }: { asset: ExploreAsset; onOpen: () => void }) {
+function ExploreAssetCard({ asset, onOpen, onStatsChange }: { asset: ExploreAsset; onOpen: () => void; onStatsChange: (stats: CommunityStats) => void }) {
   const [visible, setVisible] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
   const target = useRef<HTMLElement>(null);
@@ -75,22 +81,24 @@ function ExploreAssetCard({ asset, onOpen }: { asset: ExploreAsset; onOpen: () =
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  return <article className="library-asset-card" ref={target}>
+  return <article className="library-asset-card explore-asset-card" ref={target}>
     <button className="library-asset-card-open" type="button" onClick={onOpen} title={asset.title}>
       <div className="library-asset-thumbnail">
         {preview.url && asset.mediaType === "image" && !previewFailed ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
         {asset.mediaType !== "image" || !preview.url || previewFailed ? <Icon size={28} /> : null}
-        {asset.mediaType === "video" || asset.mediaType === "model" ? <span className="library-asset-type"><Icon size={11} />{mediaTypeLabel(asset.mediaType)}</span> : null}
+        <span className="library-asset-type"><Icon size={11} />{mediaTypeLabel(asset.mediaType)}</span>
       </div>
-      <span className="library-asset-info"><strong>{asset.title}</strong><span>{mediaTypeLabel(asset.mediaType)}</span></span>
+      <span className="library-asset-info"><strong>{asset.title}</strong></span>
     </button>
+    <CommunityMeta type="asset" id={asset.id} author={asset.author} stats={asset.stats} useLabel="adds" onStatsChange={onStatsChange} />
   </article>;
 }
 
-function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
+function ExploreAssetDialog({ asset, onClose, onOpenProject, onStatsChange }: {
   asset: ExploreAsset;
   onClose: () => void;
   onOpenProject: (projectId: string) => void;
+  onStatsChange: (stats: CommunityStats) => void;
 }) {
   const preview = useExploreAssetUrl(asset.id);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -102,6 +110,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   const recordUse = useCommunityUseRecorder();
+  const like = useCommunityLike("asset", asset.id, asset.stats, onStatsChange);
   onCloseRef.current = onClose;
 
   useEffect(() => {
@@ -133,7 +142,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
     setNotice(undefined);
     try {
       await addExploreAssetToProject(project.id, asset.id);
-      void recordUse("asset", asset.id).catch(() => undefined);
+      void recordUse("asset", asset.id).then((stats) => { if (stats) onStatsChange(stats); }).catch(() => undefined);
       setAddedProject(project);
       setPickerOpen(false);
       setNotice(`Added to ${project.name}`);
@@ -149,7 +158,7 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
   return <div className="library-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="library-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="explore-asset-title" tabIndex={-1}>
       <header className="library-dialog-header">
-        <div className="library-dialog-title"><h2 id="explore-asset-title">{asset.title}</h2><p><span>{asset.fileName}</span></p></div>
+        <div className="library-dialog-title"><h2 id="explore-asset-title">{asset.title}</h2><p><span>{asset.description || asset.fileName}</span></p></div>
         <div className="library-dialog-header-actions"><button type="button" onClick={onClose} aria-label="Close asset preview"><X size={17} /></button></div>
       </header>
       <div className="library-dialog-preview">
@@ -161,10 +170,11 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject }: {
         {preview.url && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={asset.title} minHeight={420} /> : null}
       </div>
       <footer className="library-dialog-footer">
-        <div><CommunityMeta type="asset" id={asset.id} author={asset.author} stats={asset.stats} useLabel="adds" /><dl><div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.artifactBytes)}</dd></div><div className="library-dialog-path"><dt>File</dt><dd>{fileName(asset.fileName)}</dd></div></dl></div>
+        <div><div className="explore-asset-detail-author"><CommunityAuthorView author={asset.author} /><span>{like.counts.uses} adds</span></div><dl><div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.artifactBytes)}</dd></div><div className="library-dialog-path"><dt>File</dt><dd>{fileName(asset.fileName)}</dd></div></dl></div>
         <div className="library-dialog-footer-actions">
           {notice ? <span role="status">{notice}</span> : null}
           {addedProject ? <button type="button" onClick={() => onOpenProject(addedProject.id)}><Check size={15} />Open project</button> : null}
+          <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} showLabel onToggle={() => void like.toggle()} />
           <button className="is-primary" type="button" onClick={() => void openPicker()}><Plus size={15} />Add to project</button>
           {pickerOpen ? <div className="asset-project-picker project-switcher-popover" role="dialog" aria-label="Add asset to project">
             <label className="project-switcher-search"><Search size={13} /><input value={query} placeholder="Search projects" onChange={(event) => setQuery(event.target.value)} /></label>

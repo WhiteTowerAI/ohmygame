@@ -779,6 +779,7 @@ function AssetsView({
         onClose={() => setSelectedPath(undefined)}
         onRename={() => { if (rename(selectedAsset)) setSelectedPath(undefined); }}
         onDelete={() => { if (remove(selectedAsset)) setSelectedPath(undefined); }}
+        onPublicationChange={onFilesChanged}
       /> : null}
     </div>
   );

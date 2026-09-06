@@ -33,6 +33,8 @@ export async function listWorkspaceFiles(workspacePath: string): Promise<Workspa
     if (prompt) file.prompt = prompt;
     const previewPath = metadata.previews[file.path];
     if (previewPath) file.previewPath = previewPath;
+    const publication = metadata.publications[file.path];
+    if (publication) file.publication = publication;
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }

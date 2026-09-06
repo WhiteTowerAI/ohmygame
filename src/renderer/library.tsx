@@ -104,6 +104,10 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
         onOpenProject={() => onOpenProject(selectedAsset.projectId)}
         onRename={() => { if (rename(selectedAsset)) setSelectedAsset(undefined); }}
         onDelete={() => { if (remove(selectedAsset)) setSelectedAsset(undefined); }}
+        onPublicationChange={(publication) => {
+          setAssets((assets) => assets.map((asset) => asset.projectId === selectedAsset.projectId && asset.path === selectedAsset.path ? { ...asset, publication } : asset));
+          setSelectedAsset((asset) => asset ? { ...asset, publication } : asset);
+        }}
       /> : null}
     </SidebarPageLayout>
   );

@@ -9,7 +9,7 @@ import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -153,7 +153,7 @@ const publishAccessTokenBody = {
   properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
 } as const;
 
-const templatePublicationBody = {
+const publicationStatusBody = {
   type: "object",
   additionalProperties: false,
   required: ["accessToken", "status"],
@@ -1205,7 +1205,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{ Params: { templateId: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>(
     "/asset-templates/:templateId/publication",
-    { schema: { body: templatePublicationBody } },
+    { schema: { body: publicationStatusBody } },
     async (request, reply) => {
       try {
         const template = await assetTemplates.read(request.params.templateId);
@@ -1337,7 +1337,8 @@ export function createApp(options: AppOptions = {}) {
         const result = await publisher.publishAsset({
           projectId: project.id,
           path: media.relativePath,
-          title: (prompt?.trim() || path.parse(media.relativePath).name).slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
+          title: path.parse(media.relativePath).name.slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
+          ...(prompt?.trim() ? { description: prompt.trim().slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
           mediaType: media.mediaType,
           fileName: path.basename(media.relativePath),
           contentType: media.contentType,
@@ -1348,8 +1349,33 @@ export function createApp(options: AppOptions = {}) {
           assetId: result.asset.id,
           releaseId: result.release.id,
           publishedAt: result.release.publishedAt,
+          status: "listed",
         });
         return reply.code(201).send(result);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof WorkspaceError ? 400
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
+      }
+    },
+  );
+
+  app.put<{ Params: { projectId: string }; Querystring: { path: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>(
+    "/projects/:projectId/assets/publication",
+    { schema: { querystring: assetPathQuerySchema, body: publicationStatusBody } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const media = await getWorkspaceMedia(project.workspacePath, request.query.path);
+        const publication = await projects.assetPublication(project.id, media.relativePath);
+        if (!publication) return reply.code(404).send({ error: "Published Asset not found" });
+        const listing = await publisher.setAssetListing(publication.assetId, request.body.status, request.body.accessToken);
+        const updated = { ...publication, status: listing.status };
+        await projects.setAssetPublication(project.id, media.relativePath, updated);
+        return updated;
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
         const statusCode = cause instanceof WorkspaceError ? 400

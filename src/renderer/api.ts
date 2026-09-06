@@ -375,6 +375,13 @@ export async function publishAsset(projectId: string, filePath: string, accessTo
   });
 }
 
+export async function setAssetPublicationStatus(projectId: string, filePath: string, status: "listed" | "unlisted", accessToken: string): Promise<NonNullable<WorkspaceFile["publication"]>> {
+  return request(`/projects/${projectId}/assets/publication?path=${encodeURIComponent(filePath)}`, {
+    method: "PUT",
+    body: JSON.stringify({ accessToken, status }),
+  });
+}
+
 export async function listExploreAssets(): Promise<ExploreAsset[]> {
   return request("/explore/assets");
 }
