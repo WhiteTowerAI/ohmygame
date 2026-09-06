@@ -107,6 +107,7 @@ export interface StoredTemplateRelease {
   id: string;
   templateId: string;
   definition: AssetTemplateDefinition;
+  hasCover: boolean;
   publishedAt: string;
 }
 
@@ -146,6 +147,10 @@ export class PublishStore {
     const deploymentColumns = this.#database.prepare("PRAGMA table_info(deployments)").all() as Row[];
     if (!deploymentColumns.some((column) => column.name === "has_cover")) {
       this.#database.exec("ALTER TABLE deployments ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0");
+    }
+    const templateReleaseColumns = this.#database.prepare("PRAGMA table_info(template_releases)").all() as Row[];
+    if (!templateReleaseColumns.some((column) => column.name === "has_cover")) {
+      this.#database.exec("ALTER TABLE template_releases ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0");
     }
     const publisherColumns = this.#database.prepare("PRAGMA table_info(publishers)").all() as Row[];
     if (!publisherColumns.some((column) => column.name === "display_name")) {
@@ -637,6 +642,10 @@ export class PublishStore {
     return new Set((this.#database.prepare("SELECT id FROM plugin_releases").all() as Row[]).map((row) => String(row.id)));
   }
 
+  templateReleaseIds(): Set<string> {
+    return new Set((this.#database.prepare("SELECT id FROM template_releases").all() as Row[]).map((row) => String(row.id)));
+  }
+
   explorePlugins(): StoredExplorePlugin[] {
     return (this.#database.prepare(`
       SELECT p.name, p.origin_json, p.curation, r.*, publisher.id AS author_id, publisher.display_name AS author_name,
@@ -688,6 +697,31 @@ export class PublishStore {
     return template;
   }
 
+  seedTemplate(template: StoredTemplate, release: StoredTemplateRelease, publisher: CommunityAuthor): void {
+    this.#transaction(() => {
+      this.ensurePublisher(publisher, template.createdAt);
+      this.#database.prepare(`
+        INSERT INTO templates (id, publisher_id, name, current_release_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(template.id, template.publisherId, template.name, release.id, template.createdAt, release.publishedAt);
+      this.#database.prepare(`
+        INSERT INTO template_releases (id, template_id, definition_json, has_cover, published_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+      `).run(release.id, release.templateId, JSON.stringify(release.definition), Number(release.hasCover), release.publishedAt);
+      this.#database.prepare(`
+        UPDATE templates SET name = ?, current_release_id = ?, updated_at = ?
+        WHERE id = ? AND publisher_id = ?
+      `).run(template.name, release.id, release.publishedAt, template.id, publisher.id);
+      this.#database.prepare(`
+        INSERT INTO template_listings (template_id, status, listed_at, updated_at)
+        VALUES (?, 'listed', ?, ?)
+        ON CONFLICT(template_id) DO NOTHING
+      `).run(template.id, release.publishedAt, release.publishedAt);
+    });
+  }
+
   template(publisherId: string, templateId: string): StoredTemplate | undefined {
     return templateFrom(this.#database.prepare(`
       SELECT * FROM templates WHERE id = ? AND publisher_id = ?
@@ -703,9 +737,9 @@ export class PublishStore {
     this.#transaction(() => {
       if (!this.template(publisherId, release.templateId)) throw new Error("Template not found");
       this.#database.prepare(`
-        INSERT INTO template_releases (id, template_id, definition_json, published_at)
-        VALUES (?, ?, ?, ?)
-      `).run(release.id, release.templateId, JSON.stringify(release.definition), release.publishedAt);
+        INSERT INTO template_releases (id, template_id, definition_json, has_cover, published_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(release.id, release.templateId, JSON.stringify(release.definition), Number(release.hasCover), release.publishedAt);
       this.#database.prepare(`
         UPDATE templates SET name = ?, current_release_id = ?, updated_at = ? WHERE id = ?
       `).run(release.definition.name, release.id, release.publishedAt, release.templateId);
@@ -925,6 +959,7 @@ function templateReleaseFrom(row: Row): StoredTemplateRelease {
   return {
     id: String(row.id), templateId: String(row.template_id),
     definition: JSON.parse(String(row.definition_json)) as AssetTemplateDefinition,
+    hasCover: Boolean(row.has_cover),
     publishedAt: String(row.published_at),
   };
 }
@@ -1066,6 +1101,7 @@ const SCHEMA = `
     id TEXT PRIMARY KEY,
     template_id TEXT NOT NULL REFERENCES templates(id),
     definition_json TEXT NOT NULL,
+    has_cover INTEGER NOT NULL DEFAULT 0,
     published_at TEXT NOT NULL
   );
 

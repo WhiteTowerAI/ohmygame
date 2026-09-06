@@ -39,6 +39,7 @@ import { requirePublisher, type PublisherTokenVerifier } from "./auth.js";
 import { sendPublishError } from "./http.js";
 import { listingBodySchema } from "./listings.js";
 import { seedPreparedPlugins } from "./preinstalled-plugins.js";
+import { seedBuiltInAssetTemplates } from "./built-in-asset-templates.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
 import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredExplorePlugin, type StoredExploreTemplate, type StoredGame, type StoredPlugin, type StoredPluginRelease, type StoredTemplate, type StoredTemplateRelease } from "./store.js";
 
@@ -88,13 +89,6 @@ const templateBodySchema = {
   properties: { name: { type: "string", minLength: 1, maxLength: 80 } },
 } as const;
 
-const templateReleaseBodySchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["definition"],
-  properties: { definition: { type: "object" } },
-} as const;
-
 export function createPublishApp(options: PublishAppOptions) {
   const playOrigin = options.playOrigin ?? "http://localhost:43130";
   const store = new PublishStore(options.dataDirectory);
@@ -126,7 +120,8 @@ export function createPublishApp(options: PublishAppOptions) {
   });
 
   app.addHook("onReady", async () => {
-    await artifacts.load(new Set([...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds()]));
+    seedBuiltInAssetTemplates(store);
+    await artifacts.load(new Set([...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds(), ...store.templateReleaseIds()]));
     if (options.preinstalledPluginsDirectory) {
       await seedPreparedPlugins(options.preinstalledPluginsDirectory, store, artifacts);
     }
@@ -789,31 +784,58 @@ export function createPublishApp(options: PublishAppOptions) {
       ?? sendPublishError(reply, request, 404, "not_found", "Template not found");
   });
 
-  app.post<{ Params: { templateId: string }; Body: CreatePublishTemplateReleaseRequest }>(
+  app.post<{ Params: { templateId: string } }>(
     "/v1/templates/:templateId/releases",
-    { schema: { body: templateReleaseBodySchema } },
     async (request, reply) => {
       const publisherId = await authenticatePublisher(request, reply);
       if (!publisherId) return;
       const template = store.template(publisherId, request.params.templateId);
       if (!template) return sendPublishError(reply, request, 404, "not_found", "Template not found");
-      if (!isAssetTemplateDefinition(request.body.definition)) {
-        return sendPublishError(reply, request, 400, "validation_failed", "Template definition is invalid");
-      }
       const key = idempotencyKey(request, reply);
       if (!key) return;
+      if (!request.isMultipart()) return sendPublishError(reply, request, 400, "validation_failed", "Expected multipart/form-data");
+
+      const uploadPath = artifacts.temporaryFile(randomUUID(), ".webp");
+      let metadata: CreatePublishTemplateReleaseRequest | undefined;
+      let received: { sha256: string; bytes: number } | undefined;
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === "field") {
+            if (part.fieldname !== "metadata" || metadata) throw new ArtifactError("Expected one metadata field");
+            metadata = templateReleaseMetadata(part.value);
+          } else {
+            if (part.fieldname !== "cover" || received) {
+              part.file.resume();
+              throw new ArtifactError("Expected at most one cover file");
+            }
+            if (part.mimetype !== "image/webp") {
+              part.file.resume();
+              throw new ArtifactError("Template cover must be a WebP image");
+            }
+            received = await artifacts.receive(part.file, uploadPath);
+          }
+        }
+        if (!metadata) throw new ArtifactError("Template release requires metadata");
+        const expectsCover = metadata.coverSha256 !== undefined || metadata.coverBytes !== undefined;
+        if (expectsCover !== Boolean(received) || (received && (metadata.coverSha256 !== received.sha256 || metadata.coverBytes !== received.bytes))) {
+          throw new ArtifactError("Cover digest or byte length does not match metadata");
+        }
       const route = "/v1/templates/:templateId/releases";
       const reservation = store.reserveIdempotency(
         publisherId, "POST", route, key,
-        requestHash({ templateId: template.id, definition: request.body.definition }), new Date().toISOString(),
+        requestHash({ templateId: template.id, ...metadata }), new Date().toISOString(),
       );
       const replay = handleReservation(reservation, request, reply, (body) => body);
-      if (replay !== false) return replay;
+      if (replay !== false) {
+        await rm(uploadPath, { force: true });
+        return replay;
+      }
       const release: StoredTemplateRelease = {
-        id: randomUUID(), templateId: template.id, definition: request.body.definition,
+        id: randomUUID(), templateId: template.id, definition: metadata.definition, hasCover: Boolean(received),
         publishedAt: new Date().toISOString(),
       };
       try {
+        if (received) await artifacts.installFile(uploadPath, release.id, "cover.webp");
         const body: CreatePublishTemplateReleaseResult = {
           template: { ...template, name: release.definition.name, currentReleaseId: release.id, updatedAt: release.publishedAt },
           release,
@@ -821,8 +843,12 @@ export function createPublishApp(options: PublishAppOptions) {
         store.activateTemplateRelease(publisherId, release, { method: "POST", route, key, statusCode: 201, body });
         return reply.code(201).send(body);
       } catch (error) {
+        await artifacts.remove(release.id);
         store.releaseIdempotency(publisherId, "POST", route, key);
         throw error;
+      }
+      } finally {
+        await rm(uploadPath, { force: true });
       }
     },
   );
@@ -845,6 +871,19 @@ export function createPublishApp(options: PublishAppOptions) {
     const template = store.exploreTemplate(request.params.templateId);
     return template ? publicExploreTemplate(template) : sendPublishError(reply, request, 404, "not_found", "Template not found");
   });
+
+  app.get<{ Params: { templateId: string; releaseId: string } }>(
+    "/v1/explore/templates/:templateId/releases/:releaseId/cover",
+    async (request, reply) => {
+      const template = store.exploreTemplate(request.params.templateId);
+      if (!template || template.id !== request.params.releaseId || !template.hasCover) {
+        return sendPublishError(reply, request, 404, "not_found", "Template cover not found");
+      }
+      const cover = await artifacts.internalFile(template.id, "cover.webp");
+      if (!cover) return sendPublishError(reply, request, 404, "not_found", "Template cover not found");
+      return reply.type("image/webp").header("cache-control", "public, max-age=31536000, immutable").header("x-content-type-options", "nosniff").send(createReadStream(cover));
+    },
+  );
 
   app.route({
     method: ["GET", "HEAD"],
@@ -935,6 +974,25 @@ function assetReleaseMetadata(value: unknown, mediaType: PublishAsset["mediaType
     throw new ArtifactError("fileName extension does not match contentType");
   }
   return { artifactSha256, artifactBytes, fileName, contentType: declaredContentType };
+}
+
+function templateReleaseMetadata(value: unknown): CreatePublishTemplateReleaseRequest {
+  let input: unknown = value;
+  if (typeof input === "string") {
+    try { input = JSON.parse(input); } catch { throw new ArtifactError("metadata must be valid JSON"); }
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new ArtifactError("metadata must be an object");
+  const metadata = input as Record<string, unknown>;
+  if (!isAssetTemplateDefinition(metadata.definition)) throw new ArtifactError("Template definition is invalid");
+  const hasDigest = metadata.coverSha256 !== undefined;
+  const hasBytes = metadata.coverBytes !== undefined;
+  if (hasDigest !== hasBytes) throw new ArtifactError("coverSha256 and coverBytes must be provided together");
+  if (!hasDigest) return { definition: metadata.definition };
+  const coverSha256 = String(metadata.coverSha256);
+  const coverBytes = Number(metadata.coverBytes);
+  if (!/^[a-f0-9]{64}$/.test(coverSha256)) throw new ArtifactError("coverSha256 must be a lowercase SHA-256 digest");
+  if (!Number.isSafeInteger(coverBytes) || coverBytes < 1) throw new ArtifactError("coverBytes must be a positive safe integer");
+  return { definition: metadata.definition, coverSha256, coverBytes };
 }
 
 function pluginReleaseMetadata(value: unknown, pluginName: string): CreatePublishPluginReleaseMetadata {
@@ -1043,6 +1101,7 @@ function publicExploreTemplate(template: StoredExploreTemplate): PublishExploreT
     id: template.templateId,
     releaseId: template.id,
     publishedAt: template.publishedAt,
+    ...(template.hasCover ? { hasCover: true } : {}),
     author: template.author,
     stats: template.stats,
   };

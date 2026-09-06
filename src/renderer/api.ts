@@ -400,14 +400,49 @@ export async function createAssetTemplate(input: CreateAssetTemplateRequest): Pr
   return request("/asset-templates", { method: "POST", body: JSON.stringify(input) });
 }
 
+export async function setAssetTemplateCover(templateId: string, cover: Blob): Promise<LocalAssetTemplate> {
+  const response = await fetch(apiUrl(`/asset-templates/${encodeURIComponent(templateId)}/cover`), {
+    method: "PUT",
+    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    body: cover,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<LocalAssetTemplate>;
+}
+
+export async function getAssetTemplateCover(templateId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/asset-templates/${encodeURIComponent(templateId)}/cover`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function deleteAssetTemplate(templateId: string): Promise<void> {
+  await request(`/asset-templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
+}
+
 export async function publishAssetTemplate(templateId: string, accessToken: string): Promise<CreatePublishTemplateReleaseResult> {
   return request(`/asset-templates/${encodeURIComponent(templateId)}/publish`, {
     method: "POST", body: JSON.stringify({ accessToken }),
   });
 }
 
+export async function setAssetTemplatePublicationStatus(templateId: string, status: "listed" | "unlisted", accessToken: string): Promise<LocalAssetTemplate> {
+  return request(`/asset-templates/${encodeURIComponent(templateId)}/publication`, {
+    method: "PUT",
+    body: JSON.stringify({ status, accessToken }),
+  });
+}
+
 export async function listExploreTemplates(): Promise<ExploreAssetTemplate[]> {
   return request("/explore/templates");
+}
+
+export async function getExploreTemplateCover(templateId: string, releaseId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/explore/templates/${encodeURIComponent(templateId)}/releases/${encodeURIComponent(releaseId)}/cover`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export async function getCommunityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {

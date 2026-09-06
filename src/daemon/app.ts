@@ -153,6 +153,16 @@ const publishAccessTokenBody = {
   properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
 } as const;
 
+const templatePublicationBody = {
+  type: "object",
+  additionalProperties: false,
+  required: ["accessToken", "status"],
+  properties: {
+    accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+    status: { enum: ["listed", "unlisted"] },
+  },
+} as const;
+
 const communitySubjectParams = {
   type: "object",
   additionalProperties: false,
@@ -1147,6 +1157,22 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get<{ Params: { templateId: string } }>("/asset-templates/:templateId/cover", async (request, reply) => {
+    const cover = await assetTemplates.cover(request.params.templateId);
+    if (!cover) return reply.code(404).send({ error: "Asset template cover not found" });
+    return reply.type("image/webp").header("cache-control", "no-store").header("x-content-type-options", "nosniff").send(cover);
+  });
+
+  app.put<{ Params: { templateId: string }; Body: Buffer }>("/asset-templates/:templateId/cover", async (request, reply) => {
+    try {
+      if (!isWebp(request.body)) return reply.code(400).send({ error: "Asset template cover must be a WebP image" });
+      return await assetTemplates.setCover(request.params.templateId, request.body);
+    } catch (cause) {
+      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
   app.post<{ Params: { templateId: string }; Body: { accessToken: string } }>(
     "/asset-templates/:templateId/publish",
     { schema: { body: publishAccessTokenBody } },
@@ -1154,16 +1180,18 @@ export function createApp(options: AppOptions = {}) {
       try {
         const template = await assetTemplates.read(request.params.templateId);
         if (!template) return reply.code(404).send({ error: "Asset template not found" });
-        const { id: _id, source: _source, createdAt: _createdAt, publication, ...definition } = template;
+        const { id: _id, source: _source, createdAt: _createdAt, publication, hasCover: _hasCover, ...definition } = template;
         const result = await publisher.publishTemplate({
           localId: template.id,
           templateId: publication?.templateId,
           definition,
+          cover: await assetTemplates.cover(template.id),
         }, request.body.accessToken);
         await assetTemplates.setPublication(template.id, {
           templateId: result.template.id,
           releaseId: result.release.id,
           publishedAt: result.release.publishedAt,
+          status: "listed",
         });
         return reply.code(201).send(result);
       } catch (cause) {
@@ -1175,9 +1203,47 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.put<{ Params: { templateId: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>(
+    "/asset-templates/:templateId/publication",
+    { schema: { body: templatePublicationBody } },
+    async (request, reply) => {
+      try {
+        const template = await assetTemplates.read(request.params.templateId);
+        if (!template?.publication) return reply.code(404).send({ error: "Published Asset template not found" });
+        const listing = await publisher.setTemplateListing(template.publication.templateId, request.body.status, request.body.accessToken);
+        return assetTemplates.setPublication(template.id, { ...template.publication, status: listing.status });
+      } catch (cause) {
+        const statusCode = cause instanceof AssetTemplateError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.delete<{ Params: { templateId: string } }>("/asset-templates/:templateId", async (request, reply) => {
+    try {
+      await assetTemplates.delete(request.params.templateId);
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof AssetTemplateError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.get("/explore/templates", async (_request, reply) => {
     try {
       return (await publisher.exploreTemplates()).map((template) => ({ ...template, source: "catalog" as const }));
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+    }
+  });
+
+  app.get<{ Params: { templateId: string; releaseId: string } }>("/explore/templates/:templateId/releases/:releaseId/cover", async (request, reply) => {
+    try {
+      const cover = await publisher.templateCover(request.params.templateId, request.params.releaseId);
+      return reply.type("image/webp").header("cache-control", "private, max-age=31536000, immutable").header("x-content-type-options", "nosniff").send(cover);
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });

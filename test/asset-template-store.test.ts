@@ -22,7 +22,10 @@ describe("AssetTemplateStore", () => {
       templateId: "remote-template",
       releaseId: "release-1",
       publishedAt: new Date(0).toISOString(),
+      status: "listed",
     });
+    const cover = Buffer.from("RIFF\u0004\u0000\u0000\u0000WEBP");
+    await store.setCover(saved.id, cover);
 
     const restarted = new AssetTemplateStore(directory);
     expect(await restarted.list()).toEqual([expect.objectContaining({
@@ -30,7 +33,13 @@ describe("AssetTemplateStore", () => {
       name: "Character Sheet",
       previewTemplateId: "character-sheet",
       source: "local",
-      publication: { templateId: "remote-template", releaseId: "release-1", publishedAt: new Date(0).toISOString() },
+      hasCover: true,
+      publication: { templateId: "remote-template", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "listed" },
     })]);
+    expect(await restarted.cover(saved.id)).toEqual(cover);
+
+    await restarted.delete(saved.id);
+    expect(await restarted.list()).toEqual([]);
+    expect(await restarted.cover(saved.id)).toBeUndefined();
   });
 });

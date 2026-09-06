@@ -182,6 +182,7 @@ export interface PublishTemplateRelease {
   id: string;
   templateId: string;
   definition: import("./asset-templates.js").AssetTemplateDefinition;
+  hasCover: boolean;
   publishedAt: string;
 }
 
@@ -189,6 +190,7 @@ export type PublishExploreTemplate = import("./asset-templates.js").AssetTemplat
   id: string;
   releaseId: string;
   publishedAt: string;
+  hasCover?: boolean;
   author: CommunityAuthor;
   stats: CommunityStats;
 };
@@ -199,6 +201,8 @@ export interface CreatePublishTemplateRequest {
 
 export interface CreatePublishTemplateReleaseRequest {
   definition: import("./asset-templates.js").AssetTemplateDefinition;
+  coverSha256?: string;
+  coverBytes?: number;
 }
 
 export interface CreatePublishTemplateReleaseResult {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { CommunityAuthor, CommunityStats, CommunitySubjectType } from "../shared/publish-v1.js";
 import { getCommunityViewerState, recordCommunityUse, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Heart } from "./icons.js";
+import { Heart, VerifiedCheck } from "./icons.js";
 
 export function useCommunityLike(type: CommunitySubjectType, id: string, stats: CommunityStats) {
   const auth = useAuth();
@@ -56,18 +56,19 @@ export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = 
   </button>;
 }
 
-export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix }: {
+export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix, verified = false }: {
   type: CommunitySubjectType;
   id: string;
   author: CommunityAuthor;
   stats: CommunityStats;
   useLabel: string;
   authorPrefix?: string;
+  verified?: boolean;
 }) {
   const like = useCommunityLike(type, id, stats);
 
   return <div className="community-meta">
-    <CommunityAuthorView author={author} prefix={authorPrefix} />
+    <CommunityAuthorView author={author} prefix={authorPrefix} verified={verified} />
     <span className="community-stats">
       <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} />
       <span>{like.counts.uses} {useLabel}</span>
@@ -75,10 +76,11 @@ export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix 
   </div>;
 }
 
-export function CommunityAuthorView({ author, prefix }: { author: CommunityAuthor; prefix?: string }) {
+export function CommunityAuthorView({ author, prefix, verified = false }: { author: CommunityAuthor; prefix?: string; verified?: boolean }) {
   return <span className="community-author">
     {author.avatarUrl ? <img src={author.avatarUrl} alt="" /> : <span aria-hidden="true">{author.displayName.slice(0, 1).toUpperCase()}</span>}
     <strong>{prefix ? `${prefix} ${author.displayName}` : author.displayName}</strong>
+    {verified ? <VerifiedCheck className="community-author-verified" size={13} aria-label="Official" /> : null}
   </span>;
 }
 

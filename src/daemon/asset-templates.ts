@@ -15,10 +15,12 @@ export class AssetTemplateError extends Error {
 
 export class AssetTemplateStore {
   readonly #file: string;
+  readonly #coversDirectory: string;
   #writes: Promise<void> = Promise.resolve();
 
   constructor(dataDirectory: string) {
     this.#file = path.join(dataDirectory, "asset-templates.json");
+    this.#coversDirectory = path.join(dataDirectory, "asset-template-covers");
   }
 
   async list(): Promise<LocalAssetTemplate[]> {
@@ -51,6 +53,50 @@ export class AssetTemplateStore {
       await this.#write(templates);
     });
     return updated!;
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.#mutate(async () => {
+      const templates = await this.#read();
+      const remaining = templates.filter((template) => template.id !== id);
+      if (remaining.length === templates.length) throw new AssetTemplateError("Asset template not found", 404);
+      await this.#write(remaining);
+      await rm(this.#coverFile(id), { force: true });
+    });
+  }
+
+  async setCover(id: string, cover: Buffer): Promise<LocalAssetTemplate> {
+    let updated: LocalAssetTemplate | undefined;
+    await this.#mutate(async () => {
+      const templates = await this.#read();
+      const index = templates.findIndex((template) => template.id === id);
+      if (index < 0) throw new AssetTemplateError("Asset template not found", 404);
+      await mkdir(this.#coversDirectory, { recursive: true });
+      const temporary = `${this.#coverFile(id)}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, cover, { mode: 0o600, flag: "wx" });
+        await rename(temporary, this.#coverFile(id));
+      } finally {
+        await rm(temporary, { force: true });
+      }
+      updated = { ...templates[index]!, hasCover: true };
+      templates[index] = updated;
+      await this.#write(templates);
+    });
+    return updated!;
+  }
+
+  async cover(id: string): Promise<Buffer | undefined> {
+    const template = await this.read(id);
+    if (!template?.hasCover) return undefined;
+    return readFile(this.#coverFile(id)).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return undefined;
+      throw cause;
+    });
+  }
+
+  #coverFile(id: string): string {
+    return path.join(this.#coversDirectory, `${id}.webp`);
   }
 
   #mutate(operation: () => Promise<void>): Promise<void> {
@@ -87,9 +133,10 @@ function isLocalTemplate(value: unknown): value is LocalAssetTemplate {
   if (!value || typeof value !== "object") return false;
   const template = value as Partial<LocalAssetTemplate>;
   const publication = template.publication;
-  const { id: _id, source: _source, createdAt: _createdAt, publication: _publication, ...definition } = template;
+  const { id: _id, source: _source, createdAt: _createdAt, hasCover: _hasCover, publication: _publication, ...definition } = template;
   return template.source === "local" && typeof template.id === "string" && Boolean(template.id)
     && typeof template.createdAt === "string" && !Number.isNaN(Date.parse(template.createdAt))
+    && (template.hasCover === undefined || typeof template.hasCover === "boolean")
     && isAssetTemplateDefinition(definition)
     && (publication === undefined || validPublication(publication));
 }
@@ -99,7 +146,8 @@ function validPublication(value: unknown): value is NonNullable<LocalAssetTempla
   const publication = value as Record<string, unknown>;
   return typeof publication.templateId === "string" && Boolean(publication.templateId)
     && typeof publication.releaseId === "string" && Boolean(publication.releaseId)
-    && typeof publication.publishedAt === "string" && !Number.isNaN(Date.parse(publication.publishedAt));
+    && typeof publication.publishedAt === "string" && !Number.isNaN(Date.parse(publication.publishedAt))
+    && (publication.status === "listed" || publication.status === "unlisted");
 }
 
 function normalized(input: CreateAssetTemplateRequest): CreateAssetTemplateRequest {
