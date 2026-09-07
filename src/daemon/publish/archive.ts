@@ -13,8 +13,6 @@ interface PackageJson {
   devDependencies?: Record<string, unknown>;
 }
 
-const ZIP_TIMESTAMP = new Date("1980-01-02T00:00:00.000Z");
-
 export class PublishError extends Error {
   constructor(message: string, readonly statusCode = 409) {
     super(message);
@@ -65,13 +63,14 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
 async function createZip(source: string, plugin = false, cover?: Buffer): Promise<Buffer> {
   const zip = new ZipFile();
   const files = await filesIn(source, "", plugin);
+  const zipOptions = { mtime: new Date(1980, 0, 2), forceDosTimestamp: true } as const;
   if (cover !== undefined && files.includes(PUBLISH_GAME_COVER_PATH)) {
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
   }
   for (const file of files) {
-    zip.addFile(path.join(source, ...file.split("/")), file, { mtime: ZIP_TIMESTAMP });
+    zip.addFile(path.join(source, ...file.split("/")), file, zipOptions);
   }
-  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, { mtime: ZIP_TIMESTAMP });
+  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, zipOptions);
   const chunks: Buffer[] = [];
   const output = zip.outputStream as Readable;
   const completed = new Promise<Buffer>((resolve, reject) => {
