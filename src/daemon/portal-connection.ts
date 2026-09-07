@@ -115,6 +115,7 @@ export class PortalConnection {
 
 export function portalModels(catalog: readonly RuntimeModel[], ids: readonly string[]) {
   return ids.flatMap((id) => {
+    if (/-image(?:-preview)?$/i.test(id)) return [];
     const matches = catalog.filter((model) => model.provider !== PROVIDER_ID && model.id === id);
     const model = matches.find((candidate) => candidate.provider === "openai")
       ?? (matches.length > 0 && matches.every((candidate) => sameCapabilities(matches[0]!, candidate)) ? matches[0] : undefined);
