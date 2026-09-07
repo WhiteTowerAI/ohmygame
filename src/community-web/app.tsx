@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { LoaderCircle } from "../renderer/icons.js";
 import {
-  GAME_DETAIL_MOSAIC_SLOTS,
   HOME_GAME_MOSAIC_SLOTS,
   takeGameMosaicSlots,
   type GameMosaicSlot,
@@ -17,6 +16,7 @@ import windowsIcon from "./assets/windows.svg";
 
 const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
 const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
+const RELATED_GAMES_LIMIT = 10;
 
 type MosaicStyle = CSSProperties & {
   "--mosaic-column": number;
@@ -26,10 +26,6 @@ type MosaicStyle = CSSProperties & {
 
 export function getGameMosaicSlots(count: number): readonly GameMosaicSlot[] {
   return takeGameMosaicSlots(HOME_GAME_MOSAIC_SLOTS, count);
-}
-
-export function getGameDetailMosaicSlots(count: number): readonly GameMosaicSlot[] {
-  return takeGameMosaicSlots(GAME_DETAIL_MOSAIC_SLOTS, count);
 }
 
 export type CommunityRoute =
@@ -204,7 +200,7 @@ function GamePage({ gameId }: { gameId: string }) {
     ])
       .then(([value, games]) => {
         if (!active) return;
-        setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, GAME_DETAIL_MOSAIC_SLOTS.length));
+        setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, RELATED_GAMES_LIMIT));
         setGame(value);
       })
       .catch((cause) => { if (active) setError(errorMessage(cause)); });
@@ -225,7 +221,6 @@ function GamePage({ gameId }: { gameId: string }) {
 function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relatedGames: PublishCommunityGame[] }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const [shared, setShared] = useState(false);
-  const relatedSlots = getGameDetailMosaicSlots(relatedGames.length);
 
   async function shareGame() {
     const data = { title: game.title, text: game.description, url: window.location.href };
@@ -247,43 +242,18 @@ function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relate
 
   return (
     <main className="game-detail content-width">
-      <div className={`game-detail-mosaic${relatedGames.length ? " has-related-games" : ""}`}>
+      <div className="game-detail-content">
         <div className="game-player" ref={playerRef}>
           <div className="game-stage"><iframe src={game.playUrl} title={game.title} sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts" allow="autoplay; fullscreen" /></div>
           <div className="player-toolbar">
-            <div className="player-summary"><GameThumbnail game={game} /><div className="player-identity"><strong>{game.title}</strong><span>by {game.author.displayName}</span></div></div>
+            <div className="player-summary"><GameThumbnail game={game} /><div className="player-identity"><strong>{game.title}</strong><span>by {game.author.displayName} · {game.stats.uses} {game.stats.uses === 1 ? "player" : "players"} · {publishedDate(game.publishedAt)}</span>{game.description ? <p>{game.description}</p> : null}</div></div>
             <div className="player-actions">
               <button type="button" onClick={() => void shareGame()} aria-label="Share game" title={shared ? "Link copied" : "Share game"}><img src={shareIcon} alt="" /></button>
               <button type="button" onClick={() => void toggleFullscreen()} aria-label="Toggle fullscreen" title="Fullscreen"><img src={fullscreenIcon} alt="" /></button>
             </div>
           </div>
         </div>
-        <article className="game-information">
-          <span className="detail-label">GAME INFO</span>
-          <h1>{game.title}</h1>
-          {game.description ? <p>{game.description}</p> : null}
-          <div className="game-community-meta"><span>{game.author.avatarUrl ? <img src={game.author.avatarUrl} alt="" /> : <i aria-hidden="true">{game.author.displayName.slice(0, 1).toUpperCase()}</i>}<strong>{game.author.displayName}</strong></span><span>{game.stats.likes} likes · {game.stats.uses} players</span></div>
-          <dl><dt>RELEASED</dt><dd>{publishedDate(game.publishedAt)}</dd></dl>
-        </article>
-        <aside className="download-cta">
-          <span className="detail-label">YOUR TURN</span>
-          <h2>MAKE A GAME<br />OF YOUR OWN.</h2>
-          <p>Create, play, and publish with OpenGame. Your next world starts here.</p>
-          <a href={DOWNLOAD_URL}>Download OpenGame</a>
-        </aside>
-        {relatedGames.length ? (
-          <div className="detail-related-games">
-            <h2>More games</h2>
-            {relatedGames.map((relatedGame, index) => (
-              <GameTile
-                className={`detail-related-tile game-tile-size-${relatedSlots[index]?.size ?? 1}`}
-                game={relatedGame}
-                key={relatedGame.id}
-                style={mosaicStyle(relatedSlots[index]!)}
-              />
-            ))}
-          </div>
-        ) : null}
+        {relatedGames.length ? <section className="detail-related-games" aria-label="More games"><h2>More games</h2><div className="detail-related-grid">{relatedGames.map((relatedGame) => <GameTile className="detail-related-tile" game={relatedGame} key={relatedGame.id} />)}</div></section> : null}
       </div>
     </main>
   );
