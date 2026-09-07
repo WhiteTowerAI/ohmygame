@@ -7,7 +7,21 @@ const repositoryRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: path.join(repositoryRoot, "src/community-web"),
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "community-dev-csp",
+      transformIndexHtml: {
+        order: "post",
+        handler(html, ctx) {
+          if (ctx.server) {
+            return html.replace(/\s*<meta\s+http-equiv="Content-Security-Policy"[^>]*>/i, "");
+          }
+          return html;
+        },
+      },
+    },
+  ],
   build: {
     outDir: path.join(repositoryRoot, "dist/community-web"),
     emptyOutDir: true,
