@@ -81,6 +81,14 @@ describe("Community Web API", () => {
     await expect(getCommunityGame(expected.id, fetcher)).resolves.toEqual(expected);
     expect(fetcher).toHaveBeenCalledWith("/v1/community/games/game%201", expect.anything());
   });
+
+  it("surfaces nested and top-level API error messages", async () => {
+    const nested = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Nested failure" } }), { status: 500 }));
+    const topLevel = vi.fn(async () => new Response(JSON.stringify({ message: "Upstream unavailable" }), { status: 404 }));
+
+    await expect(listCommunityGames(nested)).rejects.toThrow("Nested failure");
+    await expect(listCommunityGames(topLevel)).rejects.toThrow("Upstream unavailable");
+  });
 });
 
 function game(id: string) {
