@@ -32,7 +32,7 @@ describe("Asset Studio draft", () => {
 function draft(overrides: { imagePrompt?: string; panelView?: AssetStudioDraft["panelView"] } = {}): AssetStudioDraft {
   return {
     mode: "image",
-    templateIds: { image: "general-image", video: "general-video", "3d": "general-3d" },
+    templateIds: {},
     panelView: overrides.panelView ?? "templates",
     image: { prompt: overrides.imagePrompt ?? "", resolution: "1K", aspectRatio: "1:1", outputs: 1 },
     video: { prompt: "", resolution: "720p", aspectRatio: "adaptive", duration: 6 },

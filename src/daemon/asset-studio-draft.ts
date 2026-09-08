@@ -56,7 +56,7 @@ function isStoredDraft(value: unknown): value is StoredDraft {
   if (!record(value) || value.version !== 1 || !mode(value.mode) || !record(value.templateIds)) return false;
   if (!onlyKeys(value, ["version", "mode", "templateIds", "panelView", "selectedRunId", "selectedOutput", "image", "video", "model3D"])) return false;
   if (!onlyKeys(value.templateIds, ["image", "video", "3d"])) return false;
-  if (!text(value.templateIds.image, 200) || !text(value.templateIds.video, 200) || !text(value.templateIds["3d"], 200)) return false;
+  if (!optionalText(value.templateIds.image, 200) || !optionalText(value.templateIds.video, 200) || !optionalText(value.templateIds["3d"], 200)) return false;
   if (value.panelView !== "templates" && value.panelView !== "history") return false;
   if (value.selectedRunId !== undefined && !text(value.selectedRunId, 100)) return false;
   if (value.selectedOutput !== undefined && (!Number.isInteger(value.selectedOutput) || Number(value.selectedOutput) < 0 || Number(value.selectedOutput) > 3)) return false;
@@ -85,6 +85,10 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function text(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length <= maximum;
+}
+
+function optionalText(value: unknown, maximum: number): value is string | undefined {
+  return value === undefined || text(value, maximum);
 }
 
 function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

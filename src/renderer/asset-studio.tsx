@@ -1,5 +1,5 @@
 import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
-import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type ReactNode } from "react";
 import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_OUTPUT_COUNTS,
@@ -63,11 +63,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
   const [mode, setMode] = useState<StudioMode>("image");
-  const [templateIds, setTemplateIds] = useState<Record<StudioMode, string>>(() => ({
-    image: defaultTemplateForMode("image").id,
-    video: defaultTemplateForMode("video").id,
-    "3d": defaultTemplateForMode("3d").id,
-  }));
+  const [templateIds, setTemplateIds] = useState<Partial<Record<StudioMode, string>>>({});
   const [imagePhase, setImagePhase] = useState<"loading" | "ready" | "error">("loading");
   const [imageLoadError, setImageLoadError] = useState<string>();
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -130,19 +126,15 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const resultActions = useRef<HTMLDivElement>(null);
   const auth = useAuth();
 
-  const publishedTemplateIds = new Set(localTemplates.flatMap((template) => template.publication ? [template.publication.templateId] : []));
   const builtInTemplateIds = new Set(ASSET_TEMPLATES.map((template) => template.id));
-  const openGameTemplates = ASSET_TEMPLATES.map((template) => {
-    const catalog = exploreTemplates.find((candidate) => candidate.id === template.id);
-    return catalog ? { ...template, author: catalog.author, stats: catalog.stats } : template;
-  });
   const yoursTemplates = localTemplates.map(templateForGallery);
   const communityTemplates = exploreTemplates
     .filter((template) => template.author.id !== OPEN_GAME_TEMPLATE_AUTHOR.id
-      && !builtInTemplateIds.has(template.id) && !publishedTemplateIds.has(template.id))
+      && !builtInTemplateIds.has(template.id))
     .map(templateForGallery);
-  const templates = [...openGameTemplates, ...yoursTemplates, ...communityTemplates];
-  const selectedTemplate = templates.find((template) => template.id === templateIds[mode] && template.mode === mode) ?? defaultTemplateForMode(mode);
+  const templates = [...yoursTemplates, ...communityTemplates];
+  const selectedTemplate = templates.find((template) => template.id === templateIds[mode] && template.mode === mode);
+  const activeTemplate = selectedTemplate ?? defaultTemplateForMode(mode);
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
     selectedImageModel?.generationOptions.some((option) => option.resolution === candidate),
@@ -243,11 +235,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     if (local.status === "fulfilled") setLocalTemplates(localTemplates);
     else setActionStatus({ type: "error", message: errorMessage(local.reason) });
     if (explore.status === "fulfilled") setExploreTemplates(exploreTemplates);
-    const available = [...ASSET_TEMPLATES, ...localTemplates, ...exploreTemplates];
+    const available = [...localTemplates, ...exploreTemplates.filter((template) => !builtInTemplateIds.has(template.id))];
     setTemplateIds((current) => ({
-      image: available.some((template) => template.id === current.image && template.mode === "image") ? current.image : defaultTemplateForMode("image").id,
-      video: available.some((template) => template.id === current.video && template.mode === "video") ? current.video : defaultTemplateForMode("video").id,
-      "3d": available.some((template) => template.id === current["3d"] && template.mode === "3d") ? current["3d"] : defaultTemplateForMode("3d").id,
+      ...(available.some((template) => template.id === current.image && template.mode === "image") ? { image: current.image } : {}),
+      ...(available.some((template) => template.id === current.video && template.mode === "video") ? { video: current.video } : {}),
+      ...(available.some((template) => template.id === current["3d"] && template.mode === "3d") ? { "3d": current["3d"] } : {}),
     }));
   }
 
@@ -325,12 +317,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         nextRun = await runTool("generate-image", {
           prompt: imagePrompt.trim(), resolution, aspectRatio, outputs,
           ...(imageReferences.length ? { images: imageReferences } : {}),
-        }, selectedTemplate.name);
+        }, selectedTemplate?.name);
       } else if (mode === "video") {
         nextRun = await runTool("generate-video", {
           prompt: videoPrompt.trim(), duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution,
           ...(videoReferences.length ? { images: videoReferences } : {}),
-        }, selectedTemplate.name);
+        }, selectedTemplate?.name);
       } else {
         const images = modelReferences
           .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
@@ -342,9 +334,9 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           texture: model3DTexture,
           pose: model3DPose,
           ...(model3DSource === "image" && !isMeshyT2 ? { imageEnhancement: model3DImageEnhancement } : {}),
-        }, selectedTemplate.name);
+        }, selectedTemplate?.name);
       }
-      if (selectedTemplate.author && auth.state.status === "signed-in") {
+      if (selectedTemplate?.author && auth.state.status === "signed-in") {
         void auth.requestAccessToken()
           .then((token) => token ? recordCommunityUse("template", selectedTemplate.id, token) : undefined)
           .then((stats) => {
@@ -355,7 +347,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       const blobs = await Promise.all(nextRun.files.map((file) => getToolRunFile(nextRun.id, file.name)));
       if (!mounted.current) return;
-      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: nextRun.title ?? selectedTemplate.name };
+      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: nextRun.title ?? defaultRunTitle(nextRun.toolId) };
       setResult(nextResult);
       addHistoryResult(nextResult);
       setSelectedResult(0);
@@ -556,11 +548,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       await deleteAssetTemplate(template.id);
       setLocalTemplates((templates) => templates.filter((candidate) => candidate.id !== template.id));
-      if (templateIds[template.mode] === template.id) {
-        const fallback = defaultTemplateForMode(template.mode);
-        if (mode === template.mode) applyTemplate(fallback);
-        else setTemplateIds((current) => ({ ...current, [template.mode]: fallback.id }));
-      }
+      if (templateIds[template.mode] === template.id) setTemplateIds((current) => withoutTemplate(current, template.mode));
       setExploreTemplates(await listExploreTemplates());
       setActionStatus({ type: "success", message: "Template deleted" });
     } catch (cause) {
@@ -586,7 +574,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       mode,
       name,
       description: description.trim(),
-      promptPlaceholder: selectedTemplate.promptPlaceholder,
+      promptPlaceholder: activeTemplate.promptPlaceholder,
       ...(prompt.trim() ? { defaultPrompt: prompt.trim() } : {}),
       defaults,
     };
@@ -733,12 +721,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} disabled={generating} onChange={chooseImageModel} /> : null}
                       {imagePhase === "ready" && !imageModels.length ? <p className="asset-inline-state">No image model is connected</p> : null}
                     </Field>
-                    <PromptField id="asset-image-prompt" value={imagePrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setImagePrompt} />
+                    <PromptField id="asset-image-prompt" value={imagePrompt} disabled={generating} placeholder={activeTemplate.promptPlaceholder} onChange={setImagePrompt} />
                   </>
                 ) : mode === "video" ? (
                   <>
                     <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={VIDEO_MODEL} options={VIDEO_MODEL_OPTIONS} disabled={generating} onChange={() => undefined} /></Field>
-                    <PromptField id="asset-video-prompt" value={videoPrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setVideoPrompt} />
+                    <PromptField id="asset-video-prompt" value={videoPrompt} disabled={generating} placeholder={activeTemplate.promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
                   <>
@@ -750,7 +738,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       imageNames={modelReferenceNames}
                       multiView={model3DMultiView}
                       allowMultiView={!isMeshyT2}
-                      promptPlaceholder={selectedTemplate.promptPlaceholder}
+                      promptPlaceholder={activeTemplate.promptPlaceholder}
                       disabled={generating}
                       onSourceChange={setModel3DSource}
                       onPromptChange={setModel3DPrompt}
@@ -833,8 +821,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
             <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && history.length ? " asset-history-grid" : ""}`}>
               {panelView === "templates" ? <TemplateGallery
                 yours={yoursTemplates}
-                explore={[...openGameTemplates, ...communityTemplates]}
-                selectedId={selectedTemplate.id}
+                explore={communityTemplates}
+                selectedId={selectedTemplate?.id}
                 busy={templateBusy || generating}
                 onSelect={applyTemplate}
                 onPublish={(template) => void shareTemplate(template)}
@@ -892,7 +880,7 @@ function ModeSwitcher({ mode, disabled, onChange }: { mode: StudioMode; disabled
 function TemplateGallery({ yours, explore, selectedId, busy, onSelect, onPublish, onSetPublication, onDelete }: {
   yours: readonly AssetTemplate[];
   explore: readonly AssetTemplate[];
-  selectedId: string;
+  selectedId?: string;
   busy: boolean;
   onSelect: (template: AssetTemplate) => void;
   onPublish: (template: AssetTemplate) => void;
@@ -901,14 +889,14 @@ function TemplateGallery({ yours, explore, selectedId, busy, onSelect, onPublish
 }) {
   return <div className="asset-template-sections">
     <TemplateSection title="Yours" templates={yours} selectedId={selectedId} busy={busy} empty="No saved templates" onSelect={onSelect} onPublish={onPublish} onSetPublication={onSetPublication} onDelete={onDelete} />
-    <TemplateSection title="Explore" templates={explore} selectedId={selectedId} busy={busy} onSelect={onSelect} />
+    <TemplateSection title="Explore" templates={explore} selectedId={selectedId} busy={busy} empty="No templates available" onSelect={onSelect} />
   </div>;
 }
 
 function TemplateSection({ title, templates, selectedId, busy, empty, onSelect, onPublish, onSetPublication, onDelete }: {
   title: string;
   templates: readonly AssetTemplate[];
-  selectedId: string;
+  selectedId?: string;
   busy: boolean;
   empty?: string;
   onSelect: (template: AssetTemplate) => void;
@@ -941,32 +929,45 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
   onDelete?: (template: AssetTemplate) => void;
 }) {
   const publication = template.source === "local" ? template.publication : undefined;
-  return <article className={`asset-template-card${selected ? " is-selected" : ""}${template.source === "builtIn" ? " is-official" : ""}`}>
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actions = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!actions.current?.contains(event.target as Node)) setActionsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActionsOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [actionsOpen]);
+  return <article className={`asset-template-card${selected ? " is-selected" : ""}${template.source === "builtIn" ? " is-official" : ""}${actionsOpen ? " is-menu-open" : ""}`}>
     <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} disabled={busy} onClick={() => onSelect(template)}>
       <TemplatePreview template={template} />
       <span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" && !template.author ? <small>OpenGame</small> : publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
     </button>
-    {template.source === "local" ? <details className="asset-template-actions">
-      <summary aria-label={`Manage ${template.name}`} title="Template actions"><MoreHorizontal size={15} /></summary>
-      <div>
+    {template.source === "local" ? <div className="asset-template-actions" ref={actions}>
+      <button className="asset-template-actions-trigger" type="button" aria-label={`Manage ${template.name}`} title="Template actions" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy} onClick={() => setActionsOpen((open) => !open)}><MoreHorizontal size={15} /></button>
+      {actionsOpen ? <div role="menu">
         {publication?.status === "listed"
-          ? <button type="button" disabled={busy} onClick={(event) => { closeDetails(event); onSetPublication?.(template, "unlisted"); }}>Unpublish</button>
-          : <button type="button" disabled={busy} onClick={(event) => { closeDetails(event); publication ? onSetPublication?.(template, "listed") : onPublish?.(template); }}>{publication ? "Republish" : "Publish"}</button>}
-        <button className="is-danger" type="button" disabled={busy} onClick={(event) => { closeDetails(event); onDelete?.(template); }}><Trash2 size={13} />Delete</button>
-      </div>
-    </details> : null}
+          ? <button type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onSetPublication?.(template, "unlisted"); }}>Unpublish</button>
+          : <button type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); publication ? onSetPublication?.(template, "listed") : onPublish?.(template); }}>{publication ? "Republish" : "Publish"}</button>}
+        <button className="is-danger" type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onDelete?.(template); }}><Trash2 size={13} />Delete</button>
+      </div> : null}
+    </div> : null}
     {template.author && template.stats ? <CommunityMeta type="template" id={template.id} author={template.author} stats={template.stats} useLabel="uses" verified={template.source === "builtIn"} /> : null}
   </article>;
-}
-
-function closeDetails(event: ReactMouseEvent<HTMLButtonElement>): void {
-  event.currentTarget.closest("details")?.removeAttribute("open");
 }
 
 function TemplatePreview({ template }: { template: AssetTemplate }) {
   const [coverUrl, setCoverUrl] = useState<string>();
   useEffect(() => {
-    if (template.previewImage || !template.hasCover) return;
+    if (!template.hasCover) return;
     let active = true;
     const loadCover = template.source === "local"
       ? getAssetTemplateCover(template.id)
@@ -978,10 +979,10 @@ function TemplatePreview({ template }: { template: AssetTemplate }) {
       setCoverUrl(URL.createObjectURL(cover));
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [template.hasCover, template.id, template.previewImage, template.releaseId, template.source]);
+  }, [template.hasCover, template.id, template.releaseId, template.source]);
   useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl); }, [coverUrl]);
   return <span className="asset-template-preview">
-    {template.previewImage || coverUrl ? <img src={template.previewImage ?? coverUrl} alt="" /> : <span><HistoryIcon mode={template.mode} /></span>}
+    {coverUrl ? <img src={coverUrl} alt="" /> : <span><HistoryIcon mode={template.mode} /></span>}
     <span className="asset-template-type"><HistoryIcon mode={template.mode} size={11} />{template.mode === "3d" ? "3D" : template.mode[0].toUpperCase() + template.mode.slice(1)}</span>
   </span>;
 }
@@ -1134,6 +1135,12 @@ function replaceAt<T>(values: readonly (T | undefined)[], index: number, value: 
   const next = [...values];
   next[index] = value;
   while (next.length && next.at(-1) === undefined) next.pop();
+  return next;
+}
+
+function withoutTemplate(templateIds: Partial<Record<StudioMode, string>>, mode: StudioMode): Partial<Record<StudioMode, string>> {
+  const next = { ...templateIds };
+  delete next[mode];
   return next;
 }
 

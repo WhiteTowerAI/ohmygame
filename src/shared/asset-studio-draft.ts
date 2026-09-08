@@ -3,7 +3,7 @@ import type { Model3DSource, StudioMode } from "./asset-templates.js";
 
 export interface AssetStudioDraft {
   mode: StudioMode;
-  templateIds: Record<StudioMode, string>;
+  templateIds: Partial<Record<StudioMode, string>>;
   panelView: "templates" | "history";
   selectedRunId?: string;
   selectedOutput?: number;

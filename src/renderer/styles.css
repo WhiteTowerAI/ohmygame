@@ -3879,6 +3879,7 @@ button {
 
 .asset-template-sections {
   display: grid;
+  width: 100%;
   gap: 24px;
 }
 
@@ -3912,7 +3913,6 @@ button {
   position: relative;
   display: grid;
   min-width: 0;
-  overflow: hidden;
   padding: 0;
   border: 1px solid var(--home-border);
   border-radius: 10px;
@@ -3920,6 +3920,8 @@ button {
   color: inherit;
   text-align: left;
 }
+
+.asset-template-card.is-menu-open { z-index: 4; }
 
 .asset-template-card-open { display: grid; width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .asset-template-card > .community-meta { min-height: 23px; padding: 0 10px 8px; font-size: 10px; }
@@ -3942,6 +3944,7 @@ button {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  border-radius: 9px 9px 0 0;
   background: #222829;
   color: #aeb8ba;
 }
@@ -3955,14 +3958,13 @@ button {
 .asset-template-card-copy small { margin-left: auto; color: var(--asset-muted); font-size: 9px; font-weight: 500; }
 
 .asset-template-actions { position: absolute; z-index: 3; top: 7px; right: 7px; }
-.asset-template-actions summary { display: grid; width: 26px; height: 26px; padding: 0; place-items: center; border: 0; border-radius: 6px; background: rgb(9 11 12 / 72%); color: #d2d8d9; cursor: pointer; list-style: none; backdrop-filter: blur(8px); }
-.asset-template-actions summary::-webkit-details-marker { display: none; }
-.asset-template-actions summary:hover,
-.asset-template-actions[open] summary { background: rgb(28 34 36 / 92%); color: #fff; }
+.asset-template-actions-trigger { display: grid; width: 26px; height: 26px; padding: 0; place-items: center; border: 0; border-radius: 6px; background: rgb(9 11 12 / 72%); color: #d2d8d9; cursor: pointer; backdrop-filter: blur(8px); }
+.asset-template-actions-trigger:hover:not(:disabled),
+.asset-template-actions-trigger[aria-expanded="true"] { background: rgb(28 34 36 / 92%); color: #fff; }
 .asset-template-actions > div { position: absolute; top: 32px; right: 0; display: grid; width: 142px; padding: 4px; border: 1px solid var(--menu-border); border-radius: 8px; background: var(--menu-surface); box-shadow: var(--menu-shadow); }
-.asset-template-actions button { display: flex; height: 30px; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 10px; text-align: left; }
-.asset-template-actions button:hover:not(:disabled) { background: var(--menu-hover); color: var(--text); }
-.asset-template-actions button.is-danger { color: var(--danger); }
+.asset-template-actions > div button { display: flex; height: 30px; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 10px; text-align: left; }
+.asset-template-actions > div button:hover:not(:disabled) { background: var(--menu-hover); color: var(--text); }
+.asset-template-actions > div button.is-danger { color: var(--danger); }
 .asset-template-actions button:disabled { cursor: default; opacity: 0.4; }
 
 .asset-template-dialog { position: absolute; z-index: 12; inset: 0; display: grid; place-items: center; background: rgb(8 11 12 / 62%); backdrop-filter: blur(4px); }
