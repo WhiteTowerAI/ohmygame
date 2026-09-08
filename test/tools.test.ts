@@ -45,7 +45,7 @@ describe("tool runner", () => {
       minDuration: 4,
       maxDuration: 15,
       aspectRatios: ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-      resolutions: ["768P", "2K"],
+      resolutions: ["480p", "720p", "1080p", "4k"],
     }]);
   });
 
@@ -176,6 +176,51 @@ describe("tool runner", () => {
       texture: false,
       pose: "auto",
     }, undefined);
+  });
+
+  it("runs Seedance 2.0 with reference images", async () => {
+    const generate = vi.fn().mockResolvedValue({
+      bytes: Buffer.from("video"),
+      mediaType: "video/mp4" as const,
+      requestId: "seedance-task-1",
+    });
+    const app = createApp({
+      dataDirectory: await temporaryData(),
+      imageGenerator: fakeGenerator(),
+      videoGenerator: { generate },
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/generate-video/runs",
+      payload: {
+        prompt: "  A spaceship crossing a nebula  ",
+        images: [
+          { mediaType: "image/png", data: "ZnJvbnQ=" },
+          { mediaType: "image/webp", data: "c2lkZQ==" },
+        ],
+        duration: 6,
+        aspectRatio: "16:9",
+        resolution: "720p",
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(generate).toHaveBeenCalledWith({
+      prompt: "A spaceship crossing a nebula",
+      images: [
+        { mediaType: "image/png", data: "ZnJvbnQ=" },
+        { mediaType: "image/webp", data: "c2lkZQ==" },
+      ],
+      duration: 6,
+      aspectRatio: "16:9",
+      resolution: "720p",
+    }, undefined);
+    expect(response.json()).toMatchObject({
+      toolId: "generate-video",
+      files: [{ name: "output.mp4", mediaType: "video/mp4" }],
+    });
   });
 
   it("adds a generated 3D result to a project workspace", async () => {

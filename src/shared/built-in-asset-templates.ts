@@ -22,7 +22,7 @@ export const BUILT_IN_ASSET_TEMPLATES: readonly BuiltInAssetTemplate[] = [
     id: "general-video", releaseId: "general-video-v1", publishedAt: PUBLISHED_AT,
     mode: "video", name: "General Video", description: "A flexible starting point for motion generation.",
     promptPlaceholder: "Describe the scene, motion, and camera movement...",
-    defaults: { videoResolution: "768P", videoAspectRatio: "adaptive", videoDuration: 6 },
+    defaults: { videoResolution: "720p", videoAspectRatio: "adaptive", videoDuration: 6 },
   },
   {
     id: "general-3d", releaseId: "general-3d-v1", publishedAt: PUBLISHED_AT,

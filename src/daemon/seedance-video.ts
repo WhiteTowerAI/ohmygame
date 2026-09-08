@@ -1,8 +1,15 @@
-import type { PromptImage, VideoAspectRatio, VideoResolution } from "../shared/contracts.js";
+import { VIDEO_MODEL, type PromptImage, type VideoAspectRatio, type VideoResolution } from "../shared/contracts.js";
 
-const MODEL = "MiniMax-H3";
 const POLL_INTERVAL_MS = 5_000;
 const MAX_WAIT_MS = 10 * 60_000;
+
+interface VideoGenerationInput {
+  prompt: string;
+  images?: PromptImage[];
+  duration: number;
+  resolution: VideoResolution;
+  aspectRatio: VideoAspectRatio;
+}
 
 export interface GeneratedVideo {
   bytes: Buffer;
@@ -11,7 +18,7 @@ export interface GeneratedVideo {
 }
 
 export interface VideoGenerator {
-  generate(input: { prompt: string; image?: PromptImage; duration: number; resolution: VideoResolution; aspectRatio: VideoAspectRatio }, signal?: AbortSignal): Promise<GeneratedVideo>;
+  generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo>;
 }
 
 export interface VideoSource {
@@ -26,31 +33,27 @@ export class VideoGenerationError extends Error {
   }
 }
 
-/** Uses the OpenAI-compatible video API exposed by Portal/New API. */
+/** Uses New API's unified video endpoint, which adapts the request to Seedance. */
 export class PortalVideoGenerator implements VideoGenerator {
   constructor(
     private readonly source: () => VideoSource | undefined,
     private readonly request: typeof fetch = fetch,
   ) {}
 
-  async generate(input: { prompt: string; image?: PromptImage; duration: number; resolution: VideoResolution; aspectRatio: VideoAspectRatio }, signal?: AbortSignal): Promise<GeneratedVideo> {
+  async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
     const source = this.source();
-    if (!source || !source.modelIds.includes(MODEL)) throw new VideoGenerationError("The selected video model is not available", 503);
+    if (!source || !source.modelIds.includes(VIDEO_MODEL)) throw new VideoGenerationError("Seedance 2.0 is not available", 503);
 
-    const body = new FormData();
-    body.set("model", MODEL);
-    body.set("prompt", input.prompt);
-    body.set("seconds", String(input.duration));
-    body.set("resolution", input.resolution);
-    body.set("aspect_ratio", input.image ? "adaptive" : input.aspectRatio);
-    if (input.image) {
-      body.set("input_reference", new Blob([Buffer.from(input.image.data, "base64")], { type: input.image.mediaType }), `reference.${input.image.mediaType === "image/png" ? "png" : "jpg"}`);
-    }
-
-    const response = await this.request(endpoint(source.baseUrl, "/videos"), {
+    const response = await this.request(endpoint(source.baseUrl, "/video/generations"), {
       method: "POST",
-      headers: { authorization: `Bearer ${source.apiKey}` },
-      body,
+      headers: { authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: VIDEO_MODEL,
+        prompt: input.prompt,
+        seconds: String(input.duration),
+        ...(input.images?.length ? { images: input.images.map(dataUrl) } : {}),
+        metadata: { resolution: input.resolution, ratio: input.aspectRatio },
+      }),
       signal,
     });
     const created = await json(response, "Video generation request failed");
@@ -60,14 +63,18 @@ export class PortalVideoGenerator implements VideoGenerator {
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      const resultResponse = await this.request(endpoint(source.baseUrl, `/videos/${encodeURIComponent(requestId)}`), {
+      const resultResponse = await this.request(endpoint(source.baseUrl, `/video/generations/${encodeURIComponent(requestId)}`), {
         headers: { authorization: `Bearer ${source.apiKey}` },
         signal,
       });
-      const result = await json(resultResponse, "Video status request failed");
+      const envelope = await json(resultResponse, "Video status request failed");
+      if (string(envelope.code) && string(envelope.code) !== "success") {
+        throw new VideoGenerationError(string(envelope.message) ?? "Video status request failed");
+      }
+      const result = record(envelope.data);
       const status = string(result.status)?.toLowerCase();
       if (status === "completed" || status === "succeeded" || status === "success") {
-        const videoUrl = httpUrl(result.video_url);
+        const videoUrl = httpUrl(result.result_url);
         const content = videoUrl
           ? await this.request(videoUrl, { signal })
           : await this.request(endpoint(source.baseUrl, `/videos/${encodeURIComponent(requestId)}/content`), {
@@ -77,14 +84,17 @@ export class PortalVideoGenerator implements VideoGenerator {
         if (!content.ok) throw new VideoGenerationError(`Video download failed (${content.status})`, content.status);
         return { bytes: Buffer.from(await content.arrayBuffer()), mediaType: "video/mp4", requestId };
       }
-      if (status === "failed" || status === "error" || status === "expired") {
-        const error = record(result.error);
-        throw new VideoGenerationError(string(error.message) ?? `Video generation ${status}`);
+      if (status === "failed" || status === "failure" || status === "error" || status === "expired") {
+        throw new VideoGenerationError(string(result.fail_reason) ?? `Video generation ${status}`);
       }
       await delay(POLL_INTERVAL_MS, signal);
     }
     throw new VideoGenerationError("Video generation timed out", 504);
   }
+}
+
+function dataUrl(image: PromptImage): string {
+  return `data:${image.mediaType};base64,${image.data}`;
 }
 
 function endpoint(baseUrl: string, path: string): string {

@@ -30,7 +30,7 @@ import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { PortalVideoGenerator, type VideoGenerator } from "./minimax-video.js";
+import { PortalVideoGenerator, type VideoGenerator } from "./seedance-video.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, RemotePluginAdapter } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore, type InstalledPluginBundle } from "./local-plugins.js";

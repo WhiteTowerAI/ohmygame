@@ -1,7 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
 import { PortalClient } from "./portal-client.js";
-import type { VideoSource } from "./minimax-video.js";
+import type { VideoSource } from "./seedance-video.js";
 
 const PROVIDER_ID = "opengame";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };

@@ -509,7 +509,8 @@ export interface VideoToolDefinition extends BaseToolDefinition {
 
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
+export const VIDEO_MODEL = "doubao-seedance-2.0" as const;
+export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
@@ -560,7 +561,7 @@ export type Run3DToolRequest = Run3DToolOptions & (
 
 export interface RunVideoToolRequest {
   prompt: string;
-  image?: PromptImage;
+  images?: PromptImage[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;
   resolution?: VideoResolution;

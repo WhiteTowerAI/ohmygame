@@ -201,24 +201,26 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-video"],
     label: "Generate Video",
-    description: "Generate a video from a text prompt, optionally animating a PNG or JPEG from the current project.",
+    description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
-      imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG or JPEG image in the current project workspace" })),
+      imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG, JPEG, or WebP image in the current project workspace" })),
       duration: Type.Optional(Type.Integer({ minimum: 4, maximum: 15, description: "Video duration in seconds" })),
-      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("1:1"), Type.Literal("3:4"), Type.Literal("9:16")], { description: "Video aspect ratio; reference images always use adaptive" })),
-      resolution: Type.Optional(Type.Union([Type.Literal("768P"), Type.Literal("2K")], { description: "Video resolution" })),
+      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("1:1"), Type.Literal("3:4"), Type.Literal("9:16")], { description: "Video aspect ratio" })),
+      resolution: Type.Optional(Type.Union([Type.Literal("480p"), Type.Literal("720p"), Type.Literal("1080p"), Type.Literal("4k")], { description: "Video resolution" })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
       const source = input.imagePath ? await getWorkspaceMedia(project.workspacePath, input.imagePath) : undefined;
-      if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg") throw new Error("Video generation requires a PNG or JPEG image");
+      if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg" && source.contentType !== "image/webp") {
+        throw new Error("Video generation requires a PNG, JPEG, or WebP image");
+      }
       const request: RunVideoToolRequest = {
         prompt: input.prompt,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
         resolution: input.resolution,
-        ...(source ? { image: { mediaType: source.contentType as "image/png" | "image/jpeg", data: (await readFile(source.absolutePath)).toString("base64") } } : {}),
+        ...(source ? { images: [{ mediaType: source.contentType as "image/png" | "image/jpeg" | "image/webp", data: (await readFile(source.absolutePath)).toString("base64") }] } : {}),
       };
       const run = await tools.run("generate-video", request, signal);
       const output = run.files[0];

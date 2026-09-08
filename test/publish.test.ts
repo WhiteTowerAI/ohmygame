@@ -22,7 +22,7 @@ describe("remote publish", () => {
         description: "One deliberate shot",
         promptPlaceholder: "Describe the shot",
         defaultPrompt: "Use continuous camera motion",
-        defaults: { videoResolution: "768P", videoAspectRatio: "16:9", videoDuration: 8 },
+        defaults: { videoResolution: "1080p", videoAspectRatio: "16:9", videoDuration: 8 },
       },
     });
     expect(saved.statusCode).toBe(201);

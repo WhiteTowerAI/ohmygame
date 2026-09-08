@@ -7,7 +7,7 @@ import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
-import type { VideoGenerator } from "../src/daemon/minimax-video.js";
+import type { VideoGenerator } from "../src/daemon/seedance-video.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
@@ -158,13 +158,13 @@ describe("agent tools", () => {
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Game");
-    await projects.addGeneratedAsset(project.id, "source.png", Buffer.from("source image"));
+    await projects.addGeneratedAsset(project.id, "source.webp", Buffer.from("source image"));
     const videoGenerator: VideoGenerator = {
       generate: async (input) => {
         expect(input.prompt).toBe("Slow camera move");
         expect(input.duration).toBe(8);
-        expect(input.image).toBeDefined();
-        expect(input.image?.mediaType).toBe("image/png");
+        expect(input.images).toHaveLength(1);
+        expect(input.images?.[0]?.mediaType).toBe("image/webp");
         return { bytes: Buffer.from("generated mp4"), mediaType: "video/mp4" };
       },
     };
@@ -173,7 +173,7 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
 
-    const result = await tool.execute("call-1", { prompt: "Slow camera move", imagePath: "assets/generated/source.png", duration: 8 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-1", { prompt: "Slow camera move", imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.replace("Generated video saved to ", "");
 

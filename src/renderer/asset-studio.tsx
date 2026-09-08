@@ -7,6 +7,7 @@ import {
   MODEL_3D_POSES,
   MODEL_3D_QUALITIES,
   VIDEO_ASPECT_RATIOS,
+  VIDEO_MODEL,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageModel,
@@ -37,7 +38,8 @@ interface AssetStudioPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
 }
 
-const VIDEO_MODEL_OPTIONS = [{ value: "MiniMax-H3", label: "MiniMax H3" }] as const;
+const VIDEO_MODEL_OPTIONS = [{ value: VIDEO_MODEL, label: "Seedance 2.0" }] as const;
+const VIDEO_REFERENCE_LIMIT = 9;
 const MODEL_3D_OPTIONS = [
   { value: "meshy-t2", label: "Meshy T2 - Game-ready" },
   { value: "meshy-7", label: "Meshy 7 - High detail" },
@@ -70,12 +72,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [resolution, setResolution] = useState<ImageResolution>("1K");
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("1:1");
   const [outputs, setOutputs] = useState<ImageOutputCount>(1);
-  const [videoModel, setVideoModel] = useState<string>(VIDEO_MODEL_OPTIONS[0].value);
   const [videoPrompt, setVideoPrompt] = useState("");
-  const [videoReference, setVideoReference] = useState<PromptImage>();
-  const [videoReferenceName, setVideoReferenceName] = useState<string>();
+  const [videoReferences, setVideoReferences] = useState<PromptImage[]>([]);
+  const [videoReferenceNames, setVideoReferenceNames] = useState<string[]>([]);
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("adaptive");
-  const [videoResolution, setVideoResolution] = useState<VideoResolution>("768P");
+  const [videoResolution, setVideoResolution] = useState<VideoResolution>("720p");
   const [videoDuration, setVideoDuration] = useState(6);
   const [model3D, setModel3D] = useState<Model3DModel>(MODEL_3D_OPTIONS[0].value);
   const [model3DSource, setModel3DSource] = useState<Model3DSource>("image");
@@ -273,7 +274,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       } else if (mode === "video") {
         nextRun = await runTool("generate-video", {
           prompt: videoPrompt.trim(), duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution,
-          ...(videoReference ? { image: videoReference } : {}),
+          ...(videoReferences.length ? { images: videoReferences } : {}),
         });
       } else {
         const images = modelReferences
@@ -529,14 +530,18 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     if (!files.length) return;
     try {
       if (mode === "image" && imageReferences.length + files.length > 14) throw new Error("Select up to 14 reference images");
-      const selectedFiles = mode === "video" ? [files[0]!] : files;
-      const nextImages = await Promise.all(selectedFiles.map((file) => readImage(file, mode === "image")));
+      if (mode === "video" && videoReferences.length + files.length > VIDEO_REFERENCE_LIMIT) throw new Error(`Select up to ${VIDEO_REFERENCE_LIMIT} reference images`);
+      const selectedFiles = files;
+      const nextImages = await Promise.all(selectedFiles.map((file) => readImage(file, mode !== "3d")));
       if (!mounted.current) return;
       if (mode === "image") {
         setImageReferences((current) => [...current, ...nextImages]);
         setImageReferenceNames((current) => [...current, ...selectedFiles.map((file) => file.name)]);
       }
-      else if (mode === "video") { setVideoReference(nextImages[0]); setVideoReferenceName(selectedFiles[0]!.name); }
+      else if (mode === "video") {
+        setVideoReferences((current) => [...current, ...nextImages]);
+        setVideoReferenceNames((current) => [...current, ...selectedFiles.map((file) => file.name)]);
+      }
       setReferenceError(undefined);
     } catch (cause) {
       if (mounted.current) setReferenceError(errorMessage(cause));
@@ -585,7 +590,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 ) : mode === "video" ? (
                   <>
-                    <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={videoModel} options={VIDEO_MODEL_OPTIONS} disabled={generating} onChange={setVideoModel} /></Field>
+                    <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={VIDEO_MODEL} options={VIDEO_MODEL_OPTIONS} disabled={generating} onChange={() => undefined} /></Field>
                     <PromptField id="asset-video-prompt" value={videoPrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
@@ -618,13 +623,13 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   setImageReferences((current) => current.filter((_, candidate) => candidate !== index));
                   setImageReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
-                }} /> : mode === "video" ? <ReferenceField label="First frame" image={videoReference} name={videoReferenceName} optional allowWebP={false} disabled={generating} onChoose={() => uploadInput.current?.click()} onClear={() => {
-                  setVideoReference(undefined);
-                  setVideoReferenceName(undefined);
+                }} /> : mode === "video" ? <ImageReferenceField images={videoReferences} names={videoReferenceNames} max={VIDEO_REFERENCE_LIMIT} disabled={generating} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                  setVideoReferences((current) => current.filter((_, candidate) => candidate !== index));
+                  setVideoReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
                 }} /> : null}
                 {referenceError && (mode !== "3d" || model3DSource === "image") ? <p className="asset-field-error" role="alert">{referenceError}</p> : null}
-                <input ref={uploadInput} hidden multiple={mode === "image"} type="file" accept={mode === "image" ? "image/png,image/jpeg,image/webp" : "image/png,image/jpeg"} onChange={(event) => {
+                <input ref={uploadInput} hidden multiple={mode !== "3d"} type="file" accept={mode === "3d" ? "image/png,image/jpeg" : "image/png,image/jpeg,image/webp"} onChange={(event) => {
                   const files = [...(event.target.files ?? [])];
                   event.target.value = "";
                   if (mode === "3d") void selectModelReference(modelReferenceTarget.current, files);
@@ -639,8 +644,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 ) : mode === "video" ? (
                   <>
-                    <OptionGroup label="Resolution" values={VIDEO_RESOLUTIONS} value={videoResolution} disabled={generating} onChange={setVideoResolution} />
-                    <OptionGroup label="Aspect ratio" values={videoReference ? (["adaptive"] as const) : VIDEO_ASPECT_RATIOS} value={videoReference ? "adaptive" : videoAspectRatio} disabled={generating} format={(value) => value === "adaptive" ? "Auto" : value} onChange={setVideoAspectRatio} />
+                    <OptionGroup label="Resolution" values={VIDEO_RESOLUTIONS} value={videoResolution} disabled={generating} format={(value) => value.toUpperCase()} onChange={setVideoResolution} />
+                    <OptionGroup label="Aspect ratio" values={VIDEO_ASPECT_RATIOS} value={videoAspectRatio} disabled={generating} format={(value) => value === "adaptive" ? "Auto" : value} onChange={setVideoAspectRatio} />
                     <RangeField label="Duration" value={videoDuration} min={4} max={15} disabled={generating} onChange={setVideoDuration} />
                   </>
                 ) : mode === "3d" ? (
@@ -906,14 +911,6 @@ function Model3DReferenceSlot({ index, label, image, name, primary = false, disa
     </button>
     {image ? <button className="asset-3d-reference-remove" type="button" aria-label={`Remove ${label.toLowerCase()}`} disabled={disabled} onClick={() => onRemove(index)}><X size={12} /></button> : null}
   </div>;
-}
-
-function ReferenceField({ label, image, name, optional, allowWebP, disabled, onChoose, onClear }: { label: string; image?: PromptImage; name?: string; optional: boolean; allowWebP: boolean; disabled: boolean; onChoose: () => void; onClear: () => void }) {
-  return <Field label={label}><ReferenceControl label={label} image={image} name={name} optional={optional} allowWebP={allowWebP} disabled={disabled} onChoose={onChoose} onClear={onClear} /></Field>;
-}
-
-function ReferenceControl({ label, image, name, optional, allowWebP, disabled, onChoose, onClear }: { label: string; image?: PromptImage; name?: string; optional: boolean; allowWebP: boolean; disabled: boolean; onChoose: () => void; onClear: () => void }) {
-  return <div className={`asset-reference${image ? " has-image" : ""}`}><button type="button" disabled={disabled} onClick={onChoose}>{image ? <img src={`data:${image.mediaType};base64,${image.data}`} alt="Reference" /> : <span className="asset-reference-icon"><Plus size={16} /></span>}<span className="asset-reference-copy"><strong>{name ?? `Add ${label.toLowerCase()}`}</strong><small>{name ?? `PNG, JPG${allowWebP ? " or WebP" : ""}${optional ? " · optional" : ""}`}</small></span></button>{image ? <button className="asset-reference-clear" type="button" aria-label={`Remove ${label.toLowerCase()}`} disabled={disabled} onClick={onClear}><X size={13} /></button> : null}</div>;
 }
 
 function ResultMedia({ mode, url, label }: { mode: StudioMode; url: string; label: string }) {

@@ -28,7 +28,7 @@ import {
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { Meshy3DGenerator, Model3DGenerationError, type Model3DGenerator } from "./meshy-3d.js";
-import { VideoGenerationError, type VideoGenerator } from "./minimax-video.js";
+import { VideoGenerationError, type VideoGenerator } from "./seedance-video.js";
 
 const generateImage: ToolDefinition = {
   id: "generate-image",
@@ -104,7 +104,7 @@ export class ToolRunner {
       return this.#run3D(input as Run3DToolRequest, signal);
     }
     if (toolId === generateVideo.id) {
-      assertOnlyKeys(input, ["prompt", "image", "duration", "aspectRatio", "resolution"]);
+      assertOnlyKeys(input, ["prompt", "images", "duration", "aspectRatio", "resolution"]);
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
@@ -244,7 +244,8 @@ export class ToolRunner {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
-    if (input.image && !isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
+    const images = input.images;
+    if (images && (images.length > 9 || images.some((image) => !isPromptImage(image, true)))) throw new ToolRunError("Up to 9 PNG, JPEG, or WebP reference images are supported", 400);
     const duration = input.duration ?? VIDEO_DEFAULT_DURATION;
     if (!Number.isInteger(duration) || duration < 4 || duration > 15) throw new ToolRunError("Unsupported video duration", 400);
     const id = randomUUID();
@@ -252,11 +253,11 @@ export class ToolRunner {
     const destination = path.join(this.#runsDirectory, id);
     try {
       signal?.throwIfAborted();
-      const aspectRatio = input.image ? "adaptive" : input.aspectRatio ?? "adaptive";
-      const resolution = input.resolution ?? "768P";
+      const aspectRatio = input.aspectRatio ?? "adaptive";
+      const resolution = input.resolution ?? "720p";
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
-      const generated = await this.videoGenerator.generate({ prompt, image: input.image, duration, aspectRatio, resolution }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, images, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       const run: StoredToolRun = {
         version: 1,
