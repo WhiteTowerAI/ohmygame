@@ -151,11 +151,11 @@ function validPublication(value: unknown): value is NonNullable<LocalAssetTempla
 }
 
 function normalized(input: CreateAssetTemplateRequest): CreateAssetTemplateRequest {
+  const { promptLabel: _, ...definition } = input;
   return {
-    ...input,
+    ...definition,
     name: input.name.trim(),
     description: input.description.trim(),
-    promptLabel: input.promptLabel.trim(),
     promptPlaceholder: input.promptPlaceholder.trim(),
     ...(input.previewTemplateId?.trim() ? { previewTemplateId: input.previewTemplateId.trim() } : { previewTemplateId: undefined }),
     ...(input.defaultPrompt?.trim() ? { defaultPrompt: input.defaultPrompt.trim() } : { defaultPrompt: undefined }),

@@ -38,7 +38,7 @@ export interface AssetTemplateDefinition {
   mode: StudioMode;
   name: string;
   description: string;
-  promptLabel: string;
+  promptLabel?: string;
   promptPlaceholder: string;
   previewTemplateId?: string;
   defaultPrompt?: string;
@@ -75,7 +75,8 @@ export function isAssetTemplateDefinition(value: unknown): value is AssetTemplat
   const template = value as Partial<AssetTemplateDefinition>;
   if (template.mode !== "image" && template.mode !== "video" && template.mode !== "3d") return false;
   if (!text(template.name, 1, 80) || !text(template.description, 0, 240)) return false;
-  if (!text(template.promptLabel, 1, 80) || !text(template.promptPlaceholder, 0, 500)) return false;
+  if (template.promptLabel !== undefined && !text(template.promptLabel, 1, 80)) return false;
+  if (!text(template.promptPlaceholder, 0, 500)) return false;
   if (template.previewTemplateId !== undefined && !text(template.previewTemplateId, 1, 80)) return false;
   if (template.defaultPrompt !== undefined && !text(template.defaultPrompt, 0, 4_000)) return false;
   if (template.defaults !== undefined && !validDefaults(template.defaults)) return false;

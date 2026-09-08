@@ -12,7 +12,7 @@ describe("AssetTemplateStore", () => {
       mode: "image",
       name: " Character Sheet ",
       description: "Consistent character views",
-      promptLabel: "Prompt",
+      promptLabel: "Legacy prompt",
       promptPlaceholder: "Describe a character",
       previewTemplateId: " character-sheet ",
       defaultPrompt: "Create three views",
@@ -28,7 +28,8 @@ describe("AssetTemplateStore", () => {
     await store.setCover(saved.id, cover);
 
     const restarted = new AssetTemplateStore(directory);
-    expect(await restarted.list()).toEqual([expect.objectContaining({
+    const templates = await restarted.list();
+    expect(templates).toEqual([expect.objectContaining({
       id: saved.id,
       name: "Character Sheet",
       previewTemplateId: "character-sheet",
@@ -36,6 +37,7 @@ describe("AssetTemplateStore", () => {
       hasCover: true,
       publication: { templateId: "remote-template", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "listed" },
     })]);
+    expect(templates[0]).not.toHaveProperty("promptLabel");
     expect(await restarted.cover(saved.id)).toEqual(cover);
 
     await restarted.delete(saved.id);

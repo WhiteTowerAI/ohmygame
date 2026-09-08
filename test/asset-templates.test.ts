@@ -40,12 +40,12 @@ describe("asset templates", () => {
       mode: "3d",
       name: "Game-ready prop",
       description: "",
-      promptLabel: "Prompt",
       promptPlaceholder: "Describe a prop",
       defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000 },
     };
 
     expect(isAssetTemplateDefinition(template)).toBe(true);
+    expect(isAssetTemplateDefinition({ ...template, promptLabel: "Legacy prompt" })).toBe(true);
     expect(isAssetTemplateDefinition({ ...template, defaults: { ...template.defaults, model3DQuality: "ultra" } })).toBe(false);
     expect(isAssetTemplateDefinition({ ...template, defaults: { model3DQuality: "ultra" } })).toBe(true);
   });

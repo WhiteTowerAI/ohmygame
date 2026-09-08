@@ -29,7 +29,7 @@ describe("renderer event stream", () => {
   it("uses the Asset Template save, Explore, and publish endpoints", async () => {
     installWindow();
     const definition = {
-      mode: "image" as const, name: "Character", description: "", promptLabel: "Prompt",
+      mode: "image" as const, name: "Character", description: "",
       promptPlaceholder: "Describe a character", defaults: { imageResolution: "1K" as const },
     };
     const local = { ...definition, id: "local-1", source: "local" as const, createdAt: new Date(0).toISOString() };

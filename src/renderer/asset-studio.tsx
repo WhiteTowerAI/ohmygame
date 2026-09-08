@@ -507,7 +507,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       mode,
       name,
       description: description.trim(),
-      promptLabel: selectedTemplate.promptLabel,
       promptPlaceholder: selectedTemplate.promptPlaceholder,
       ...(prompt.trim() ? { defaultPrompt: prompt.trim() } : {}),
       defaults,
@@ -595,12 +594,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} disabled={generating} onChange={setImageModelKey} /> : null}
                       {imagePhase === "ready" && !imageModels.length ? <p className="asset-inline-state">No image model is connected</p> : null}
                     </Field>
-                    <PromptField id="asset-image-prompt" label={selectedTemplate.promptLabel} value={imagePrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setImagePrompt} />
+                    <PromptField id="asset-image-prompt" value={imagePrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setImagePrompt} />
                   </>
                 ) : mode === "video" ? (
                   <>
                     <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={videoModel} options={VIDEO_MODEL_OPTIONS} disabled={generating} onChange={setVideoModel} /></Field>
-                    <PromptField id="asset-video-prompt" label={selectedTemplate.promptLabel} value={videoPrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setVideoPrompt} />
+                    <PromptField id="asset-video-prompt" value={videoPrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
                   <>
@@ -612,7 +611,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       imageNames={modelReferenceNames}
                       multiView={model3DMultiView}
                       allowMultiView={!isMeshyT2}
-                      promptLabel={selectedTemplate.promptLabel}
                       promptPlaceholder={selectedTemplate.promptPlaceholder}
                       disabled={generating}
                       onSourceChange={setModel3DSource}
@@ -860,17 +858,17 @@ function ModelSelect<T extends string>({ id, value, options, disabled, onChange 
   return <div className="asset-select-wrap"><select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} /></div>;
 }
 
-function PromptField({ id, label, value, placeholder, maxLength = 2000, disabled, onChange }: { id: string; label: string; value: string; placeholder: string; maxLength?: number; disabled: boolean; onChange: (value: string) => void }) {
-  return <Field label={label} htmlFor={id}><PromptControl id={id} value={value} placeholder={placeholder} maxLength={maxLength} disabled={disabled} onChange={onChange} /></Field>;
+function PromptField({ id, value, placeholder, maxLength = 2000, disabled, onChange }: { id: string; value: string; placeholder: string; maxLength?: number; disabled: boolean; onChange: (value: string) => void }) {
+  return <Field label="Prompt" htmlFor={id}><PromptControl id={id} value={value} placeholder={placeholder} maxLength={maxLength} disabled={disabled} onChange={onChange} /></Field>;
 }
 
 function PromptControl({ id, value, placeholder, maxLength, ariaLabel, disabled, onChange }: { id: string; value: string; placeholder: string; maxLength: number; ariaLabel?: string; disabled: boolean; onChange: (value: string) => void }) {
   return <div className="asset-prompt-wrap"><textarea id={id} aria-label={ariaLabel} maxLength={maxLength} value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /><span>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</span></div>;
 }
 
-function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptLabel, promptPlaceholder, disabled, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptLabel: string; promptPlaceholder: string; disabled: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
+function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptPlaceholder, disabled, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptPlaceholder: string; disabled: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
   return <div className={`asset-3d-input is-${source}`}><div className="asset-3d-input-header"><span>Input</span><SourceSwitch value={source} disabled={disabled} onChange={onSourceChange} /></div><div className="asset-3d-input-body">{source === "text"
-    ? <PromptControl id="asset-3d-prompt" ariaLabel={promptLabel} value={prompt} maxLength={800} disabled={disabled} placeholder={promptPlaceholder} onChange={onPromptChange} />
+    ? <PromptControl id="asset-3d-prompt" ariaLabel="Prompt" value={prompt} maxLength={800} disabled={disabled} placeholder={promptPlaceholder} onChange={onPromptChange} />
     : <Model3DReferenceField images={images} names={imageNames} multiView={multiView} allowMultiView={allowMultiView} disabled={disabled} onMultiViewChange={onMultiViewChange} onChoose={onChooseImage} onFiles={onSelectFiles} onRemove={onRemoveImage} />}</div></div>;
 }
 

@@ -20,7 +20,6 @@ describe("remote publish", () => {
         mode: "video",
         name: "Cinematic Shot",
         description: "One deliberate shot",
-        promptLabel: "Prompt",
         promptPlaceholder: "Describe the shot",
         defaultPrompt: "Use continuous camera motion",
         defaults: { videoResolution: "768P", videoAspectRatio: "16:9", videoDuration: 8 },

@@ -554,7 +554,6 @@ function assetTemplateDefinition(name: string) {
     mode: "image" as const,
     name,
     description: "Consistent character views",
-    promptLabel: "Prompt",
     promptPlaceholder: "Describe a character",
     defaultPrompt: "Create three views",
     defaults: { imageResolution: "2K", imageAspectRatio: "16:9", imageOutputs: 1 },
