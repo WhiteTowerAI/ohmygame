@@ -437,8 +437,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   function openTemplateDialog(): void {
-    setTemplateName(selectedTemplate.source === "builtIn" ? `${selectedTemplate.name} Copy` : selectedTemplate.name);
-    setTemplateDescription(selectedTemplate.description);
+    setTemplateName("");
+    setTemplateDescription("");
     setTemplateCover(undefined);
     replaceTemplateCoverUrl();
     setTemplateCoverBusy(false);
