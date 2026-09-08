@@ -1,11 +1,20 @@
 import { IMAGE_ASPECT_RATIOS, type ImageModel, type ImageResolution } from "../shared/contracts.js";
 
 const DEFINITIONS: Record<string, Omit<ImageModel, "provider" | "providerName">> = {
-  "gemini-2.5-flash-image": {
-    id: "gemini-2.5-flash-image",
-    name: "Nano Banana",
+  "gemini-3.1-flash-lite-image": {
+    id: "gemini-3.1-flash-lite-image",
+    name: "Nano Banana 2 Lite",
     sizes: ["1024x1024", "1536x1024", "1024x1536"],
     generationOptions: generationOptions(["1K"]),
+    supportsReferenceImage: true,
+    maxOutputs: 4,
+    protocol: "gemini-generate-content",
+  },
+  "gemini-3.1-flash-image": {
+    id: "gemini-3.1-flash-image",
+    name: "Nano Banana 2",
+    sizes: ["1024x1024", "1536x1024", "1024x1536"],
+    generationOptions: generationOptions(["1K", "2K", "4K"]),
     supportsReferenceImage: true,
     maxOutputs: 4,
     protocol: "gemini-generate-content",

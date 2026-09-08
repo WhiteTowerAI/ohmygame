@@ -64,7 +64,7 @@ describe("OpenAI image generator", () => {
       prompt: "Turn this into concept art",
       resolution: "1K",
       aspectRatio: "3:2",
-      image: { mediaType: "image/png", data: Buffer.from("reference").toString("base64") },
+      images: [{ mediaType: "image/png", data: Buffer.from("reference").toString("base64") }],
     });
 
     const [url, init] = request.mock.calls[0];
@@ -74,7 +74,20 @@ describe("OpenAI image generator", () => {
     const form = init?.body as FormData;
     expect(form.get("prompt")).toBe("Turn this into concept art");
     expect(form.get("size")).toBe("1536x1024");
-    expect(form.get("image")).toBeInstanceOf(Blob);
+    expect(form.get("image[]")).toBeInstanceOf(Blob);
+  });
+
+  it("uploads multiple reference images as image[]", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    const generator = new OpenAIImageGenerator("sk-test", "https://api.openai.com/v1", request);
+
+    await generator.generate({ prompt: "Compose references", size: "1536x1024", images: [
+      { mediaType: "image/png", data: "b25l" },
+      { mediaType: "image/jpeg", data: "dHdv" },
+    ] });
+
+    const form = request.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.getAll("image[]")).toHaveLength(2);
   });
 
   it.each([

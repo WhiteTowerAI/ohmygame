@@ -8,6 +8,7 @@ import {
   IMAGE_SIZES,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
+  MODEL_3D_MODELS,
   MODEL_3D_POSES,
   MODEL_3D_QUALITIES,
   MODEL_3D_TEXTURE_RESOLUTIONS,
@@ -99,7 +100,7 @@ export class ToolRunner {
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === imageTo3D.id) {
-      assertOnlyKeys(input, ["prompt", "image", "model", "quality", "texture", "textureResolution", "pbr", "pose"]);
+      assertOnlyKeys(input, ["prompt", "images", "model", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement"]);
       return this.#run3D(input as Run3DToolRequest, signal);
     }
     if (toolId === generateVideo.id) {
@@ -107,14 +108,15 @@ export class ToolRunner {
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "size", "resolution", "aspectRatio", "outputs", "image"]);
+    assertOnlyKeys(input, ["prompt", "size", "resolution", "aspectRatio", "outputs", "images"]);
     return this.#runImage(input as RunImageToolRequest, signal);
   }
 
   async #runImage(input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
-    const usesStudioOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || input.image !== undefined;
+    const imageInput = "images" in input ? input.images : undefined;
+    const usesStudioOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
     if (input.size !== undefined && usesStudioOptions) throw new ToolRunError("Image size cannot be combined with Asset Studio options", 400);
     if (usesStudioOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
       throw new ToolRunError("Resolution and aspect ratio are required for Asset Studio images", 400);
@@ -127,7 +129,7 @@ export class ToolRunner {
     if (resolution !== undefined && !isImageResolution(resolution)) throw new ToolRunError("Unsupported image resolution", 400);
     if (aspectRatio !== undefined && !isImageAspectRatio(aspectRatio)) throw new ToolRunError("Unsupported image aspect ratio", 400);
     if (!isImageOutputCount(outputs)) throw new ToolRunError("Unsupported image output count", 400);
-    if (input.image && !isPromptImage(input.image, true)) throw new ToolRunError("A PNG, JPEG, or WebP image is required", 400);
+    if (imageInput && (imageInput.length > 14 || imageInput.some((image) => !isPromptImage(image, true)))) throw new ToolRunError("Up to 14 PNG, JPEG, or WebP images are supported", 400);
 
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
@@ -136,7 +138,7 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
-        ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(input.image ? { image: input.image } : {}) } : { size }),
+        ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
       const files = generated.map((image, index) => ({
@@ -166,16 +168,28 @@ export class ToolRunner {
 
   async #run3D(input: Run3DToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
-    const hasImage = input.image !== undefined;
-    if (Boolean(prompt) === hasImage) throw new ToolRunError("Provide either a prompt or a reference image", 400);
+    const images = "images" in input ? input.images : undefined;
+    const hasImages = images !== undefined;
+    if (Boolean(prompt) === hasImages) throw new ToolRunError("Provide either a prompt or reference images", 400);
     if (prompt && prompt.length > 800) throw new ToolRunError("3D prompt must not exceed 800 characters", 400);
-    if (hasImage && !isPromptImage(input.image)) throw new ToolRunError("A PNG or JPEG image is required", 400);
-    if (input.model !== undefined && input.model !== "meshy-7") throw new ToolRunError("Unsupported 3D model", 400);
+    if (images && (images.length < 1 || images.length > 4)) throw new ToolRunError("Provide 1 to 4 reference images", 400);
+    if (images?.some((image) => !isPromptImage(image))) throw new ToolRunError("PNG or JPEG reference images are required", 400);
+    if (input.model !== undefined && !MODEL_3D_MODELS.includes(input.model)) throw new ToolRunError("Unsupported 3D model", 400);
     if (input.quality !== undefined && !MODEL_3D_QUALITIES.includes(input.quality)) throw new ToolRunError("Unsupported 3D quality", 400);
+    if (input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < 100 || input.targetPolycount > 15_000)) {
+      throw new ToolRunError("3D poly count must be between 100 and 15000", 400);
+    }
     if (input.textureResolution !== undefined && !MODEL_3D_TEXTURE_RESOLUTIONS.includes(input.textureResolution)) throw new ToolRunError("Unsupported texture resolution", 400);
     if (input.pose !== undefined && !MODEL_3D_POSES.includes(input.pose)) throw new ToolRunError("Unsupported 3D pose", 400);
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
+    if (input.imageEnhancement !== undefined && typeof input.imageEnhancement !== "boolean") throw new ToolRunError("Image enhancement must be a boolean", 400);
+    if (prompt && input.imageEnhancement !== undefined) throw new ToolRunError("Image enhancement requires reference images", 400);
+    const model = input.model ?? "meshy-7";
+    if (model === "meshy-t2" && images && images.length !== 1) throw new ToolRunError("Meshy T2 requires exactly one reference image", 400);
+    if (model === "meshy-t2" && input.quality !== undefined) throw new ToolRunError("Meshy T2 does not support quality modes", 400);
+    if (model === "meshy-t2" && input.imageEnhancement !== undefined) throw new ToolRunError("Meshy T2 does not support image enhancement", 400);
+    if (model !== "meshy-t2" && input.targetPolycount !== undefined) throw new ToolRunError("Poly count requires Meshy T2", 400);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
@@ -184,19 +198,23 @@ export class ToolRunner {
       const options = {
         model: input.model,
         quality: input.quality,
+        targetPolycount: input.targetPolycount,
         texture: input.texture,
         textureResolution: input.textureResolution,
         pbr: input.pbr,
         pose: input.pose,
       };
       const generated = await this.model3DGenerator.generate(
-        prompt ? { ...options, prompt } : { ...options, image: input.image! },
+        prompt
+          ? { ...options, prompt }
+          : { ...options, images: images!, ...(input.imageEnhancement !== undefined ? { imageEnhancement: input.imageEnhancement } : {}) },
         signal,
       );
       signal?.throwIfAborted();
-      const preview = input.image ? {
-        fileName: `preview.${input.image.mediaType === "image/png" ? "png" : "jpg"}`,
-        mediaType: input.image.mediaType as "image/png" | "image/jpeg",
+      const primaryImage = images?.[0];
+      const preview = primaryImage ? {
+        fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
+        mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
       } : undefined;
       const run: StoredToolRun = {
         version: 1,
@@ -210,7 +228,7 @@ export class ToolRunner {
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
-      if (preview && input.image) await writeFile(path.join(temporary, preview.fileName), Buffer.from(input.image.data, "base64"));
+      if (preview && primaryImage) await writeFile(path.join(temporary, preview.fileName), Buffer.from(primaryImage.data, "base64"));
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);

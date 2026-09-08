@@ -13,7 +13,7 @@ export interface ImageGenerationInput {
   size?: ImageSize;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
-  image?: PromptImage;
+  images?: PromptImage[];
 }
 
 export interface ImageGenerator {
@@ -37,14 +37,15 @@ export class OpenAIImageGenerator implements ImageGenerator {
 
   async generate(input: ImageGenerationInput & { model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
     if (!this.apiKey) throw new ImageGenerationError("Image generation is not configured", 503);
-    const endpoint = imageEndpoint(this.baseUrl, Boolean(input.image));
+    const images = input.images ?? [];
+    const endpoint = imageEndpoint(this.baseUrl, images.length > 0);
     const timeout = AbortSignal.timeout(130_000);
     const size = openAIImageSize(input);
 
     let response: Response;
     try {
-      const body = input.image
-        ? editForm(input, size)
+      const body = images.length
+        ? editForm({ ...input, images }, size)
         : JSON.stringify({
             model: input.model ?? "gpt-image-2",
             prompt: input.prompt,
@@ -57,7 +58,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
-          ...(!input.image ? { "content-type": "application/json" } : {}),
+          ...(!images.length ? { "content-type": "application/json" } : {}),
         },
         body,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
@@ -170,8 +171,8 @@ function openAIImageSize(input: ImageGenerationInput): string {
 }
 
 function editForm(input: ImageGenerationInput & { model?: string }, size: string): FormData {
-  const image = input.image;
-  if (!image) throw new ImageGenerationError("A reference image is required", 400);
+  const images = input.images;
+  if (!images?.length) throw new ImageGenerationError("A reference image is required", 400);
   const form = new FormData();
   form.set("model", input.model ?? "gpt-image-2");
   form.set("prompt", input.prompt);
@@ -179,8 +180,10 @@ function editForm(input: ImageGenerationInput & { model?: string }, size: string
   form.set("quality", "medium");
   form.set("output_format", "webp");
   form.set("n", "1");
-  const extension = image.mediaType === "image/png" ? "png" : image.mediaType === "image/jpeg" ? "jpg" : "webp";
-  form.set("image", new Blob([Buffer.from(image.data, "base64")], { type: image.mediaType }), `reference.${extension}`);
+  images.forEach((image, index) => {
+    const extension = image.mediaType === "image/png" ? "png" : image.mediaType === "image/jpeg" ? "jpg" : "webp";
+    form.append("image[]", new Blob([Buffer.from(image.data, "base64")], { type: image.mediaType }), `reference-${index + 1}.${extension}`);
+  });
   return form;
 }
 

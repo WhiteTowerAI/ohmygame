@@ -3631,7 +3631,27 @@ button {
 .asset-3d-input.is-text .asset-3d-input-body,
 .asset-3d-input.is-text .asset-prompt-wrap,
 .asset-3d-input.is-text textarea { height: 104px; }
-.asset-3d-input.is-image .asset-reference { height: 66px; }
+
+.asset-3d-references { display: grid; gap: 8px; padding: 8px; border-radius: 8px; background: #202627; }
+.asset-3d-reference-slot { position: relative; min-width: 0; height: 72px; overflow: hidden; border: 1px dashed #343c3e; border-radius: 7px; background: #181d1f; }
+.asset-3d-reference-slot.is-primary { height: 142px; }
+.asset-3d-reference-slot > button:first-child { position: relative; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 7px; padding: 8px; border: 0; background: transparent; color: #7f8a8c; cursor: pointer; font: inherit; }
+.asset-3d-reference-slot > button:first-child:hover:not(:disabled) { background: rgb(255 255 255 / 2.5%); color: #c8d0d1; }
+.asset-3d-reference-slot > button:first-child:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -2px; }
+.asset-3d-reference-slot > button:first-child:disabled { cursor: default; }
+.asset-3d-reference-slot strong { color: var(--asset-control-text); font-size: 10px; font-weight: 500; }
+.asset-3d-reference-slot.is-primary strong { font-size: 12px; }
+.asset-3d-reference-slot small { color: var(--asset-muted); font-size: 9px; font-weight: 400; }
+.asset-3d-reference-slot.has-image { border-style: solid; }
+.asset-3d-reference-slot.has-image img { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); border-radius: 5px; object-fit: contain; }
+.asset-3d-reference-slot.has-image strong { position: absolute; bottom: 7px; left: 7px; max-width: calc(100% - 14px); overflow: hidden; padding: 3px 6px; border-radius: 5px; background: rgb(14 18 19 / 82%); color: #ebf0eb; text-overflow: ellipsis; white-space: nowrap; }
+.asset-3d-reference-slot.has-image small { display: none; }
+.asset-3d-reference-remove { position: absolute; z-index: 1; top: 7px; right: 7px; display: grid; width: 23px; height: 23px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: rgb(28 34 36 / 88%); color: #8f9c9e; cursor: pointer; }
+.asset-3d-reference-remove:hover:not(:disabled) { color: #ebf0eb; }
+.asset-3d-reference-remove:disabled { cursor: default; opacity: 0.45; }
+.asset-3d-view-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; opacity: 0.36; transition: opacity 120ms ease; }
+.asset-3d-view-grid.is-enabled { opacity: 1; }
+.asset-3d-references > .asset-toggle-field { margin: 2px 4px 0; }
 
 .asset-source-switch { display: flex; height: 22px; align-items: stretch; gap: 14px; margin: 0; padding: 0; border: 0; }
 .asset-source-switch label { position: relative; display: flex; align-items: center; color: var(--asset-muted); cursor: pointer; font-size: 10px; font-weight: 500; }
@@ -3705,6 +3725,20 @@ button {
 .asset-reference-clear { position: absolute; top: 7px; right: 7px; display: grid; width: 24px; height: 24px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: #2a3133; color: #8f9c9e; cursor: pointer; }
 .asset-reference-clear:hover:not(:disabled) { color: #ebf0eb; }
 
+.asset-reference-list { display: grid; gap: 6px; }
+.asset-reference-item,
+.asset-reference-add { display: flex; min-width: 0; height: 52px; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid #293032; border-radius: 8px; background: #1c2224; color: #ebf0eb; }
+.asset-reference-item img { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 5px; object-fit: cover; }
+.asset-reference-item span { overflow: hidden; flex: 1; color: var(--asset-control-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-reference-item button { display: grid; width: 24px; height: 24px; flex: 0 0 auto; padding: 0; place-items: center; border: 0; border-radius: 50%; background: #2a3133; color: #8f9c9e; cursor: pointer; }
+.asset-reference-item button:hover:not(:disabled) { color: #ebf0eb; }
+.asset-reference-add { width: 100%; justify-content: flex-start; border-style: dashed; cursor: pointer; font: inherit; text-align: left; }
+.asset-reference-add:hover:not(:disabled) { border-color: #4b5456; background: rgb(255 255 255 / 2.5%); }
+.asset-reference-add > span { flex: 1; font-size: 11px; font-weight: 500; }
+.asset-reference-add > small { color: var(--asset-muted); font-size: 10px; }
+.asset-reference-add:disabled,
+.asset-reference-item button:disabled { cursor: default; opacity: 0.45; }
+
 .asset-option-group { min-width: 0; flex: 0 0 auto; margin: 0; padding: 0; border: 0; }
 .asset-option-group > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .asset-option-group button { min-width: 48px; height: 30px; padding: 0 13px; border: 1px solid #252c2e; border-radius: 7px; background: #1c2224; color: var(--asset-control-text); cursor: pointer; font-size: 11px; font-weight: 500; }
@@ -3737,10 +3771,17 @@ button {
 .asset-range-field input:disabled { cursor: default; opacity: 0.4; }
 .asset-range-bounds { margin-top: -4px; color: var(--asset-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
 
-.asset-3d-options { display: grid; gap: 20px; }
-.asset-settings-section { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid #252c2e; }
-.asset-settings-section h2 { margin: 0; color: #748083; font-size: 10px; font-weight: 600; }
-.asset-settings-section > div { display: grid; gap: 16px; }
+.asset-number-range-field { display: grid; flex: 0 0 auto; gap: 8px; }
+.asset-number-range-field > div:first-child { display: flex; align-items: center; justify-content: space-between; }
+.asset-number-range-field label { color: var(--asset-label); font-size: 11px; font-weight: 500; }
+.asset-number-range-field input[type="number"] { width: 88px; height: 30px; padding: 0 9px; border: 1px solid #303739; border-radius: 7px; outline: 0; background: #171c1e; color: #ebf0eb; font: inherit; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.asset-number-range-field input[type="number"]:focus-visible { border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring); }
+.asset-number-range-field > input[type="range"] { --asset-range-progress: 0%; width: 100%; height: 14px; margin: 0; appearance: none; cursor: pointer; background: linear-gradient(to right, var(--home-accent) 0 var(--asset-range-progress), #303739 var(--asset-range-progress) 100%) center / 100% 4px no-repeat; }
+.asset-number-range-field > input[type="range"]::-webkit-slider-thumb { width: 14px; height: 14px; appearance: none; border: 3px solid #182000; border-radius: 50%; background: var(--home-accent); box-shadow: 0 0 0 1px var(--home-accent); }
+.asset-number-range-field > input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1px var(--home-accent), 0 0 0 3px var(--focus-ring); }
+.asset-number-range-field input:disabled { cursor: default; opacity: 0.4; }
+
+.asset-3d-options { display: grid; gap: 16px; }
 
 .asset-toggle-field { display: flex; min-height: 30px; flex: 0 0 auto; align-items: center; justify-content: space-between; color: var(--asset-control-text); font-size: 11px; font-weight: 500; }
 .asset-toggle-field button { position: relative; width: 32px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: #303739; cursor: pointer; }

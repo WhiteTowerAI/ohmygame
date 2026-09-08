@@ -33,7 +33,7 @@ describe("image protocol adapters", () => {
     await adapter.generate(
       { baseUrl: "https://portal.open-game.ai/v1", apiKey: "key" },
       "gemini-2.5-flash-image",
-      { prompt: "A game icon", resolution: "1K", aspectRatio: "4:3", image: { mediaType: "image/webp", data: "cmVmZXJlbmNl" } },
+      { prompt: "A game icon", resolution: "1K", aspectRatio: "4:3", images: [{ mediaType: "image/webp", data: "cmVmZXJlbmNl" }] },
     );
 
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
@@ -41,8 +41,31 @@ describe("image protocol adapters", () => {
         { text: "A game icon" },
         { inlineData: { mimeType: "image/webp", data: "cmVmZXJlbmNl" } },
       ] }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "4:3" } },
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "4:3", imageSize: "1K" } },
     });
+  });
+
+  it("passes multiple Asset Studio reference images to Gemini", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "cG5n" } }] } }],
+    }));
+    const adapter = createImageProtocolAdapters(request)["gemini-generate-content"];
+
+    await adapter.generate(
+      { baseUrl: "https://portal.open-game.ai/v1", apiKey: "key" },
+      "gemini-3.1-flash-image",
+      { prompt: "Compose these references", resolution: "2K", aspectRatio: "16:9", images: [
+        { mediaType: "image/png", data: "b25l" },
+        { mediaType: "image/jpeg", data: "dHdv" },
+      ] },
+    );
+
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).contents[0].parts).toEqual([
+      { text: "Compose these references" },
+      { inlineData: { mimeType: "image/png", data: "b25l" } },
+      { inlineData: { mimeType: "image/jpeg", data: "dHdv" } },
+    ]);
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).generationConfig.imageConfig).toEqual({ aspectRatio: "16:9", imageSize: "2K" });
   });
 
   it("maps Gemini errors and empty image responses", async () => {

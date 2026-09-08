@@ -24,6 +24,7 @@ export function createImageProtocolAdapters(request: Fetch = fetch): Record<Imag
 }
 
 async function generateGemini(source: ImageSource, model: string, input: ImageGenerationInput, signal: AbortSignal | undefined, request: Fetch): Promise<GeneratedImage> {
+  const images = input.images ?? [];
   const endpoint = geminiEndpoint(source.baseUrl, model);
   const timeout = AbortSignal.timeout(130_000);
   let response: Response;
@@ -34,9 +35,15 @@ async function generateGemini(source: ImageSource, model: string, input: ImageGe
       body: JSON.stringify({
         contents: [{ role: "user", parts: [
           { text: input.prompt },
-          ...(input.image ? [{ inlineData: { mimeType: input.image.mediaType, data: input.image.data } }] : []),
+          ...images.map((image) => ({ inlineData: { mimeType: image.mediaType, data: image.data } })),
         ] }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: input.aspectRatio ?? aspectRatio(input.size) } },
+        generationConfig: {
+          responseModalities: ["TEXT", "IMAGE"],
+          imageConfig: {
+            aspectRatio: input.aspectRatio ?? aspectRatio(input.size),
+            ...(input.resolution ? { imageSize: input.resolution } : {}),
+          },
+        },
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });

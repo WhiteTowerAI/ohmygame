@@ -1,16 +1,17 @@
-import type { Model3DPose, Model3DQuality, Model3DTextureResolution, PromptImage } from "../shared/contracts.js";
+import type { Model3DModel, Model3DPose, Model3DQuality, Model3DTextureResolution, PromptImage } from "../shared/contracts.js";
 
 interface Model3DGenerationOptions {
-  model?: "meshy-7";
+  model?: Model3DModel;
   quality?: Model3DQuality;
+  targetPolycount?: number;
   texture?: boolean;
   textureResolution?: Model3DTextureResolution;
   pbr?: boolean;
   pose?: Model3DPose;
 }
 
-type Text3DGenerationInput = Model3DGenerationOptions & { prompt: string; image?: never };
-type Image3DGenerationInput = Model3DGenerationOptions & { prompt?: never; image: PromptImage };
+type Text3DGenerationInput = Model3DGenerationOptions & { prompt: string; images?: never; imageEnhancement?: never };
+type Image3DGenerationInput = Model3DGenerationOptions & { prompt?: never; images: PromptImage[]; imageEnhancement?: boolean };
 export type Model3DGenerationInput = Text3DGenerationInput | Image3DGenerationInput;
 
 export interface Generated3DModel {
@@ -49,9 +50,28 @@ export class Meshy3DGenerator implements Model3DGenerator {
     const timeout = AbortSignal.timeout(this.timeoutMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const isText = isTextInput(input);
-    const endpoint = isText ? textTo3DEndpoint(apiUrl) : imageTo3DEndpoint(apiUrl);
+    if (!isText && (input.images.length < 1 || input.images.length > 4)) {
+      throw new Model3DGenerationError("Meshy requires 1 to 4 reference images", 400);
+    }
+    const isSmartTopology = input.model === "meshy-t2";
+    if (!isText && isSmartTopology && input.images.length !== 1) {
+      throw new Model3DGenerationError("Meshy T2 requires exactly one reference image", 400);
+    }
+    if (isSmartTopology && input.quality !== undefined) throw new Model3DGenerationError("Meshy T2 does not support quality modes", 400);
+    if (isSmartTopology && !isText && input.imageEnhancement !== undefined) {
+      throw new Model3DGenerationError("Meshy T2 does not support image enhancement", 400);
+    }
+    if (!isSmartTopology && input.targetPolycount !== undefined) throw new Model3DGenerationError("Poly count requires Meshy T2", 400);
+    if (isSmartTopology && input.targetPolycount !== undefined
+      && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < 100 || input.targetPolycount > 15_000)) {
+      throw new Model3DGenerationError("Meshy T2 poly count must be between 100 and 15000", 400);
+    }
+    const endpoint = isText
+      ? textTo3DEndpoint(apiUrl)
+      : isSmartTopology ? imageTo3DEndpoint(apiUrl) : multiImageTo3DEndpoint(apiUrl);
     try {
-      const created = await this.createTask(endpoint, apiKey, isText ? textPreviewRequest(input) : imageRequest(input), requestSignal);
+      const requestBody = isText ? textPreviewRequest(input) : isSmartTopology ? imageRequest(input) : multiImageRequest(input);
+      const created = await this.createTask(endpoint, apiKey, requestBody, requestSignal);
       let task = await this.waitForTask(endpoint, apiKey, created, requestSignal);
       let requestId = created;
 
@@ -135,6 +155,10 @@ export class Meshy3DGenerator implements Model3DGenerator {
   }
 }
 
+function multiImageTo3DEndpoint(baseUrl: string): string {
+  return meshyEndpoint(baseUrl, "/openapi/v1/multi-image-to-3d");
+}
+
 function imageTo3DEndpoint(baseUrl: string): string {
   return meshyEndpoint(baseUrl, "/openapi/v1/image-to-3d");
 }
@@ -154,24 +178,49 @@ function meshyEndpoint(baseUrl: string, endpointPath: string): string {
   }
 }
 
-function imageRequest(input: Image3DGenerationInput): Record<string, unknown> {
+function multiImageRequest(input: Image3DGenerationInput): Record<string, unknown> {
   const texture = input.texture ?? true;
   return {
-    image_url: `data:${input.image.mediaType};base64,${input.image.data}`,
+    image_urls: input.images.map(promptImageDataUri),
     ai_model: input.model ?? "meshy-7",
-    model_type: "standard",
     ultra_mode: input.quality === "ultra",
     should_texture: texture,
     texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
-    enable_pbr: texture && (input.pbr ?? true),
+    enable_pbr: texture && (input.pbr ?? false),
     pose_mode: poseMode(input.pose),
-    image_enhancement: true,
+    image_enhancement: input.imageEnhancement ?? true,
     should_remesh: false,
     target_formats: ["glb"],
   };
 }
 
+function imageRequest(input: Image3DGenerationInput): Record<string, unknown> {
+  const texture = input.texture ?? true;
+  return {
+    image_url: promptImageDataUri(input.images[0]!),
+    model_type: "smart-topology",
+    ai_model: "meshy-t2",
+    target_polycount: input.targetPolycount ?? 4_000,
+    should_texture: texture,
+    texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
+    enable_pbr: texture && (input.pbr ?? false),
+    pose_mode: poseMode(input.pose),
+    target_formats: ["glb"],
+  };
+}
+
 function textPreviewRequest(input: Text3DGenerationInput): Record<string, unknown> {
+  if (input.model === "meshy-t2") {
+    return {
+      mode: "preview",
+      prompt: input.prompt,
+      model_type: "smart-topology",
+      ai_model: "meshy-t2",
+      target_polycount: input.targetPolycount ?? 4_000,
+      pose_mode: poseMode(input.pose),
+      target_formats: ["glb"],
+    };
+  }
   return {
     mode: "preview",
     prompt: input.prompt,
@@ -184,12 +233,16 @@ function textPreviewRequest(input: Text3DGenerationInput): Record<string, unknow
   };
 }
 
+function promptImageDataUri(image: PromptImage): string {
+  return `data:${image.mediaType};base64,${image.data}`;
+}
+
 function textRefineRequest(input: Text3DGenerationInput, previewTaskId: string): Record<string, unknown> {
   return {
     mode: "refine",
     preview_task_id: previewTaskId,
-    ai_model: input.model ?? "meshy-7",
-    enable_pbr: input.pbr ?? true,
+    ...(input.model === "meshy-t2" ? {} : { ai_model: input.model ?? "meshy-7" }),
+    enable_pbr: input.pbr ?? false,
     texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
     target_formats: ["glb"],
   };

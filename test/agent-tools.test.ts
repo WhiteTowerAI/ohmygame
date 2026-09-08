@@ -132,8 +132,8 @@ describe("agent tools", () => {
     const runner = new ToolRunner(dataDirectory, {
       generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }),
     }, {
-      generate: async ({ image }) => {
-        expect(image).toEqual({ mediaType: "image/png", data: Buffer.from("source image").toString("base64") });
+      generate: async ({ images }) => {
+        expect(images).toEqual([{ mediaType: "image/png", data: Buffer.from("source image").toString("base64") }]);
         return { bytes: Buffer.from("generated glb"), mediaType: "model/gltf-binary" };
       },
     });

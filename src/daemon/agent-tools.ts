@@ -176,7 +176,7 @@ export function createAgentTools(
         throw new Error("Image to 3D requires a PNG or JPEG image");
       }
       const run = await tools.run("image-to-3d", {
-        image: { mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") },
+        images: [{ mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") }],
       }, signal);
       const output = run.files[0];
       if (!output) throw new Error("3D generator returned no output");

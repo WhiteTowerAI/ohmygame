@@ -1,21 +1,20 @@
-import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, X } from "./icons.js";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
+import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_OUTPUT_COUNTS,
   IMAGE_RESOLUTIONS,
   MODEL_3D_POSES,
   MODEL_3D_QUALITIES,
-  MODEL_3D_TEXTURE_RESOLUTIONS,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageModel,
   type ImageOutputCount,
   type ImageResolution,
+  type Model3DModel,
   type Model3DPose,
   type Model3DQuality,
-  type Model3DTextureResolution,
   type ProjectState,
   type PromptImage,
   type ToolRun,
@@ -38,7 +37,10 @@ interface AssetStudioPageProps {
 }
 
 const VIDEO_MODEL_OPTIONS = [{ value: "MiniMax-H3", label: "MiniMax H3" }] as const;
-const MODEL_3D_OPTIONS = [{ value: "meshy-7", label: "Meshy 7" }] as const;
+const MODEL_3D_OPTIONS = [
+  { value: "meshy-t2", label: "Meshy T2 - Game-ready" },
+  { value: "meshy-7", label: "Meshy 7 - High detail" },
+] as const;
 const HISTORY_LIMIT = 20;
 const MODEL_3D_SOURCE_OPTIONS = [
   { value: "image", label: "Image" },
@@ -63,8 +65,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [imageModelKey, setImageModelKey] = useState("");
   const [imagePrompt, setImagePrompt] = useState("");
-  const [imageReference, setImageReference] = useState<PromptImage>();
-  const [imageReferenceName, setImageReferenceName] = useState<string>();
+  const [imageReferences, setImageReferences] = useState<PromptImage[]>([]);
+  const [imageReferenceNames, setImageReferenceNames] = useState<string[]>([]);
   const [resolution, setResolution] = useState<ImageResolution>("1K");
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("1:1");
   const [outputs, setOutputs] = useState<ImageOutputCount>(1);
@@ -75,16 +77,17 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("adaptive");
   const [videoResolution, setVideoResolution] = useState<VideoResolution>("768P");
   const [videoDuration, setVideoDuration] = useState(6);
-  const [model3D, setModel3D] = useState<string>(MODEL_3D_OPTIONS[0].value);
+  const [model3D, setModel3D] = useState<Model3DModel>(MODEL_3D_OPTIONS[0].value);
   const [model3DSource, setModel3DSource] = useState<Model3DSource>("image");
   const [model3DPrompt, setModel3DPrompt] = useState("");
-  const [modelReference, setModelReference] = useState<PromptImage>();
-  const [modelReferenceName, setModelReferenceName] = useState<string>();
+  const [modelReferences, setModelReferences] = useState<(PromptImage | undefined)[]>([]);
+  const [modelReferenceNames, setModelReferenceNames] = useState<(string | undefined)[]>([]);
+  const [model3DMultiView, setModel3DMultiView] = useState(false);
   const [model3DQuality, setModel3DQuality] = useState<Model3DQuality>("standard");
+  const [model3DTargetPolycount, setModel3DTargetPolycount] = useState(4_000);
   const [model3DTexture, setModel3DTexture] = useState(true);
-  const [model3DTextureResolution, setModel3DTextureResolution] = useState<Model3DTextureResolution>("2K");
-  const [model3DPbr, setModel3DPbr] = useState(true);
   const [model3DPose, setModel3DPose] = useState<Model3DPose>("auto");
+  const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<PreviewResult>();
   const [history, setHistory] = useState<PreviewResult[]>([]);
@@ -112,6 +115,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const templateCoverRequest = useRef(0);
   const templateCoverUrlRef = useRef<string | undefined>(undefined);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const modelReferenceTarget = useRef(0);
   const resultActions = useRef<HTMLDivElement>(null);
   const auth = useAuth();
 
@@ -136,11 +140,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   );
   const selectedFile = result?.run.files[selectedResult];
   const selectedUrl = result?.urls[selectedResult];
+  const isMeshyT2 = model3D === "meshy-t2";
   const canGenerate = mode === "image"
     ? Boolean(imagePrompt.trim() && selectedImageModel)
     : mode === "video"
       ? Boolean(videoPrompt.trim())
-      : model3DSource === "text" ? Boolean(model3DPrompt.trim()) : Boolean(modelReference);
+      : model3DSource === "text" ? Boolean(model3DPrompt.trim()) : Boolean(modelReferences[0]);
 
   useEffect(() => {
     return () => {
@@ -175,8 +180,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
     setOutputs(Math.min(defaults?.imageOutputs ?? outputs, selectedImageModel.maxOutputs) as ImageOutputCount);
     if (!selectedImageModel.supportsReferenceImage) {
-      setImageReference(undefined);
-      setImageReferenceName(undefined);
+      setImageReferences([]);
+      setImageReferenceNames([]);
     }
   }, [selectedImageModel, selectedTemplate]);
 
@@ -261,7 +266,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         await updateImageGenerationSettings({ model: { provider: selectedImageModel.provider, id: selectedImageModel.id } });
         nextRun = await runTool("generate-image", {
           prompt: imagePrompt.trim(), resolution, aspectRatio, outputs,
-          ...(imageReference ? { image: imageReference } : {}),
+          ...(imageReferences.length ? { images: imageReferences } : {}),
         });
       } else if (mode === "video") {
         nextRun = await runTool("generate-video", {
@@ -269,14 +274,16 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           ...(videoReference ? { image: videoReference } : {}),
         });
       } else {
+        const images = modelReferences
+          .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
+          .filter((image): image is PromptImage => image !== undefined);
         nextRun = await runTool("image-to-3d", {
-          ...(model3DSource === "text" ? { prompt: model3DPrompt.trim() } : { image: modelReference! }),
-          model: "meshy-7",
-          quality: model3DQuality,
+          ...(model3DSource === "text" ? { prompt: model3DPrompt.trim() } : { images }),
+          model: model3D,
+          ...(isMeshyT2 ? { targetPolycount: model3DTargetPolycount } : { quality: model3DQuality }),
           texture: model3DTexture,
-          textureResolution: model3DTextureResolution,
-          pbr: model3DPbr,
           pose: model3DPose,
+          ...(model3DSource === "image" && !isMeshyT2 ? { imageEnhancement: model3DImageEnhancement } : {}),
         });
       }
       if (selectedTemplate.author && auth.state.status === "signed-in") {
@@ -342,7 +349,9 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (defaults?.videoDuration) setVideoDuration(defaults.videoDuration);
     } else if (template.mode === "3d") {
       setModel3DPrompt(prompt);
+      setModel3D(defaults?.model3DModel ?? "meshy-7");
       if (defaults?.model3DQuality) setModel3DQuality(defaults.model3DQuality);
+      if (defaults?.model3DTargetPolycount) setModel3DTargetPolycount(defaults.model3DTargetPolycount);
       if (defaults?.model3DPose) setModel3DPose(defaults.model3DPose);
       if (defaults?.model3DSource) setModel3DSource(defaults.model3DSource);
     }
@@ -488,7 +497,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       ? { imageResolution: resolution, imageAspectRatio: aspectRatio, imageOutputs: outputs }
       : mode === "video"
         ? { videoResolution, videoAspectRatio, videoDuration }
-        : { model3DQuality, model3DPose, model3DSource };
+        : {
+          model3DModel: model3D,
+          ...(isMeshyT2 ? { model3DTargetPolycount } : { model3DQuality }),
+          model3DPose,
+          model3DSource,
+        };
     return {
       mode,
       name,
@@ -522,22 +536,43 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setAspectRatio(nextAspectRatio);
   }
 
-  const reference = mode === "image" ? imageReference : mode === "video" ? videoReference : modelReference;
-  const referenceName = mode === "image" ? imageReferenceName : mode === "video" ? videoReferenceName : modelReferenceName;
   const modeHistory = history.filter((entry) => studioModeForTool(entry.run.toolId) === mode);
 
-  async function selectReference(file?: File): Promise<void> {
-    if (!file) return;
+  async function selectReference(files: File[]): Promise<void> {
+    if (!files.length) return;
     try {
-      const nextImage = await readImage(file, mode === "image");
+      if (mode === "image" && imageReferences.length + files.length > 14) throw new Error("Select up to 14 reference images");
+      const selectedFiles = mode === "video" ? [files[0]!] : files;
+      const nextImages = await Promise.all(selectedFiles.map((file) => readImage(file, mode === "image")));
       if (!mounted.current) return;
-      if (mode === "image") { setImageReference(nextImage); setImageReferenceName(file.name); }
-      else if (mode === "video") { setVideoReference(nextImage); setVideoReferenceName(file.name); }
-      else { setModelReference(nextImage); setModelReferenceName(file.name); }
+      if (mode === "image") {
+        setImageReferences((current) => [...current, ...nextImages]);
+        setImageReferenceNames((current) => [...current, ...selectedFiles.map((file) => file.name)]);
+      }
+      else if (mode === "video") { setVideoReference(nextImages[0]); setVideoReferenceName(selectedFiles[0]!.name); }
       setReferenceError(undefined);
     } catch (cause) {
       if (mounted.current) setReferenceError(errorMessage(cause));
     }
+  }
+
+  async function selectModelReference(index: number, files: File[]): Promise<void> {
+    const file = files[0];
+    if (!file) return;
+    try {
+      const image = await readImage(file, false);
+      if (!mounted.current) return;
+      setModelReferences((current) => replaceAt(current, index, image));
+      setModelReferenceNames((current) => replaceAt(current, index, file.name));
+      setReferenceError(undefined);
+    } catch (cause) {
+      if (mounted.current) setReferenceError(errorMessage(cause));
+    }
+  }
+
+  function chooseModelReference(index: number): void {
+    modelReferenceTarget.current = index;
+    uploadInput.current?.click();
   }
 
   return (
@@ -573,33 +608,42 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                     <Model3DInputField
                       source={model3DSource}
                       prompt={model3DPrompt}
-                      image={modelReference}
-                      imageName={modelReferenceName}
+                      images={modelReferences}
+                      imageNames={modelReferenceNames}
+                      multiView={model3DMultiView}
+                      allowMultiView={!isMeshyT2}
                       promptLabel={selectedTemplate.promptLabel}
                       promptPlaceholder={selectedTemplate.promptPlaceholder}
                       disabled={generating}
                       onSourceChange={setModel3DSource}
                       onPromptChange={setModel3DPrompt}
-                      onChooseImage={() => uploadInput.current?.click()}
-                      onClearImage={() => {
-                        setModelReference(undefined);
-                        setModelReferenceName(undefined);
+                      onMultiViewChange={setModel3DMultiView}
+                      onChooseImage={chooseModelReference}
+                      onSelectFiles={(index, files) => void selectModelReference(index, files)}
+                      onRemoveImage={(index) => {
+                        setModelReferences((current) => replaceAt(current, index, undefined));
+                        setModelReferenceNames((current) => replaceAt(current, index, undefined));
                         setReferenceError(undefined);
                       }}
                     />
                   </>
                 )}
 
-                {mode !== "3d" ? <ReferenceField label={mode === "video" ? "First frame" : "Reference image"} image={reference} name={referenceName} optional allowWebP={mode === "image"} disabled={generating || (mode === "image" && !selectedImageModel?.supportsReferenceImage)} onChoose={() => uploadInput.current?.click()} onClear={() => {
-                  if (mode === "image") { setImageReference(undefined); setImageReferenceName(undefined); }
-                  else { setVideoReference(undefined); setVideoReferenceName(undefined); }
+                {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={generating || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                  setImageReferences((current) => current.filter((_, candidate) => candidate !== index));
+                  setImageReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
+                  setReferenceError(undefined);
+                }} /> : mode === "video" ? <ReferenceField label="First frame" image={videoReference} name={videoReferenceName} optional allowWebP={false} disabled={generating} onChoose={() => uploadInput.current?.click()} onClear={() => {
+                  setVideoReference(undefined);
+                  setVideoReferenceName(undefined);
                   setReferenceError(undefined);
                 }} /> : null}
                 {referenceError && (mode !== "3d" || model3DSource === "image") ? <p className="asset-field-error" role="alert">{referenceError}</p> : null}
-                <input ref={uploadInput} hidden type="file" accept={mode === "image" ? "image/png,image/jpeg,image/webp" : "image/png,image/jpeg"} onChange={(event) => {
-                  const file = event.target.files?.[0];
+                <input ref={uploadInput} hidden multiple={mode === "image"} type="file" accept={mode === "image" ? "image/png,image/jpeg,image/webp" : "image/png,image/jpeg"} onChange={(event) => {
+                  const files = [...(event.target.files ?? [])];
                   event.target.value = "";
-                  void selectReference(file);
+                  if (mode === "3d") void selectModelReference(modelReferenceTarget.current, files);
+                  else void selectReference(files);
                 }} />
 
                 {mode === "image" && selectedImageModel ? (
@@ -616,15 +660,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 ) : mode === "3d" ? (
                   <div className="asset-3d-options">
-                    <SettingsSection title="Geometry">
-                      <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} disabled={generating} format={titleCase} onChange={setModel3DQuality} />
-                      <OptionGroup equal label="Pose" values={MODEL_3D_POSES} value={model3DPose} disabled={generating} format={(value) => value === "auto" ? "Auto" : value === "a-pose" ? "A-Pose" : "T-Pose"} onChange={setModel3DPose} />
-                    </SettingsSection>
-                    <SettingsSection title="Materials">
-                      <ToggleField label="Texture" checked={model3DTexture} disabled={generating} onChange={setModel3DTexture} />
-                      {model3DTexture ? <OptionGroup equal label="Resolution" values={MODEL_3D_TEXTURE_RESOLUTIONS} value={model3DTextureResolution} disabled={generating} onChange={setModel3DTextureResolution} /> : null}
-                      {model3DTexture ? <ToggleField label="PBR" checked={model3DPbr} disabled={generating} onChange={setModel3DPbr} /> : null}
-                    </SettingsSection>
+                    {isMeshyT2
+                      ? <PolyCountField value={model3DTargetPolycount} disabled={generating} onChange={setModel3DTargetPolycount} />
+                      : <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} disabled={generating} format={titleCase} onChange={setModel3DQuality} />}
+                    <ToggleField label="Texture" checked={model3DTexture} disabled={generating} onChange={setModel3DTexture} />
+                    <OptionGroup equal label="Pose" values={MODEL_3D_POSES} value={model3DPose} disabled={generating} format={(value) => value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"} onChange={setModel3DPose} />
+                    {model3DSource === "image" && !isMeshyT2 ? <ToggleField label="Image enhancement" checked={model3DImageEnhancement} disabled={generating} onChange={setModel3DImageEnhancement} /> : null}
                   </div>
                 ) : null}
               </div>
@@ -815,8 +856,8 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; 
   return <div className="asset-field"><label htmlFor={htmlFor}>{label}</label>{children}</div>;
 }
 
-function ModelSelect({ id, value, options, disabled, onChange }: { id: string; value: string; options: readonly { value: string; label: string }[]; disabled: boolean; onChange: (value: string) => void }) {
-  return <div className="asset-select-wrap"><select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} /></div>;
+function ModelSelect<T extends string>({ id, value, options, disabled, onChange }: { id: string; value: T; options: readonly { value: T; label: string }[]; disabled: boolean; onChange: (value: T) => void }) {
+  return <div className="asset-select-wrap"><select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} /></div>;
 }
 
 function PromptField({ id, label, value, placeholder, maxLength = 2000, disabled, onChange }: { id: string; label: string; value: string; placeholder: string; maxLength?: number; disabled: boolean; onChange: (value: string) => void }) {
@@ -827,14 +868,61 @@ function PromptControl({ id, value, placeholder, maxLength, ariaLabel, disabled,
   return <div className="asset-prompt-wrap"><textarea id={id} aria-label={ariaLabel} maxLength={maxLength} value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /><span>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</span></div>;
 }
 
-function Model3DInputField({ source, prompt, image, imageName, promptLabel, promptPlaceholder, disabled, onSourceChange, onPromptChange, onChooseImage, onClearImage }: { source: Model3DSource; prompt: string; image?: PromptImage; imageName?: string; promptLabel: string; promptPlaceholder: string; disabled: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onChooseImage: () => void; onClearImage: () => void }) {
+function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptLabel, promptPlaceholder, disabled, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptLabel: string; promptPlaceholder: string; disabled: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
   return <div className={`asset-3d-input is-${source}`}><div className="asset-3d-input-header"><span>Input</span><SourceSwitch value={source} disabled={disabled} onChange={onSourceChange} /></div><div className="asset-3d-input-body">{source === "text"
     ? <PromptControl id="asset-3d-prompt" ariaLabel={promptLabel} value={prompt} maxLength={800} disabled={disabled} placeholder={promptPlaceholder} onChange={onPromptChange} />
-    : <ReferenceControl label="Reference image" image={image} name={imageName} optional={false} allowWebP={false} disabled={disabled} onChoose={onChooseImage} onClear={onClearImage} />}</div></div>;
+    : <Model3DReferenceField images={images} names={imageNames} multiView={multiView} allowMultiView={allowMultiView} disabled={disabled} onMultiViewChange={onMultiViewChange} onChoose={onChooseImage} onFiles={onSelectFiles} onRemove={onRemoveImage} />}</div></div>;
 }
 
 function SourceSwitch({ value, disabled, onChange }: { value: Model3DSource; disabled: boolean; onChange: (value: Model3DSource) => void }) {
   return <fieldset className="asset-source-switch" disabled={disabled}><legend className="visually-hidden">3D input type</legend>{MODEL_3D_SOURCE_OPTIONS.map((option) => <label key={option.value}><input type="radio" name="asset-3d-source" value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} /><span>{option.label}</span></label>)}</fieldset>;
+}
+
+function ImageReferenceField({ images, names, max = 14, primaryLabel, disabled, onChoose, onRemove }: { images: PromptImage[]; names: string[]; max?: number; primaryLabel?: string; disabled: boolean; onChoose: () => void; onRemove: (index: number) => void }) {
+  return <Field label="Reference images"><div className="asset-reference-list">{images.map((image, index) => {
+    const name = names[index] ?? `Reference ${index + 1}`;
+    const label = index === 0 && primaryLabel ? `${name} · ${primaryLabel}` : name;
+    return <div className="asset-reference-item" key={`${name}-${index}`}><img src={`data:${image.mediaType};base64,${image.data}`} alt="" /><span title={label}>{label}</span><button type="button" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onRemove(index)}><X size={13} /></button></div>;
+  })}{images.length < max ? <button className="asset-reference-add" type="button" disabled={disabled} onClick={onChoose}><Plus size={16} /><span>{images.length ? "Add more" : "Add reference images"}</span><small>{images.length}/{max}</small></button> : null}</div></Field>;
+}
+
+const MODEL_3D_REFERENCE_LABELS = ["Main view", "Left", "Back", "Right"] as const;
+
+function Model3DReferenceField({ images, names, multiView, allowMultiView, disabled, onMultiViewChange, onChoose, onFiles, onRemove }: { images: (PromptImage | undefined)[]; names: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; disabled: boolean; onMultiViewChange: (value: boolean) => void; onChoose: (index: number) => void; onFiles: (index: number, files: File[]) => void; onRemove: (index: number) => void }) {
+  return <div className="asset-3d-references">
+    <Model3DReferenceSlot index={0} label={MODEL_3D_REFERENCE_LABELS[0]} image={images[0]} name={names[0]} disabled={disabled} primary onChoose={onChoose} onFiles={onFiles} onRemove={onRemove} />
+    {allowMultiView ? <><div className={`asset-3d-view-grid${multiView ? " is-enabled" : ""}`} aria-label="Additional views">
+      {MODEL_3D_REFERENCE_LABELS.slice(1).map((label, offset) => {
+        const index = offset + 1;
+        return <Model3DReferenceSlot key={label} index={index} label={label} image={images[index]} name={names[index]} disabled={disabled || !multiView} onChoose={onChoose} onFiles={onFiles} onRemove={onRemove} />;
+      })}
+    </div>
+    <ToggleField label="Multi-view" checked={multiView} disabled={disabled} onChange={onMultiViewChange} /></> : null}
+  </div>;
+}
+
+function Model3DReferenceSlot({ index, label, image, name, primary = false, disabled, onChoose, onFiles, onRemove }: { index: number; label: string; image?: PromptImage; name?: string; primary?: boolean; disabled: boolean; onChoose: (index: number) => void; onFiles: (index: number, files: File[]) => void; onRemove: (index: number) => void }) {
+  function acceptDrop(event: ReactDragEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    if (!disabled) onFiles(index, [...event.dataTransfer.files]);
+  }
+
+  function acceptPaste(event: ReactClipboardEvent<HTMLDivElement>): void {
+    const files = [...event.clipboardData.files];
+    if (!disabled && files.length) {
+      event.preventDefault();
+      onFiles(index, files);
+    }
+  }
+
+  return <div className={`asset-3d-reference-slot${primary ? " is-primary" : ""}${image ? " has-image" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={acceptDrop} onPaste={acceptPaste}>
+    <button type="button" disabled={disabled} aria-label={`${image ? "Replace" : "Add"} ${label.toLowerCase()}`} title={name} onClick={() => onChoose(index)}>
+      {image ? <img src={`data:${image.mediaType};base64,${image.data}`} alt="" /> : <Upload size={primary ? 27 : 20} />}
+      <strong>{label}</strong>
+      {primary ? <small>PNG or JPG</small> : null}
+    </button>
+    {image ? <button className="asset-3d-reference-remove" type="button" aria-label={`Remove ${label.toLowerCase()}`} disabled={disabled} onClick={() => onRemove(index)}><X size={12} /></button> : null}
+  </div>;
 }
 
 function ReferenceField({ label, image, name, optional, allowWebP, disabled, onChoose, onClear }: { label: string; image?: PromptImage; name?: string; optional: boolean; allowWebP: boolean; disabled: boolean; onChoose: () => void; onClear: () => void }) {
@@ -860,12 +948,18 @@ function RangeField({ label, value, min, max, disabled, onChange }: { label: str
   return <div className="asset-range-field"><div><label htmlFor="asset-video-duration">{label}</label><output htmlFor="asset-video-duration">{value}s</output></div><input id="asset-video-duration" type="range" value={value} min={min} max={max} step={1} disabled={disabled} style={style} onChange={(event) => onChange(Number(event.target.value))} /><div className="asset-range-bounds"><span>{min}s</span><span>{max}s</span></div></div>;
 }
 
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="asset-settings-section"><h2>{title}</h2><div>{children}</div></section>;
+function PolyCountField({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (value: number) => void }) {
+  const min = 100;
+  const max = 15_000;
+  const style = { "--asset-range-progress": `${((value - min) / (max - min)) * 100}%` } as CSSProperties;
+  const update = (next: number) => {
+    if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, Math.round(next))));
+  };
+  return <div className="asset-number-range-field"><div><label htmlFor="asset-3d-polycount">Poly Count</label><input aria-label="Poly count value" type="number" value={value} min={min} max={max} step={100} disabled={disabled} onChange={(event) => update(event.target.valueAsNumber)} /></div><input id="asset-3d-polycount" type="range" value={value} min={min} max={max} step={100} disabled={disabled} style={style} onChange={(event) => update(event.target.valueAsNumber)} /><div className="asset-range-bounds"><span>{min.toLocaleString()}</span><span>{max.toLocaleString()}</span></div></div>;
 }
 
 function ToggleField({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange: (checked: boolean) => void }) {
-  return <div className="asset-toggle-field"><span>{label}</span><button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}><span /></button></div>;
+  return <div className="asset-toggle-field"><span>{label}</span><button type="button" role="switch" aria-label={label} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}><span /></button></div>;
 }
 
 function titleCase(value: string): string {
@@ -892,6 +986,13 @@ async function readImage(file: File, allowWebP: boolean): Promise<PromptImage> {
     reader.readAsDataURL(file);
   });
   return { mediaType: file.type as PromptImage["mediaType"], data };
+}
+
+function replaceAt<T>(values: readonly (T | undefined)[], index: number, value: T | undefined): (T | undefined)[] {
+  const next = [...values];
+  next[index] = value;
+  while (next.length && next.at(-1) === undefined) next.pop();
+  return next;
 }
 
 function modelKey(model: Pick<ImageModel, "provider" | "id">): string {

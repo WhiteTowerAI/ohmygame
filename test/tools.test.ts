@@ -67,25 +67,33 @@ describe("tool runner", () => {
       method: "POST",
       url: "/tools/image-to-3d/runs",
       payload: {
-        image: { mediaType: "image/png", data: "aW1hZ2U=" },
+        images: [
+          { mediaType: "image/png", data: "ZnJvbnQ=" },
+          { mediaType: "image/jpeg", data: "c2lkZQ==" },
+        ],
         model: "meshy-7",
         quality: "ultra",
         texture: true,
         textureResolution: "4K",
         pbr: true,
         pose: "t-pose",
+        imageEnhancement: false,
       },
     });
 
     expect(response.statusCode).toBe(201);
     expect(generate).toHaveBeenCalledWith({
-      image: { mediaType: "image/png", data: "aW1hZ2U=" },
+      images: [
+        { mediaType: "image/png", data: "ZnJvbnQ=" },
+        { mediaType: "image/jpeg", data: "c2lkZQ==" },
+      ],
       model: "meshy-7",
       quality: "ultra",
       texture: true,
       textureResolution: "4K",
       pbr: true,
       pose: "t-pose",
+      imageEnhancement: false,
     }, undefined);
     const run = response.json();
     expect(run).toMatchObject({
@@ -136,6 +144,40 @@ describe("tool runner", () => {
     }, undefined);
   });
 
+  it("runs Meshy T2 with a target poly count", async () => {
+    const generate = vi.fn().mockResolvedValue({
+      bytes: Buffer.from("glb"),
+      mediaType: "model/gltf-binary" as const,
+    });
+    const app = createApp({
+      dataDirectory: await temporaryData(),
+      imageGenerator: fakeGenerator(),
+      model3DGenerator: { generate },
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: {
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+        model: "meshy-t2",
+        targetPolycount: 4_000,
+        texture: false,
+        pose: "auto",
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(generate).toHaveBeenCalledWith({
+      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+      model: "meshy-t2",
+      targetPolycount: 4_000,
+      texture: false,
+      pose: "auto",
+    }, undefined);
+  });
+
   it("adds a generated 3D result to a project workspace", async () => {
     const dataDirectory = await temporaryData();
     const app = createApp({
@@ -148,7 +190,7 @@ describe("tool runner", () => {
     const run = (await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { image: { mediaType: "image/jpeg", data: "aW1hZ2U=" } },
+      payload: { images: [{ mediaType: "image/jpeg", data: "aW1hZ2U=" }] },
     })).json();
 
     const response = await app.inject({
@@ -292,12 +334,42 @@ describe("tool runner", () => {
     expect((await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { image: { mediaType: "image/webp", data: "aW1hZ2U=" } },
+      payload: { images: [{ mediaType: "image/webp", data: "aW1hZ2U=" }] },
     })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { prompt: "model", image: { mediaType: "image/png", data: "aW1hZ2U=" } },
+      payload: { prompt: "model", images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { prompt: "model", imageEnhancement: false },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { images: [] },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { images: Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })) },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-t2", quality: "ultra" },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-t2", imageEnhancement: true },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-7", targetPolycount: 4_000 },
     })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",
@@ -381,7 +453,7 @@ describe("tool runner", () => {
     const response = await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { image: { mediaType: "image/png", data: "a".repeat(26 * 1024 * 1024) } },
+      payload: { images: [{ mediaType: "image/png", data: "a".repeat(26 * 1024 * 1024) }] },
     });
     expect(response.statusCode).toBe(413);
   });

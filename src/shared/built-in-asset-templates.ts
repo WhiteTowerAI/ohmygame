@@ -70,20 +70,20 @@ export const BUILT_IN_ASSET_TEMPLATES: readonly BuiltInAssetTemplate[] = [
     id: "general-3d", releaseId: "general-3d-v1", publishedAt: PUBLISHED_AT,
     mode: "3d", name: "General 3D Model", description: "A balanced starting point for a textured model.",
     promptLabel: "3D prompt", promptPlaceholder: "A stylized wooden treasure chest with iron bands and a hinged lid...",
-    defaults: { model3DQuality: "standard", model3DPose: "auto", model3DSource: "image" },
+    defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000, model3DPose: "auto", model3DSource: "image" },
   },
   {
     id: "game-prop-3d", releaseId: "game-prop-3d-v1", publishedAt: PUBLISHED_AT,
     mode: "3d", name: "Game Prop", description: "A readable standalone object with clean materials.",
     promptLabel: "Prop description", promptPlaceholder: "A compact sci-fi field generator with a rugged shell and replaceable power cell...",
     defaultPrompt: "Create a complete standalone game prop with readable silhouette, coherent construction, clean material separation, and no floating or disconnected pieces. Center the object in a neutral pose.",
-    defaults: { model3DQuality: "ultra", model3DPose: "auto", model3DSource: "text" },
+    defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000, model3DPose: "auto", model3DSource: "text" },
   },
   {
     id: "character-model-3d", releaseId: "character-model-3d-v1", publishedAt: PUBLISHED_AT,
     mode: "3d", name: "Character Model", description: "A full-body character prepared in a neutral pose.",
     promptLabel: "Character description", promptPlaceholder: "A stylized courier wearing layered weatherproof clothing and a compact delivery harness...",
     defaultPrompt: "Create a complete full-body game character with consistent anatomy, clean separation between garments, and a neutral symmetrical A-pose suitable for downstream rigging. Include no base or surrounding scene.",
-    defaults: { model3DQuality: "ultra", model3DPose: "a-pose", model3DSource: "text" },
+    defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000, model3DPose: "a-pose", model3DSource: "text" },
   },
 ];

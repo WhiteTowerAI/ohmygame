@@ -39,7 +39,7 @@ export class ProviderImages implements ImageGenerator {
       const supported = definition.generationOptions.some((option) => option.resolution === input.resolution && option.aspectRatio === input.aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
-    if (input.image && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
+    if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     let source: ImageSource | undefined;
     if (selected.provider === "opengame") {
       const portal = this.portal.imageSource();

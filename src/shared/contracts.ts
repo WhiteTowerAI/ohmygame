@@ -514,6 +514,8 @@ export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
 export type Model3DQuality = (typeof MODEL_3D_QUALITIES)[number];
+export const MODEL_3D_MODELS = ["meshy-7", "meshy-t2"] as const;
+export type Model3DModel = (typeof MODEL_3D_MODELS)[number];
 export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
 export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
 export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
@@ -536,14 +538,15 @@ interface RunStudioImageToolRequest {
   resolution: ImageResolution;
   aspectRatio: ImageAspectRatio;
   outputs?: ImageOutputCount;
-  image?: PromptImage;
+  images?: PromptImage[];
 }
 
 export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
 
 interface Run3DToolOptions {
-  model?: "meshy-7";
+  model?: Model3DModel;
   quality?: Model3DQuality;
+  targetPolycount?: number;
   texture?: boolean;
   textureResolution?: Model3DTextureResolution;
   pbr?: boolean;
@@ -551,8 +554,8 @@ interface Run3DToolOptions {
 }
 
 export type Run3DToolRequest = Run3DToolOptions & (
-  | { prompt: string; image?: never }
-  | { prompt?: never; image: PromptImage }
+  | { prompt: string; images?: never; imageEnhancement?: never }
+  | { prompt?: never; images: PromptImage[]; imageEnhancement?: boolean }
 );
 
 export interface RunVideoToolRequest {
