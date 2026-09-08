@@ -45,6 +45,7 @@ import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallIn
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
+import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 
 const API_BASE = "/api";
 
@@ -286,6 +287,14 @@ export async function setConnectionEnabled(id: string, enabled: boolean): Promis
 
 export async function removeConnection(id: string): Promise<void> {
   await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function getAssetStudioDraft(): Promise<AssetStudioDraft | null> {
+  return request("/asset-studio/draft");
+}
+
+export async function updateAssetStudioDraft(draft: AssetStudioDraft): Promise<AssetStudioDraft> {
+  return request("/asset-studio/draft", { method: "PUT", body: JSON.stringify(draft) });
 }
 
 export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolRun> {

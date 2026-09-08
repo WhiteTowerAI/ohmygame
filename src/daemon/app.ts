@@ -41,6 +41,8 @@ import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
 import { AssetTemplateError, AssetTemplateStore } from "./asset-templates.js";
+import { AssetStudioDraftStore } from "./asset-studio-draft.js";
+import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
@@ -483,6 +485,7 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const assetTemplates = new AssetTemplateStore(dataDirectory);
+  const assetStudioDraft = new AssetStudioDraftStore(dataDirectory);
   const previews = new PreviewManager(events);
   const imageSettings = new ImageSettingsStore(dataDirectory);
   const model3DSettings = new ApiSettingsStore(dataDirectory, "model-3d-settings.json", "https://api.meshy.ai", "3D", {
@@ -632,7 +635,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load()]);
+    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -959,6 +962,16 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/tools", async () => tools.list());
+
+  app.get("/asset-studio/draft", async () => assetStudioDraft.get() ?? null);
+
+  app.put<{ Body: AssetStudioDraft }>("/asset-studio/draft", async (request, reply) => {
+    try {
+      return await assetStudioDraft.update(request.body);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.get("/tool-runs", async () => tools.recentRuns());
 

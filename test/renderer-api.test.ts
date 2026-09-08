@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -634,6 +634,23 @@ describe("renderer project API", () => {
 });
 
 describe("renderer tools API", () => {
+  it("loads and updates the Asset Studio draft", async () => {
+    installWindow();
+    const draft = { mode: "image", templateIds: {}, panelView: "templates", image: {}, video: {}, model3D: {} } as never;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(draft))
+      .mockResolvedValueOnce(Response.json(draft));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getAssetStudioDraft()).resolves.toEqual(draft);
+    await expect(updateAssetStudioDraft(draft)).resolves.toEqual(draft);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/asset-studio/draft", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-studio/draft", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify(draft),
+    }));
+  });
+
   it("loads and updates 3D generation settings", async () => {
     installWindow();
     const settings = { apiUrl: "https://api.meshy.ai", hasApiKey: true };

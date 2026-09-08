@@ -22,10 +22,11 @@ import {
   type VideoAspectRatio,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
+import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -61,7 +62,12 @@ type AssetPanelView = "templates" | "history";
 export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
-  const [templateId, setTemplateId] = useState(defaultTemplateForMode("image").id);
+  const [mode, setMode] = useState<StudioMode>("image");
+  const [templateIds, setTemplateIds] = useState<Record<StudioMode, string>>(() => ({
+    image: defaultTemplateForMode("image").id,
+    video: defaultTemplateForMode("video").id,
+    "3d": defaultTemplateForMode("3d").id,
+  }));
   const [imagePhase, setImagePhase] = useState<"loading" | "ready" | "error">("loading");
   const [imageLoadError, setImageLoadError] = useState<string>();
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -112,6 +118,10 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [adding, setAdding] = useState(false);
   const [actionStatus, setActionStatus] = useState<{ type: "success" | "error"; message: string }>();
   const mounted = useRef(true);
+  const draftReady = useRef(false);
+  const draftSaveTimer = useRef<number | undefined>(undefined);
+  const latestDraft = useRef<AssetStudioDraft | undefined>(undefined);
+  const pendingSelection = useRef<{ runId?: string; output?: number }>({});
   const historyRef = useRef<PreviewResult[]>([]);
   const templateCoverRequest = useRef(0);
   const templateCoverUrlRef = useRef<string | undefined>(undefined);
@@ -132,8 +142,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       && !builtInTemplateIds.has(template.id) && !publishedTemplateIds.has(template.id))
     .map(templateForGallery);
   const templates = [...openGameTemplates, ...yoursTemplates, ...communityTemplates];
-  const selectedTemplate = templates.find((template) => template.id === templateId) ?? defaultTemplateForMode("image");
-  const mode = selectedTemplate.mode;
+  const selectedTemplate = templates.find((template) => template.id === templateIds[mode] && template.mode === mode) ?? defaultTemplateForMode(mode);
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
     selectedImageModel?.generationOptions.some((option) => option.resolution === candidate),
@@ -153,6 +162,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   useEffect(() => {
     return () => {
       mounted.current = false;
+      window.clearTimeout(draftSaveTimer.current);
+      if (latestDraft.current) saveDraft(latestDraft.current);
       templateCoverRequest.current += 1;
       if (templateCoverUrlRef.current) URL.revokeObjectURL(templateCoverUrlRef.current);
       historyRef.current.forEach((entry) => entry.urls.forEach((url) => URL.revokeObjectURL(url)));
@@ -164,6 +175,16 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }, []);
 
   useEffect(() => {
+    if (!draftReady.current) return;
+    latestDraft.current = createDraft();
+    window.clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = window.setTimeout(() => {
+      if (latestDraft.current) saveDraft(latestDraft.current);
+    }, 250);
+    return () => window.clearTimeout(draftSaveTimer.current);
+  }, [mode, templateIds, panelView, result?.run.id, selectedResult, imagePrompt, resolution, aspectRatio, outputs, videoPrompt, videoAspectRatio, videoResolution, videoDuration, model3D, model3DSource, model3DPrompt, model3DMultiView, model3DQuality, model3DTargetPolycount, model3DTexture, model3DPose, model3DImageEnhancement]);
+
+  useEffect(() => {
     const reload = () => void loadImageConfig();
     window.addEventListener(MODELS_CHANGED_EVENT, reload);
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, reload);
@@ -171,22 +192,20 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
   useEffect(() => {
     if (!selectedImageModel) return;
-    const defaults = selectedTemplate.mode === "image" ? selectedTemplate.defaults : undefined;
     const option = selectedImageModel.generationOptions.find((candidate) =>
-      candidate.resolution === defaults?.imageResolution && candidate.aspectRatio === defaults.imageAspectRatio,
-    ) ?? selectedImageModel.generationOptions.find((candidate) => candidate.aspectRatio === defaults?.imageAspectRatio)
-      ?? selectedImageModel.generationOptions.find((candidate) => candidate.resolution === resolution && candidate.aspectRatio === aspectRatio)
+      candidate.resolution === resolution && candidate.aspectRatio === aspectRatio,
+    ) ?? selectedImageModel.generationOptions.find((candidate) => candidate.aspectRatio === aspectRatio)
       ?? selectedImageModel.generationOptions[0];
     if (option) {
       setResolution(option.resolution);
       setAspectRatio(option.aspectRatio);
     }
-    setOutputs(Math.min(defaults?.imageOutputs ?? outputs, selectedImageModel.maxOutputs) as ImageOutputCount);
+    setOutputs(Math.min(outputs, selectedImageModel.maxOutputs) as ImageOutputCount);
     if (!selectedImageModel.supportsReferenceImage) {
       setImageReferences([]);
       setImageReferenceNames([]);
     }
-  }, [selectedImageModel, selectedTemplate]);
+  }, [selectedImageModel]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -204,6 +223,10 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       await waitForRuntime();
       if (!mounted.current) return;
       setPhase("ready");
+      const draft = await getAssetStudioDraft();
+      if (!mounted.current) return;
+      if (draft) applyDraft(draft);
+      draftReady.current = true;
       await Promise.all([loadImageConfig(), loadProjectList(), loadTemplates(), loadHistory()]);
     } catch (cause) {
       if (!mounted.current) return;
@@ -215,9 +238,17 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   async function loadTemplates(): Promise<void> {
     const [local, explore] = await Promise.allSettled([listAssetTemplates(), listExploreTemplates()]);
     if (!mounted.current) return;
-    if (local.status === "fulfilled") setLocalTemplates(local.value);
+    const localTemplates = local.status === "fulfilled" ? local.value : [];
+    const exploreTemplates = explore.status === "fulfilled" ? explore.value : [];
+    if (local.status === "fulfilled") setLocalTemplates(localTemplates);
     else setActionStatus({ type: "error", message: errorMessage(local.reason) });
-    if (explore.status === "fulfilled") setExploreTemplates(explore.value);
+    if (explore.status === "fulfilled") setExploreTemplates(exploreTemplates);
+    const available = [...ASSET_TEMPLATES, ...localTemplates, ...exploreTemplates];
+    setTemplateIds((current) => ({
+      image: available.some((template) => template.id === current.image && template.mode === "image") ? current.image : defaultTemplateForMode("image").id,
+      video: available.some((template) => template.id === current.video && template.mode === "video") ? current.video : defaultTemplateForMode("video").id,
+      "3d": available.some((template) => template.id === current["3d"] && template.mode === "3d") ? current["3d"] : defaultTemplateForMode("3d").id,
+    }));
   }
 
   async function loadImageConfig(): Promise<void> {
@@ -268,6 +299,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         return;
       }
       mergeHistoryResults(entries);
+      const selection = pendingSelection.current;
+      const selected = selection.runId ? entries.find((entry) => entry.run.id === selection.runId) : undefined;
+      if (selected) {
+        setResult(selected);
+        setSelectedResult(Math.min(selection.output ?? 0, selected.urls.length - 1));
+      }
     } catch (cause) {
       if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
     }
@@ -285,7 +322,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       let nextRun: ToolRun;
       if (mode === "image") {
         if (!selectedImageModel) throw new Error("Connect an image model before generating");
-        await updateImageGenerationSettings({ model: { provider: selectedImageModel.provider, id: selectedImageModel.id } });
         nextRun = await runTool("generate-image", {
           prompt: imagePrompt.trim(), resolution, aspectRatio, outputs,
           ...(imageReferences.length ? { images: imageReferences } : {}),
@@ -347,11 +383,23 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
   function applyTemplate(template: AssetTemplate): void {
     if (generating) return;
-    setTemplateId(template.id);
+    setMode(template.mode);
+    setTemplateIds((current) => ({ ...current, [template.mode]: template.id }));
     const prompt = template.defaultPrompt ?? "";
     const defaults = template.defaults;
     if (template.mode === "image") {
       setImagePrompt(prompt);
+      const option = selectedImageModel?.generationOptions.find((candidate) =>
+        candidate.resolution === defaults?.imageResolution && candidate.aspectRatio === defaults.imageAspectRatio,
+      ) ?? selectedImageModel?.generationOptions.find((candidate) => candidate.aspectRatio === defaults?.imageAspectRatio)
+        ?? selectedImageModel?.generationOptions.find((candidate) => candidate.resolution === defaults?.imageResolution)
+        ?? selectedImageModel?.generationOptions[0];
+      if (option) {
+        setResolution(option.resolution);
+        setAspectRatio(option.aspectRatio);
+      }
+      const nextOutputs = defaults?.imageOutputs ?? outputs;
+      setOutputs(selectedImageModel ? Math.min(nextOutputs, selectedImageModel.maxOutputs) as ImageOutputCount : nextOutputs);
     } else if (template.mode === "video") {
       setVideoPrompt(prompt);
       if (defaults?.videoResolution) setVideoResolution(defaults.videoResolution);
@@ -369,6 +417,23 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setReferenceError(undefined);
     setActionStatus(undefined);
     setMenuOpen(false);
+  }
+
+  function chooseMode(nextMode: StudioMode): void {
+    if (generating || nextMode === mode) return;
+    setMode(nextMode);
+    setGenerationError(undefined);
+    setReferenceError(undefined);
+    setActionStatus(undefined);
+    setMenuOpen(false);
+  }
+
+  function chooseImageModel(nextModelKey: string): void {
+    const model = imageModels.find((candidate) => modelKey(candidate) === nextModelKey);
+    if (!model) return;
+    setImageModelKey(nextModelKey);
+    void updateImageGenerationSettings({ model: { provider: model.provider, id: model.id } })
+      .catch((cause) => { if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) }); });
   }
 
   function openTemplateDialog(): void {
@@ -491,7 +556,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       await deleteAssetTemplate(template.id);
       setLocalTemplates((templates) => templates.filter((candidate) => candidate.id !== template.id));
-      if (selectedTemplate.id === template.id) applyTemplate(defaultTemplateForMode(template.mode));
+      if (templateIds[template.mode] === template.id) {
+        const fallback = defaultTemplateForMode(template.mode);
+        if (mode === template.mode) applyTemplate(fallback);
+        else setTemplateIds((current) => ({ ...current, [template.mode]: fallback.id }));
+      }
       setExploreTemplates(await listExploreTemplates());
       setActionStatus({ type: "success", message: "Template deleted" });
     } catch (cause) {
@@ -525,6 +594,56 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
   function addHistoryResult(entry: PreviewResult): void {
     mergeHistoryResults([entry]);
+  }
+
+  function createDraft(): AssetStudioDraft {
+    return {
+      mode,
+      templateIds,
+      panelView,
+      ...(result ? { selectedRunId: result.run.id, selectedOutput: selectedResult } : {}),
+      image: { prompt: imagePrompt, resolution, aspectRatio, outputs },
+      video: { prompt: videoPrompt, resolution: videoResolution, aspectRatio: videoAspectRatio, duration: videoDuration },
+      model3D: {
+        prompt: model3DPrompt,
+        model: model3D,
+        source: model3DSource,
+        multiView: model3DMultiView,
+        quality: model3DQuality,
+        targetPolycount: model3DTargetPolycount,
+        texture: model3DTexture,
+        pose: model3DPose,
+        imageEnhancement: model3DImageEnhancement,
+      },
+    };
+  }
+
+  function saveDraft(draft: AssetStudioDraft): void {
+    void updateAssetStudioDraft(draft).catch(() => undefined);
+  }
+
+  function applyDraft(draft: AssetStudioDraft): void {
+    setMode(draft.mode);
+    setTemplateIds(draft.templateIds);
+    setPanelView(draft.panelView);
+    pendingSelection.current = { runId: draft.selectedRunId, output: draft.selectedOutput };
+    setImagePrompt(draft.image.prompt);
+    setResolution(draft.image.resolution);
+    setAspectRatio(draft.image.aspectRatio);
+    setOutputs(draft.image.outputs);
+    setVideoPrompt(draft.video.prompt);
+    setVideoResolution(draft.video.resolution);
+    setVideoAspectRatio(draft.video.aspectRatio);
+    setVideoDuration(draft.video.duration);
+    setModel3DPrompt(draft.model3D.prompt);
+    setModel3D(draft.model3D.model);
+    setModel3DSource(draft.model3D.source);
+    setModel3DMultiView(draft.model3D.multiView);
+    setModel3DQuality(draft.model3D.quality);
+    setModel3DTargetPolycount(draft.model3D.targetPolycount);
+    setModel3DTexture(draft.model3D.texture);
+    setModel3DPose(draft.model3D.pose);
+    setModel3DImageEnhancement(draft.model3D.imageEnhancement);
   }
 
   function mergeHistoryResults(incoming: PreviewResult[]): void {
@@ -605,12 +724,13 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
             {phase === "error" ? <div className="asset-config-state asset-config-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => void load()}><RefreshCw size={13} />Retry</button></div> : null}
             {phase === "ready" ? (
               <div className="asset-config-fields">
+                <ModeSwitcher mode={mode} disabled={generating} onChange={chooseMode} />
                 {mode === "image" ? (
                   <>
                     <Field label="Model" htmlFor="asset-model">
                       {imagePhase === "loading" ? <p className="asset-inline-state"><LoaderCircle className="spin" size={13} />Loading models</p> : null}
                       {imagePhase === "error" ? <div className="asset-inline-error" role="alert"><span>{imageLoadError}</span><button type="button" onClick={() => void loadImageConfig()}><RefreshCw size={12} />Retry</button></div> : null}
-                      {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} disabled={generating} onChange={setImageModelKey} /> : null}
+                      {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} disabled={generating} onChange={chooseImageModel} /> : null}
                       {imagePhase === "ready" && !imageModels.length ? <p className="asset-inline-state">No image model is connected</p> : null}
                     </Field>
                     <PromptField id="asset-image-prompt" value={imagePrompt} disabled={generating} placeholder={selectedTemplate.promptPlaceholder} onChange={setImagePrompt} />
@@ -758,6 +878,15 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
 function PanelViewSwitcher({ view, disabled, onChange }: { view: AssetPanelView; disabled: boolean; onChange: (view: AssetPanelView) => void }) {
   return <div className="asset-panel-switcher" aria-label="Asset Studio view">{(["templates", "history"] as const).map((value) => <button key={value} type="button" className={view === value ? "is-active" : undefined} aria-pressed={view === value} disabled={disabled} onClick={() => onChange(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>;
+}
+
+function ModeSwitcher({ mode, disabled, onChange }: { mode: StudioMode; disabled: boolean; onChange: (mode: StudioMode) => void }) {
+  const options = [
+    { value: "image", label: "Image", icon: Image },
+    { value: "video", label: "Video", icon: Film },
+    { value: "3d", label: "3D", icon: Box },
+  ] as const;
+  return <div className="asset-mode-switcher" aria-label="Asset type">{options.map(({ value, label, icon: Icon }) => <button key={value} type="button" className={mode === value ? "is-active" : undefined} aria-pressed={mode === value} disabled={disabled} onClick={() => onChange(value)}><Icon size={13} />{label}</button>)}</div>;
 }
 
 function TemplateGallery({ yours, explore, selectedId, busy, onSelect, onPublish, onSetPublication, onDelete }: {

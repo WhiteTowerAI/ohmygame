@@ -3579,6 +3579,39 @@ button {
 .asset-panel-switcher button:hover:not(:disabled) { color: #ebf0eb; }
 .asset-panel-switcher button.is-active { border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345); background: #252b2d; color: #ebf0eb; font-weight: 600; }
 
+.asset-mode-switcher {
+  display: grid;
+  height: 38px;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid #252c2e;
+  border-radius: 8px;
+  background: #171c1e;
+}
+
+.asset-mode-switcher button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--asset-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.asset-mode-switcher button:hover:not(:disabled) { color: #ebf0eb; }
+.asset-mode-switcher button.is-active { background: #293033; color: #ebf0eb; font-weight: 600; }
+.asset-mode-switcher button:disabled { cursor: default; opacity: 0.45; }
+
 .asset-config-fields {
   display: flex;
   min-height: 0;
