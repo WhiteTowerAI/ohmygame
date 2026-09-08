@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -655,16 +655,19 @@ describe("renderer tools API", () => {
     const run = { id: "run-1", toolId: tool.id, files: [] };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json([tool]))
-      .mockResolvedValueOnce(Response.json(run, { status: 201 }));
+      .mockResolvedValueOnce(Response.json(run, { status: 201 }))
+      .mockResolvedValueOnce(Response.json([run]));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(listTools()).resolves.toEqual([tool]);
-    await expect(runTool("generate-image", { prompt: "A forest", size: "1536x1024" })).resolves.toEqual(run);
+    await expect(runTool("generate-image", { prompt: "A forest", size: "1536x1024" }, "General Image")).resolves.toEqual(run);
+    await expect(listToolRuns()).resolves.toEqual([run]);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tools/generate-image/runs", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ prompt: "A forest", size: "1536x1024" }),
+      body: JSON.stringify({ prompt: "A forest", size: "1536x1024", title: "General Image" }),
     }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-runs", expect.objectContaining({ headers: {} }));
   });
 
   it("downloads tool output with desktop authorization", async () => {

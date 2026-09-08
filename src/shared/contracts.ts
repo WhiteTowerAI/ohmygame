@@ -579,6 +579,7 @@ export interface ToolRun {
   toolId: ToolDefinition["id"];
   createdAt: string;
   files: ToolRunFile[];
+  title?: string;
 }
 
 export type ToolArtifact =

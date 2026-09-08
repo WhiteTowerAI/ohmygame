@@ -49,6 +49,31 @@ describe("tool runner", () => {
     }]);
   });
 
+  it("restores recent tool runs after restart", async () => {
+    const dataDirectory = await temporaryData();
+    const first = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
+    const created = await first.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "A forest", title: "General Image" },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    await first.close();
+
+    const restored = createApp({ dataDirectory, imageGenerator: fakeGenerator() });
+    apps.push(restored);
+    const history = await restored.inject({ method: "GET", url: "/tool-runs" });
+
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toEqual([{
+      id: created.json().id,
+      toolId: "generate-image",
+      createdAt: created.json().createdAt,
+      files: [{ name: "output.webp", mediaType: "image/webp" }],
+      title: "General Image",
+    }]);
+  });
+
   it("runs Image to 3D and persists its GLB output", async () => {
     const dataDirectory = await temporaryData();
     const generate = vi.fn().mockResolvedValue({

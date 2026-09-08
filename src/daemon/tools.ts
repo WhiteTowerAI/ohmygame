@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -65,11 +65,17 @@ const generateVideo: ToolDefinition = {
   resolutions: VIDEO_RESOLUTIONS,
 };
 
+const HISTORY_LIMIT = 20;
+
 interface StoredToolRun extends ToolRun {
   version: 1;
   requestId?: string;
   prompt?: string;
   preview?: { fileName: string; mediaType: "image/png" | "image/jpeg" };
+}
+
+interface ToolRunMetadata {
+  title?: string;
 }
 
 export class ToolRunError extends Error {
@@ -98,21 +104,21 @@ export class ToolRunner {
     return [generateImage, imageTo3D, generateVideo];
   }
 
-  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, metadata: ToolRunMetadata = {}): Promise<ToolRun> {
     if (toolId === imageTo3D.id) {
       assertOnlyKeys(input, ["prompt", "images", "model", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement"]);
-      return this.#run3D(input as Run3DToolRequest, signal);
+      return this.#run3D(input as Run3DToolRequest, signal, metadata);
     }
     if (toolId === generateVideo.id) {
       assertOnlyKeys(input, ["prompt", "images", "duration", "aspectRatio", "resolution"]);
-      return this.#runVideo(input as RunVideoToolRequest, signal);
+      return this.#runVideo(input as RunVideoToolRequest, signal, metadata);
     }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "size", "resolution", "aspectRatio", "outputs", "images"]);
-    return this.#runImage(input as RunImageToolRequest, signal);
+    return this.#runImage(input as RunImageToolRequest, signal, metadata);
   }
 
-  async #runImage(input: RunImageToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
@@ -152,6 +158,7 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files,
         prompt,
+        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await Promise.all(generated.map((image, index) => writeFile(path.join(temporary, files[index]!.name), image.bytes)));
@@ -166,7 +173,7 @@ export class ToolRunner {
     }
   }
 
-  async #run3D(input: Run3DToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     const images = "images" in input ? input.images : undefined;
     const hasImages = images !== undefined;
@@ -225,6 +232,7 @@ export class ToolRunner {
         requestId: generated.requestId,
         ...(prompt ? { prompt } : {}),
         ...(preview ? { preview } : {}),
+        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
@@ -240,7 +248,7 @@ export class ToolRunner {
     }
   }
 
-  async #runVideo(input: RunVideoToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
@@ -267,6 +275,7 @@ export class ToolRunner {
         files: [{ name: "output.mp4", mediaType: generated.mediaType }],
         requestId: generated.requestId,
         prompt,
+        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
@@ -281,20 +290,46 @@ export class ToolRunner {
     }
   }
 
+  async recentRuns(): Promise<ToolRun[]> {
+    const entries = await readdir(this.#runsDirectory, { withFileTypes: true });
+    const runs = await Promise.all(entries
+      .filter((entry) => entry.isDirectory() && isRunId(entry.name))
+      .map((entry) => this.#readRun(entry.name)));
+    return runs
+      .filter((run): run is StoredToolRun => Boolean(run))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, HISTORY_LIMIT)
+      .map(publicRun);
+  }
+
   async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
     if (!isRunId(runId) || !/^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
-      const run = JSON.parse(await readFile(path.join(directory, "run.json"), "utf8")) as StoredToolRun;
+      const run = await this.#readRun(runId);
+      if (!run) return undefined;
       const file = run.files.find((candidate) => candidate.name === fileName);
       const filePath = path.join(directory, fileName);
-      if (run.version !== 1 || run.id !== runId || !file || !(await stat(filePath)).isFile()) return undefined;
+      if (!file || !(await stat(filePath)).isFile()) return undefined;
       const preview = run.preview
         ? { bytes: await readFile(path.join(directory, run.preview.fileName)), mediaType: run.preview.mediaType }
         : undefined;
       return { bytes: await readFile(filePath), mediaType: file.mediaType, ...(run.prompt ? { prompt: run.prompt } : {}), ...(preview ? { preview } : {}) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+  }
+
+  async #readRun(runId: string): Promise<StoredToolRun | undefined> {
+    try {
+      const value = JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>;
+      if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
+      if (value.title !== undefined && typeof value.title !== "string") return undefined;
+      if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string")) return undefined;
+      return value as StoredToolRun;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return undefined;
       throw error;
     }
   }
@@ -333,6 +368,10 @@ function isImageOutputCount(value: unknown): value is ImageOutputCount {
 
 function isRunId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isToolId(value: unknown): value is ToolDefinition["id"] {
+  return value === generateImage.id || value === imageTo3D.id || value === generateVideo.id;
 }
 
 function imageFileName(mediaType: string, index?: number): string {

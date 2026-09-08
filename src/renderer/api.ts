@@ -288,8 +288,12 @@ export async function removeConnection(id: string): Promise<void> {
   await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest): Promise<ToolRun> {
-  return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify(input) });
+export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolRun> {
+  return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
+}
+
+export async function listToolRuns(): Promise<ToolRun[]> {
+  return request("/tool-runs");
 }
 
 export async function getToolRunFile(runId: string, fileName: string): Promise<Blob> {

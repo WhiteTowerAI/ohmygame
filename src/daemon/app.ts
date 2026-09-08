@@ -357,6 +357,7 @@ const toolRunSchema = {
       pbr: { type: "boolean" },
       pose: { type: "string", enum: [...MODEL_3D_POSES] },
       imageEnhancement: { type: "boolean" },
+      title: { type: "string", minLength: 1, maxLength: 80 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -959,12 +960,15 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/tools", async () => tools.list());
 
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest }>(
+  app.get("/tool-runs", async () => tools.recentRuns());
+
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
     "/tools/:toolId/runs",
     { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
     async (request, reply) => {
       try {
-        return reply.code(201).send(await tools.run(request.params.toolId, request.body));
+        const { title, ...input } = request.body;
+        return reply.code(201).send(await tools.run(request.params.toolId, input as RunToolRequest, undefined, { title: title?.trim() }));
       } catch (cause) {
         if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;

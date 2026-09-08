@@ -22,7 +22,7 @@ import {
   type VideoAspectRatio,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
@@ -53,7 +53,7 @@ const MODEL_3D_SOURCE_OPTIONS = [
 interface PreviewResult {
   run: ToolRun;
   urls: string[];
-  templateName: string;
+  title: string;
 }
 
 type AssetPanelView = "templates" | "history";
@@ -204,7 +204,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       await waitForRuntime();
       if (!mounted.current) return;
       setPhase("ready");
-      await Promise.all([loadImageConfig(), loadProjectList(), loadTemplates()]);
+      await Promise.all([loadImageConfig(), loadProjectList(), loadTemplates(), loadHistory()]);
     } catch (cause) {
       if (!mounted.current) return;
       setLoadError(errorMessage(cause));
@@ -254,6 +254,25 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
   }
 
+  async function loadHistory(): Promise<void> {
+    try {
+      const runs = await listToolRuns();
+      const loaded = await Promise.allSettled(runs.map(async (run): Promise<PreviewResult> => ({
+        run,
+        urls: (await Promise.all(run.files.map((file) => getToolRunFile(run.id, file.name)))).map((blob) => URL.createObjectURL(blob)),
+        title: run.title ?? defaultRunTitle(run.toolId),
+      })));
+      const entries = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+      if (!mounted.current) {
+        entries.forEach((entry) => entry.urls.forEach((url) => URL.revokeObjectURL(url)));
+        return;
+      }
+      mergeHistoryResults(entries);
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    }
+  }
+
   async function generate(event?: FormEvent): Promise<void> {
     event?.preventDefault();
     if (!canGenerate || generating) return;
@@ -270,12 +289,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         nextRun = await runTool("generate-image", {
           prompt: imagePrompt.trim(), resolution, aspectRatio, outputs,
           ...(imageReferences.length ? { images: imageReferences } : {}),
-        });
+        }, selectedTemplate.name);
       } else if (mode === "video") {
         nextRun = await runTool("generate-video", {
           prompt: videoPrompt.trim(), duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution,
           ...(videoReferences.length ? { images: videoReferences } : {}),
-        });
+        }, selectedTemplate.name);
       } else {
         const images = modelReferences
           .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
@@ -287,7 +306,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           texture: model3DTexture,
           pose: model3DPose,
           ...(model3DSource === "image" && !isMeshyT2 ? { imageEnhancement: model3DImageEnhancement } : {}),
-        });
+        }, selectedTemplate.name);
       }
       if (selectedTemplate.author && auth.state.status === "signed-in") {
         void auth.requestAccessToken()
@@ -300,7 +319,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       const blobs = await Promise.all(nextRun.files.map((file) => getToolRunFile(nextRun.id, file.name)));
       if (!mounted.current) return;
-      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), templateName: selectedTemplate.name };
+      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: nextRun.title ?? selectedTemplate.name };
       setResult(nextResult);
       addHistoryResult(nextResult);
       setSelectedResult(0);
@@ -505,7 +524,15 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   function addHistoryResult(entry: PreviewResult): void {
-    const entries = [entry, ...historyRef.current];
+    mergeHistoryResults([entry]);
+  }
+
+  function mergeHistoryResults(incoming: PreviewResult[]): void {
+    const existingIds = new Set(historyRef.current.map((entry) => entry.run.id));
+    const duplicates = incoming.filter((entry) => existingIds.has(entry.run.id));
+    duplicates.forEach((entry) => entry.urls.forEach((url) => URL.revokeObjectURL(url)));
+    const entries = [...historyRef.current, ...incoming.filter((entry) => !existingIds.has(entry.run.id))]
+      .sort((left, right) => right.run.createdAt.localeCompare(left.run.createdAt));
     const evicted = entries.splice(HISTORY_LIMIT);
     evicted.forEach((result) => result.urls.forEach((url) => URL.revokeObjectURL(url)));
     historyRef.current = entries;
@@ -700,7 +727,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
               {panelView === "history" && !generating && history.length ? history.flatMap((entry) => entry.urls.map((url, index) => {
                 const selected = result?.run.id === entry.run.id && selectedResult === index;
                 const resultMode = studioModeForTool(entry.run.toolId);
-                return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.templateName} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={resultMode} url={url} label={entry.templateName} /></span><span className="asset-history-copy"><strong>{entry.templateName}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
+                return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.title} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={resultMode} url={url} label={entry.title} /></span><span className="asset-history-copy"><strong>{entry.title}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
               })) : null}
             </div>
             {templateDialogOpen ? <div className="asset-template-dialog" role="dialog" aria-modal="true" aria-label="Save template">
@@ -950,6 +977,12 @@ function studioModeForTool(toolId: ToolRun["toolId"]): StudioMode {
   if (toolId === "generate-video") return "video";
   if (toolId === "image-to-3d") return "3d";
   return "image";
+}
+
+function defaultRunTitle(toolId: ToolRun["toolId"]): string {
+  if (toolId === "generate-video") return "Generated Video";
+  if (toolId === "image-to-3d") return "Generated 3D Model";
+  return "Generated Image";
 }
 
 function formatHistoryTime(value: string): string {
