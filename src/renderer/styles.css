@@ -3551,7 +3551,6 @@ button {
   padding: 18px;
 }
 
-.asset-mode-switcher,
 .asset-panel-switcher {
   display: grid;
   height: 34px;
@@ -3563,10 +3562,8 @@ button {
   background: #1c2224;
 }
 
-.asset-mode-switcher { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .asset-panel-switcher { width: 230px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-.asset-mode-switcher button,
 .asset-panel-switcher button {
   min-width: 0;
   padding: 0;
@@ -3579,9 +3576,7 @@ button {
   font-weight: 500;
 }
 
-.asset-mode-switcher button:hover:not(:disabled),
 .asset-panel-switcher button:hover:not(:disabled) { color: #ebf0eb; }
-.asset-mode-switcher button.is-active,
 .asset-panel-switcher button.is-active { border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345); background: #252b2d; color: #ebf0eb; font-weight: 600; }
 
 .asset-config-fields {
@@ -3591,7 +3586,7 @@ button {
   flex-direction: column;
   gap: 18px;
   overflow-y: auto;
-  margin: 18px -5px 12px 0;
+  margin: 0 -5px 12px 0;
   padding-right: 5px;
   scrollbar-color: #2a3133 transparent;
   scrollbar-width: thin;
@@ -3920,6 +3915,7 @@ button {
 
 .asset-template-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .asset-template-preview > span { display: grid; place-items: center; color: var(--asset-muted); }
+.asset-template-preview .asset-template-type { position: absolute; top: 7px; left: 7px; display: flex; height: 22px; align-items: center; gap: 4px; padding: 0 7px; border-radius: 5px; background: rgb(9 11 12 / 78%); color: #d2d8d9; font-size: 9px; font-weight: 600; }
 
 .asset-template-card-copy { display: flex; min-width: 0; min-height: 27px; align-items: center; gap: 8px; padding: 7px 10px 2px; }
 .asset-template-card-copy strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 600; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }

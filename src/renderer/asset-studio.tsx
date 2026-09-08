@@ -22,8 +22,9 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateImageGenerationSettings, waitForRuntime } from "./api.js";
-import { defaultTemplateForMode, templatesForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
+import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
+import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -58,7 +59,6 @@ type AssetPanelView = "templates" | "history";
 export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
-  const [mode, setMode] = useState<StudioMode>("image");
   const [templateId, setTemplateId] = useState(defaultTemplateForMode("image").id);
   const [imagePhase, setImagePhase] = useState<"loading" | "ready" | "error">("loading");
   const [imageLoadError, setImageLoadError] = useState<string>();
@@ -120,17 +120,19 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const auth = useAuth();
 
   const publishedTemplateIds = new Set(localTemplates.flatMap((template) => template.publication ? [template.publication.templateId] : []));
-  const builtInTemplateIds = new Set(templatesForMode(mode).map((template) => template.id));
-  const openGameTemplates = templatesForMode(mode).map((template) => {
+  const builtInTemplateIds = new Set(ASSET_TEMPLATES.map((template) => template.id));
+  const openGameTemplates = ASSET_TEMPLATES.map((template) => {
     const catalog = exploreTemplates.find((candidate) => candidate.id === template.id);
     return catalog ? { ...template, author: catalog.author, stats: catalog.stats } : template;
   });
-  const yoursTemplates = localTemplates.filter((template) => template.mode === mode).map(templateForGallery);
+  const yoursTemplates = localTemplates.map(templateForGallery);
   const communityTemplates = exploreTemplates
-    .filter((template) => template.mode === mode && !builtInTemplateIds.has(template.id) && !publishedTemplateIds.has(template.id))
+    .filter((template) => template.author.id !== OPEN_GAME_TEMPLATE_AUTHOR.id
+      && !builtInTemplateIds.has(template.id) && !publishedTemplateIds.has(template.id))
     .map(templateForGallery);
   const templates = [...openGameTemplates, ...yoursTemplates, ...communityTemplates];
-  const selectedTemplate = templates.find((template) => template.id === templateId) ?? defaultTemplateForMode(mode);
+  const selectedTemplate = templates.find((template) => template.id === templateId) ?? defaultTemplateForMode("image");
+  const mode = selectedTemplate.mode;
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
     selectedImageModel?.generationOptions.some((option) => option.resolution === candidate),
@@ -323,20 +325,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
   }
 
-  function chooseMode(nextMode: StudioMode): void {
-    if (nextMode === mode || generating) return;
-    setMode(nextMode);
-    applyTemplate(defaultTemplateForMode(nextMode));
-    setPanelView("templates");
-    setResult(undefined);
-    setSelectedResult(0);
-    setGenerationError(undefined);
-    setReferenceError(undefined);
-    setActionStatus(undefined);
-    setMenuOpen(false);
-  }
-
   function applyTemplate(template: AssetTemplate): void {
+    if (generating) return;
     setTemplateId(template.id);
     const prompt = template.defaultPrompt ?? "";
     const defaults = template.defaults;
@@ -481,7 +471,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       await deleteAssetTemplate(template.id);
       setLocalTemplates((templates) => templates.filter((candidate) => candidate.id !== template.id));
-      if (selectedTemplate.id === template.id) applyTemplate(defaultTemplateForMode(mode));
+      if (selectedTemplate.id === template.id) applyTemplate(defaultTemplateForMode(template.mode));
       setExploreTemplates(await listExploreTemplates());
       setActionStatus({ type: "success", message: "Template deleted" });
     } catch (cause) {
@@ -535,8 +525,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setAspectRatio(nextAspectRatio);
   }
 
-  const modeHistory = history.filter((entry) => studioModeForTool(entry.run.toolId) === mode);
-
   async function selectReference(files: File[]): Promise<void> {
     if (!files.length) return;
     try {
@@ -581,7 +569,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         <WindowDragRegion />
         <div className="asset-studio-workspace">
           <form className="asset-config-panel" onSubmit={generate}>
-            <ModeSwitcher mode={mode} disabled={generating} onChange={chooseMode} />
             {phase === "loading" ? <div className="asset-config-state"><LoaderCircle className="spin" size={16} />Loading studio</div> : null}
             {phase === "error" ? <div className="asset-config-state asset-config-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => void load()}><RefreshCw size={13} />Retry</button></div> : null}
             {phase === "ready" ? (
@@ -691,23 +678,24 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
               {projectsError ? <button type="button" role="menuitem" onClick={() => void loadProjectList()}><RefreshCw size={14} />Retry projects</button> : null}
               <button type="button" role="menuitem" disabled={generating} onClick={() => void generate()}><RefreshCw size={14} />Regenerate</button>
             </div> : null}</div></header>
-            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && modeHistory.length ? " asset-history-grid" : ""}`}>
+            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && history.length ? " asset-history-grid" : ""}`}>
               {panelView === "templates" ? <TemplateGallery
                 yours={yoursTemplates}
                 explore={[...openGameTemplates, ...communityTemplates]}
                 selectedId={selectedTemplate.id}
-                busy={templateBusy}
+                busy={templateBusy || generating}
                 onSelect={applyTemplate}
                 onPublish={(template) => void shareTemplate(template)}
                 onSetPublication={(template, status) => void setTemplatePublication(template, status)}
                 onDelete={(template) => void deleteTemplate(template)}
               /> : null}
               {panelView === "history" && generating ? <div className="asset-result-empty"><LoaderCircle className="spin" size={28} /><strong>Generating your {mode === "3d" ? "model" : mode}</strong><span>This may take a moment.</span></div> : null}
-              {panelView === "history" && !generating && generationError && !modeHistory.length ? <div className="asset-result-empty asset-result-error" role="alert"><strong>Generation failed</strong><span>{generationError}</span></div> : null}
-              {panelView === "history" && !generating && !generationError && !modeHistory.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><HistoryIcon mode={mode} /></span><strong>No history yet</strong><span>Generated {mode === "3d" ? "models" : `${mode}s`} from this session will appear here.</span></div> : null}
-              {panelView === "history" && !generating && modeHistory.length ? modeHistory.flatMap((entry) => entry.urls.map((url, index) => {
+              {panelView === "history" && !generating && generationError && !history.length ? <div className="asset-result-empty asset-result-error" role="alert"><strong>Generation failed</strong><span>{generationError}</span></div> : null}
+              {panelView === "history" && !generating && !generationError && !history.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><Sparkles size={24} /></span><strong>No history yet</strong><span>Generated assets from this session will appear here.</span></div> : null}
+              {panelView === "history" && !generating && history.length ? history.flatMap((entry) => entry.urls.map((url, index) => {
                 const selected = result?.run.id === entry.run.id && selectedResult === index;
-                return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.templateName} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={mode} url={url} label={entry.templateName} /></span><span className="asset-history-copy"><strong>{entry.templateName}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
+                const resultMode = studioModeForTool(entry.run.toolId);
+                return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.templateName} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={resultMode} url={url} label={entry.templateName} /></span><span className="asset-history-copy"><strong>{entry.templateName}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
               })) : null}
             </div>
             {templateDialogOpen ? <div className="asset-template-dialog" role="dialog" aria-modal="true" aria-label="Save template">
@@ -728,16 +716,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                 <div><button type="button" disabled={templateBusy} onClick={closeTemplateDialog}>Cancel</button><button type="submit" disabled={!templateName.trim() || templateBusy || templateCoverBusy}>{templateBusy ? "Saving..." : "Save"}</button></div>
               </form>
             </div> : null}
-            {generationError && modeHistory.length ? <p className="asset-result-notice is-error" role="alert">Generation failed: {generationError}</p> : actionStatus ? <p className={`asset-result-notice${actionStatus.type === "error" ? " is-error" : ""}`} role={actionStatus.type === "error" ? "alert" : "status"}>{actionStatus.message}</p> : null}
+            {generationError && history.length ? <p className="asset-result-notice is-error" role="alert">Generation failed: {generationError}</p> : actionStatus ? <p className={`asset-result-notice${actionStatus.type === "error" ? " is-error" : ""}`} role={actionStatus.type === "error" ? "alert" : "status"}>{actionStatus.message}</p> : null}
           </section>
         </div>
       </section>
     </main>
   );
-}
-
-function ModeSwitcher({ mode, disabled, onChange }: { mode: StudioMode; disabled: boolean; onChange: (mode: StudioMode) => void }) {
-  return <div className="asset-mode-switcher" aria-label="Media type">{(["image", "video", "3d"] as const).map((value) => <button key={value} type="button" className={mode === value ? "is-active" : undefined} aria-pressed={mode === value} disabled={disabled} onClick={() => onChange(value)}>{value === "3d" ? "3D" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>;
 }
 
 function PanelViewSwitcher({ view, disabled, onChange }: { view: AssetPanelView; disabled: boolean; onChange: (view: AssetPanelView) => void }) {
@@ -797,7 +781,7 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
 }) {
   const publication = template.source === "local" ? template.publication : undefined;
   return <article className={`asset-template-card${selected ? " is-selected" : ""}${template.source === "builtIn" ? " is-official" : ""}`}>
-    <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} onClick={() => onSelect(template)}>
+    <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} disabled={busy} onClick={() => onSelect(template)}>
       <TemplatePreview template={template} />
       <span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" && !template.author ? <small>OpenGame</small> : publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
     </button>
@@ -837,6 +821,7 @@ function TemplatePreview({ template }: { template: AssetTemplate }) {
   useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl); }, [coverUrl]);
   return <span className="asset-template-preview">
     {template.previewImage || coverUrl ? <img src={template.previewImage ?? coverUrl} alt="" /> : <span><HistoryIcon mode={template.mode} /></span>}
+    <span className="asset-template-type"><HistoryIcon mode={template.mode} size={11} />{template.mode === "3d" ? "3D" : template.mode[0].toUpperCase() + template.mode.slice(1)}</span>
   </span>;
 }
 
@@ -844,10 +829,10 @@ function templateForGallery(template: LocalAssetTemplate | ExploreAssetTemplate)
   return { ...template };
 }
 
-function HistoryIcon({ mode }: { mode: StudioMode }) {
-  if (mode === "video") return <Film size={24} />;
-  if (mode === "3d") return <Box size={24} />;
-  return <Image size={24} />;
+function HistoryIcon({ mode, size = 24 }: { mode: StudioMode; size?: number }) {
+  if (mode === "video") return <Film size={size} />;
+  if (mode === "3d") return <Box size={size} />;
+  return <Image size={size} />;
 }
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {

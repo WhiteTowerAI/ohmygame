@@ -17,22 +17,17 @@ describe("asset templates", () => {
     expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length);
   });
 
-  it("provides visible prompts for specialized templates", () => {
-    const template = templatesForMode("image").find((candidate) => candidate.id === "character-turnaround");
-    expect(template).toBeDefined();
-    expect(template?.defaultPrompt).toMatch(/^Create a clean production character turnaround sheet/);
+  it("only includes the general template for each mode", () => {
+    expect((["image", "video", "3d"] as const).map((mode) => templatesForMode(mode).map((template) => template.id)))
+      .toEqual([["general-image"], ["general-video"], ["general-3d"]]);
+    expect((["image", "video", "3d"] as const).every((mode) => defaultTemplateForMode(mode).defaultPrompt === undefined)).toBe(true);
   });
 
-  it("keeps general templates open-ended", () => {
-    expect(defaultTemplateForMode("image").defaultPrompt).toBeUndefined();
-  });
-
-  it("makes specialized 3D prompts visible by selecting text input", () => {
+  it("uses Meshy T2 for the general 3D template", () => {
     const templates = templatesForMode("3d");
     expect(defaultTemplateForMode("3d").defaults?.model3DSource).toBe("image");
     expect(templates.every((template) => template.defaults?.model3DModel === "meshy-t2")).toBe(true);
     expect(templates.every((template) => template.defaults?.model3DTargetPolycount === 4_000)).toBe(true);
-    expect(templates.filter((template) => template.defaultPrompt).every((template) => template.defaults?.model3DSource === "text")).toBe(true);
   });
 
   it("validates model-specific 3D template defaults", () => {

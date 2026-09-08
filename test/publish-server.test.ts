@@ -74,9 +74,9 @@ describe("public publish server", () => {
     });
     expect(release.statusCode).toBe(201);
     const builtIns = (await app.inject({ method: "GET", url: "/v1/explore/templates" })).json();
-    expect(builtIns).toHaveLength(11);
+    expect(builtIns).toHaveLength(3);
     expect(builtIns).toContainEqual(expect.objectContaining({
-      id: "character-turnaround", releaseId: "character-turnaround-v1",
+      id: "general-image", releaseId: "general-image-v1",
       author: { id: "opengame", displayName: "OpenGame" }, stats: { likes: 0, uses: 0 },
     }));
     expect((await app.inject({
@@ -93,10 +93,10 @@ describe("public publish server", () => {
   it("records interactions for built-in Asset Templates", async () => {
     const app = await testApp();
     expect((await app.inject({
-      method: "PUT", url: "/v1/community/template/character-turnaround/like", headers: authorization,
+      method: "PUT", url: "/v1/community/template/general-image/like", headers: authorization,
     })).json()).toMatchObject({ liked: true, stats: { likes: 1, uses: 0 } });
     expect((await app.inject({
-      method: "POST", url: "/v1/community/template/character-turnaround/use", headers: authorization,
+      method: "POST", url: "/v1/community/template/general-image/use", headers: authorization,
     })).json()).toEqual({ likes: 1, uses: 1 });
   });
 

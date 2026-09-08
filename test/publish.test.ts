@@ -42,7 +42,7 @@ describe("remote publish", () => {
     ]);
     expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Cinematic Shot", source: "catalog", releaseId: published.json().release.id, hasCover: true }),
-      expect.objectContaining({ id: "character-turnaround", source: "catalog", author: { id: "opengame", displayName: "OpenGame" } }),
+      expect.objectContaining({ id: "general-image", source: "catalog", author: { id: "opengame", displayName: "OpenGame" } }),
     ]));
     const localCover = await runtime.daemon.inject({ method: "GET", url: `/asset-templates/${saved.json().id}/cover` });
     expect(localCover.statusCode).toBe(200);
