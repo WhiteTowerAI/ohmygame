@@ -4785,8 +4785,9 @@ button {
 }
 
 .story-canvas-toolbar button.is-active {
-  background: #f0f2f7;
-  color: #17191d;
+  background: var(--surface-hover);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
 }
 
 .story-canvas-toolbar button:disabled {

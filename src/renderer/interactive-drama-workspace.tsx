@@ -230,6 +230,10 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
               elementsSelectable={interactionMode === "pointer"}
               selectionOnDrag={interactionMode === "pointer"}
               panOnDrag={interactionMode === "pan" ? true : [1, 2]}
+              panOnScroll
+              zoomOnScroll={false}
+              zoomOnPinch
+              zoomOnDoubleClick={false}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -418,7 +422,26 @@ function CanvasToolbar({
   onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const addMenu = useRef<HTMLDivElement>(null);
   const { fitView, getNodes, screenToFlowPosition, setViewport } = useReactFlow();
+
+  useEffect(() => {
+    if (!addOpen) return;
+
+    const closeOutside = (event: PointerEvent) => {
+      if (!addMenu.current?.contains(event.target as globalThis.Node)) setAddOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [addOpen]);
 
   async function fitCanvas(): Promise<void> {
     if (getNodes().length === 0) {
@@ -438,7 +461,7 @@ function CanvasToolbar({
 
   return (
     <Panel className="story-canvas-toolbar" position="bottom-center">
-      <div className="story-add-node">
+      <div ref={addMenu} className="story-add-node">
         {addOpen ? (
           <div className="story-add-node-menu">
             <button type="button" onClick={() => add("scene")}><Clapperboard size={15} /><span><strong>Scene</strong><small>Story content and dialogue</small></span></button>
