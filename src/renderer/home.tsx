@@ -1,18 +1,15 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from "./icons.js";
-import { useEffect, useRef, useState } from "react";
+import { Plus, RefreshCw } from "./icons.js";
+import { useEffect, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
+import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import playableCanvas from "./assets/home/playable-canvas.svg";
-import cozyTown from "./assets/home/cozy-town.svg";
 import dialogueDirector from "./assets/home/dialogue-director.svg";
-import creatorWeek from "./assets/home/creator-week.svg";
-import neonDrift from "./assets/home/neon-drift.svg";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -21,13 +18,11 @@ interface HomeProps {
 }
 
 const RECENT_PROJECT_LIMIT = 4;
-const WHATS_NEW = [
-  { title: "Playable Canvas is here", image: playableCanvas, page: "home" as SidebarPage },
-  { title: "Cozy Town Starter Kit", image: cozyTown, page: "library" as SidebarPage },
-  { title: "Dialogue Director", image: dialogueDirector, page: "interactive-drama" as SidebarPage },
-  { title: "Creator Week rewards", image: creatorWeek, page: "games" as SidebarPage },
-  { title: "Neon Drift", image: neonDrift, page: "games" as SidebarPage },
-];
+const WHATS_NEW_ITEM = {
+  title: "Interactive Drama is here",
+  image: dialogueDirector,
+  page: "interactive-drama" as SidebarPage,
+};
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -35,9 +30,8 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [loadError, setLoadError] = useState<string>();
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [projectActionError, setProjectActionError] = useState<string>();
-  const [projectType, setProjectType] = useState<ProjectType>("web-game");
-  const [whatsNewScroll, setWhatsNewScroll] = useState({ canGoBack: false, canGoForward: false });
-  const whatsNewRef = useRef<HTMLDivElement>(null);
+  const [projectType, setProjectType] = useState<ProjectType>("interactive-drama");
+  const [createOpen, setCreateOpen] = useState(false);
 
   async function loadProjects() {
     setPhase("loading");
@@ -53,27 +47,6 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   useEffect(() => { void loadProjects(); }, []);
-  useEffect(() => {
-    const carousel = whatsNewRef.current;
-    if (!carousel) return;
-    const updateScrollState = () => {
-      const maxScrollLeft = carousel.scrollWidth - carousel.clientWidth;
-      const canGoBack = carousel.scrollLeft > 1;
-      const canGoForward = carousel.scrollLeft < maxScrollLeft - 1;
-      setWhatsNewScroll((current) => (
-        current.canGoBack === canGoBack && current.canGoForward === canGoForward
-          ? current
-          : { canGoBack, canGoForward }
-      ));
-    };
-    updateScrollState();
-    carousel.addEventListener("scroll", updateScrollState, { passive: true });
-    window.addEventListener("resize", updateScrollState);
-    return () => {
-      carousel.removeEventListener("scroll", updateScrollState);
-      window.removeEventListener("resize", updateScrollState);
-    };
-  }, []);
   async function rename(project: ProjectState) {
     const name = window.prompt("Rename project", project.name)?.trim();
     if (!name || name === project.name) return;
@@ -135,29 +108,22 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             onProjectTypeChange={setProjectType}
             onCreate={onCreate}
           />
+          <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} />Start blank
+          </button>
         </div>
 
         <section className="home-discover" aria-labelledby="whats-new-heading">
           <div className="home-section-heading">
             <h2 id="whats-new-heading">What's New</h2>
-            <div className="home-carousel-controls">
-              <button type="button" aria-label="Previous What's New items" disabled={!whatsNewScroll.canGoBack} onClick={() => whatsNewRef.current?.scrollBy({ left: -244, behavior: "smooth" })}>
-                <ChevronLeft size={14} />
-              </button>
-              <button type="button" aria-label="Next What's New items" disabled={!whatsNewScroll.canGoForward} onClick={() => whatsNewRef.current?.scrollBy({ left: 244, behavior: "smooth" })}>
-                <ChevronRight size={14} />
-              </button>
-            </div>
           </div>
-          <div className="home-whats-new-grid" ref={whatsNewRef}>
-            {WHATS_NEW.map(({ title, image, page }) => (
-              <button className="home-whats-new-item" key={title} type="button" onClick={() => onNavigate(page)}>
-                <span className="home-whats-new-icon"><img src={image} alt="" /></span>
-                <span className="home-whats-new-copy">
-                  <strong>{title}</strong>
-                </span>
-              </button>
-            ))}
+          <div className="home-whats-new-grid">
+            <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
+              <span className="home-whats-new-icon"><img src={WHATS_NEW_ITEM.image} alt="" /></span>
+              <span className="home-whats-new-copy">
+                <strong>{WHATS_NEW_ITEM.title}</strong>
+              </span>
+            </button>
           </div>
 
           <div className="home-section-heading home-project-heading">
@@ -194,6 +160,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
       </section>
+      {createOpen ? <ProjectCreateDialog initialType={projectType} onClose={() => setCreateOpen(false)} onCreated={(project) => {
+        setCreateOpen(false);
+        onOpen(project.id);
+      }} /> : null}
     </main>
   );
 }

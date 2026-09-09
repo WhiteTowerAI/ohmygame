@@ -74,7 +74,7 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
             placeholder="Describe the interactive drama you want to create..."
             onCreate={onCreate}
           />
-          <button className="interactive-drama-start-blank" type="button" onClick={() => setCreateOpen(true)}>
+          <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
             <Plus size={14} />Start blank
           </button>
         </div>

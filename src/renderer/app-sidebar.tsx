@@ -111,11 +111,10 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
         <NavigationItem active={active === "projects"} icon="project" label="Projects" onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
-        <div className="home-nav-label home-nav-label-spaced">EXPANSIONS</div>
         <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
-        <NavigationItem active={active === "asset-studio"} icon="asset-studio" label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
         <NavigationItem active={active === "interactive-drama"} icon="interactive-drama" label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
+        <NavigationItem active={active === "asset-studio"} icon="asset-studio" label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
         <div className="home-nav-label home-nav-label-spaced">EXPLORE</div>
         <NavigationItem active={active === "games"} icon="games" label="Games" onClick={() => onNavigate("games")} />
         <NavigationItem active={active === "assets"} icon="assets" label="Assets" onClick={() => onNavigate("assets")} />

@@ -1521,14 +1521,12 @@ button.home-nav-item-active:hover {
   display: grid;
   gap: 20px;
   padding: 40px 0 20px;
-  border-bottom: 1px solid var(--border);
 }
 
 .sidebar-page-header-breadcrumb {
   --breadcrumb-bleed: max(0px, calc((100vw - var(--sidebar-width, 232px) - 72px - 1100px) / 2));
   margin: 0 calc(-1 * var(--breadcrumb-bleed) - 12px);
   padding: 18px 0 10px;
-  border-bottom: 0;
 }
 
 .sidebar-page-title-row {
@@ -1607,7 +1605,7 @@ button.home-nav-item-active:hover {
   letter-spacing: 0;
 }
 
-.interactive-drama-start-blank {
+.home-start-blank {
   display: inline-flex;
   height: 28px;
   align-items: center;
@@ -1623,7 +1621,7 @@ button.home-nav-item-active:hover {
   font-size: 11px;
 }
 
-.interactive-drama-start-blank:hover {
+.home-start-blank:hover {
   background: var(--home-sidebar-hover);
   color: var(--text);
 }
@@ -1771,15 +1769,9 @@ button.home-nav-item-active:hover {
 
 .home-whats-new-grid {
   display: grid;
-  grid-auto-columns: 232px;
-  grid-auto-flow: column;
-  gap: 12px;
-  overflow-x: auto;
+  grid-template-columns: minmax(0, 232px);
   padding-bottom: 2px;
-  scrollbar-width: none;
 }
-
-.home-whats-new-grid::-webkit-scrollbar { display: none; }
 
 .home-whats-new-item {
   display: flex;
@@ -1839,38 +1831,6 @@ button.home-nav-item-active:hover {
   font-size: 12px;
   font-weight: 600;
   line-height: 16px;
-}
-
-.home-carousel-controls {
-  display: flex;
-  gap: 6px;
-}
-
-.home-section-heading .home-carousel-controls button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  place-items: center;
-  border: 1px solid var(--home-border);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--home-surface) 72%, transparent);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: 120ms ease;
-  transition-property: background-color, border-color, color, opacity;
-}
-
-.home-section-heading .home-carousel-controls button:hover:not(:disabled),
-.home-section-heading .home-carousel-controls button:focus-visible {
-  border-color: color-mix(in srgb, var(--home-accent) 38%, var(--home-border));
-  background: var(--home-sidebar-hover);
-  color: var(--home-accent);
-}
-
-.home-section-heading .home-carousel-controls button:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 
 .home-project-heading {
