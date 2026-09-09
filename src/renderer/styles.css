@@ -4969,9 +4969,9 @@ button {
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
 }
 
-.project-name,
 .viewer-title {
   overflow: hidden;
   color: var(--text);
@@ -4980,40 +4980,6 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.project-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.project-switcher { position: relative; min-width: 0; app-region: no-drag; }
-.project-switcher-trigger {
-  display: flex;
-  max-width: 190px;
-  height: 28px;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-}
-.project-switcher-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-switcher-trigger > svg { flex: 0 0 auto; }
-.project-switcher-trigger > svg:last-child { color: var(--text-muted); }
-.project-switcher-trigger:hover,
-.project-switcher-trigger[aria-expanded="true"] { background: var(--surface-hover); }
-.project-switcher-trigger.is-compact { width: 42px; padding: 0 5px; gap: 3px; color: var(--text-muted); }
-.project-switcher-trigger.is-compact:hover,
-.project-switcher-trigger.is-compact[aria-expanded="true"] { color: var(--text); }
 
 .project-switcher-popover {
   position: absolute;
@@ -5028,7 +4994,6 @@ button {
   background: var(--menu-surface);
   box-shadow: var(--menu-shadow);
 }
-.project-switcher-popover.is-compact { left: -30px; }
 .project-switcher-search {
   display: flex;
   height: 38px;

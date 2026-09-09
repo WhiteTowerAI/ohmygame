@@ -14,7 +14,6 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type ReactNode,
 } from "react";
 import type { AgentModel, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import {
@@ -55,7 +54,6 @@ import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
-import { ProjectSwitcher } from "./project-switcher.js";
 import type { PublishDetails } from "./publish-dialog.js";
 
 interface ProjectShellProps {
@@ -66,8 +64,6 @@ interface ProjectShellProps {
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
-  onOpenProject: (projectId: string) => void;
-  onManageProjects: () => void;
   onHome: () => void;
 }
 
@@ -85,8 +81,6 @@ export function ProjectShell({
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
-  onOpenProject,
-  onManageProjects,
   onHome,
 }: ProjectShellProps) {
   const auth = useAuth();
@@ -565,10 +559,6 @@ export function ProjectShell({
     if (confirmNavigation()) onHome();
   }
 
-  function requestProject(projectId: string): void {
-    onOpenProject(projectId);
-  }
-
   function setGodotWorkspaceVisibility(open: boolean): void {
     setGodotWorkspaceOpen(open);
     localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
@@ -590,61 +580,55 @@ export function ProjectShell({
 
       <WorkspaceNavigationActions
         collapsed={agentIsCollapsed}
-        project={project}
-        onBeforeNavigate={confirmNavigation}
         onHome={requestHome}
-        onOpenProject={requestProject}
-        onManageProjects={onManageProjects}
         onExpand={() => setAgentCollapsed(false)}
       />
 
       <section className="agent-pane" aria-label="Agent">
-        <PaneHeader
-          project={project}
-          onBeforeNavigate={confirmNavigation}
-          onOpenProject={requestProject}
-          onManageProjects={onManageProjects}
-        >
-          <button
-            className="icon-button pane-header-action"
-            type="button"
-            disabled={!project || creatingConversation}
-            onClick={() => void newConversation()}
-            title="New conversation"
-            aria-label="New conversation"
-          >
-            {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
-          </button>
-          <ConversationMenu
-            conversations={conversations}
-            currentConversationId={conversation?.id}
-            activeConversationId={activeTurn?.conversationId}
-            disabled={!conversation}
-            onRename={rename}
-            onSelect={onOpenConversation}
-          />
-          {viewerCollapsed ? (
+        <header className="pane-header window-drag-handle">
+          <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
+          <div className="pane-header-actions">
             <button
               className="icon-button pane-header-action"
               type="button"
-              onClick={() => setGodotWorkspaceVisibility(true)}
-              title="Show workspace"
-              aria-label="Show workspace"
+              disabled={!project || creatingConversation}
+              onClick={() => void newConversation()}
+              title="New conversation"
+              aria-label="New conversation"
             >
-              <PanelToggle size={14} />
+              {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
-          ) : !isGodotProject ? (
-            <button
-              className="icon-button pane-header-action"
-              type="button"
-              onClick={() => setAgentCollapsed(true)}
-              title="Hide agent"
-              aria-label="Hide agent"
-            >
-              <PanelToggle size={14} />
-            </button>
-          ) : null}
-        </PaneHeader>
+            <ConversationMenu
+              conversations={conversations}
+              currentConversationId={conversation?.id}
+              activeConversationId={activeTurn?.conversationId}
+              disabled={!conversation}
+              onRename={rename}
+              onSelect={onOpenConversation}
+            />
+            {viewerCollapsed ? (
+              <button
+                className="icon-button pane-header-action"
+                type="button"
+                onClick={() => setGodotWorkspaceVisibility(true)}
+                title="Show workspace"
+                aria-label="Show workspace"
+              >
+                <PanelToggle size={14} />
+              </button>
+            ) : !isGodotProject ? (
+              <button
+                className="icon-button pane-header-action"
+                type="button"
+                onClick={() => setAgentCollapsed(true)}
+                title="Hide agent"
+                aria-label="Hide agent"
+              >
+                <PanelToggle size={14} />
+              </button>
+            ) : null}
+          </div>
+        </header>
 
         <div className="agent-body">
           <div
@@ -773,13 +757,9 @@ export function ProjectShell({
   );
 }
 
-function WorkspaceNavigationActions({ collapsed, project, onBeforeNavigate, onHome, onOpenProject, onManageProjects, onExpand }: {
+function WorkspaceNavigationActions({ collapsed, onHome, onExpand }: {
   collapsed: boolean;
-  project?: ProjectState;
-  onBeforeNavigate: () => boolean;
   onHome: () => void;
-  onOpenProject: (projectId: string) => void;
-  onManageProjects: () => void;
   onExpand: () => void;
 }) {
   return (
@@ -787,39 +767,12 @@ function WorkspaceNavigationActions({ collapsed, project, onBeforeNavigate, onHo
       <button className="icon-button workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
         <House size={14} />
       </button>
-      {collapsed && project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
       {collapsed ? (
         <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
           <PanelToggle size={15} />
         </button>
       ) : null}
     </div>
-  );
-}
-
-function PaneHeader({
-  project,
-  onBeforeNavigate,
-  onOpenProject,
-  onManageProjects,
-  children,
-}: {
-  project?: ProjectState;
-  onBeforeNavigate: () => boolean;
-  onOpenProject: (projectId: string) => void;
-  onManageProjects: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <header className="pane-header window-drag-handle">
-      <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-      <div className="project-heading">
-        {project
-          ? <ProjectSwitcher project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} />
-          : <span className="project-name">Loading project</span>}
-      </div>
-      <div className="pane-header-actions">{children}</div>
-    </header>
   );
 }
 

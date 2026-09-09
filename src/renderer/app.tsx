@@ -57,8 +57,6 @@ export function App() {
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
-      onOpenProject={openProject}
-      onManageProjects={() => navigateToSidebarPage("projects")}
       onHome={goHome}
     />
   );
