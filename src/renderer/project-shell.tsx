@@ -3,8 +3,7 @@ import {
   House,
   LoaderCircle,
   MessageSquarePlus,
-  PanelLeftClose,
-  PanelLeftOpen,
+  PanelToggle,
   RefreshCw,
   X,
 } from "./icons.js";
@@ -75,6 +74,7 @@ interface ProjectShellProps {
 const DEFAULT_AGENT_WIDTH = 430;
 const MIN_AGENT_WIDTH = 320;
 const AGENT_WIDTH_STORAGE_KEY = "open-game-agent-width";
+const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "open-game-godot-workspace-open";
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
 export function ProjectShell({
@@ -95,6 +95,7 @@ export function ProjectShell({
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
   const [agentWidth, setAgentWidth] = useState(readAgentWidth);
   const [maximumAgentWidth, setMaximumAgentWidth] = useState(DEFAULT_AGENT_WIDTH);
   const [resizingAgent, setResizingAgent] = useState(false);
@@ -116,6 +117,10 @@ export function ProjectShell({
   useEffect(() => {
     setChatReference(undefined);
   }, [conversationId]);
+
+  useEffect(() => {
+    if (state.project?.type === "godot-game") setAgentCollapsed(false);
+  }, [state.project?.id, state.project?.type]);
 
   useEffect(() => {
     const current = state.conversation;
@@ -564,9 +569,18 @@ export function ProjectShell({
     onOpenProject(projectId);
   }
 
+  function setGodotWorkspaceVisibility(open: boolean): void {
+    setGodotWorkspaceOpen(open);
+    localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
+  }
+
+  const isGodotProject = project?.type === "godot-game";
+  const agentIsCollapsed = !isGodotProject && agentCollapsed;
+  const viewerCollapsed = isGodotProject && !godotWorkspaceOpen;
+
   return (
     <main
-      className={`workspace-shell${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
+      className={`workspace-shell${agentIsCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
       ref={workspaceShell}
       style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}
     >
@@ -575,7 +589,7 @@ export function ProjectShell({
       ) : null}
 
       <WorkspaceNavigationActions
-        collapsed={agentCollapsed}
+        collapsed={agentIsCollapsed}
         project={project}
         onBeforeNavigate={confirmNavigation}
         onHome={requestHome}
@@ -609,15 +623,27 @@ export function ProjectShell({
             onRename={rename}
             onSelect={onOpenConversation}
           />
-          <button
-            className="icon-button pane-header-action"
-            type="button"
-            onClick={() => setAgentCollapsed(true)}
-            title="Hide agent"
-            aria-label="Hide agent"
-          >
-            <PanelLeftClose size={14} />
-          </button>
+          {viewerCollapsed ? (
+            <button
+              className="icon-button pane-header-action"
+              type="button"
+              onClick={() => setGodotWorkspaceVisibility(true)}
+              title="Show workspace"
+              aria-label="Show workspace"
+            >
+              <PanelToggle size={14} />
+            </button>
+          ) : !isGodotProject ? (
+            <button
+              className="icon-button pane-header-action"
+              type="button"
+              onClick={() => setAgentCollapsed(true)}
+              title="Hide agent"
+              aria-label="Hide agent"
+            >
+              <PanelToggle size={14} />
+            </button>
+          ) : null}
         </PaneHeader>
 
         <div className="agent-body">
@@ -708,8 +734,8 @@ export function ProjectShell({
         aria-valuemin={MIN_AGENT_WIDTH}
         aria-valuemax={maximumAgentWidth}
         aria-valuenow={agentWidth}
-        aria-hidden={agentCollapsed || undefined}
-        tabIndex={agentCollapsed ? -1 : 0}
+        aria-hidden={agentIsCollapsed || viewerCollapsed || undefined}
+        tabIndex={agentIsCollapsed || viewerCollapsed ? -1 : 0}
         onDoubleClick={resetAgentWidth}
         onKeyDown={resizeAgentWithKeyboard}
         onPointerDown={(event) => {
@@ -738,6 +764,7 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           onPublish={publish}
           onRestart={restartPreview}
+          onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
         />
       ) : <InteractiveDramaWorkspace
         projectId={project.id}
@@ -763,7 +790,7 @@ function WorkspaceNavigationActions({ collapsed, project, onBeforeNavigate, onHo
       {collapsed && project ? <ProjectSwitcher compact project={project} onBeforeNavigate={onBeforeNavigate} onSelect={onOpenProject} onManage={onManageProjects} /> : null}
       {collapsed ? (
         <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
-          <PanelLeftOpen size={15} />
+          <PanelToggle size={15} />
         </button>
       ) : null}
     </div>
@@ -827,6 +854,10 @@ function errorMessage(error: unknown): string {
 function readAgentWidth(): number {
   const stored = Number(localStorage.getItem(AGENT_WIDTH_STORAGE_KEY));
   return Number.isFinite(stored) && stored >= MIN_AGENT_WIDTH ? stored : DEFAULT_AGENT_WIDTH;
+}
+
+function readGodotWorkspaceOpen(): boolean {
+  return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) === "true";
 }
 
 function getMaximumAgentWidth(workspaceWidth: number): number {

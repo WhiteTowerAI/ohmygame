@@ -4029,10 +4029,32 @@ button {
   grid-template-columns: 0 0 minmax(0, 1fr);
 }
 
+.workspace-shell-viewer-collapsed {
+  --agent-content-column-width: 720px;
+  grid-template-columns: minmax(0, 1fr) 0 0;
+}
+
 .workspace-shell-agent-collapsed .agent-pane {
   overflow: hidden;
   visibility: hidden;
   pointer-events: none;
+}
+
+.workspace-shell-viewer-collapsed .viewer-pane {
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.workspace-shell-viewer-collapsed :is(.timeline, .composer, .plan-review) {
+  padding-right: max(18px, calc((100% - var(--agent-content-column-width)) / 2));
+  padding-left: max(18px, calc((100% - var(--agent-content-column-width)) / 2));
+}
+
+.workspace-shell-viewer-collapsed .agent-body > .questionnaire-card {
+  width: min(calc(100% - 36px), var(--agent-content-column-width));
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .agent-pane,
@@ -4912,6 +4934,10 @@ button {
 }
 
 .workspace-shell-agent-collapsed .workspace-resizer {
+  pointer-events: none;
+}
+
+.workspace-shell-viewer-collapsed .workspace-resizer {
   pointer-events: none;
 }
 
@@ -7206,6 +7232,7 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
+  gap: 6px;
   justify-self: end;
 }
 
@@ -7460,9 +7487,9 @@ button {
 
 .workspace-tabs {
   display: flex;
-  width: 170px;
+  width: fit-content;
   height: 32px;
-  min-width: 170px;
+  min-width: 0;
   align-items: center;
   gap: 0;
   padding: 0;
@@ -8407,6 +8434,12 @@ button {
     grid-template-rows: 0 minmax(380px, 100dvh);
   }
 
+  .workspace-shell-viewer-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 100dvh) 0;
+    height: 100dvh;
+  }
+
   .workspace-resizer {
     display: none;
   }
@@ -8473,11 +8506,6 @@ button {
   .prompt-box-home .model-selector-submenu {
     top: calc(100% + 2px);
     bottom: auto;
-  }
-
-  .workspace-tabs {
-    width: 118px;
-    min-width: 118px;
   }
 
   .workspace-tab-active {

@@ -12,6 +12,7 @@ import {
   Layers3,
   LoaderCircle,
   Monitor,
+  PanelToggle,
   RefreshCw,
   Search,
   Share2,
@@ -37,6 +38,7 @@ interface CodingWorkspaceProps {
   workspaceRevision: number;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   onRestart: () => void;
+  onClose?: () => void;
 }
 
 export function CodingWorkspace({
@@ -46,8 +48,13 @@ export function CodingWorkspace({
   workspaceRevision,
   onPublish,
   onRestart,
+  onClose,
 }: CodingWorkspaceProps) {
   const supportsPreview = project?.type === "web-game";
+  const publishingUnavailable = project?.type === "godot-game";
+  const publishLabel = publishingUnavailable
+    ? "Godot publishing is not available yet"
+    : publishing ? "Publishing" : "Publish";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
   const [viewport, setViewport] = useState<PreviewViewport>("fit");
   const [previewPath, setPreviewPath] = useState("/");
@@ -174,13 +181,24 @@ export function CodingWorkspace({
             className="publish-button workspace-publish-button"
             type="button"
             onClick={() => setPublishDialogOpen(true)}
-            disabled={!project || publishing || agentBusy}
-            title={publishing ? "Publishing" : "Publish"}
-            aria-label={publishing ? "Publishing" : "Publish"}
+            disabled={!project || publishingUnavailable || publishing || agentBusy}
+            title={publishLabel}
+            aria-label={publishLabel}
           >
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
+          {onClose ? (
+            <button
+              className="icon-button pane-header-action"
+              type="button"
+              onClick={onClose}
+              title="Hide workspace"
+              aria-label="Hide workspace"
+            >
+              <PanelToggle size={14} />
+            </button>
+          ) : null}
         </div>
       </header>
 

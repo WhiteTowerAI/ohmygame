@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CodingWorkspace, normalizePreviewPath, workspaceFileTree } from "../src/renderer/coding-workspace.js";
 import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
 
-describe("preview path", () => {
+describe("coding workspace", () => {
   it("shows the initial preview guidance while the workspace is empty", () => {
     const html = renderToStaticMarkup(createElement(CodingWorkspace, {
       project: {
@@ -26,6 +26,30 @@ describe("preview path", () => {
     expect(html).toContain("Describe your idea in the agent panel");
   });
 
+  it("exposes Godot workspace controls without enabling publishing", () => {
+    const html = renderToStaticMarkup(createElement(CodingWorkspace, {
+      project: {
+        id: "project-1",
+        name: "Godot project",
+        type: "godot-game",
+        updatedAt: new Date(0).toISOString(),
+        workspacePath: "/tmp/project-1",
+        preview: { status: "stopped" },
+      },
+      agentBusy: false,
+      publishing: false,
+      workspaceRevision: 0,
+      onPublish: async () => true,
+      onRestart: () => undefined,
+      onClose: () => undefined,
+    }));
+
+    expect(html).toContain('<button class="publish-button workspace-publish-button" type="button" disabled="" title="Godot publishing is not available yet"');
+    expect(html).toContain('aria-label="Hide workspace"');
+  });
+});
+
+describe("preview path", () => {
   it("normalizes paths relative to the preview origin", () => {
     expect(normalizePreviewPath("")).toBe("/");
     expect(normalizePreviewPath("level-editor")).toBe("/level-editor");
