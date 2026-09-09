@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectState, WorkspaceFile } from "../shared/contracts.js";
 import {
-  AssetCard,
-  AssetDetailDialog,
   AssetToolbar,
   fileExtension,
   fileName,
   fileStem,
   filterAssets,
   hasMediaType,
+  WorkspaceAssetCard,
+  WorkspaceAssetDialog,
   type BrowsableAsset,
   type MediaFilter,
 } from "./asset-browser.js";
@@ -97,8 +97,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
       {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
       {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
-      {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <AssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />)}</div> : null}
-      {selectedAsset ? <AssetDetailDialog
+      {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <WorkspaceAssetCard asset={asset} key={`${asset.projectId}:${asset.path}`} onOpen={() => setSelectedAsset(asset)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />)}</div> : null}
+      {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedAsset(undefined)}
         onOpenProject={() => onOpenProject(selectedAsset.projectId)}

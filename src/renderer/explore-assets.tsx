@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ExploreAsset, ProjectState } from "../shared/contracts.js";
 import type { CommunityStats } from "../shared/publish-v1.js";
 import { addExploreAssetToProject, listExploreAssets, listProjects, waitForRuntime } from "./api.js";
 import { AssetToolbar, fileName, fileSize, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { Box, Check, Film, Image as ImageIcon, LoaderCircle, Music2, Plus, RefreshCw, Search, X } from "./icons.js";
-import { ModelPreview } from "./model-preview.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useExploreAssetUrl } from "./use-explore-asset-url.js";
 import { CommunityAuthorView, CommunityLikeButton, CommunityMeta, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
+import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 
 export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -62,36 +62,19 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
 }
 
 function ExploreAssetCard({ asset, onOpen, onStatsChange }: { asset: ExploreAsset; onOpen: () => void; onStatsChange: (stats: CommunityStats) => void }) {
-  const [visible, setVisible] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
-  const target = useRef<HTMLElement>(null);
+  const [target, visible] = useNearViewport<HTMLElement>();
   const preview = useExploreAssetUrl(visible && asset.mediaType === "image" ? asset.id : undefined);
   const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
-  useEffect(() => {
-    const node = target.current;
-    if (!node || typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) return;
-      setVisible(true);
-      observer.disconnect();
-    }, { rootMargin: "160px" });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return <article className="library-asset-card explore-asset-card" ref={target}>
-    <button className="library-asset-card-open" type="button" onClick={onOpen} title={asset.title}>
-      <div className="library-asset-thumbnail">
-        {preview.url && asset.mediaType === "image" && !previewFailed ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
-        {asset.mediaType !== "image" || !preview.url || previewFailed ? <Icon size={28} /> : null}
-        <span className="library-asset-type"><Icon size={11} />{mediaTypeLabel(asset.mediaType)}</span>
-      </div>
-      <span className="library-asset-info"><strong>{asset.title}</strong></span>
-    </button>
-    <CommunityMeta type="asset" id={asset.id} author={asset.author} stats={asset.stats} useLabel="adds" onStatsChange={onStatsChange} />
-  </article>;
+  return <AssetCardShell
+    title={asset.title}
+    preview={<>{preview.url && asset.mediaType === "image" && !previewFailed ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}{asset.mediaType !== "image" || !preview.url || previewFailed ? <Icon size={28} /> : null}</>}
+    badge={<><Icon size={11} />{mediaTypeLabel(asset.mediaType)}</>}
+    footer={<CommunityMeta className="library-asset-card-meta" type="asset" id={asset.id} author={asset.author} stats={asset.stats} useLabel="adds" onStatsChange={onStatsChange} />}
+    className="explore-asset-card"
+    articleRef={target}
+    onOpen={onOpen}
+  />;
 }
 
 function ExploreAssetDialog({ asset, onClose, onOpenProject, onStatsChange }: {
@@ -107,22 +90,8 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject, onStatsChange }: {
   const [phase, setPhase] = useState<"idle" | "loading" | "ready" | "adding" | "error">("idle");
   const [notice, setNotice] = useState<string>();
   const [addedProject, setAddedProject] = useState<ProjectState>();
-  const dialog = useRef<HTMLElement>(null);
-  const onCloseRef = useRef(onClose);
   const recordUse = useCommunityUseRecorder();
   const like = useCommunityLike("asset", asset.id, asset.stats, onStatsChange);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    dialog.current?.focus();
-    const keyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (pickerOpen) setPickerOpen(false);
-      else onCloseRef.current();
-    };
-    window.addEventListener("keydown", keyboard);
-    return () => window.removeEventListener("keydown", keyboard);
-  }, [pickerOpen]);
 
   async function openPicker(): Promise<void> {
     setPickerOpen(true);
@@ -155,21 +124,18 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject, onStatsChange }: {
 
   const normalized = query.trim().toLowerCase();
   const visibleProjects = projects.filter((project) => !normalized || project.name.toLowerCase().includes(normalized));
-  return <div className="library-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="library-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="explore-asset-title" tabIndex={-1}>
-      <header className="library-dialog-header">
-        <div className="library-dialog-title"><h2 id="explore-asset-title">{asset.title}</h2><p><span>{asset.description || asset.fileName}</span></p></div>
-        <div className="library-dialog-header-actions"><button type="button" onClick={onClose} aria-label="Close asset preview"><X size={17} /></button></div>
-      </header>
-      <div className="library-dialog-preview">
+  return <AssetDialogShell
+    title={asset.title}
+    subtitle={<span>{asset.description || asset.fileName}</span>}
+    labelledBy="explore-asset-title"
+    onClose={onClose}
+    onEscape={() => { if (pickerOpen) setPickerOpen(false); else onClose(); }}
+    preview={<>
         {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />Loading asset</span> : null}
         {preview.error ? <span className="library-dialog-state library-dialog-error"><X size={18} />{preview.error}</span> : null}
-        {preview.url && asset.mediaType === "image" ? <img src={preview.url} alt={asset.title} /> : null}
-        {preview.url && asset.mediaType === "video" ? <video src={preview.url} controls preload="metadata" /> : null}
-        {preview.url && asset.mediaType === "audio" ? <audio src={preview.url} controls /> : null}
-        {preview.url && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={asset.title} minHeight={420} /> : null}
-      </div>
-      <footer className="library-dialog-footer">
+        {preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={asset.title} /> : null}
+      </>}
+    footer={<footer className="library-dialog-footer">
         <div><div className="explore-asset-detail-author"><CommunityAuthorView author={asset.author} /><span>{like.counts.uses} adds</span></div><dl><div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div><div><dt>Size</dt><dd>{fileSize(asset.artifactBytes)}</dd></div><div className="library-dialog-path"><dt>File</dt><dd>{fileName(asset.fileName)}</dd></div></dl></div>
         <div className="library-dialog-footer-actions">
           {notice ? <span role="status">{notice}</span> : null}
@@ -187,9 +153,8 @@ function ExploreAssetDialog({ asset, onClose, onOpenProject, onStatsChange }: {
             </div>
           </div> : null}
         </div>
-      </footer>
-    </section>
-  </div>;
+      </footer>}
+  />;
 }
 
 function ExploreState({ children }: { children: React.ReactNode }) {

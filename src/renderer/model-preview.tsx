@@ -12,7 +12,7 @@ type ModelViewerProgress = CustomEvent<{
   totalProgress?: number;
 }>;
 
-export function ModelPreview({ source, label, minHeight = 320 }: { source: string; label: string; minHeight?: number }) {
+export function ModelPreview({ source, label, minHeight = 320, interactive = true }: { source: string; label: string; minHeight?: number; interactive?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -85,9 +85,11 @@ export function ModelPreview({ source, label, minHeight = 320 }: { source: strin
         src: source,
         alt: label,
         loading: "eager",
-        "camera-controls": true,
+        "camera-controls": interactive || undefined,
         "auto-rotate": true,
         "shadow-intensity": "1",
+        tabIndex: interactive ? undefined : -1,
+        "aria-hidden": interactive ? undefined : true,
       })}
       {!loaded && !modelError ? (
         <span className="model-preview-state">

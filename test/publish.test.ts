@@ -5,6 +5,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
+import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { createPublishApp } from "../src/publish-server/app.js";
 import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 
@@ -281,6 +282,47 @@ describe("remote publish", () => {
     const metadata = JSON.parse(await readFile(path.join(source.workspacePath, ".data", "assets.json"), "utf8"));
     expect(metadata.publications["hero.png"]).toMatchObject({ assetId: first.asset.id, releaseId: republished.json().release.id, status: "listed" });
     expect(JSON.stringify(metadata)).not.toContain(token);
+  });
+
+  it("publishes a generated Asset directly from tool history", async () => {
+    const dataDirectory = await temporary("open-game-tool-publish-");
+    const runtime = await testRuntime(dataDirectory, undefined, {
+      generate: async () => ({ bytes: Buffer.from("generated-image"), mediaType: "image/webp" }),
+    });
+    const generated = await runtime.daemon.inject({
+      method: "POST",
+      url: "/tools/generate-image/runs",
+      payload: { prompt: "A forest sprite" },
+    });
+    expect(generated.statusCode, generated.body).toBe(201);
+    const run = generated.json();
+
+    const published = await runtime.daemon.inject({
+      method: "POST",
+      url: `/tool-runs/${run.id}/files/output.webp/publish`,
+      payload: { accessToken: token },
+    });
+    expect(published.statusCode, published.body).toBe(201);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toContainEqual(
+      expect.objectContaining({ title: "A forest sprite", description: "A forest sprite", mediaType: "image" }),
+    );
+    expect((await runtime.daemon.inject({ method: "GET", url: "/tool-runs" })).json()[0].files[0].publication)
+      .toMatchObject({ assetId: published.json().asset.id, status: "listed" });
+
+    const unlisted = await runtime.daemon.inject({
+      method: "PUT",
+      url: `/tool-runs/${run.id}/files/output.webp/publication`,
+      payload: { accessToken: token, status: "unlisted" },
+    });
+    expect(unlisted.statusCode, unlisted.body).toBe(200);
+    expect(unlisted.json().status).toBe("unlisted");
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toEqual([]);
+
+    await runtime.daemon.close();
+    apps.splice(apps.indexOf(runtime.daemon), 1);
+    const restored = createApp({ dataDirectory, imageGenerator: { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) } });
+    apps.push(restored);
+    expect((await restored.inject({ method: "GET", url: "/tool-runs" })).json()[0].files[0].publication.status).toBe("unlisted");
   });
 
   it("truncates a generated Asset prompt to the publish description limit", async () => {
@@ -664,7 +706,7 @@ describe("remote publish", () => {
   });
 });
 
-async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch) {
+async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("open-game-publish-server-");
   const publishServer = createPublishApp({
     dataDirectory: publishData,
@@ -677,6 +719,7 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
     dataDirectory: dataDirectory ?? await temporary("open-game-daemon-"),
     publishApiUrl: apiUrl,
     publishFetch,
+    imageGenerator,
   });
   apps.push(daemon);
   await daemon.ready();

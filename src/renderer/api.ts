@@ -1,6 +1,7 @@
 import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
+  type AssetPublicationState,
   type AgentContextUsage,
   type AddToolResultRequest,
   type AnswerQuestionnaireRequest,
@@ -311,6 +312,20 @@ export async function getToolRunFile(runId: string, fileName: string): Promise<B
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export async function publishToolResult(runId: string, fileName: string, accessToken: string): Promise<PublishAssetResult> {
+  return request(`/tool-runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(fileName)}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  });
+}
+
+export async function setToolResultPublicationStatus(runId: string, fileName: string, status: "listed" | "unlisted", accessToken: string): Promise<AssetPublicationState> {
+  return request(`/tool-runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(fileName)}/publication`, {
+    method: "PUT",
+    body: JSON.stringify({ status, accessToken }),
+  });
 }
 
 export async function addToolResultToProject(

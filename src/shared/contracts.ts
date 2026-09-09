@@ -572,6 +572,7 @@ export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoTo
 export interface ToolRunFile {
   name: string;
   mediaType: string;
+  publication?: AssetPublicationState;
 }
 
 export interface ToolRun {

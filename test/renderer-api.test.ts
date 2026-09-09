@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -715,6 +715,21 @@ describe("renderer tools API", () => {
       method: "POST",
       body: JSON.stringify({ runId: "run-1", fileName: "output.webp" }),
     }));
+  });
+
+  it("publishes and updates a tool result listing", async () => {
+    installWindow();
+    const published = { asset: { id: "asset-1" }, release: { id: "release-1" } };
+    const publication = { assetId: "asset-1", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "unlisted" as const };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(published, { status: 201 }))
+      .mockResolvedValueOnce(Response.json(publication));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(publishToolResult("run-1", "output.webp", "token")).resolves.toEqual(published);
+    await expect(setToolResultPublicationStatus("run-1", "output.webp", "unlisted", "token")).resolves.toEqual(publication);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tool-runs/run-1/files/output.webp/publish", expect.objectContaining({ method: "POST", body: JSON.stringify({ accessToken: "token" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-runs/run-1/files/output.webp/publication", expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "unlisted", accessToken: "token" }) }));
   });
 
 });

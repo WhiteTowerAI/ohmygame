@@ -302,8 +302,8 @@ export class ToolRunner {
       .map(publicRun);
   }
 
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
-    if (!isRunId(runId) || !/^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(fileName)) return undefined;
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; title?: string; prompt?: string; publication?: NonNullable<ToolRun["files"][number]["publication"]>; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
+    if (!isRunId(runId) || !isToolRunFileName(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
       const run = await this.#readRun(runId);
@@ -314,11 +314,31 @@ export class ToolRunner {
       const preview = run.preview
         ? { bytes: await readFile(path.join(directory, run.preview.fileName)), mediaType: run.preview.mediaType }
         : undefined;
-      return { bytes: await readFile(filePath), mediaType: file.mediaType, ...(run.prompt ? { prompt: run.prompt } : {}), ...(preview ? { preview } : {}) };
+      const title = promptTitle(run.prompt) ?? run.title;
+      return {
+        bytes: await readFile(filePath),
+        mediaType: file.mediaType,
+        ...(title ? { title } : {}),
+        ...(run.prompt ? { prompt: run.prompt } : {}),
+        ...(file.publication ? { publication: file.publication } : {}),
+        ...(preview ? { preview } : {}),
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
+  }
+
+  async setFilePublication(runId: string, fileName: string, publication: NonNullable<ToolRun["files"][number]["publication"]>): Promise<void> {
+    if (!isRunId(runId) || !isToolRunFileName(fileName)) throw new ToolRunError("Tool output not found", 404);
+    const run = await this.#readRun(runId);
+    const file = run?.files.find((candidate) => candidate.name === fileName);
+    if (!run || !file) throw new ToolRunError("Tool output not found", 404);
+    file.publication = publication;
+    const runFile = path.join(this.#runsDirectory, runId, "run.json");
+    const temporary = `${runFile}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+    await rename(temporary, runFile);
   }
 
   async #readRun(runId: string): Promise<StoredToolRun | undefined> {
@@ -326,7 +346,8 @@ export class ToolRunner {
       const value = JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>;
       if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
       if (value.title !== undefined && typeof value.title !== "string") return undefined;
-      if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string")) return undefined;
+      if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string" ||
+        file.publication !== undefined && !isAssetPublication(file.publication))) return undefined;
       return value as StoredToolRun;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return undefined;
@@ -341,8 +362,23 @@ function isPromptImage(value: unknown, allowWebP = false): value is PromptImage 
   return (image.mediaType === "image/png" || image.mediaType === "image/jpeg" || (allowWebP && image.mediaType === "image/webp")) && typeof image.data === "string" && image.data.length > 0;
 }
 
-function publicRun({ version: _, requestId: __, prompt: ___, preview: ____, ...run }: StoredToolRun): ToolRun {
-  return run;
+function isAssetPublication(value: unknown): value is NonNullable<ToolRun["files"][number]["publication"]> {
+  if (!value || typeof value !== "object") return false;
+  const publication = value as Record<string, unknown>;
+  return typeof publication.assetId === "string" && typeof publication.releaseId === "string" &&
+    typeof publication.publishedAt === "string" && Number.isFinite(Date.parse(publication.publishedAt)) &&
+    (publication.status === "listed" || publication.status === "unlisted");
+}
+
+function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: StoredToolRun): ToolRun {
+  const title = promptTitle(prompt) ?? run.title;
+  return { ...run, ...(title ? { title } : {}) };
+}
+
+function promptTitle(value?: string): string | undefined {
+  const prompt = value?.replace(/\s+/g, " ").trim();
+  if (!prompt) return undefined;
+  return prompt.length > 60 ? `${prompt.slice(0, 57).trimEnd()}...` : prompt;
 }
 
 function assertOnlyKeys(input: RunToolRequest, allowed: readonly string[]): void {
@@ -368,6 +404,10 @@ function isImageOutputCount(value: unknown): value is ImageOutputCount {
 
 function isRunId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isToolRunFileName(value: string): boolean {
+  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(value);
 }
 
 function isToolId(value: unknown): value is ToolDefinition["id"] {

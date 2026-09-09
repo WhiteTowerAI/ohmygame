@@ -1,4 +1,4 @@
-import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
+import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type ReactNode } from "react";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -17,12 +17,13 @@ import {
   type Model3DPose,
   type Model3DQuality,
   type ProjectState,
+  type AssetPublicationState,
   type PromptImage,
   type ToolRun,
   type VideoAspectRatio,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
@@ -34,6 +35,7 @@ import { ModelPreview } from "./model-preview.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { CommunityMeta } from "./community-meta.js";
 import { imageToWebP } from "./image.js";
+import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 
 interface AssetStudioPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -94,6 +96,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<PreviewResult>();
   const [history, setHistory] = useState<PreviewResult[]>([]);
+  const [historyDetailOpen, setHistoryDetailOpen] = useState(false);
   const [panelView, setPanelView] = useState<AssetPanelView>("templates");
   const [localTemplates, setLocalTemplates] = useState<LocalAssetTemplate[]>([]);
   const [exploreTemplates, setExploreTemplates] = useState<ExploreAssetTemplate[]>([]);
@@ -112,6 +115,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [projectsError, setProjectsError] = useState<string>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [sharingResult, setSharingResult] = useState<string>();
   const [actionStatus, setActionStatus] = useState<{ type: "success" | "error"; message: string }>();
   const mounted = useRef(true);
   const draftReady = useRef(false);
@@ -283,7 +287,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       const loaded = await Promise.allSettled(runs.map(async (run): Promise<PreviewResult> => ({
         run,
         urls: (await Promise.all(run.files.map((file) => getToolRunFile(run.id, file.name)))).map((blob) => URL.createObjectURL(blob)),
-        title: run.title ?? defaultRunTitle(run.toolId),
+        title: historyRunTitle(run),
       })));
       const entries = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
       if (!mounted.current) {
@@ -309,6 +313,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setGenerationError(undefined);
     setActionStatus(undefined);
     setMenuOpen(false);
+    setHistoryDetailOpen(false);
     setPanelView("history");
     try {
       let nextRun: ToolRun;
@@ -347,10 +352,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       }
       const blobs = await Promise.all(nextRun.files.map((file) => getToolRunFile(nextRun.id, file.name)));
       if (!mounted.current) return;
-      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: nextRun.title ?? defaultRunTitle(nextRun.toolId) };
+      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: historyRunTitle(nextRun) };
       setResult(nextResult);
       addHistoryResult(nextResult);
       setSelectedResult(0);
+      setHistoryDetailOpen(true);
     } catch (cause) {
       if (mounted.current) setGenerationError(errorMessage(cause));
     } finally {
@@ -371,6 +377,46 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     } finally {
       if (mounted.current) setAdding(false);
     }
+  }
+
+  async function shareResult(entry: PreviewResult, output: number, status: "listed" | "unlisted" = "listed"): Promise<void> {
+    const file = entry.run.files[output];
+    if (!file || sharingResult) return;
+    const accessToken = await auth.requestAccessToken();
+    if (!accessToken) return;
+    const key = `${entry.run.id}:${file.name}`;
+    setSharingResult(key);
+    setActionStatus(undefined);
+    try {
+      let publication: AssetPublicationState;
+      if (file.publication) {
+        publication = await setToolResultPublicationStatus(entry.run.id, file.name, status, accessToken);
+      } else {
+        const published = await publishToolResult(entry.run.id, file.name, accessToken);
+        publication = {
+          assetId: published.asset.id,
+          releaseId: published.release.id,
+          publishedAt: published.release.publishedAt,
+          status: "listed",
+        };
+      }
+      updateResultPublication(entry.run.id, output, publication);
+      setActionStatus({ type: "success", message: status === "unlisted" ? "Removed from Explore" : file.publication ? "Republished to Explore" : "Published to Explore" });
+    } catch (cause) {
+      setActionStatus({ type: "error", message: errorMessage(cause) });
+    } finally {
+      setSharingResult(undefined);
+    }
+  }
+
+  function updateResultPublication(runId: string, output: number, publication: AssetPublicationState): void {
+    const update = (entry: PreviewResult): PreviewResult => entry.run.id !== runId ? entry : {
+      ...entry,
+      run: { ...entry.run, files: entry.run.files.map((file, index) => index === output ? { ...file, publication } : file) },
+    };
+    historyRef.current = historyRef.current.map(update);
+    setHistory(historyRef.current);
+    setResult((entry) => entry ? update(entry) : entry);
   }
 
   function applyTemplate(template: AssetTemplate): void {
@@ -417,6 +463,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setGenerationError(undefined);
     setReferenceError(undefined);
     setActionStatus(undefined);
+    setMenuOpen(false);
+  }
+
+  function choosePanelView(nextView: AssetPanelView): void {
+    setPanelView(nextView);
+    setHistoryDetailOpen(false);
     setMenuOpen(false);
   }
 
@@ -807,18 +859,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           </form>
 
           <section className="asset-result-panel" aria-label={panelView === "templates" ? "Asset templates" : "Generation history"}>
-            <header><PanelViewSwitcher view={panelView} disabled={generating} onChange={setPanelView} /><div className="asset-result-actions" ref={resultActions}>{panelView === "history" && result ? <button type="button" aria-label="Result actions" aria-expanded={menuOpen} disabled={generating} onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button> : null}{menuOpen && result && selectedFile && selectedUrl ? <div className="asset-result-menu" role="menu">
-              <a href={selectedUrl} download={selectedFile.name} role="menuitem"><Download size={14} />Download</a>
-              {projects.length ? <div className="asset-result-projects">
-                <button type="button" role="menuitem" aria-haspopup="menu" disabled={adding}><FolderInput size={14} /><span>Add to Project</span><ChevronRight className="asset-result-menu-chevron" size={13} /></button>
-                <div className="asset-result-submenu" role="menu">
-                  {projects.map((project) => <button type="button" role="menuitem" key={project.id} disabled={adding} title={project.name} onClick={() => void addToProject(project)}><span>{project.name}</span></button>)}
-                </div>
-              </div> : null}
-              {projectsError ? <button type="button" role="menuitem" onClick={() => void loadProjectList()}><RefreshCw size={14} />Retry projects</button> : null}
-              <button type="button" role="menuitem" disabled={generating} onClick={() => void generate()}><RefreshCw size={14} />Regenerate</button>
-            </div> : null}</div></header>
-            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && history.length ? " asset-history-grid" : ""}`}>
+            <header><PanelViewSwitcher view={panelView} disabled={generating} onChange={choosePanelView} /></header>
+            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && history.length && !generating ? " library-grid asset-history-grid" : ""}`}>
               {panelView === "templates" ? <TemplateGallery
                 yours={yoursTemplates}
                 explore={communityTemplates}
@@ -831,13 +873,56 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
               /> : null}
               {panelView === "history" && generating ? <div className="asset-result-empty"><LoaderCircle className="spin" size={28} /><strong>Generating your {mode === "3d" ? "model" : mode}</strong><span>This may take a moment.</span></div> : null}
               {panelView === "history" && !generating && generationError && !history.length ? <div className="asset-result-empty asset-result-error" role="alert"><strong>Generation failed</strong><span>{generationError}</span></div> : null}
-              {panelView === "history" && !generating && !generationError && !history.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><Sparkles size={24} /></span><strong>No history yet</strong><span>Generated assets from this session will appear here.</span></div> : null}
+              {panelView === "history" && !generating && !generationError && !history.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><Sparkles size={24} /></span><strong>No history yet</strong><span>Generated assets will appear here.</span></div> : null}
               {panelView === "history" && !generating && history.length ? history.flatMap((entry) => entry.urls.map((url, index) => {
-                const selected = result?.run.id === entry.run.id && selectedResult === index;
-                const resultMode = studioModeForTool(entry.run.toolId);
-                return <button className={`asset-history-item${selected ? " is-selected" : ""}`} type="button" key={`${entry.run.id}:${index}`} aria-label={`Select ${entry.title} result`} onClick={() => { setResult(entry); setSelectedResult(index); setActionStatus(undefined); setMenuOpen(false); }}><span className="asset-history-preview"><ResultMedia mode={resultMode} url={url} label={entry.title} /></span><span className="asset-history-copy"><strong>{entry.title}</strong><small>{formatHistoryTime(entry.run.createdAt)}</small></span></button>;
+                return <HistoryAssetCard
+                  key={`${entry.run.id}:${index}`}
+                  entry={entry}
+                  output={index}
+                  url={url}
+                  busy={Boolean(sharingResult)}
+                  sharing={sharingResult === `${entry.run.id}:${entry.run.files[index]?.name}`}
+                  onOpen={() => { setResult(entry); setSelectedResult(index); setHistoryDetailOpen(true); setActionStatus(undefined); setMenuOpen(false); }}
+                  onShare={(status) => void shareResult(entry, index, status)}
+                />;
               })) : null}
             </div>
+            {panelView === "history" && historyDetailOpen && result && selectedFile && selectedUrl ? <AssetDialogShell
+              title={result.title}
+              subtitle={<><span>{studioModeLabel(studioModeForTool(result.run.toolId))}</span><span>{formatHistoryTime(result.run.createdAt)}</span></>}
+              labelledBy="asset-history-detail-title"
+              onClose={() => { setHistoryDetailOpen(false); setMenuOpen(false); }}
+              onEscape={() => { if (menuOpen) setMenuOpen(false); else setHistoryDetailOpen(false); }}
+              preview={<AssetMedia type={assetMediaTypeForMode(studioModeForTool(result.run.toolId))} url={selectedUrl} label={result.title} />}
+              headerActionsRef={resultActions}
+              headerActions={<>
+                <button type="button" aria-label="Result actions" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
+                {menuOpen ? <div className="asset-result-menu" role="menu">
+                  <a href={selectedUrl} download={selectedFile.name} role="menuitem"><Download size={14} />Download</a>
+                  {projects.length ? <div className="asset-result-projects">
+                    <button type="button" role="menuitem" aria-haspopup="menu" disabled={adding}><FolderInput size={14} /><span>Add to Project</span><ChevronRight className="asset-result-menu-chevron" size={13} /></button>
+                    <div className="asset-result-submenu" role="menu">
+                      {projects.map((project) => <button type="button" role="menuitem" key={project.id} disabled={adding} title={project.name} onClick={() => void addToProject(project)}><span>{project.name}</span></button>)}
+                    </div>
+                  </div> : null}
+                  {projectsError ? <button type="button" role="menuitem" onClick={() => void loadProjectList()}><RefreshCw size={14} />Retry projects</button> : null}
+                  <button type="button" role="menuitem" onClick={() => void generate()}><RefreshCw size={14} />Regenerate</button>
+                </div> : null}
+              </>}
+              footer={<footer className="library-dialog-footer library-dialog-footer-compact">
+                <dl>
+                  <div><dt>Type</dt><dd>{studioModeLabel(studioModeForTool(result.run.toolId))}</dd></div>
+                  <div><dt>Created</dt><dd>{formatHistoryTime(result.run.createdAt)}</dd></div>
+                  <div className="library-dialog-path"><dt>File</dt><dd>{selectedFile.name}</dd></div>
+                </dl>
+                <div className="library-dialog-footer-actions">
+                  {actionStatus ? <span className={actionStatus.type === "error" ? "is-error" : undefined} role={actionStatus.type === "error" ? "alert" : "status"}>{actionStatus.message}</span> : null}
+                  {selectedFile.publication?.status === "listed" ? <button type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult, "unlisted")}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Unpublishing..." : "Unpublish"}</button> : null}
+                  {selectedFile.publication?.status === "unlisted" ? <button className="is-primary" type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult)}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Republishing..." : "Republish"}</button> : null}
+                  {!selectedFile.publication ? <button className="is-primary" type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult)}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Publishing..." : "Publish"}</button> : null}
+                </div>
+              </footer>}
+            /> : null}
             {templateDialogOpen ? <div className="asset-template-dialog" role="dialog" aria-modal="true" aria-label="Save template">
               <form onSubmit={(event) => { event.preventDefault(); void saveTemplate(); }}>
                 <strong>Save template</strong>
@@ -997,6 +1082,61 @@ function HistoryIcon({ mode, size = 24 }: { mode: StudioMode; size?: number }) {
   return <Image size={size} />;
 }
 
+function HistoryAssetCard({ entry, output, url, busy, sharing, onOpen, onShare }: {
+  entry: PreviewResult;
+  output: number;
+  url: string;
+  busy: boolean;
+  sharing: boolean;
+  onOpen: () => void;
+  onShare: (status: "listed" | "unlisted") => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [card, visible] = useNearViewport<HTMLElement>();
+  const actions = useRef<HTMLDivElement>(null);
+  const mode = studioModeForTool(entry.run.toolId);
+  const file = entry.run.files[output];
+  const publication = file?.publication;
+  const status = publication?.status === "listed" ? "Published" : publication ? "Unlisted" : undefined;
+  const badge = mode === "video" ? <><Play size={11} />Video</> : mode === "3d" ? <><Box size={11} />3D</> : undefined;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!actions.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
+  return <AssetCardShell
+    title={entry.title}
+    subtitle={<>{studioModeLabel(mode)} · {formatHistoryTime(entry.run.createdAt)}{status ? ` · ${status}` : ""}</>}
+    preview={visible ? <ResultMedia mode={mode} url={url} label={entry.title} preview /> : <HistoryIcon mode={mode} />}
+    badge={badge}
+    actions={<div className="library-asset-actions" ref={actions}>
+      <button className="library-asset-menu" type="button" aria-label={`Actions for ${entry.title}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
+      {menuOpen ? <div className="library-asset-actions-menu asset-history-actions-menu" role="menu">
+        <a href={url} download={file?.name} role="menuitem" onClick={() => setMenuOpen(false)}><Download size={13} />Download</a>
+        <button type="button" role="menuitem" disabled={!file || busy} onClick={() => { setMenuOpen(false); onShare(publication?.status === "listed" ? "unlisted" : "listed"); }}>
+          {sharing ? <LoaderCircle className="spin" size={12} /> : null}
+          {sharing ? publication?.status === "listed" ? "Unpublishing..." : "Publishing..." : publication?.status === "listed" ? "Unpublish" : publication ? "Republish" : "Publish"}
+        </button>
+      </div> : null}
+    </div>}
+    className="asset-history-card"
+    articleRef={card}
+    onOpen={onOpen}
+  />;
+}
+
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
   return <div className="asset-field"><label htmlFor={htmlFor}>{label}</label>{children}</div>;
 }
@@ -1070,9 +1210,9 @@ function Model3DReferenceSlot({ index, label, image, name, primary = false, disa
   </div>;
 }
 
-function ResultMedia({ mode, url, label }: { mode: StudioMode; url: string; label: string }) {
-  if (mode === "3d") return <ModelPreview source={url} label="Generated 3D model" minHeight={420} />;
-  if (mode === "video") return <video src={url} controls preload="metadata" />;
+function ResultMedia({ mode, url, label, preview = false }: { mode: StudioMode; url: string; label: string; preview?: boolean }) {
+  if (mode === "3d") return <ModelPreview source={url} label="Generated 3D model" minHeight={420} interactive={!preview} />;
+  if (mode === "video") return <video src={url} controls={!preview} muted={preview} playsInline preload="metadata" />;
   return <img src={url} alt={label} />;
 }
 
@@ -1103,6 +1243,14 @@ function titleCase(value: string): string {
   return value[0]?.toUpperCase() + value.slice(1);
 }
 
+function studioModeLabel(mode: StudioMode): string {
+  return mode === "3d" ? "3D" : titleCase(mode);
+}
+
+function assetMediaTypeForMode(mode: StudioMode): "image" | "video" | "model" {
+  return mode === "3d" ? "model" : mode;
+}
+
 function studioModeForTool(toolId: ToolRun["toolId"]): StudioMode {
   if (toolId === "generate-video") return "video";
   if (toolId === "image-to-3d") return "3d";
@@ -1115,8 +1263,19 @@ function defaultRunTitle(toolId: ToolRun["toolId"]): string {
   return "Generated Image";
 }
 
+function historyRunTitle(run: ToolRun): string {
+  return run.title ?? defaultRunTitle(run.toolId);
+}
+
 function formatHistoryTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  const date = new Date(value);
+  const today = new Date();
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  return new Intl.DateTimeFormat(undefined, sameDay
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 async function readImage(file: File, allowWebP: boolean): Promise<PromptImage> {

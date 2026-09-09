@@ -57,7 +57,7 @@ export function CommunityLikeButton({ busy, count, liked, onToggle, showCount = 
   </button>;
 }
 
-export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix, verified = false, onStatsChange }: {
+export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix, verified = false, className, onStatsChange }: {
   type: CommunitySubjectType;
   id: string;
   author: CommunityAuthor;
@@ -65,11 +65,12 @@ export function CommunityMeta({ type, id, author, stats, useLabel, authorPrefix,
   useLabel: string;
   authorPrefix?: string;
   verified?: boolean;
+  className?: string;
   onStatsChange?: (stats: CommunityStats) => void;
 }) {
   const like = useCommunityLike(type, id, stats, onStatsChange);
 
-  return <div className="community-meta">
+  return <div className={`community-meta${className ? ` ${className}` : ""}`}>
     <CommunityAuthorView author={author} prefix={authorPrefix} verified={verified} />
     <span className="community-stats">
       <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} />

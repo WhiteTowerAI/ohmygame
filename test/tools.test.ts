@@ -70,7 +70,7 @@ describe("tool runner", () => {
       toolId: "generate-image",
       createdAt: created.json().createdAt,
       files: [{ name: "output.webp", mediaType: "image/webp" }],
-      title: "General Image",
+      title: "A forest",
     }]);
   });
 

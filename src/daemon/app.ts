@@ -9,7 +9,7 @@ import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
+import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -998,6 +998,66 @@ export function createApp(options: AppOptions = {}) {
       reply.header("x-content-type-options", "nosniff");
       reply.header("cache-control", "private, max-age=31536000, immutable");
       return reply.send(file.bytes);
+    },
+  );
+
+  app.post<{ Params: { runId: string; fileName: string }; Body: PublishAssetRequest }>(
+    "/tool-runs/:runId/files/:fileName/publish",
+    { schema: { body: publishAccessTokenBody } },
+    async (request, reply) => {
+      const file = await tools.file(request.params.runId, request.params.fileName);
+      if (!file) return reply.code(404).send({ error: "Tool output not found" });
+      if (file.bytes.length > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
+      const mediaType = publishMediaType(file.mediaType);
+      if (!mediaType) return reply.code(400).send({ error: "Unsupported asset type" });
+      try {
+        const result = await publisher.publishAsset({
+          projectId: `tool-run-${request.params.runId}`,
+          path: request.params.fileName,
+          title: (file.title ?? path.parse(request.params.fileName).name).slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
+          ...(file.prompt?.trim() ? { description: file.prompt.trim().slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
+          mediaType,
+          fileName: request.params.fileName,
+          contentType: file.mediaType,
+          contents: file.bytes,
+          ...(file.publication ? { assetId: file.publication.assetId } : {}),
+        }, request.body.accessToken);
+        await tools.setFilePublication(request.params.runId, request.params.fileName, {
+          assetId: result.asset.id,
+          releaseId: result.release.id,
+          publishedAt: result.release.publishedAt,
+          status: "listed",
+        });
+        return reply.code(201).send(result);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof ToolRunError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
+      }
+    },
+  );
+
+  app.put<{ Params: { runId: string; fileName: string }; Body: PublishAssetRequest & { status: "listed" | "unlisted" } }>(
+    "/tool-runs/:runId/files/:fileName/publication",
+    { schema: { body: publicationStatusBody } },
+    async (request, reply) => {
+      const file = await tools.file(request.params.runId, request.params.fileName);
+      if (!file) return reply.code(404).send({ error: "Tool output not found" });
+      if (!file.publication) return reply.code(404).send({ error: "Published Asset not found" });
+      try {
+        const listing = await publisher.setAssetListing(file.publication.assetId, request.body.status, request.body.accessToken);
+        const publication = { ...file.publication, status: listing.status };
+        await tools.setFilePublication(request.params.runId, request.params.fileName, publication);
+        return publication;
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof ToolRunError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
+      }
     },
   );
 
@@ -2232,6 +2292,14 @@ function isWebp(value: unknown): value is Buffer {
   return Buffer.isBuffer(value) && value.length >= 12 &&
     value.subarray(0, 4).toString("ascii") === "RIFF" &&
     value.subarray(8, 12).toString("ascii") === "WEBP";
+}
+
+function publishMediaType(contentType: string): PublishAssetMediaType | undefined {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  if (contentType.startsWith("audio/")) return "audio";
+  if (contentType === "model/gltf-binary") return "model";
+  return undefined;
 }
 
 async function availableModel(

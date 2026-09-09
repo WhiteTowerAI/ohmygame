@@ -23,7 +23,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
-import { AssetCard, AssetDetailDialog, AssetToolbar, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
+import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 
@@ -772,9 +772,9 @@ function AssetsView({
       </div>
       {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
       {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
-        <AssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />
+        <WorkspaceAssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />
       ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label="No assets match these filters" />}
-      {selectedAsset ? <AssetDetailDialog
+      {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
         onRename={() => { if (rename(selectedAsset)) setSelectedPath(undefined); }}
