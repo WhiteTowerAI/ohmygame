@@ -1,22 +1,23 @@
 import { useEffect, useState } from "react";
-import { getWorkspaceAsset } from "./api.js";
+import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
 
 export function useWorkspaceAssetUrl(
   projectId: string | undefined,
   filePath: string,
   revision = 0,
+  libraryAssetId?: string,
 ): { url?: string; error?: string } {
   const [state, setState] = useState<{ url?: string; error?: string }>({});
 
   useEffect(() => {
-    if (!projectId) {
+    if (!projectId && !libraryAssetId) {
       setState({});
       return;
     }
     let disposed = false;
     let objectUrl: string | undefined;
     setState({});
-    void getWorkspaceAsset(projectId, filePath).then((blob) => {
+    void (libraryAssetId ? getLibraryAsset(libraryAssetId) : getWorkspaceAsset(projectId!, filePath)).then((blob) => {
       if (disposed) return;
       objectUrl = URL.createObjectURL(blob);
       setState({ url: objectUrl });
@@ -27,7 +28,7 @@ export function useWorkspaceAssetUrl(
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, filePath, revision]);
+  }, [projectId, filePath, revision, libraryAssetId]);
 
   return state;
 }

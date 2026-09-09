@@ -143,9 +143,14 @@ export interface StoryChoiceOption {
   label: string;
 }
 
+export interface StoryVideoClip {
+  id: string;
+  assetId: string;
+}
+
 export type StoryNode =
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; description: string } }
+  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[] } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[] } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } };
 
@@ -164,7 +169,7 @@ export interface StoryChapter {
 }
 
 export interface StoryDocument {
-  version: 1;
+  version: 2;
   chapters: StoryChapter[];
 }
 
@@ -236,10 +241,6 @@ export interface PublishAssetRequest {
 }
 
 export type PublishAssetResult = CreatePublishAssetReleaseResult;
-
-export interface ImportAssetRequest {
-  assetId: string;
-}
 
 export type AgentMessagePhase = "commentary" | "final_answer";
 
@@ -440,6 +441,18 @@ export interface WorkspaceFile {
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
+  publication?: AssetPublicationState;
+  libraryAssetId?: string;
+}
+
+export interface LibraryAsset {
+  id: string;
+  name: string;
+  size: number;
+  mediaType: NonNullable<WorkspaceFile["mediaType"]>;
+  contentType: string;
+  createdAt: string;
+  prompt?: string;
   publication?: AssetPublicationState;
 }
 

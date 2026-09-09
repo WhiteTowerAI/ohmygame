@@ -70,6 +70,15 @@ describe("story documents", () => {
     });
     emptyEdgeId.chapters[0]!.edges.push({ id: "", source: emptyEdgeId.chapters[0]!.nodes[0]!.id, target: "ending" });
     expect(isStoryDocument(emptyEdgeId)).toBe(false);
+
+    const duplicateClip = createStoryDocument();
+    duplicateClip.chapters[0]!.nodes.push({
+      id: "scene",
+      type: "scene",
+      position: { x: 0, y: 0 },
+      data: { title: "Scene", clips: [{ id: "clip", assetId: "asset-a" }, { id: "clip", assetId: "asset-b" }] },
+    });
+    expect(isStoryDocument(duplicateClip)).toBe(false);
   });
 
   it("traverses a playable scene and choice graph", () => {
@@ -77,7 +86,7 @@ describe("story documents", () => {
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     chapter.nodes.push(
-      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Arrival", description: "" } },
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Arrival", clips: [{ id: "arrival", assetId: "arrival-video" }] } },
       {
         id: "choice",
         type: "choice",
@@ -98,6 +107,18 @@ describe("story documents", () => {
     expect(getOutgoingEdge(chapter, "choice", "right")?.id).toBe("right-ending");
     expect(getNextNode(chapter, start.id)?.id).toBe("scene");
     expect(getNextNode(chapter, "choice", "left")?.id).toBe("ending-a");
+    expect(validatePlayableChapter(chapter, new Set(["arrival-video"]))).toBeUndefined();
+    expect(validatePlayableChapter(chapter, new Set())).toEqual({ nodeId: "scene", message: "A video used by this scene is missing from Library." });
+  });
+
+  it("requires a video in every reachable scene", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const start = getStartNode(chapter)!;
+    chapter.nodes.push({ id: "empty", type: "scene", position: { x: 0, y: 0 }, data: { title: "Empty", clips: [] } });
+    chapter.edges.push({ id: "start-empty", source: start.id, target: "empty" });
+
+    expect(validatePlayableChapter(chapter)).toEqual({ nodeId: "empty", message: "Add at least one video to the scene \"Empty\"." });
   });
 
   it("reports the first missing connection on a reachable path", () => {
@@ -121,8 +142,8 @@ describe("story documents", () => {
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     chapter.nodes.push(
-      { id: "loop", type: "scene", position: { x: 0, y: 0 }, data: { title: "Loop", description: "" } },
-      { id: "draft", type: "scene", position: { x: 0, y: 0 }, data: { title: "Draft", description: "" } },
+      { id: "loop", type: "scene", position: { x: 0, y: 0 }, data: { title: "Loop", clips: [{ id: "loop-clip", assetId: "loop-video" }] } },
+      { id: "draft", type: "scene", position: { x: 0, y: 0 }, data: { title: "Draft", clips: [] } },
     );
     chapter.edges.push(
       { id: "enter-loop", source: start.id, target: "loop" },

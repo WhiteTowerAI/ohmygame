@@ -770,13 +770,13 @@ function AssetsView({
     const extension = fileExtension(asset.path);
     const name = window.prompt(`Rename asset (${extension} is preserved)`, fileStem(asset.path))?.trim();
     if (!name || name === fileStem(asset.path)) return false;
-    void runAssetAction(() => renameAsset(asset.projectId, asset.path, name));
+    void runAssetAction(() => renameAsset(asset.projectId!, asset.path, name));
     return true;
   }
 
   function remove(asset: BrowsableAsset): boolean {
     if (!window.confirm(`Delete “${fileName(asset.path)}”? This may break references in the project and cannot be undone.`)) return false;
-    void runAssetAction(() => deleteAsset(asset.projectId, asset.path));
+    void runAssetAction(() => deleteAsset(asset.projectId!, asset.path));
     return true;
   }
 

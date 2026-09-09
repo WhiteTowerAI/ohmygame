@@ -4,7 +4,7 @@ const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending"]);
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 1,
+    version: 2,
     chapters: [{
       id: crypto.randomUUID(),
       title: "Untitled",
@@ -15,7 +15,7 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 2 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   const chapterIds = new Set<string>();
   return value.chapters.every((chapter) => {
     if (!isRecord(chapter) || !nonEmptyString(chapter.id) || chapterIds.has(chapter.id) || typeof chapter.title !== "string" ||
@@ -77,7 +77,7 @@ export function replaceOutgoingEdge<T extends { source: string; sourceHandle?: s
   ];
 }
 
-export function validatePlayableChapter(chapter: StoryChapter): StoryPlayIssue | undefined {
+export function validatePlayableChapter(chapter: StoryChapter, availableAssetIds?: ReadonlySet<string>): StoryPlayIssue | undefined {
   const start = getStartNode(chapter);
   if (!start) return { nodeId: "", message: "This chapter has no Start node." };
   const visited = new Set<string>();
@@ -87,6 +87,14 @@ export function validatePlayableChapter(chapter: StoryChapter): StoryPlayIssue |
     if (visited.has(node.id)) continue;
     visited.add(node.id);
     if (node.type === "ending") continue;
+    if (node.type === "scene" && node.data.clips.length === 0) return {
+      nodeId: node.id,
+      message: `Add at least one video to the scene "${node.data.title || "Untitled scene"}".`,
+    };
+    if (node.type === "scene" && availableAssetIds) {
+      const missing = node.data.clips.find((clip) => !availableAssetIds.has(clip.assetId));
+      if (missing) return { nodeId: node.id, message: "A video used by this scene is missing from Library." };
+    }
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id) : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
@@ -108,7 +116,17 @@ function isStoryNode(value: unknown): value is StoryNode {
   if (!isRecord(value) || !nonEmptyString(value.id) || typeof value.type !== "string" ||
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data)) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
-  if (value.type === "scene" || value.type === "ending") {
+  if (value.type === "scene") {
+    if (typeof value.data.title !== "string") return false;
+    if (!Array.isArray(value.data.clips)) return false;
+    const clipIds = new Set<string>();
+    return value.data.clips.every((clip) => {
+      if (!isRecord(clip) || !nonEmptyString(clip.id) || clipIds.has(clip.id) || !nonEmptyString(clip.assetId)) return false;
+      clipIds.add(clip.id);
+      return true;
+    });
+  }
+  if (value.type === "ending") {
     return typeof value.data.title === "string" && typeof value.data.description === "string";
   }
   if (value.type !== "choice" || typeof value.data.title !== "string" || !Array.isArray(value.data.options) || value.data.options.length < 1) return false;

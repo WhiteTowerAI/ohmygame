@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ImportAssetRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
@@ -47,6 +47,7 @@ import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../s
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
+import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -213,15 +214,6 @@ const publishPluginSchema = {
 const publishAssetSchema = {
   querystring: assetPathQuerySchema,
   body: publishAccessTokenBody,
-} as const;
-
-const importAssetSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["assetId"],
-    properties: { assetId: { type: "string", minLength: 1, maxLength: 200 } },
-  },
 } as const;
 
 const promptSchema = {
@@ -475,7 +467,8 @@ export function createApp(options: AppOptions = {}) {
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
   const events = new RuntimeEventBus();
-  const projects = new ProjectManager(dataDirectory);
+  const library = new AssetLibrary(dataDirectory);
+  const projects = new ProjectManager(dataDirectory, library);
   const conversations = new ConversationManager();
   const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
@@ -542,6 +535,7 @@ export function createApp(options: AppOptions = {}) {
     options.imageGenerator ?? providerImages,
     options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
+    library,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   const connections = new ConnectionManager(piAgentDirectory);
@@ -635,7 +629,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -1022,12 +1016,14 @@ export function createApp(options: AppOptions = {}) {
           contents: file.bytes,
           ...(file.publication ? { assetId: file.publication.assetId } : {}),
         }, request.body.accessToken);
-        await tools.setFilePublication(request.params.runId, request.params.fileName, {
+        const publication = {
           assetId: result.asset.id,
           releaseId: result.release.id,
           publishedAt: result.release.publishedAt,
-          status: "listed",
-        });
+          status: "listed" as const,
+        };
+        await tools.setFilePublication(request.params.runId, request.params.fileName, publication);
+        if (file.assetId && library.get(file.assetId)) await library.setPublication(file.assetId, publication);
         return reply.code(201).send(result);
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
@@ -1050,6 +1046,7 @@ export function createApp(options: AppOptions = {}) {
         const listing = await publisher.setAssetListing(file.publication.assetId, request.body.status, request.body.accessToken);
         const publication = { ...file.publication, status: listing.status };
         await tools.setFilePublication(request.params.runId, request.params.fileName, publication);
+        if (file.assetId && library.get(file.assetId)) await library.setPublication(file.assetId, publication);
         return publication;
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
@@ -1075,6 +1072,7 @@ export function createApp(options: AppOptions = {}) {
       const fileName = `${prefix}-${request.body.runId}${outputSuffix}${extension}`;
       return reply.code(201).send({
         path: await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
+          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
           ...(file.prompt ? { prompt: file.prompt } : {}),
           ...(file.preview ? {
             preview: {
@@ -1357,6 +1355,116 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get("/library/assets", async () => {
+    await projects.syncLibraryAssets();
+    return library.list();
+  });
+
+  app.get<{ Params: { assetId: string } }>("/library/assets/:assetId/content", async (request, reply) => {
+    try {
+      const { asset, absolutePath } = await library.content(request.params.assetId);
+      return reply.type(asset.contentType)
+        .header("content-length", asset.size)
+        .header("cache-control", "private, max-age=31536000, immutable")
+        .header("x-content-type-options", "nosniff")
+        .send(createReadStream(absolutePath));
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
+    }
+  });
+
+  app.patch<{ Params: { assetId: string }; Body: { name: string } }>(
+    "/library/assets/:assetId",
+    { schema: { body: renameAssetSchema.body } },
+    async (request, reply) => {
+      try {
+        return await library.rename(request.params.assetId, request.body.name);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
+      }
+    },
+  );
+
+  app.get<{ Params: { assetId: string } }>("/library/assets/:assetId/references", async (request, reply) => {
+    if (!library.get(request.params.assetId)) return reply.code(404).send({ error: "Library asset not found" });
+    return (await projects.referencesLibraryAsset(request.params.assetId)).map(({ id, name, type }) => ({ id, name, type }));
+  });
+
+  app.delete<{ Params: { assetId: string }; Querystring: { force?: string } }>("/library/assets/:assetId", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        properties: { force: { type: "string", enum: ["true"] } },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const references = await projects.referencesLibraryAsset(request.params.assetId);
+      if (references.length && request.query.force !== "true") return reply.code(409).send({ error: `Asset is used by ${references.length} project${references.length === 1 ? "" : "s"}` });
+      if (request.query.force === "true") await projects.removeLibraryAssetReferences(request.params.assetId);
+      await library.delete(request.params.assetId);
+      return reply.code(204).send();
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
+    }
+  });
+
+  app.post<{ Params: { assetId: string }; Body: PublishAssetRequest }>(
+    "/library/assets/:assetId/publish",
+    { schema: { body: publishAccessTokenBody } },
+    async (request, reply) => {
+      try {
+        const { asset, absolutePath } = await library.content(request.params.assetId);
+        if (asset.size > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
+        const result = await publisher.publishAsset({
+          projectId: "library",
+          path: asset.id,
+          title: path.parse(asset.name).name.slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
+          ...(asset.prompt ? { description: asset.prompt.slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
+          mediaType: asset.mediaType,
+          fileName: asset.name,
+          contentType: asset.contentType,
+          contents: await readFile(absolutePath),
+          ...(asset.publication ? { assetId: asset.publication.assetId } : {}),
+        }, request.body.accessToken);
+        await library.setPublication(asset.id, {
+          assetId: result.asset.id,
+          releaseId: result.release.id,
+          publishedAt: result.release.publishedAt,
+          status: "listed",
+        });
+        return reply.code(201).send(result);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof AssetLibraryError ? cause.statusCode
+          : cause instanceof RemotePublishError ? cause.statusCode
+          : 502;
+        return reply.code(statusCode).send({ error });
+      }
+    },
+  );
+
+  app.put<{ Params: { assetId: string }; Body: PublishAssetRequest & { status: "listed" | "unlisted" } }>(
+    "/library/assets/:assetId/publication",
+    { schema: { body: publicationStatusBody } },
+    async (request, reply) => {
+      const asset = library.get(request.params.assetId);
+      if (!asset) return reply.code(404).send({ error: "Library asset not found" });
+      if (!asset.publication) return reply.code(404).send({ error: "Published Asset not found" });
+      try {
+        const listing = await publisher.setAssetListing(asset.publication.assetId, request.body.status, request.body.accessToken);
+        return (await library.setPublication(asset.id, { ...asset.publication, status: listing.status })).publication;
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
+      }
+    },
+  );
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });
@@ -1478,14 +1586,28 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string }; Body: ImportAssetRequest }>(
-    "/projects/:projectId/assets/import",
-    { schema: importAssetSchema },
+  app.post<{ Params: { projectId: string; assetId: string } }>(
+    "/projects/:projectId/library-assets/:assetId",
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
       try {
-        const asset = await publisher.exploreAsset(request.body.assetId);
+        return reply.code(201).send(await projects.materializeLibraryAsset(project.id, request.params.assetId));
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode : 500;
+        return reply.code(statusCode).send({ error });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; assetId: string } }>(
+    "/projects/:projectId/explore-assets/:assetId",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const asset = await publisher.exploreAsset(request.params.assetId);
         const media = workspaceMediaInfo(asset.fileName);
         if (!media || media.mediaType !== asset.mediaType || media.contentType !== asset.contentType) {
           return reply.code(502).send({ error: "Remote asset metadata is invalid" });
@@ -1495,10 +1617,14 @@ export function createApp(options: AppOptions = {}) {
         if (contents.length !== asset.artifactBytes || sha256 !== asset.artifactSha256) {
           return reply.code(502).send({ error: "Downloaded asset failed integrity verification" });
         }
-        return reply.code(201).send({ path: await projects.importAsset(project.id, asset.fileName, contents) });
+        const libraryAsset = await library.add(asset.fileName, contents, {
+          ...(asset.description ? { prompt: asset.description } : {}),
+          sourceKey: `explore:${asset.id}:${asset.releaseId}`,
+        });
+        return reply.code(201).send(await projects.materializeLibraryAsset(project.id, libraryAsset.id));
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof ProjectAssetError ? cause.statusCode
+        const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode
           : cause instanceof RemotePublishError ? cause.statusCode
           : 502;
         return reply.code(statusCode).send({ error });

@@ -25,10 +25,12 @@ import {
   type RunToolRequest,
   type ToolDefinition,
   type ToolRun,
+  type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { Meshy3DGenerator, Model3DGenerationError, type Model3DGenerator } from "./meshy-3d.js";
 import { VideoGenerationError, type VideoGenerator } from "./seedance-video.js";
+import type { AssetLibrary } from "./asset-library.js";
 
 const generateImage: ToolDefinition = {
   id: "generate-image",
@@ -69,9 +71,14 @@ const HISTORY_LIMIT = 20;
 
 interface StoredToolRun extends ToolRun {
   version: 1;
+  files: StoredToolRunFile[];
   requestId?: string;
   prompt?: string;
   preview?: { fileName: string; mediaType: "image/png" | "image/jpeg" };
+}
+
+interface StoredToolRunFile extends ToolRunFile {
+  assetId?: string;
 }
 
 interface ToolRunMetadata {
@@ -92,6 +99,7 @@ export class ToolRunner {
     private readonly imageGenerator: ImageGenerator,
     private readonly model3DGenerator: Model3DGenerator = new Meshy3DGenerator(),
     private readonly videoGenerator?: VideoGenerator,
+    private readonly assetLibrary?: AssetLibrary,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -140,6 +148,7 @@ export class ToolRunner {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
+    const registeredAssetIds: string[] = [];
     try {
       signal?.throwIfAborted();
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
@@ -147,10 +156,19 @@ export class ToolRunner {
         ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
-      const files = generated.map((image, index) => ({
+      const files: StoredToolRunFile[] = generated.map((image, index) => ({
         name: imageFileName(image.mediaType, outputs > 1 ? index + 1 : undefined),
         mediaType: image.mediaType,
       }));
+      if (this.assetLibrary) {
+        for (const [index, file] of files.entries()) {
+          file.assetId = (await this.assetLibrary!.add(file.name, generated[index]!.bytes, {
+            prompt,
+            sourceKey: `tool:${id}:${file.name}`,
+          })).id;
+          registeredAssetIds.push(file.assetId);
+        }
+      }
       const run: StoredToolRun = {
         version: 1,
         id,
@@ -167,6 +185,7 @@ export class ToolRunner {
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
+      if (this.assetLibrary) await Promise.allSettled(registeredAssetIds.map((assetId) => this.assetLibrary!.delete(assetId)));
       if (cause instanceof ToolRunError) throw cause;
       if (cause instanceof ImageGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
       throw cause;
@@ -200,6 +219,7 @@ export class ToolRunner {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
+    let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
       const options = {
@@ -223,12 +243,22 @@ export class ToolRunner {
         fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
         mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
       } : undefined;
+      if (this.assetLibrary) {
+        registeredAssetId = (await this.assetLibrary.add("model.glb", generated.bytes, {
+          ...(prompt ? { prompt } : {}),
+          sourceKey: `tool:${id}:model.glb`,
+        })).id;
+      }
       const run: StoredToolRun = {
         version: 1,
         id,
         toolId: imageTo3D.id,
         createdAt: new Date().toISOString(),
-        files: [{ name: "model.glb", mediaType: generated.mediaType }],
+        files: [{
+          name: "model.glb",
+          mediaType: generated.mediaType,
+          ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
+        }],
         requestId: generated.requestId,
         ...(prompt ? { prompt } : {}),
         ...(preview ? { preview } : {}),
@@ -242,6 +272,7 @@ export class ToolRunner {
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
+      if (this.assetLibrary && registeredAssetId) await this.assetLibrary.delete(registeredAssetId).catch(() => undefined);
       if (cause instanceof ToolRunError) throw cause;
       if (cause instanceof Model3DGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
       throw cause;
@@ -259,6 +290,7 @@ export class ToolRunner {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
+    let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
       const aspectRatio = input.aspectRatio ?? "adaptive";
@@ -267,12 +299,22 @@ export class ToolRunner {
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const generated = await this.videoGenerator.generate({ prompt, images, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
+      if (this.assetLibrary) {
+        registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
+          prompt,
+          sourceKey: `tool:${id}:output.mp4`,
+        })).id;
+      }
       const run: StoredToolRun = {
         version: 1,
         id,
         toolId: generateVideo.id,
         createdAt: new Date().toISOString(),
-        files: [{ name: "output.mp4", mediaType: generated.mediaType }],
+        files: [{
+          name: "output.mp4",
+          mediaType: generated.mediaType,
+          ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
+        }],
         requestId: generated.requestId,
         prompt,
         ...(metadata.title ? { title: metadata.title } : {}),
@@ -284,6 +326,7 @@ export class ToolRunner {
       return publicRun(run);
     } catch (cause) {
       await rm(temporary, { recursive: true, force: true });
+      if (this.assetLibrary && registeredAssetId) await this.assetLibrary.delete(registeredAssetId).catch(() => undefined);
       if (cause instanceof ToolRunError) throw cause;
       if (cause instanceof VideoGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
       throw cause;
@@ -302,7 +345,7 @@ export class ToolRunner {
       .map(publicRun);
   }
 
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; title?: string; prompt?: string; publication?: NonNullable<ToolRun["files"][number]["publication"]>; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; title?: string; prompt?: string; publication?: NonNullable<ToolRun["files"][number]["publication"]>; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
     if (!isRunId(runId) || !isToolRunFileName(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
@@ -318,6 +361,7 @@ export class ToolRunner {
       return {
         bytes: await readFile(filePath),
         mediaType: file.mediaType,
+        ...(file.assetId ? { assetId: file.assetId } : {}),
         ...(title ? { title } : {}),
         ...(run.prompt ? { prompt: run.prompt } : {}),
         ...(file.publication ? { publication: file.publication } : {}),
@@ -347,6 +391,7 @@ export class ToolRunner {
       if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
       if (value.title !== undefined && typeof value.title !== "string") return undefined;
       if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string" ||
+        file.assetId !== undefined && typeof file.assetId !== "string" ||
         file.publication !== undefined && !isAssetPublication(file.publication))) return undefined;
       return value as StoredToolRun;
     } catch (error) {
@@ -372,7 +417,11 @@ function isAssetPublication(value: unknown): value is NonNullable<ToolRun["files
 
 function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: StoredToolRun): ToolRun {
   const title = promptTitle(prompt) ?? run.title;
-  return { ...run, ...(title ? { title } : {}) };
+  return {
+    ...run,
+    files: run.files.map(({ assetId: ____, ...file }) => file),
+    ...(title ? { title } : {}),
+  };
 }
 
 function promptTitle(value?: string): string | undefined {

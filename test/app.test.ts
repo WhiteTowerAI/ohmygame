@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -140,8 +140,105 @@ describe("daemon", () => {
 
     expect(renamed.statusCode).toBe(200);
     expect(renamed.json()).toEqual({ path: "new name.png" });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
+  });
+
+  it("registers project media once in the global Library and protects references", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-api-")) });
+    apps.push(app);
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-drama" },
+    })).json();
+    await writeFile(path.join(project.workspacePath, "opening.mp4"), "video bytes");
+
+    const first = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    const second = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    expect(first).toHaveLength(1);
+    expect(second).toEqual(first);
+    expect(first[0]).toMatchObject({ name: "opening.mp4", mediaType: "video", contentType: "video/mp4", size: 11 });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/content` });
+    expect(content.rawPayload.toString()).toBe("video bytes");
+
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.chapters[0].nodes.push({
+      id: "scene",
+      type: "scene",
+      position: { x: 100, y: 0 },
+      data: { title: "Opening", clips: [{ id: "clip", assetId: first[0].id }] },
+    });
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
+    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}` });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
+
+    const references = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/references` });
+    expect(references.json()).toEqual([{ id: project.id, name: "Story", type: "interactive-drama" }]);
+    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}?force=true` });
     expect(removed.statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
+    const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([]);
+  });
+
+  it("materializes a Library asset once and checks unused Story projects without creating a document", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-library-materialize-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
+    const target = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Target" } })).json();
+    const story = (await app.inject({
+      method: "POST", url: "/projects", payload: { name: "Story", type: "interactive-drama" },
+    })).json();
+    await writeFile(path.join(source.workspacePath, "sprite.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+
+    const [first, second] = await Promise.all([
+      app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/${asset.id}` }),
+      app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/${asset.id}` }),
+    ]);
+
+    expect(first.statusCode).toBe(201);
+    expect(second.json()).toEqual(first.json());
+    expect(await readdir(path.join(target.workspacePath, "assets", "imported"))).toEqual(["sprite.png"]);
+    const missing = await app.inject({ method: "POST", url: `/projects/${target.id}/library-assets/missing` });
+    expect(missing.statusCode).toBe(404);
+    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+    expect(blocked.statusCode).toBe(409);
+    await expect(readFile(path.join(story.workspacePath, "story.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not let an older Story document block Library deletion", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-old-story-")) });
+    apps.push(app);
+    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    await writeFile(path.join(storyProject.workspacePath, "story.json"), JSON.stringify({ version: 1, chapters: [] }));
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=image.png` });
+
+    const response = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+
+    expect(response.statusCode).toBe(204);
+  });
+
+  it("renames and deletes an unreferenced Library asset", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-actions-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(project.workspacePath, "sprite.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${project.id}/assets?path=sprite.png` });
+
+    const renamed = await app.inject({ method: "PATCH", url: `/library/assets/${asset.id}`, payload: { name: "hero" } });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().name).toBe("hero.png");
+    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+    expect(removed.statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(404);
   });
 
   it("rejects unsafe workspace file paths", async () => {

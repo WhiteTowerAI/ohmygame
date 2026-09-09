@@ -43,7 +43,7 @@ export function App() {
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
-  if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;

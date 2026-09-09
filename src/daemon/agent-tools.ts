@@ -156,7 +156,10 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
       const fileName = `image-${run.id}.${extension}`;
-      const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, { prompt: input.prompt });
+      const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
+        prompt: input.prompt,
+        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+      });
       return {
         content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
         details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
@@ -185,6 +188,7 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const sourcePrompt = await projects.generatedAssetPrompt(project.id, input.imagePath);
       const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
+        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
         ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
         ...(file.preview ? {
           preview: {
@@ -228,7 +232,10 @@ export function createAgentTools(
       const file = await tools.file(run.id, output.name);
       if (!file) throw new Error("Generated video could not be read");
       signal?.throwIfAborted();
-      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, { prompt: input.prompt });
+      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, {
+        prompt: input.prompt,
+        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+      });
       return {
         content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
         details: { artifact: { type: "video", path: relativePath, mediaType: output.mediaType } },

@@ -10,6 +10,7 @@ import {
   type AgentReasoningLevel,
   type ConversationAgentSettings,
   type ConversationCapabilities,
+  type LibraryAsset,
   type ImageGenerationSettings,
   type ImageModel,
   type ModelAuthEvent,
@@ -396,6 +397,49 @@ export async function deleteAsset(projectId: string, filePath: string): Promise<
   await request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
 }
 
+export async function listLibraryAssets(): Promise<LibraryAsset[]> {
+  return request("/library/assets");
+}
+
+export async function getLibraryAsset(assetId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function renameLibraryAsset(assetId: string, name: string): Promise<LibraryAsset> {
+  return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export async function deleteLibraryAsset(assetId: string): Promise<void> {
+  await request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+}
+
+export interface LibraryAssetReference {
+  id: string;
+  name: string;
+  type: ProjectState["type"];
+}
+
+export async function listLibraryAssetReferences(assetId: string): Promise<LibraryAssetReference[]> {
+  return request(`/library/assets/${encodeURIComponent(assetId)}/references`);
+}
+
+export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
+  await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
+}
+
+export async function publishLibraryAsset(assetId: string, accessToken: string): Promise<PublishAssetResult> {
+  return request(`/library/assets/${encodeURIComponent(assetId)}/publish`, { method: "POST", body: JSON.stringify({ accessToken }) });
+}
+
+export async function setLibraryAssetPublicationStatus(assetId: string, status: "listed" | "unlisted", accessToken: string): Promise<AssetPublicationState> {
+  return request(`/library/assets/${encodeURIComponent(assetId)}/publication`, {
+    method: "PUT",
+    body: JSON.stringify({ accessToken, status }),
+  });
+}
+
 export async function publishAsset(projectId: string, filePath: string, accessToken: string): Promise<PublishAssetResult> {
   return request(`/projects/${projectId}/assets/publish?path=${encodeURIComponent(filePath)}`, {
     method: "POST",
@@ -421,9 +465,8 @@ export async function getExploreAssetContent(assetId: string): Promise<Blob> {
 }
 
 export async function addExploreAssetToProject(projectId: string, assetId: string): Promise<{ path: string }> {
-  return request(`/projects/${projectId}/assets/import`, {
+  return request(`/projects/${projectId}/explore-assets/${encodeURIComponent(assetId)}`, {
     method: "POST",
-    body: JSON.stringify({ assetId }),
   });
 }
 

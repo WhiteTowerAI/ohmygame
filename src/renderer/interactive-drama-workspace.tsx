@@ -1,9 +1,11 @@
 import {
+  ArrowUp,
   ChevronDown,
   CircleStop,
   Clapperboard,
   Download,
   Flag,
+  Film,
   GitBranch,
   Hand,
   Maximize,
@@ -11,10 +13,12 @@ import {
   MousePointer2,
   Play,
   Plus,
+  Search,
   Trash2,
   X,
 } from "./icons.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -34,16 +38,17 @@ import {
   type NodeProps,
   type NodeTypes,
 } from "@xyflow/react";
-import type { StoryChapter, StoryChoiceOption, StoryDocument, StoryNode, StoryNodeType } from "../shared/contracts.js";
+import type { StoryChapter, StoryChoiceOption, StoryDocument, StoryNode, StoryNodeType, StoryVideoClip } from "../shared/contracts.js";
 import { replaceOutgoingEdge, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { getStory, updateStory } from "./api.js";
+import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { playtestHash } from "./routes.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
 type InteractionMode = "pointer" | "pan";
-type StoryFlowData = { title?: string; description?: string; options?: StoryChoiceOption[] };
+type StoryFlowData = { title?: string; description?: string; options?: StoryChoiceOption[]; clips?: StoryVideoClip[] };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
 
 const STORY_NODE_TYPES: NodeTypes = {
@@ -62,6 +67,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   const [selectedId, setSelectedId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
+  const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const canvas = useRef<HTMLDivElement>(null);
   const remainingChapters = useRef<StoryChapter[]>([]);
   const latestStory = useRef<StoryDocument | undefined>(undefined);
@@ -71,7 +77,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   useEffect(() => {
     let disposed = false;
     setPhase("loading");
-    void getStory(projectId).then((story) => {
+    void Promise.all([getStory(projectId), loadLibraryAssets()]).then(([story, assets]) => {
       if (disposed) return;
       const firstChapter = story.chapters[0];
       if (!firstChapter) throw new Error("Story has no chapters");
@@ -80,6 +86,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       setEdges(firstChapter.edges);
       remainingChapters.current = story.chapters.slice(1);
       queuedStory.current = JSON.stringify(story);
+      setLibraryAssets(assets);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -184,6 +191,15 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     clearSelection();
     setPlayIssue(undefined);
     try {
+      const assetIssue = validatePlayableChapter(activeChapter, new Set(libraryAssets.map((asset) => asset.id)));
+      if (assetIssue) {
+        setPlayIssue(assetIssue);
+        if (assetIssue.nodeId) {
+          setSelectedId(assetIssue.nodeId);
+          setNodes((current) => current.map((node) => ({ ...node, selected: node.id === assetIssue.nodeId })));
+        }
+        return;
+      }
       await save(document);
       if (window.openGameDesktop) {
         await window.openGameDesktop.openPlaytest(projectId, activeChapter.id);
@@ -271,6 +287,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         </div>
         {selectedNode ? (
           <StoryInspector
+            libraryAssets={libraryAssets}
             node={selectedNode}
             onChange={updateSelected}
             onClose={clearSelection}
@@ -293,11 +310,12 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 }
 
 function SceneNode({ data, selected }: NodeProps<StoryFlowNode>) {
+  const clipCount = data.clips?.length ?? 0;
   return (
     <div className={`story-node story-node-scene${selected ? " is-selected" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <StoryNodeHeading icon={<Clapperboard size={14} />} type="Scene" title={data.title || "Untitled scene"} />
-      {data.description ? <p>{data.description}</p> : <p className="is-placeholder">Add scene content</p>}
+      <p className={clipCount ? undefined : "is-placeholder"}>{clipCount ? `${clipCount} video ${clipCount === 1 ? "clip" : "clips"}` : "Add video clips"}</p>
       <Handle id="out" type="source" position={Position.Right} />
     </div>
   );
@@ -336,11 +354,13 @@ function StoryNodeHeading({ icon, type, title }: { icon: React.ReactNode; type: 
 }
 
 function StoryInspector({
+  libraryAssets,
   node,
   onChange,
   onClose,
   onDelete,
 }: {
+  libraryAssets: LibraryAsset[];
   node: StoryFlowNode;
   onChange: (data: StoryFlowData, removedHandle?: string) => void;
   onClose: () => void;
@@ -355,12 +375,24 @@ function StoryInspector({
       </header>
       <div className="story-inspector-content">
         {node.type === "start" ? <p className="story-inspector-help">The first node in this chapter. Connect it to the opening scene.</p> : null}
-        {node.type === "scene" || node.type === "ending" ? (
+        {node.type === "scene" ? (
           <>
             <InspectorField label="Title">
               <input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} />
             </InspectorField>
-            <InspectorField label={node.type === "scene" ? "Script" : "Description"}>
+            <StoryClipEditor
+              libraryAssets={libraryAssets}
+              clips={node.data.clips ?? []}
+              onChange={(clips) => onChange({ ...node.data, clips })}
+            />
+          </>
+        ) : null}
+        {node.type === "ending" ? (
+          <>
+            <InspectorField label="Title">
+              <input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} />
+            </InspectorField>
+            <InspectorField label="Description">
               <textarea rows={6} value={node.data.description ?? ""} onChange={(event) => onChange({ ...node.data, description: event.target.value })} />
             </InspectorField>
           </>
@@ -401,6 +433,107 @@ function StoryInspector({
         <footer><button type="button" onClick={onDelete}><Trash2 size={14} />Delete node</button></footer>
       ) : null}
     </aside>
+  );
+}
+
+function StoryClipEditor({ libraryAssets, clips, onChange }: {
+  libraryAssets: LibraryAsset[];
+  clips: StoryVideoClip[];
+  onChange: (clips: StoryVideoClip[]) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  function move(index: number, offset: -1 | 1): void {
+    const target = index + offset;
+    if (target < 0 || target >= clips.length) return;
+    const next = [...clips];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    onChange(next);
+  }
+
+  return (
+    <section className="story-inspector-clips">
+      <span>Video clips</span>
+      {clips.length ? <div className="story-clip-list">{clips.map((clip, index) => (
+        <StoryClipRow
+          key={clip.id}
+          clip={clip}
+          asset={libraryAssets.find((asset) => asset.id === clip.assetId)}
+          index={index}
+          count={clips.length}
+          onMove={(offset) => move(index, offset)}
+          onRemove={() => onChange(clips.filter((candidate) => candidate.id !== clip.id))}
+        />
+      ))}</div> : <p>No video clips yet</p>}
+      <button className="story-clip-add" type="button" onClick={() => setPickerOpen(true)}><Plus size={14} />Add video</button>
+      {pickerOpen ? <StoryVideoPicker videos={libraryAssets.filter((asset) => asset.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(assetId) => {
+        onChange([...clips, { id: crypto.randomUUID(), assetId }]);
+        setPickerOpen(false);
+      }} /> : null}
+    </section>
+  );
+}
+
+function StoryVideoPicker({ videos, onClose, onSelect }: {
+  videos: LibraryAsset[];
+  onClose: () => void;
+  onSelect: (assetId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialog.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const visibleVideos = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return normalized
+      ? videos.filter((video) => `${video.name} ${video.prompt ?? ""}`.toLowerCase().includes(normalized))
+      : videos;
+  }, [query, videos]);
+
+  return createPortal(
+    <div className="story-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="story-video-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
+        <header><h2 id="story-video-picker-title">Add video</h2><button type="button" aria-label="Close video picker" onClick={onClose}><X size={16} /></button></header>
+        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library videos" /></label>
+        <div className="story-video-picker-list">
+          {visibleVideos.length === 0 ? <p>{videos.length ? "No videos match your search" : "No videos in Library"}</p> : null}
+          {visibleVideos.map((video) => {
+            return <button type="button" key={video.id} onClick={() => onSelect(video.id)}>
+              <span><Film size={17} /></span>
+              <span><strong>{video.prompt ?? video.name}</strong><small>{video.name}</small></span>
+            </button>;
+          })}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+function StoryClipRow({ clip, asset, index, count, onMove, onRemove }: {
+  clip: StoryVideoClip;
+  asset?: LibraryAsset;
+  index: number;
+  count: number;
+  onMove: (offset: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="story-clip-row">
+      <div className="story-clip-preview"><Film size={16} /></div>
+      <div><strong>{asset?.name ?? "Missing video"}</strong><span>Clip {index + 1}</span></div>
+      <div className="story-clip-actions">
+        <button type="button" title="Move clip up" aria-label={`Move clip ${index + 1} up`} disabled={index === 0} onClick={() => onMove(-1)}><ArrowUp size={13} /></button>
+        <button type="button" title="Move clip down" aria-label={`Move clip ${index + 1} down`} disabled={index === count - 1} onClick={() => onMove(1)}><ChevronDown size={13} /></button>
+        <button type="button" title="Remove clip" aria-label={`Remove clip ${index + 1}`} onClick={onRemove}><X size={13} /></button>
+      </div>
+    </div>
   );
 }
 
@@ -464,7 +597,7 @@ function CanvasToolbar({
       <div ref={addMenu} className="story-add-node">
         {addOpen ? (
           <div className="story-add-node-menu">
-            <button type="button" onClick={() => add("scene")}><Clapperboard size={15} /><span><strong>Scene</strong><small>Story content and dialogue</small></span></button>
+            <button type="button" onClick={() => add("scene")}><Clapperboard size={15} /><span><strong>Scene</strong><small>Ordered video clips</small></span></button>
             <button type="button" onClick={() => add("choice")}><GitBranch size={15} /><span><strong>Choice</strong><small>Branch into player options</small></span></button>
             <button type="button" onClick={() => add("ending")}><CircleStop size={15} /><span><strong>Ending</strong><small>Finish this story path</small></span></button>
           </div>
@@ -514,7 +647,8 @@ function createFlowNode(type: Exclude<StoryNodeType, "start">, position: { x: nu
       ],
     },
   };
-  return { id, type, position, data: { title: type === "scene" ? "Untitled scene" : "Untitled ending", description: "" } };
+  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", clips: [] } };
+  return { id, type, position, data: { title: "Untitled ending", description: "" } };
 }
 
 function storyDocument(
@@ -524,7 +658,7 @@ function storyDocument(
   remainingChapters: StoryChapter[],
 ): StoryDocument {
   return {
-    version: 1,
+    version: 2,
     chapters: [{
       ...chapter,
       nodes: nodes.map(toStoryNode),
@@ -540,6 +674,12 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     type: "choice",
     position: node.position,
     data: { title: node.data.title ?? "", options: node.data.options ?? [] },
+  };
+  if (node.type === "scene") return {
+    id: node.id,
+    type: "scene",
+    position: node.position,
+    data: { title: node.data.title ?? "", clips: node.data.clips ?? [] },
   };
   return {
     id: node.id,

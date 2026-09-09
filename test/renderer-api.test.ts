@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteProject, duplicateProject, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -255,8 +255,8 @@ describe("renderer project API", () => {
       method: "PUT", body: JSON.stringify({ accessToken: "user-access-token", status: "unlisted" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/explore/assets", expect.anything());
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project/assets/import", expect.objectContaining({
-      method: "POST", body: JSON.stringify({ assetId: "asset-1" }),
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project/explore-assets/asset-1", expect.objectContaining({
+      method: "POST",
     }));
   });
 
@@ -574,6 +574,34 @@ describe("renderer project API", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/assets?path=assets%2Fold%20name.glb", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "new name" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/assets?path=assets%2Fnew%20name.glb", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("uses global Library asset endpoints", async () => {
+    installWindow();
+    const asset = { id: "video", name: "opening.mp4" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json([asset]))
+      .mockResolvedValueOnce(new Response(new Blob(["video"])))
+      .mockResolvedValueOnce(Response.json(asset))
+      .mockResolvedValueOnce(Response.json([{ id: "project", name: "Story", type: "interactive-drama" }]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listLibraryAssets()).resolves.toEqual([asset]);
+    await expect(getLibraryAsset("video")).resolves.toBeInstanceOf(Blob);
+    await expect(renameLibraryAsset("video", "Opening")).resolves.toEqual(asset);
+    await expect(listLibraryAssetReferences("video")).resolves.toEqual([{ id: "project", name: "Story", type: "interactive-drama" }]);
+    await expect(deleteLibraryAsset("video")).resolves.toBeUndefined();
+    await expect(forceDeleteLibraryAsset("video")).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/library/assets",
+      "/api/library/assets/video/content",
+      "/api/library/assets/video",
+      "/api/library/assets/video/references",
+      "/api/library/assets/video",
+      "/api/library/assets/video?force=true",
+    ]);
   });
 
   it("downloads workspace assets with desktop authorization", async () => {

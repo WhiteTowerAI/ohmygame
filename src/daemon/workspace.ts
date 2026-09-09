@@ -35,6 +35,8 @@ export async function listWorkspaceFiles(workspacePath: string): Promise<Workspa
     if (previewPath) file.previewPath = previewPath;
     const publication = metadata.publications[file.path];
     if (publication) file.publication = publication;
+    const libraryAssetId = metadata.libraryAssets[file.path];
+    if (libraryAssetId) file.libraryAssetId = libraryAssetId;
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { AssetPublicationState, WorkspaceFile } from "../shared/contracts.js";
 import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
-import { publishAsset, setAssetPublicationStatus } from "./api.js";
+import { publishAsset, publishLibraryAsset, setAssetPublicationStatus, setLibraryAssetPublicationStatus } from "./api.js";
 import { useAuth } from "./auth.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
@@ -11,7 +11,8 @@ export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
 
 export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
   mediaType: NonNullable<WorkspaceFile["mediaType"]>;
-  projectId: string;
+  projectId?: string;
+  assetId?: string;
   projectName?: string;
   revision?: number;
 }
@@ -57,7 +58,7 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [card, visible] = useNearViewport<HTMLElement>();
-  const preview = useWorkspaceAssetUrl(visible && asset.mediaType !== "audio" ? asset.projectId : undefined, asset.path, asset.revision);
+  const preview = useWorkspaceAssetUrl(visible && asset.mediaType !== "audio" ? asset.projectId : undefined, asset.path, asset.revision, visible ? asset.assetId : undefined);
   const showPreview = Boolean(preview.url) && !previewFailed;
   const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : preview.error || previewFailed ? X : ImageIcon;
   const TypeIcon = asset.mediaType === "video" ? Play : asset.mediaType === "model" ? Box : undefined;
@@ -112,7 +113,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
-  const preview = useWorkspaceAssetUrl(asset.projectId, asset.path, asset.revision);
+  const preview = useWorkspaceAssetUrl(asset.projectId, asset.path, asset.revision, asset.assetId);
   const auth = useAuth();
   const [publication, setPublication] = useState(asset.publication);
   const [sharing, setSharing] = useState(false);
@@ -124,7 +125,9 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     if (!accessToken) return;
     setSharing(true);
     try {
-      const result = await publishAsset(asset.projectId, asset.path, accessToken);
+      const result = asset.assetId
+        ? await publishLibraryAsset(asset.assetId, accessToken)
+        : await publishAsset(asset.projectId!, asset.path, accessToken);
       updatePublication({ assetId: result.asset.id, releaseId: result.release.id, publishedAt: result.release.publishedAt, status: "listed" });
       setShareNotice("Published to Explore");
     } catch (cause) {
@@ -140,7 +143,9 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     if (!accessToken) return;
     setSharing(true);
     try {
-      updatePublication(await setAssetPublicationStatus(asset.projectId, asset.path, status, accessToken));
+      updatePublication(asset.assetId
+        ? await setLibraryAssetPublicationStatus(asset.assetId, status, accessToken)
+        : await setAssetPublicationStatus(asset.projectId!, asset.path, status, accessToken));
       setShareNotice(status === "listed" ? "Republished to Explore" : "Removed from Explore");
     } catch (cause) {
       setShareNotice(cause instanceof Error ? cause.message : String(cause));

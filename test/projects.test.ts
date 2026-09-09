@@ -69,7 +69,7 @@ describe("ProjectManager", () => {
 
     const story = await manager.story(project.id);
     expect(story).toMatchObject({
-      version: 1,
+      version: 2,
       chapters: [{ title: "Untitled", nodes: [{ type: "start" }], edges: [] }],
     });
 
@@ -88,7 +88,7 @@ describe("ProjectManager", () => {
     const story = await manager.create("Story", "interactive-drama");
 
     await expect(manager.story(webGame.id)).rejects.toThrow("Interactive Drama");
-    await expect(manager.setStory(story.id, { version: 1, chapters: [] })).rejects.toThrow("Invalid story document");
+    await expect(manager.setStory(story.id, { version: 2, chapters: [] })).rejects.toThrow("Invalid story document");
   });
 
   it("writes generated assets only under the project workspace", async () => {

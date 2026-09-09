@@ -5,7 +5,8 @@ import type { ProjectState, ProjectType, PublicationState, StoryDocument } from 
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument } from "../shared/story.js";
-import { getWorkspaceMedia } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
+import type { AssetLibrary } from "./asset-library.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -32,10 +33,10 @@ const STORY_FILE = "story.json";
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
-  readonly #assetMetadataWrites = new Map<string, Promise<void>>();
+  readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #projectsDirectory: string;
 
-  constructor(dataDirectory: string) {
+  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
   }
 
@@ -82,6 +83,24 @@ export class ProjectManager {
   }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
+
+  async syncLibraryAssets(): Promise<void> {
+    if (!this.assetLibrary) return;
+    for (const project of this.#projects.values()) {
+      const files = (await listWorkspaceFiles(project.workspacePath)).filter((file) => (
+        file.mediaType && (!file.libraryAssetId || !this.assetLibrary!.get(file.libraryAssetId))
+      ));
+      for (const file of files) {
+        const media = await getWorkspaceMedia(project.workspacePath, file.path);
+        const asset = await this.assetLibrary.addFile(path.basename(file.path), media.absolutePath, {
+          ...(file.prompt ? { prompt: file.prompt } : {}),
+          ...(file.publication ? { publication: file.publication } : {}),
+          sourceKey: `project:${project.id}:${file.path}`,
+        });
+        await this.#writeAssetMetadata(project.id, () => writeAssetMetadata(project.workspacePath, file.path, { libraryAssetId: asset.id }));
+      }
+    }
+  }
 
   async rename(id: string, name: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
@@ -176,7 +195,7 @@ export class ProjectManager {
     id: string,
     fileName: string,
     contents: Uint8Array,
-    metadata: { prompt?: string; preview?: { bytes: Uint8Array; extension: "png" | "jpg" } } = {},
+    metadata: { prompt?: string; preview?: { bytes: Uint8Array; extension: "png" | "jpg" }; libraryAssetId?: string } = {},
   ): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -214,10 +233,17 @@ export class ProjectManager {
         await rm(previewTemporary, { force: true });
       }
     }
-    if (normalizedPrompt || previewPath) {
+    const libraryAssetId = metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
+      ? metadata.libraryAssetId
+      : (await this.assetLibrary?.add(fileName, contents, {
+      ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+      sourceKey: `project:${id}:${assetPath}`,
+      }))?.id;
+    if (normalizedPrompt || previewPath || libraryAssetId) {
       await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
         ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
         ...(previewPath ? { previewPath } : {}),
+        ...(libraryAssetId ? { libraryAssetId } : {}),
       }));
     }
     await this.touch(id);
@@ -243,7 +269,32 @@ export class ProjectManager {
     await this.#writeAssetMetadata(id, () => writeAssetPublication(project.workspacePath, assetPath, publication));
   }
 
-  async importAsset(id: string, fileName: string, contents: Uint8Array): Promise<string> {
+  async materializeLibraryAsset(id: string, assetId: string): Promise<{ path: string; assetId: string }> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
+    const { asset, absolutePath } = await this.assetLibrary.content(assetId);
+    return this.#writeAssetMetadata(id, async () => {
+      const metadata = await readAssetMetadata(project.workspacePath);
+      const stalePaths: string[] = [];
+      for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
+        if (linkedId !== assetId) continue;
+        try {
+          await getWorkspaceMedia(project.workspacePath, assetPath);
+          return { path: assetPath, assetId };
+        } catch (error) {
+          if (!(error instanceof WorkspaceError)) throw error;
+          stalePaths.push(assetPath);
+        }
+      }
+      const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyFile(absolutePath, temporary));
+      for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
+      await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId });
+      return { path: assetPath, assetId };
+    });
+  }
+
+  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/.test(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
@@ -260,7 +311,7 @@ export class ProjectManager {
     const destination = path.join(importedDirectory, candidate);
     const temporary = path.join(importedDirectory, `.${candidate}.${randomUUID()}.tmp`);
     try {
-      await writeFile(temporary, contents, { flag: "wx" });
+      await writeTemporary(temporary);
       await rename(temporary, destination);
     } finally {
       await rm(temporary, { force: true });
@@ -322,11 +373,11 @@ export class ProjectManager {
     await this.touch(id);
   }
 
-  async #writeAssetMetadata(id: string, operation: () => Promise<void>): Promise<void> {
+  async #writeAssetMetadata<T>(id: string, operation: () => Promise<T>): Promise<T> {
     const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve()).then(operation);
     this.#assetMetadataWrites.set(id, write);
     try {
-      await write;
+      return await write;
     } finally {
       if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
     }
@@ -356,6 +407,67 @@ export class ProjectManager {
     if (!isStoryDocument(story)) throw new Error("Invalid story document");
     await writeStory(path.join(project.workspacePath, STORY_FILE), story);
     await this.touch(id);
+  }
+
+  async referencesLibraryAsset(assetId: string): Promise<ProjectState[]> {
+    const references: ProjectState[] = [];
+    for (const project of this.#projects.values()) {
+      const metadata = await readAssetMetadata(project.workspacePath);
+      if (Object.values(metadata.libraryAssets).includes(assetId)) {
+        references.push(project);
+        continue;
+      }
+      if (project.type !== "interactive-drama") continue;
+      let story: StoryDocument;
+      try {
+        const parsed: unknown = JSON.parse(await readFile(path.join(project.workspacePath, STORY_FILE), "utf8"));
+        // Older Story documents do not contain global asset references. They must not
+        // prevent unrelated Library assets from being deleted.
+        if (!isStoryDocument(parsed)) continue;
+        story = parsed;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
+        node.type === "scene" && node.data.clips.some((clip) => clip.assetId === assetId)
+      )))) references.push(project);
+    }
+    return references;
+  }
+
+  async removeLibraryAssetReferences(assetId: string): Promise<void> {
+    for (const project of await this.referencesLibraryAsset(assetId)) {
+      const metadata = await readAssetMetadata(project.workspacePath);
+      for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
+        if (linkedId !== assetId) continue;
+        try {
+          await this.deleteAsset(project.id, assetPath);
+        } catch (error) {
+          if (!(error instanceof WorkspaceError)) throw error;
+          await this.#writeAssetMetadata(project.id, () => deleteAssetMetadata(project.workspacePath, assetPath));
+        }
+      }
+      if (project.type !== "interactive-drama") continue;
+      const destination = path.join(project.workspacePath, STORY_FILE);
+      try {
+        const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
+        if (!isStoryDocument(parsed)) continue;
+        const story: StoryDocument = {
+          ...parsed,
+          chapters: parsed.chapters.map((chapter) => ({
+            ...chapter,
+            nodes: chapter.nodes.map((node) => node.type === "scene"
+              ? { ...node, data: { ...node.data, clips: node.data.clips.filter((clip) => clip.assetId !== assetId) } }
+              : node),
+          })),
+        };
+        await writeStory(destination, story);
+        await this.touch(project.id);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
 
   async setPublication(id: string, publication: PublicationState): Promise<void> {
