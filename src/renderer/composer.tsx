@@ -2,7 +2,7 @@ import { ArrowUp, Square } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
-import { ModelSelector } from "./model-selector.js";
+import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
@@ -22,6 +22,7 @@ interface ComposerProps {
   planMode: PlanMode;
   notice?: string;
   models: AgentModel[];
+  modelStatus: AgentModelCatalogStatus;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   modelChanging: boolean;
@@ -57,6 +58,7 @@ export function Composer({
   planMode,
   notice,
   models,
+  modelStatus,
   model,
   reasoningLevel,
   modelChanging,
@@ -351,6 +353,7 @@ export function Composer({
           <>
             <ModelSelector
               models={models}
+              status={modelStatus}
               value={model}
               reasoningLevel={reasoningLevel}
               disabled={!conversationReady || running || stopping || modelChanging}

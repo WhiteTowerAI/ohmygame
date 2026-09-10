@@ -122,7 +122,7 @@ export class ToolRunner {
       return this.#runVideo(input as RunVideoToolRequest, signal, metadata);
     }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
-    assertOnlyKeys(input, ["prompt", "size", "resolution", "aspectRatio", "outputs", "images"]);
+    assertOnlyKeys(input, ["prompt", "imageModel", "size", "resolution", "aspectRatio", "outputs", "images"]);
     return this.#runImage(input as RunImageToolRequest, signal, metadata);
   }
 
@@ -153,6 +153,7 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
+        ...(input.imageModel ? { imageModel: input.imageModel } : {}),
         ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
@@ -419,7 +420,7 @@ function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: 
   const title = promptTitle(prompt) ?? run.title;
   return {
     ...run,
-    files: run.files.map(({ assetId: ____, ...file }) => file),
+    files: run.files.map((file) => ({ ...file })),
     ...(title ? { title } : {}),
   };
 }

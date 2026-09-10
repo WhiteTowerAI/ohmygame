@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
@@ -16,6 +16,7 @@ import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, lo
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
+import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
@@ -330,6 +331,7 @@ const setConversationReasoningSchema = {
   },
 } as const;
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
+const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const toolRunSchema = {
   body: {
@@ -338,6 +340,7 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      imageModel: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
       resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
@@ -1114,6 +1117,51 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.post<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>(
+    "/projects/:projectId/story/text/generate",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["instruction"],
+          properties: {
+            instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+            model: {
+              type: "object",
+              additionalProperties: false,
+              required: ["provider", "id"],
+              properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } },
+            },
+          },
+        },
+      },
+      bodyLimit: 32_000,
+    },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (project.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "Story documents require an Interactive Drama project" });
+      }
+      const runtime = await getModelRuntime();
+      const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
+      const provider = settings.getDefaultProvider();
+      const id = settings.getDefaultModel();
+      const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
+      if (!selected) return reply.code(409).send({ error: "No language model is configured" });
+      const model = runtime.getModel(selected.provider, selected.id);
+      if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
+      try {
+        const text = await generateCreativeText(runtime, selected, request.body.instruction);
+        if (!text) return reply.code(502).send({ error: "The language model returned no text" });
+        return { text, model: selected };
+      } catch (cause) {
+        return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
     "/projects/:projectId",
     { schema: renameProjectSchema },
@@ -1358,6 +1406,48 @@ export function createApp(options: AppOptions = {}) {
   app.get("/library/assets", async () => {
     await projects.syncLibraryAssets();
     return library.list();
+  });
+
+  app.post<{ Body: CreateLibraryImageRequest }>("/library/assets", {
+    bodyLimit: 15 * 1024 * 1024,
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "image"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 200 },
+          image: {
+            type: "object",
+            additionalProperties: false,
+            required: ["mediaType", "data"],
+            properties: {
+              mediaType: { enum: ["image/png", "image/jpeg", "image/webp"] },
+              data: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!validBase64(request.body.image.data)) return reply.code(400).send({ error: "Image data is invalid" });
+    const contents = Buffer.from(request.body.image.data, "base64");
+    if (contents.length === 0 || contents.length > MAX_LIBRARY_IMAGE_BYTES) {
+      return reply.code(400).send({ error: "Image must be no larger than 10 MB" });
+    }
+    if (!isImageOfType(contents, request.body.image.mediaType)) {
+      return reply.code(400).send({ error: "Image data does not match its media type" });
+    }
+    try {
+      const extension = request.body.image.mediaType === "image/png" ? ".png"
+        : request.body.image.mediaType === "image/jpeg" ? ".jpg"
+          : ".webp";
+      const name = `${path.parse(path.basename(request.body.name)).name || "image"}${extension}`;
+      return reply.code(201).send(await library.add(name, contents));
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
+    }
   });
 
   app.get<{ Params: { assetId: string } }>("/library/assets/:assetId/content", async (request, reply) => {
@@ -2418,6 +2508,18 @@ function isWebp(value: unknown): value is Buffer {
   return Buffer.isBuffer(value) && value.length >= 12 &&
     value.subarray(0, 4).toString("ascii") === "RIFF" &&
     value.subarray(8, 12).toString("ascii") === "WEBP";
+}
+
+function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["image"]["mediaType"]): boolean {
+  if (mediaType === "image/webp") return isWebp(value);
+  if (mediaType === "image/png") {
+    return value.length >= 8 && value.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  return value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff;
+}
+
+function validBase64(value: string): boolean {
+  return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
 }
 
 function publishMediaType(contentType: string): PublishAssetMediaType | undefined {

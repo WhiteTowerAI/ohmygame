@@ -5,6 +5,7 @@ import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 
 interface ModelSelectorProps {
   models: AgentModel[];
+  status?: AgentModelCatalogStatus;
   value?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   disabled?: boolean;
@@ -12,7 +13,7 @@ interface ModelSelectorProps {
   onReasoningChange: (level: AgentReasoningLevel) => void;
 }
 
-export function ModelSelector({ models, value, reasoningLevel, disabled, onChange, onReasoningChange }: ModelSelectorProps) {
+export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, onChange, onReasoningChange }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const [submenu, setSubmenu] = useState<"model" | "reasoning">();
   const root = useRef<HTMLDivElement>(null);
@@ -51,7 +52,9 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
     }
   }, [disabled]);
 
-  if (models.length === 0) return null;
+  const unavailableLabel = status === "loading" ? "Loading models..."
+    : status === "error" ? "Could not load models"
+    : "No language model";
 
   return (
     <div className="model-selector" ref={root}>
@@ -63,7 +66,7 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
-        disabled={disabled}
+        disabled={disabled || status !== "ready" || !current}
         onClick={() => {
           setOpen((value) => !value);
           setSubmenu(undefined);
@@ -71,7 +74,7 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
         title="Model"
       >
         <span className="model-selector-current">
-          <span className="model-selector-name">{current?.name ?? (value ? value.id : "Default model")}</span>
+          <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
           {current ? <small>{current.providerName}</small> : null}
         </span>
         <ChevronDown aria-hidden="true" size={12} />
@@ -151,14 +154,22 @@ export function ModelSelector({ models, value, reasoningLevel, disabled, onChang
   );
 }
 
-const EMPTY_CATALOG: AgentModelCatalog = { models: [], defaultReasoningLevel: "medium" };
-export function useAgentModels(): AgentModelCatalog {
-  const [catalog, setCatalog] = useState<AgentModelCatalog>(EMPTY_CATALOG);
+export type AgentModelCatalogStatus = "loading" | "ready" | "error";
+export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCatalogStatus };
+
+const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
+export function useAgentModels(): AgentModelCatalogState {
+  const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
   useEffect(() => {
     let disposed = false;
-    const load = () => void waitForRuntime().then(listModels).then((available) => {
-      if (!disposed) setCatalog(available);
-    }).catch(() => {});
+    const load = () => {
+      setCatalog((current) => ({ ...current, status: "loading" }));
+      void waitForRuntime().then(listModels).then((available) => {
+        if (!disposed) setCatalog({ ...available, status: "ready" });
+      }).catch(() => {
+        if (!disposed) setCatalog((current) => ({ ...current, models: [], defaultModel: undefined, status: "error" }));
+      });
+    };
     load();
     window.addEventListener(MODELS_CHANGED_EVENT, load);
     return () => {

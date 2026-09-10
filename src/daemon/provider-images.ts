@@ -31,7 +31,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
-    const selected = this.selected();
+    const selected = input.imageModel ?? this.selected();
     const definition = selected ? imageModelDefinition(selected.id) : undefined;
     if (!selected || !definition) throw new ImageGenerationError("Image generation is not configured", 503);
     if (input.size && !definition.sizes.includes(input.size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
@@ -52,7 +52,8 @@ export class ProviderImages implements ImageGenerator {
     }
     if (!source) throw new ImageGenerationError("Image generation is not configured", 503);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
-    return adapter.generate(source, selected.id, input, signal);
+    const { imageModel: _, ...generationInput } = input;
+    return adapter.generate(source, selected.id, generationInput, signal);
   }
 }
 

@@ -1,4 +1,4 @@
-import type { ImageAspectRatio, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
+import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
 
 export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
 
@@ -10,6 +10,7 @@ export interface GeneratedImage {
 
 export interface ImageGenerationInput {
   prompt: string;
+  imageModel?: ImageModelRef;
   size?: ImageSize;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;

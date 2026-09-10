@@ -131,7 +131,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "scene" | "choice" | "ending";
+export type StoryNodeType = "start" | "scene" | "choice" | "ending" | "text" | "image" | "video";
 
 export interface StoryPosition {
   x: number;
@@ -145,14 +145,56 @@ export interface StoryChoiceOption {
 
 export interface StoryVideoClip {
   id: string;
-  assetId: string;
+  source: StoryAssetReference;
+}
+
+export type StoryAssetReference =
+  | { type: "library"; assetId: string }
+  | { type: "node"; nodeId: string };
+
+export interface StoryTextReference {
+  type: "node";
+  nodeId: string;
+}
+
+export interface StoryTextGenerationRequest {
+  instruction: string;
+  model?: AgentModelRef;
+}
+
+export interface StoryTextGenerationResponse {
+  text: string;
+  model: AgentModelRef;
 }
 
 export type StoryNode =
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
   | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[] } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[] } }
-  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } };
+  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } }
+  | { id: string; type: "text"; position: StoryPosition; data: {
+    text: string;
+    instruction: string;
+    model?: AgentModelRef;
+  } }
+  | { id: string; type: "image"; position: StoryPosition; data: {
+    prompt: string;
+    promptSource?: StoryTextReference;
+    model?: ImageModelRef;
+    resolution: ImageResolution;
+    aspectRatio: ImageAspectRatio;
+    assetId?: string;
+  } }
+  | { id: string; type: "video"; position: StoryPosition; data: {
+    prompt: string;
+    promptSource?: StoryTextReference;
+    model: typeof VIDEO_MODEL;
+    resolution: VideoResolution;
+    aspectRatio: VideoAspectRatio;
+    duration: number;
+    images: StoryAssetReference[];
+    assetId?: string;
+  } };
 
 export interface StoryEdge {
   id: string;
@@ -456,6 +498,11 @@ export interface LibraryAsset {
   publication?: AssetPublicationState;
 }
 
+export interface CreateLibraryImageRequest {
+  name: string;
+  image: PromptImage & { mediaType: Exclude<PromptImageMediaType, "image/gif"> };
+}
+
 export interface AssetPublicationState {
   assetId: string;
   releaseId: string;
@@ -539,6 +586,7 @@ export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | Video
 
 interface RunLegacyImageToolRequest {
   prompt: string;
+  imageModel?: ImageModelRef;
   size?: ImageSize;
   resolution?: never;
   aspectRatio?: never;
@@ -548,6 +596,7 @@ interface RunLegacyImageToolRequest {
 
 interface RunStudioImageToolRequest {
   prompt: string;
+  imageModel?: ImageModelRef;
   size?: never;
   resolution: ImageResolution;
   aspectRatio: ImageAspectRatio;
@@ -585,6 +634,7 @@ export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoTo
 export interface ToolRunFile {
   name: string;
   mediaType: string;
+  assetId?: string;
   publication?: AssetPublicationState;
 }
 

@@ -680,6 +680,7 @@ export function ProjectShell({
             planMode={state.plan.mode}
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
+            modelStatus={modelCatalog.status}
             model={state.settings.model}
             reasoningLevel={state.settings.reasoningLevel}
             modelChanging={modelChanging}

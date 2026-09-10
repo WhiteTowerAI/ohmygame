@@ -5,6 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
+import { VIDEO_MODEL } from "../src/shared/contracts.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -66,6 +67,76 @@ describe("daemon", () => {
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
       .toMatchObject({ chapters: [{ title: "The Stopover" }] });
+  });
+
+  it("generates story text with a selected language model", async () => {
+    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
+    const completeSimple = vi.fn().mockResolvedValue({
+      role: "assistant",
+      content: [{ type: "text", text: "A cinematic rooftop at night." }],
+      stopReason: "stop",
+    });
+    const runtime = {
+      ...fakeModelRuntime([model]),
+      completeSimple,
+    } as unknown as ModelRuntime;
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      createModelRuntime: async () => runtime,
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/story/text/generate`,
+      payload: { instruction: "Write an image prompt", model: { provider: model.provider, id: model.id } },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ text: "A cinematic rooftop at night.", model: { provider: model.provider, id: model.id } });
+    expect(completeSimple).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects story text generation without an available model", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      createModelRuntime: async () => fakeModelRuntime([]),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/story/text/generate`,
+      payload: { instruction: "Write an image prompt", model: { provider: "missing", id: "missing" } },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "The selected language model is not available" });
+  });
+
+  it("rejects story text generation for other project types", async () => {
+    const completeSimple = vi.fn();
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      createModelRuntime: async () => ({
+        ...fakeModelRuntime([{ provider: "provider-one", id: "model-one", name: "Model One" }]),
+        completeSimple,
+      } as unknown as ModelRuntime),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/story/text/generate`,
+      payload: { instruction: "Write an image prompt", model: { provider: "provider-one", id: "model-one" } },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Story documents require an Interactive Drama project" });
+    expect(completeSimple).not.toHaveBeenCalled();
   });
 
   it("lists projects", async () => {
@@ -164,10 +235,29 @@ describe("daemon", () => {
 
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     story.chapters[0].nodes.push({
+      id: "video",
+      type: "video",
+      position: { x: 0, y: 0 },
+      data: {
+        prompt: "Opening",
+        model: VIDEO_MODEL,
+        resolution: "720p",
+        aspectRatio: "16:9",
+        duration: 6,
+        images: [],
+        assetId: first[0].id,
+      },
+    }, {
       id: "scene",
       type: "scene",
       position: { x: 100, y: 0 },
-      data: { title: "Opening", clips: [{ id: "clip", assetId: first[0].id }] },
+      data: {
+        title: "Opening",
+        clips: [
+          { id: "library-clip", source: { type: "library", assetId: first[0].id } },
+          { id: "node-clip", source: { type: "node", nodeId: "video" } },
+        ],
+      },
     });
     await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}` });
@@ -180,7 +270,10 @@ describe("daemon", () => {
     expect(removed.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
     const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([]);
+    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
+    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([
+      { id: "node-clip", source: { type: "node", nodeId: "video" } },
+    ]);
   });
 
   it("materializes a Library asset once and checks unused Story projects without creating a document", async () => {
@@ -239,6 +332,70 @@ describe("daemon", () => {
     const removed = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
     expect(removed.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/library/assets/${asset.id}/content` })).statusCode).toBe(404);
+  });
+
+  it("imports a local image into the global Library", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    apps.push(app);
+
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const response = await app.inject({
+      method: "POST",
+      url: "/library/assets",
+      payload: {
+        name: "reference.webp",
+        image: { mediaType: "image/png", data: png.toString("base64") },
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({ name: "reference.png", mediaType: "image", contentType: "image/png" });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
+    expect(content.rawPayload).toEqual(png);
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-drama" },
+    })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.chapters[0].nodes.push({
+      id: "video",
+      type: "video",
+      position: { x: 100, y: 0 },
+      data: {
+        prompt: "Animate",
+        model: VIDEO_MODEL,
+        resolution: "720p",
+        aspectRatio: "16:9",
+        duration: 6,
+        images: [{ type: "library", assetId: response.json().id }],
+      },
+    });
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/references` })).json()).toHaveLength(1);
+
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.images).toEqual([]);
+  });
+
+  it("rejects Library image data that does not match its media type", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/library/assets",
+      payload: {
+        name: "reference.png",
+        image: { mediaType: "image/png", data: Buffer.from("not a png").toString("base64") },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Image data does not match its media type" });
+    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
   });
 
   it("rejects unsafe workspace file paths", async () => {

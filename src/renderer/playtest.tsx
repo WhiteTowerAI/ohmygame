@@ -1,7 +1,7 @@
 import { RotateCcw } from "./icons.js";
 import { useEffect, useState } from "react";
-import type { StoryChapter, StoryNode, StoryVideoClip } from "../shared/contracts.js";
-import { getNextNode, getStartNode, validatePlayableChapter } from "../shared/story.js";
+import type { StoryChapter, StoryNode } from "../shared/contracts.js";
+import { getNextNode, getStartNode, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
@@ -60,16 +60,18 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       </header>
       {error ? <div className="story-playtest-state" role="alert">{error}</div> : null}
       {!error && !node ? <div className="story-playtest-state">Loading playtest...</div> : null}
-      {node ? <StoryPlayer key={`${node.id}:${playbackStep}`} node={node} onAdvance={advance} onRestart={restart} /> : null}
+      {node && chapter ? <StoryPlayer key={`${node.id}:${playbackStep}`} chapter={chapter} node={node} onAdvance={advance} onRestart={restart} /> : null}
     </main>
   );
 }
 
 function StoryPlayer({
+  chapter,
   node,
   onAdvance,
   onRestart,
 }: {
+  chapter: StoryChapter;
   node: StoryNode;
   onAdvance: (sourceHandle?: string) => void;
   onRestart: () => void;
@@ -77,7 +79,7 @@ function StoryPlayer({
   return (
     <section className="story-player" aria-label="Story playtest">
       <div className="story-player-stage">
-        {node.type === "scene" ? <StoryScenePlayer node={node} onComplete={() => onAdvance()} /> : null}
+        {node.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} onComplete={() => onAdvance()} /> : null}
         {node.type === "choice" ? (
           <article className="story-player-content story-player-choice">
             <span>Choice</span>
@@ -104,7 +106,8 @@ function StoryPlayer({
   );
 }
 
-function StoryScenePlayer({ node, onComplete }: {
+function StoryScenePlayer({ chapter, node, onComplete }: {
+  chapter: StoryChapter;
   node: Extract<StoryNode, { type: "scene" }>;
   onComplete: () => void;
 }) {
@@ -114,7 +117,7 @@ function StoryScenePlayer({ node, onComplete }: {
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
   return <StoryVideoPlayer
     key={clip.id}
-    clip={clip}
+    assetId={resolveStoryVideoClipAssetId(chapter, clip)}
     index={clipIndex}
     count={node.data.clips.length}
     title={node.data.title}
@@ -125,14 +128,14 @@ function StoryScenePlayer({ node, onComplete }: {
   />;
 }
 
-function StoryVideoPlayer({ clip, index, count, title, onEnded }: {
-  clip: StoryVideoClip;
+function StoryVideoPlayer({ assetId, index, count, title, onEnded }: {
+  assetId?: string;
   index: number;
   count: number;
   title: string;
   onEnded: () => void;
 }) {
-  const media = useWorkspaceAssetUrl(undefined, "", 0, clip.assetId);
+  const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   const [playbackError, setPlaybackError] = useState(false);
   const error = media.error ?? (playbackError ? "The video could not be played." : undefined);
   return (

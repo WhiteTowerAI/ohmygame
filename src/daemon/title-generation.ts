@@ -1,5 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AgentModelRef } from "../shared/contracts.js";
+import { completeText } from "./text-generation.js";
 
 const TITLE_MAX_LENGTH = 36;
 const TITLE_PROMPT_MAX_BYTES = 960;
@@ -40,25 +41,13 @@ async function generateTitle(
   prompt: string,
   systemPrompt: string,
 ): Promise<string | undefined> {
-  const model = runtime.getModel(modelRef.provider, modelRef.id);
-  if (!model) return undefined;
-  const response = await runtime.completeSimple(model, {
-    systemPrompt,
-    messages: [{
-      role: "user",
-      content: boundedPrompt(prompt),
-      timestamp: Date.now(),
-    }],
-  }, {
+  const text = await completeText(runtime, modelRef, prompt.replace(/\s+/g, " ").trim(), systemPrompt, {
+    maxPromptBytes: TITLE_PROMPT_MAX_BYTES,
     maxTokens: 80,
-    maxRetries: 0,
-    signal: AbortSignal.timeout(30_000),
+    timeoutMs: 30_000,
+    separator: " ",
   });
-  if (response.stopReason === "error" || response.stopReason === "aborted") return undefined;
-  const text = response.content
-    .filter((content) => content.type === "text")
-    .map((content) => content.text)
-    .join(" ");
+  if (!text) return undefined;
   return normalizeGeneratedTitle(text);
 }
 
@@ -74,17 +63,4 @@ export function normalizeGeneratedTitle(value: string): string | undefined {
     .trim();
   if (!title) return undefined;
   return [...title].slice(0, TITLE_MAX_LENGTH).join("");
-}
-
-function boundedPrompt(prompt: string): string {
-  const normalized = prompt.replace(/\s+/g, " ").trim();
-  let bytes = 0;
-  let result = "";
-  for (const character of normalized) {
-    const size = Buffer.byteLength(character);
-    if (bytes + size > TITLE_PROMPT_MAX_BYTES) break;
-    bytes += size;
-    result += character;
-  }
-  return result;
 }

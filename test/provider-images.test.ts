@@ -42,6 +42,28 @@ describe("ProviderImages", () => {
     expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-openai" }));
   });
 
+  it("prefers the model supplied by a generation request", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({
+      data: [{ b64_json: Buffer.from("image").toString("base64") }],
+    }));
+    const images = new ProviderImages(
+      async () => runtime(),
+      portal(),
+      () => ({ provider: "openai", id: "gpt-image-2" }),
+      request,
+    );
+
+    await images.generate({
+      prompt: "A game icon",
+      imageModel: { provider: "opengame", id: "gpt-image-2" },
+      resolution: "1K",
+      aspectRatio: "1:1",
+    });
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.open-game.ai/v1/images/generations");
+    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-portal" }));
+  });
+
   it("uses a selected Portal model without querying unrelated providers", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({
       data: [{ b64_json: Buffer.from("image").toString("base64") }],

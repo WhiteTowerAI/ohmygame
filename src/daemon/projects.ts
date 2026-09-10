@@ -430,7 +430,9 @@ export class ProjectManager {
         throw error;
       }
       if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
-        node.type === "scene" && node.data.clips.some((clip) => clip.assetId === assetId)
+        (node.type === "scene" && node.data.clips.some((clip) => clip.source.type === "library" && clip.source.assetId === assetId)) ||
+        (node.type === "video" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
+        ((node.type === "image" || node.type === "video") && node.data.assetId === assetId)
       )))) references.push(project);
     }
     return references;
@@ -457,9 +459,29 @@ export class ProjectManager {
           ...parsed,
           chapters: parsed.chapters.map((chapter) => ({
             ...chapter,
-            nodes: chapter.nodes.map((node) => node.type === "scene"
-              ? { ...node, data: { ...node.data, clips: node.data.clips.filter((clip) => clip.assetId !== assetId) } }
-              : node),
+            nodes: chapter.nodes.map((node) => {
+              if (node.type === "scene") return {
+                ...node,
+                data: { ...node.data, clips: node.data.clips.filter((clip) => clip.source.type !== "library" || clip.source.assetId !== assetId) },
+              };
+              if (node.type === "image" && node.data.assetId === assetId) {
+                const { assetId: _, ...data } = node.data;
+                return { ...node, data };
+              }
+              if (node.type === "video") {
+                const images = node.data.images.filter((image) => image.type !== "library" || image.assetId !== assetId);
+                if (node.data.assetId === assetId) {
+                  const { assetId: _, ...data } = node.data;
+                  return { ...node, data: { ...data, images } };
+                }
+                if (images.length === node.data.images.length) return node;
+                return {
+                  ...node,
+                  data: { ...node.data, images },
+                };
+              }
+              return node;
+            }),
           })),
         };
         await writeStory(destination, story);

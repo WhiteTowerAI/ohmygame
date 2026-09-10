@@ -69,7 +69,7 @@ describe("tool runner", () => {
       id: created.json().id,
       toolId: "generate-image",
       createdAt: created.json().createdAt,
-      files: [{ name: "output.webp", mediaType: "image/webp" }],
+      files: [{ name: "output.webp", mediaType: "image/webp", assetId: expect.any(String) }],
       title: "A forest",
     }]);
   });
@@ -244,7 +244,7 @@ describe("tool runner", () => {
     }, undefined);
     expect(response.json()).toMatchObject({
       toolId: "generate-video",
-      files: [{ name: "output.mp4", mediaType: "video/mp4" }],
+      files: [{ name: "output.mp4", mediaType: "video/mp4", assetId: expect.any(String) }],
     });
   });
 
@@ -380,8 +380,8 @@ describe("tool runner", () => {
     expect(generate).toHaveBeenCalledWith({ prompt: "Four icons", resolution: "1K", aspectRatio: "1:1" }, undefined);
     const run = response.json();
     expect(run.files).toEqual([
-      { name: "output-1.webp", mediaType: "image/webp" },
-      { name: "output-2.webp", mediaType: "image/webp" },
+      { name: "output-1.webp", mediaType: "image/webp", assetId: expect.any(String) },
+      { name: "output-2.webp", mediaType: "image/webp", assetId: expect.any(String) },
     ]);
 
     for (const file of run.files) {

@@ -10,6 +10,7 @@ import {
   type AgentReasoningLevel,
   type ConversationAgentSettings,
   type ConversationCapabilities,
+  type CreateLibraryImageRequest,
   type LibraryAsset,
   type ImageGenerationSettings,
   type ImageModel,
@@ -26,6 +27,8 @@ import {
   type ConversationSummary,
   type ProjectState,
   type StoryDocument,
+  type StoryTextGenerationRequest,
+  type StoryTextGenerationResponse,
   type PublishProjectRequest,
   type PublishResult,
   type RuntimeEvent,
@@ -366,6 +369,10 @@ export async function updateStory(projectId: string, story: StoryDocument): Prom
   await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
 }
 
+export async function generateStoryText(projectId: string, input: StoryTextGenerationRequest): Promise<StoryTextGenerationResponse> {
+  return request(`/projects/${projectId}/story/text/generate`, { method: "POST", body: JSON.stringify(input) });
+}
+
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {
   const response = await fetch(apiUrl(`/projects/${projectId}/cover`), { headers: runtimeHeaders() });
   if (response.status === 404) return undefined;
@@ -399,6 +406,10 @@ export async function deleteAsset(projectId: string, filePath: string): Promise<
 
 export async function listLibraryAssets(): Promise<LibraryAsset[]> {
   return request("/library/assets");
+}
+
+export async function createLibraryImage(input: CreateLibraryImageRequest): Promise<LibraryAsset> {
+  return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getLibraryAsset(assetId: string): Promise<Blob> {

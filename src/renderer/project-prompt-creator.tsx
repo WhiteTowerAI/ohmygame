@@ -36,6 +36,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
+  const displayedModel = model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
   const candidateMention = mentionQuery(prompt, mentionCursor);
   const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
   const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
@@ -199,7 +200,8 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
           <>
             <ModelSelector
               models={modelCatalog.models}
-              value={model}
+              status={modelCatalog.status}
+              value={displayedModel}
               reasoningLevel={reasoningLevel}
               disabled={creating}
               onChange={setModel}
