@@ -131,7 +131,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "scene" | "choice" | "ending" | "text" | "image" | "video";
+export type StoryNodeType = "start" | "scene" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -172,6 +172,10 @@ export type StoryNode =
   | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[] } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[] } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } }
+  | { id: string; type: "asset"; position: StoryPosition; data: {
+    assetId: string;
+    mediaType: "image" | "video" | "audio";
+  } }
   | { id: string; type: "text"; position: StoryPosition; data: {
     text: string;
     instruction: string;
@@ -183,6 +187,7 @@ export type StoryNode =
     model?: ImageModelRef;
     resolution: ImageResolution;
     aspectRatio: ImageAspectRatio;
+    images: StoryAssetReference[];
     assetId?: string;
   } }
   | { id: string; type: "video"; position: StoryPosition; data: {
@@ -192,7 +197,7 @@ export type StoryNode =
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
-    images: StoryAssetReference[];
+    references: StoryAssetReference[];
     assetId?: string;
   } };
 
@@ -211,7 +216,7 @@ export interface StoryChapter {
 }
 
 export interface StoryDocument {
-  version: 2;
+  version: 3;
   chapters: StoryChapter[];
 }
 
@@ -494,13 +499,24 @@ export interface LibraryAsset {
   mediaType: NonNullable<WorkspaceFile["mediaType"]>;
   contentType: string;
   createdAt: string;
+  duration?: number;
   prompt?: string;
   publication?: AssetPublicationState;
 }
 
+export type LibraryUploadMediaType =
+  | "image/png"
+  | "image/jpeg"
+  | "image/webp"
+  | "video/mp4"
+  | "video/quicktime"
+  | "video/webm"
+  | "audio/mpeg"
+  | "audio/wav";
+
 export interface CreateLibraryImageRequest {
   name: string;
-  image: PromptImage & { mediaType: Exclude<PromptImageMediaType, "image/gif"> };
+  image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
 }
 
 export interface AssetPublicationState {
@@ -623,10 +639,15 @@ export type Run3DToolRequest = Run3DToolOptions & (
 
 export interface RunVideoToolRequest {
   prompt: string;
-  images?: PromptImage[];
+  references?: VideoGenerationReference[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;
   resolution?: VideoResolution;
+}
+
+export interface VideoGenerationReference {
+  type: "image" | "video" | "audio";
+  assetId: string;
 }
 
 export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest;

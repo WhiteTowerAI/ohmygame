@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
@@ -332,6 +332,12 @@ const setConversationReasoningSchema = {
 } as const;
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
+const LIBRARY_UPLOAD_MEDIA_TYPES = new Set<LibraryUploadMediaType>([
+  "image/png", "image/jpeg", "image/webp",
+  "video/mp4", "video/quicktime", "video/webm",
+  "audio/mpeg", "audio/wav",
+]);
 
 const toolRunSchema = {
   body: {
@@ -374,6 +380,19 @@ const toolRunSchema = {
           properties: {
             mediaType: { enum: ["image/png", "image/jpeg", "image/webp"] },
             data: { type: "string", minLength: 1 },
+          },
+        },
+      },
+      references: {
+        type: "array",
+        maxItems: 15,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "assetId"],
+          properties: {
+            type: { enum: ["image", "video", "audio"] },
+            assetId: { type: "string", minLength: 1, maxLength: 100 },
           },
         },
       },
@@ -628,6 +647,9 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
+    done(null, body);
+  });
+  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: MAX_LIBRARY_UPLOAD_BYTES }, (_request, body, done) => {
     done(null, body);
   });
 
@@ -1444,6 +1466,42 @@ export function createApp(options: AppOptions = {}) {
           : ".webp";
       const name = `${path.parse(path.basename(request.body.name)).name || "image"}${extension}`;
       return reply.code(201).send(await library.add(name, contents));
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
+    }
+  });
+
+  app.post<{ Querystring: { name: string; mediaType: string; duration?: string }; Body: Buffer }>("/library/assets/upload", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "mediaType"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 200 },
+          mediaType: { type: "string", enum: [...LIBRARY_UPLOAD_MEDIA_TYPES] },
+          duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const mediaType = request.query.mediaType as LibraryUploadMediaType;
+    const contents = request.body;
+    if (!Buffer.isBuffer(contents) || contents.length === 0) return reply.code(400).send({ error: "File is empty" });
+    const name = path.basename(request.query.name);
+    if (!name || workspaceMediaInfo(name)?.contentType !== mediaType) {
+      return reply.code(400).send({ error: "File name does not match its media type" });
+    }
+    if (!isLibraryMediaOfType(contents, mediaType)) {
+      return reply.code(400).send({ error: "File data does not match its media type" });
+    }
+    const duration = request.query.duration === undefined ? undefined : Number(request.query.duration);
+    if (duration !== undefined && (!Number.isFinite(duration) || duration < 0 || mediaType.startsWith("image/"))) {
+      return reply.code(400).send({ error: "Invalid media duration" });
+    }
+    try {
+      return reply.code(201).send(await library.add(name, contents, { ...(duration !== undefined ? { duration } : {}) }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
@@ -2516,6 +2574,20 @@ function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["imag
     return value.length >= 8 && value.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   }
   return value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff;
+}
+
+function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType): boolean {
+  if (mediaType === "image/png" || mediaType === "image/jpeg" || mediaType === "image/webp") return isImageOfType(value, mediaType);
+  if (mediaType === "audio/wav") {
+    return value.length >= 12 && value.subarray(0, 4).toString("ascii") === "RIFF" && value.subarray(8, 12).toString("ascii") === "WAVE";
+  }
+  if (mediaType === "audio/mpeg") {
+    return value.length >= 3 && (value.subarray(0, 3).toString("ascii") === "ID3" || (value[0] === 0xff && (value[1]! & 0xe0) === 0xe0));
+  }
+  if (mediaType === "video/webm") {
+    return value.length >= 4 && value[0] === 0x1a && value[1] === 0x45 && value[2] === 0xdf && value[3] === 0xa3;
+  }
+  return value.length >= 8 && value.subarray(4, 8).toString("ascii") === "ftyp";
 }
 
 function validBase64(value: string): boolean {

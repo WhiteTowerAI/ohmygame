@@ -51,7 +51,7 @@ export class AssetLibrary {
   async add(
     fileName: string,
     contents: Uint8Array,
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState } = {},
+    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number } = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -77,7 +77,7 @@ export class AssetLibrary {
   async addFile(
     fileName: string,
     sourcePath: string,
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState } = {},
+    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number } = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -162,7 +162,7 @@ export class AssetLibrary {
     fileName: string,
     size: number,
     media: { mediaType: LibraryAsset["mediaType"]; contentType: string },
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState },
+    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number },
   ): Promise<LibraryAsset> {
     const asset: LibraryAsset = {
       id,
@@ -170,6 +170,7 @@ export class AssetLibrary {
       size,
       ...media,
       createdAt: new Date().toISOString(),
+      ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
       ...(options.publication ? { publication: options.publication } : {}),
     };
@@ -225,6 +226,7 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     typeof asset.size === "number" && asset.size >= 0 &&
     (asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model") &&
     typeof asset.contentType === "string" && typeof asset.createdAt === "string" && Number.isFinite(Date.parse(asset.createdAt)) &&
+    (asset.duration === undefined || typeof asset.duration === "number" && Number.isFinite(asset.duration) && asset.duration >= 0) &&
     (asset.prompt === undefined || typeof asset.prompt === "string") &&
     (asset.publication === undefined || isPublication(asset.publication));
 }

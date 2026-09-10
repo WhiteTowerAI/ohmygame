@@ -7,6 +7,7 @@ import {
   getStartNode,
   isStoryDocument,
   replaceOutgoingEdge,
+  resolveStoryAssetId,
   resolveStoryImageAssetId,
   resolveStoryVideoClipAssetId,
   validatePlayableChapter,
@@ -23,6 +24,7 @@ describe("story documents", () => {
   it("creates one chapter with one start node", () => {
     const story = createStoryDocument();
     expect(isStoryDocument(story)).toBe(true);
+    expect(isStoryDocument({ ...story, version: 2 })).toBe(false);
     expect(story.chapters).toHaveLength(1);
     expect(story.chapters[0]?.nodes).toEqual([expect.objectContaining({ type: "start" })]);
   });
@@ -180,6 +182,7 @@ describe("story documents", () => {
         model: { provider: "opengame", id: "gpt-image-2" },
         resolution: "1K",
         aspectRatio: "1:1",
+        images: [],
       },
     });
 
@@ -194,7 +197,7 @@ describe("story documents", () => {
         id: "image",
         type: "image",
         position: { x: 240, y: 0 },
-        data: { prompt: "", promptSource: { type: "node", nodeId: "prompt" }, resolution: "1K", aspectRatio: "1:1" },
+        data: { prompt: "", promptSource: { type: "node", nodeId: "prompt" }, resolution: "1K", aspectRatio: "1:1", images: [] },
       },
       {
         id: "video",
@@ -207,7 +210,7 @@ describe("story documents", () => {
           resolution: "720p",
           aspectRatio: "16:9",
           duration: 6,
-          images: [],
+          references: [],
         },
       },
     );
@@ -221,7 +224,7 @@ describe("story documents", () => {
       id: "image",
       type: "image",
       position: { x: 240, y: 0 },
-      data: { prompt: "", promptSource: { type: "node", nodeId: "missing" }, resolution: "1K", aspectRatio: "1:1" },
+      data: { prompt: "", promptSource: { type: "node", nodeId: "missing" }, resolution: "1K", aspectRatio: "1:1", images: [] },
     });
     expect(isStoryDocument(story)).toBe(false);
 
@@ -236,7 +239,7 @@ describe("story documents", () => {
       id: "image",
       type: "image",
       position: { x: 240, y: 0 },
-      data: { prompt: "A hero portrait", resolution: "1K", aspectRatio: "1:1" },
+      data: { prompt: "A hero portrait", resolution: "1K", aspectRatio: "1:1", images: [] },
     });
     const image = story.chapters[0]!.nodes.at(-1)!;
 
@@ -257,7 +260,7 @@ describe("story documents", () => {
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
-        images: [],
+        references: [],
       },
     });
 
@@ -278,7 +281,7 @@ describe("story documents", () => {
           resolution: "720p",
           aspectRatio: "16:9",
           duration: 6,
-          images: [],
+          references: [],
           assetId: "first-result",
         },
       },
@@ -308,7 +311,7 @@ describe("story documents", () => {
         id: "image",
         type: "image",
         position: { x: 240, y: 0 },
-        data: { prompt: "A forest", resolution: "1K", aspectRatio: "1:1" },
+        data: { prompt: "A forest", resolution: "1K", aspectRatio: "1:1", images: [] },
       },
       {
         id: "scene",
@@ -333,7 +336,7 @@ describe("story documents", () => {
         id: "video",
         type: "video",
         position: { x: 240, y: 0 },
-        data: { prompt: "A forest", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "16:9", duration: 6, images: [] },
+        data: { prompt: "A forest", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "16:9", duration: 6, references: [] },
       },
       {
         id: "scene",
@@ -365,7 +368,7 @@ describe("story documents", () => {
         id: "image",
         type: "image",
         position: { x: 240, y: 0 },
-        data: { prompt: "A forest", resolution: "1K", aspectRatio: "1:1", assetId: "first-image" },
+        data: { prompt: "A forest", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "first-image" },
       },
       {
         id: "video",
@@ -377,12 +380,12 @@ describe("story documents", () => {
           resolution: "720p",
           aspectRatio: "16:9",
           duration: 6,
-          images: [{ type: "node", nodeId: "image" }],
+          references: [{ type: "node", nodeId: "image" }],
         },
       },
     );
     const video = chapter.nodes.find((node) => node.id === "video");
-    const reference = video?.type === "video" ? video.data.images[0]! : undefined;
+    const reference = video?.type === "video" ? video.data.references[0]! : undefined;
 
     expect(isStoryDocument(story)).toBe(true);
     expect(resolveStoryImageAssetId(chapter, reference!)).toBe("first-image");
@@ -390,8 +393,69 @@ describe("story documents", () => {
     if (image?.type === "image") image.data.assetId = "latest-image";
     expect(resolveStoryImageAssetId(chapter, reference!)).toBe("latest-image");
 
-    if (video?.type === "video") video.data.images = [{ type: "node", nodeId: chapter.nodes[0]!.id }];
+    if (video?.type === "video") video.data.references = [{ type: "node", nodeId: chapter.nodes[0]!.id }];
     expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("accepts Library and generated images as image-generation references", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push(
+      { id: "library-image", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "library-image-id", mediaType: "image" } },
+      {
+        id: "generated-image",
+        type: "image",
+        position: { x: 240, y: 0 },
+        data: { prompt: "Character portrait", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "generated-image-id" },
+      },
+      {
+        id: "composite-image",
+        type: "image",
+        position: { x: 480, y: 0 },
+        data: {
+          prompt: "Place the character in this environment",
+          resolution: "1K",
+          aspectRatio: "16:9",
+          images: [{ type: "node", nodeId: "library-image" }, { type: "node", nodeId: "generated-image" }],
+        },
+      },
+    );
+
+    expect(isStoryDocument(story)).toBe(true);
+    const composite = chapter.nodes.find((node) => node.id === "composite-image");
+    const references = composite?.type === "image" ? composite.data.images : [];
+    expect(resolveStoryImageAssetId(chapter, references[0]!)).toBe("library-image-id");
+    expect(resolveStoryImageAssetId(chapter, references[1]!)).toBe("generated-image-id");
+
+    if (composite?.type === "image") composite.data.images = [{ type: "node", nodeId: composite.id }];
+    expect(isStoryDocument(story)).toBe(false);
+
+    if (composite?.type === "image") composite.data.images = Array.from({ length: 15 }, () => ({ type: "library", assetId: "reference" }));
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("uses Library and generated media nodes as typed video sources", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push(
+      { id: "image-asset", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "image-id", mediaType: "image" } },
+      { id: "video-asset", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "video-id", mediaType: "video" } },
+      { id: "audio-asset", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "audio-id", mediaType: "audio" } },
+      {
+        id: "video",
+        type: "video",
+        position: { x: 300, y: 0 },
+        data: { prompt: "Animate", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "16:9", duration: 6, references: [{ type: "node", nodeId: "image-asset" }, { type: "node", nodeId: "video-asset" }, { type: "node", nodeId: "audio-asset" }] },
+      },
+      { id: "scene", type: "scene", position: { x: 600, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "video-asset" } }] } },
+    );
+
+    expect(isStoryDocument(story)).toBe(true);
+    const video = chapter.nodes.find((node) => node.id === "video");
+    const scene = chapter.nodes.find((node) => node.id === "scene");
+    const references = video?.type === "video" ? video.data.references : [];
+    expect(references.map((reference) => resolveStoryAssetId(chapter, reference))).toEqual(["image-id", "video-id", "audio-id"]);
+    expect(resolveStoryVideoClipAssetId(chapter, scene?.type === "scene" ? scene.data.clips[0]! : { id: "", source: { type: "library", assetId: "" } })).toBe("video-id");
   });
 
   it("rejects invalid video generation parameters", () => {
@@ -406,7 +470,7 @@ describe("story documents", () => {
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
-        images: [],
+        references: [],
       },
     });
     const video = story.chapters[0]!.nodes.at(-1)!;

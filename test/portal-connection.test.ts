@@ -59,6 +59,8 @@ describe("PortalConnection", () => {
     const client = {
       credential: vi.fn(async () => ({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "sk-portal" })),
       modelIds: vi.fn(async () => ["known-model"]),
+      stageMedia: vi.fn(async () => ({ id: "media", url: "https://storage.example/media" })),
+      removeMedia: vi.fn(async () => undefined),
     } as unknown as PortalClient;
     const connection = new PortalConnection(async () => runtime, client);
 
@@ -73,6 +75,10 @@ describe("PortalConnection", () => {
       api: "openai-responses",
     }));
     expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
+    const videoSource = connection.videoSource();
+    await expect(videoSource?.stageMedia({ type: "image", name: "image.png", mediaType: "image/png", absolutePath: "/image.png" }))
+      .resolves.toEqual({ id: "media", url: "https://storage.example/media" });
+    expect(client.stageMedia).toHaveBeenCalledWith("supabase-token", expect.objectContaining({ name: "image.png" }), undefined);
 
     await connection.disconnect();
     expect(connection.imageSource()).toBeUndefined();

@@ -1,4 +1,8 @@
+import { readFile } from "node:fs/promises";
+import type { StagedVideoReference, VideoReferenceAsset } from "./seedance-video.js";
+
 const REQUEST_TIMEOUT_MS = 10_000;
+const UPLOAD_TIMEOUT_MS = 5 * 60_000;
 
 export interface PortalCredential {
   baseUrl: string;
@@ -32,8 +36,26 @@ export class PortalClient {
     return [...new Set(body.data.map((item) => string(record(item).id)).filter((id): id is string => Boolean(id)))];
   }
 
-  private async request(pathOrUrl: string, token: string, signal?: AbortSignal, init: RequestInit = {}): Promise<Response> {
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  async stageMedia(accessToken: string, reference: VideoReferenceAsset, signal?: AbortSignal): Promise<StagedVideoReference> {
+    const query = new URLSearchParams({ name: reference.name, media_type: reference.mediaType });
+    const response = await this.request(`/api/media?${query}`, accessToken, signal, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: await readFile(reference.absolutePath),
+    }, UPLOAD_TIMEOUT_MS);
+    const data = record((await json(response)).data);
+    const id = string(data.id);
+    const url = string(data.url);
+    if (!id || !url) throw new Error("Portal returned an invalid media reference");
+    return { id, url };
+  }
+
+  async removeMedia(accessToken: string, id: string): Promise<void> {
+    await this.request(`/api/media/${encodeURIComponent(id)}`, accessToken, undefined, { method: "DELETE" });
+  }
+
+  private async request(pathOrUrl: string, token: string, signal?: AbortSignal, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+    const timeout = AbortSignal.timeout(timeoutMs);
     const response = await this.fetch(new URL(pathOrUrl, this.origin), {
       ...init,
       headers: { authorization: `Bearer ${token}`, ...init.headers },

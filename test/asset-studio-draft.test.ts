@@ -35,7 +35,7 @@ function draft(overrides: { imagePrompt?: string; panelView?: AssetStudioDraft["
     templateIds: {},
     panelView: overrides.panelView ?? "templates",
     image: { prompt: overrides.imagePrompt ?? "", resolution: "1K", aspectRatio: "1:1", outputs: 1 },
-    video: { prompt: "", resolution: "720p", aspectRatio: "adaptive", duration: 6 },
+    video: { prompt: "", references: [], resolution: "720p", aspectRatio: "adaptive", duration: 6 },
     model3D: {
       prompt: "",
       model: "meshy-t2",

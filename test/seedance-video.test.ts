@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PortalVideoGenerator } from "../src/daemon/seedance-video.js";
+import { PortalVideoGenerator, type VideoSource } from "../src/daemon/seedance-video.js";
 import { VIDEO_MODEL } from "../src/shared/contracts.js";
 
 describe("Portal Seedance video adapter", () => {
@@ -8,11 +8,7 @@ describe("Portal Seedance video adapter", () => {
       .mockResolvedValueOnce(Response.json({ task_id: "task-1", status: "queued" }))
       .mockResolvedValueOnce(Response.json({ data: { task_id: "task-1", status: "SUCCESS", result_url: "https://files.example/video.mp4" } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
-    const generator = new PortalVideoGenerator(() => ({
-      baseUrl: "https://portal.example/v1",
-      apiKey: "secret",
-      modelIds: [VIDEO_MODEL],
-    }), request);
+    const generator = new PortalVideoGenerator(() => source(), request);
 
     await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "1080p", aspectRatio: "21:9" }))
       .resolves.toMatchObject({ bytes: Buffer.from([1, 2, 3]), mediaType: "video/mp4", requestId: "task-1" });
@@ -32,29 +28,43 @@ describe("Portal Seedance video adapter", () => {
     });
   });
 
-  it("sends multiple image references as data URLs", async () => {
+  it("sends every media reference through one Seedance content array and removes staged files", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(Response.json({ task_id: "task-2", status: "queued" }))
       .mockResolvedValueOnce(Response.json({ data: { task_id: "task-2", status: "FAILURE", fail_reason: "blocked" } }));
-    const generator = new PortalVideoGenerator(() => ({
-      baseUrl: "https://portal.example/v1",
-      apiKey: "secret",
-      modelIds: [VIDEO_MODEL],
-    }), request);
+    const stageMedia = vi.fn()
+      .mockResolvedValueOnce({ id: "image-id", url: "https://media.example/image.png" })
+      .mockResolvedValueOnce({ id: "video-id", url: "https://media.example/video.mp4" })
+      .mockResolvedValueOnce({ id: "audio-id", url: "https://media.example/audio.mp3" });
+    const removeMedia = vi.fn().mockResolvedValue(undefined);
+    const generator = new PortalVideoGenerator(() => source({ stageMedia, removeMedia }), request);
 
     await expect(generator.generate({
       prompt: "Animate",
       duration: 6,
       resolution: "720p",
       aspectRatio: "adaptive",
-      images: [
-        { mediaType: "image/png", data: "aW1hZ2U=" },
-        { mediaType: "image/webp", data: "aW1hZ2Uy" },
+      references: [
+        { type: "image", name: "image.png", mediaType: "image/png", absolutePath: "/image.png" },
+        { type: "video", name: "video.mp4", mediaType: "video/mp4", absolutePath: "/video.mp4" },
+        { type: "audio", name: "audio.mp3", mediaType: "audio/mpeg", absolutePath: "/audio.mp3" },
       ],
     })).rejects.toThrow("blocked");
-    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
-      images: ["data:image/png;base64,aW1hZ2U=", "data:image/webp;base64,aW1hZ2Uy"],
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      model: VIDEO_MODEL,
+      prompt: "Animate",
+      seconds: "6",
+      metadata: {
+        resolution: "720p",
+        ratio: "adaptive",
+        content: [
+          { type: "image_url", image_url: { url: "https://media.example/image.png" }, role: "reference_image" },
+          { type: "video_url", video_url: { url: "https://media.example/video.mp4" }, role: "reference_video" },
+          { type: "audio_url", audio_url: { url: "https://media.example/audio.mp3" }, role: "reference_audio" },
+        ],
+      },
     });
+    expect(removeMedia.mock.calls.map(([id]) => id)).toEqual(["image-id", "video-id", "audio-id"]);
   });
 
   it("falls back to the authenticated content endpoint", async () => {
@@ -62,11 +72,7 @@ describe("Portal Seedance video adapter", () => {
       .mockResolvedValueOnce(Response.json({ task_id: "task-content", status: "queued" }))
       .mockResolvedValueOnce(Response.json({ data: { task_id: "task-content", status: "SUCCESS" } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
-    const generator = new PortalVideoGenerator(() => ({
-      baseUrl: "https://portal.example/v1",
-      apiKey: "secret",
-      modelIds: [VIDEO_MODEL],
-    }), request);
+    const generator = new PortalVideoGenerator(() => source(), request);
 
     await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "720p", aspectRatio: "adaptive" }))
       .resolves.toMatchObject({ bytes: Buffer.from([4, 5, 6]), requestId: "task-content" });
@@ -75,3 +81,14 @@ describe("Portal Seedance video adapter", () => {
     }));
   });
 });
+
+function source(overrides: Partial<VideoSource> = {}): VideoSource {
+  return {
+    baseUrl: "https://portal.example/v1",
+    apiKey: "secret",
+    modelIds: [VIDEO_MODEL],
+    stageMedia: async () => ({ id: "staged", url: "https://media.example/reference" }),
+    removeMedia: async () => undefined,
+    ...overrides,
+  };
+}

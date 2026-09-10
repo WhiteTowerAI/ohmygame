@@ -18,6 +18,7 @@ export class PortalConnection {
   private runtimeInstance?: ModelRuntime;
   private registered = false;
   private portalCredential?: { baseUrl: string; apiKey: string };
+  private portalAccessToken?: string;
   private portalModelIds: string[] = [];
   private state: PortalConnectionState = { status: "disconnected" };
 
@@ -33,6 +34,7 @@ export class PortalConnection {
   connect(accessToken: string): Promise<PortalConnectionState> {
     this.controller?.abort();
     this.portalCredential = undefined;
+    this.portalAccessToken = undefined;
     this.portalModelIds = [];
     const controller = new AbortController();
     this.controller = controller;
@@ -48,6 +50,7 @@ export class PortalConnection {
         const models = portalModels(runtime.getModels(), ids);
         if (controller.signal.aborted) return this.state;
         this.portalCredential = credential;
+        this.portalAccessToken = accessToken;
         this.portalModelIds = ids;
         if (models.length > 0) {
           runtime.registerProvider(PROVIDER_ID, {
@@ -69,6 +72,7 @@ export class PortalConnection {
         if (this.registered) await this.remove();
         if (controller.signal.aborted) return this.state;
         this.portalCredential = undefined;
+        this.portalAccessToken = undefined;
         this.portalModelIds = [];
         return this.state = { status: "error", error: cause instanceof Error ? cause.message : String(cause) };
       }
@@ -80,6 +84,7 @@ export class PortalConnection {
     this.controller = undefined;
     this.state = { status: "disconnected" };
     this.portalCredential = undefined;
+    this.portalAccessToken = undefined;
     this.portalModelIds = [];
     return this.enqueue(async () => {
       await this.remove();
@@ -93,7 +98,14 @@ export class PortalConnection {
   }
 
   videoSource(): VideoSource | undefined {
-    return this.imageSource();
+    const source = this.imageSource();
+    const accessToken = this.portalAccessToken;
+    if (!source || !accessToken) return undefined;
+    return {
+      ...source,
+      stageMedia: (reference, signal) => this.client.stageMedia(accessToken, reference, signal),
+      removeMedia: (id) => this.client.removeMedia(accessToken, id),
+    };
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

@@ -1,4 +1,4 @@
-import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
+import { Bookmark, Box, ChevronDown, ChevronRight, Download, Film, FolderInput, Image, LoaderCircle, MoreHorizontal, Music2, Play, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from "./icons.js";
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent as ReactDragEvent, type FormEvent, type ReactNode } from "react";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -18,12 +18,14 @@ import {
   type Model3DQuality,
   type ProjectState,
   type AssetPublicationState,
+  type LibraryAsset,
   type PromptImage,
   type ToolRun,
   type VideoAspectRatio,
+  type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, waitForRuntime } from "./api.js";
+import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
@@ -36,13 +38,14 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { CommunityMeta } from "./community-meta.js";
 import { imageToWebP } from "./image.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { prepareVideoReferenceFile, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT } from "./video-reference-files.js";
 
 interface AssetStudioPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
 }
 
 const VIDEO_MODEL_OPTIONS = [{ value: VIDEO_MODEL, label: "Seedance 2.0" }] as const;
-const VIDEO_REFERENCE_LIMIT = 9;
 const MODEL_3D_OPTIONS = [
   { value: "meshy-t2", label: "Meshy T2 - Game-ready" },
   { value: "meshy-7", label: "Meshy 7 - High detail" },
@@ -77,8 +80,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("1:1");
   const [outputs, setOutputs] = useState<ImageOutputCount>(1);
   const [videoPrompt, setVideoPrompt] = useState("");
-  const [videoReferences, setVideoReferences] = useState<PromptImage[]>([]);
-  const [videoReferenceNames, setVideoReferenceNames] = useState<string[]>([]);
+  const [videoReferences, setVideoReferences] = useState<VideoGenerationReference[]>([]);
+  const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("adaptive");
   const [videoResolution, setVideoResolution] = useState<VideoResolution>("720p");
   const [videoDuration, setVideoDuration] = useState(6);
@@ -94,6 +97,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [model3DPose, setModel3DPose] = useState<Model3DPose>("auto");
   const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [uploadingReferences, setUploadingReferences] = useState(false);
   const [result, setResult] = useState<PreviewResult>();
   const [history, setHistory] = useState<PreviewResult[]>([]);
   const [historyDetailOpen, setHistoryDetailOpen] = useState(false);
@@ -149,10 +153,13 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const selectedFile = result?.run.files[selectedResult];
   const selectedUrl = result?.urls[selectedResult];
   const isMeshyT2 = model3D === "meshy-t2";
+  const videoReferenceError = videoReferences.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(videoReferences)
+    ? "Add an image or video to use an audio reference"
+    : undefined;
   const canGenerate = mode === "image"
     ? Boolean(imagePrompt.trim() && selectedImageModel)
     : mode === "video"
-      ? Boolean(videoPrompt.trim())
+      ? Boolean(videoPrompt.trim() && validVideoReferenceCombination(videoReferences))
       : model3DSource === "text" ? Boolean(model3DPrompt.trim()) : Boolean(modelReferences[0]);
 
   useEffect(() => {
@@ -178,7 +185,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (latestDraft.current) saveDraft(latestDraft.current);
     }, 250);
     return () => window.clearTimeout(draftSaveTimer.current);
-  }, [mode, templateIds, panelView, result?.run.id, selectedResult, imagePrompt, resolution, aspectRatio, outputs, videoPrompt, videoAspectRatio, videoResolution, videoDuration, model3D, model3DSource, model3DPrompt, model3DMultiView, model3DQuality, model3DTargetPolycount, model3DTexture, model3DPose, model3DImageEnhancement]);
+  }, [mode, templateIds, panelView, result?.run.id, selectedResult, imagePrompt, resolution, aspectRatio, outputs, videoPrompt, videoReferences, videoAspectRatio, videoResolution, videoDuration, model3D, model3DSource, model3DPrompt, model3DMultiView, model3DQuality, model3DTargetPolycount, model3DTexture, model3DPose, model3DImageEnhancement]);
 
   useEffect(() => {
     const reload = () => void loadImageConfig();
@@ -223,7 +230,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (!mounted.current) return;
       if (draft) applyDraft(draft);
       draftReady.current = true;
-      await Promise.all([loadImageConfig(), loadProjectList(), loadTemplates(), loadHistory()]);
+      await Promise.all([loadImageConfig(), loadLibrary(), loadProjectList(), loadTemplates(), loadHistory()]);
     } catch (cause) {
       if (!mounted.current) return;
       setLoadError(errorMessage(cause));
@@ -281,6 +288,15 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
   }
 
+  async function loadLibrary(): Promise<void> {
+    try {
+      const assets = await listLibraryAssets();
+      if (mounted.current) setLibraryAssets(assets);
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    }
+  }
+
   async function loadHistory(): Promise<void> {
     try {
       const runs = await listToolRuns();
@@ -326,7 +342,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       } else if (mode === "video") {
         nextRun = await runTool("generate-video", {
           prompt: videoPrompt.trim(), duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution,
-          ...(videoReferences.length ? { images: videoReferences } : {}),
+          ...(videoReferences.length ? { references: videoReferences } : {}),
         }, selectedTemplate?.name);
       } else {
         const images = modelReferences
@@ -643,7 +659,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       panelView,
       ...(result ? { selectedRunId: result.run.id, selectedOutput: selectedResult } : {}),
       image: { prompt: imagePrompt, resolution, aspectRatio, outputs },
-      video: { prompt: videoPrompt, resolution: videoResolution, aspectRatio: videoAspectRatio, duration: videoDuration },
+      video: { prompt: videoPrompt, references: videoReferences, resolution: videoResolution, aspectRatio: videoAspectRatio, duration: videoDuration },
       model3D: {
         prompt: model3DPrompt,
         model: model3D,
@@ -672,6 +688,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setAspectRatio(draft.image.aspectRatio);
     setOutputs(draft.image.outputs);
     setVideoPrompt(draft.video.prompt);
+    setVideoReferences(draft.video.references);
     setVideoResolution(draft.video.resolution);
     setVideoAspectRatio(draft.video.aspectRatio);
     setVideoDuration(draft.video.duration);
@@ -713,10 +730,26 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   async function selectReference(files: File[]): Promise<void> {
-    if (!files.length) return;
+    if (!files.length || uploadingReferences) return;
+    setUploadingReferences(true);
     try {
       if (mode === "image" && imageReferences.length + files.length > 14) throw new Error("Select up to 14 reference images");
-      if (mode === "video" && videoReferences.length + files.length > VIDEO_REFERENCE_LIMIT) throw new Error(`Select up to ${VIDEO_REFERENCE_LIMIT} reference images`);
+      if (mode === "video") {
+        const prepared = await Promise.all(files.map(prepareVideoReferenceFile));
+        validateVideoReferenceCounts([...videoReferences.map((reference) => reference.type), ...prepared.map((upload) => upload.type)]);
+        validateVideoReferenceDurations(videoReferences.map((reference) => ({
+          ...reference,
+          duration: libraryAssets.find((asset) => asset.id === reference.assetId)?.duration,
+        })), prepared);
+        for (const upload of prepared) {
+          const asset = await uploadLibraryAsset(upload.file, upload.mediaType, upload.duration);
+          if (!mounted.current) return;
+          setLibraryAssets((current) => [asset, ...current.filter((candidate) => candidate.id !== asset.id)]);
+          setVideoReferences((current) => [...current, { type: upload.type, assetId: asset.id }]);
+        }
+        setReferenceError(undefined);
+        return;
+      }
       const selectedFiles = files;
       const nextImages = await Promise.all(selectedFiles.map((file) => readImage(file, mode !== "3d")));
       if (!mounted.current) return;
@@ -724,13 +757,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         setImageReferences((current) => [...current, ...nextImages]);
         setImageReferenceNames((current) => [...current, ...selectedFiles.map((file) => file.name)]);
       }
-      else if (mode === "video") {
-        setVideoReferences((current) => [...current, ...nextImages]);
-        setVideoReferenceNames((current) => [...current, ...selectedFiles.map((file) => file.name)]);
-      }
       setReferenceError(undefined);
     } catch (cause) {
       if (mounted.current) setReferenceError(errorMessage(cause));
+    } finally {
+      if (mounted.current) setUploadingReferences(false);
     }
   }
 
@@ -806,17 +837,16 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 )}
 
-                {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={generating || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={generating || uploadingReferences || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
                   setImageReferences((current) => current.filter((_, candidate) => candidate !== index));
                   setImageReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
-                }} /> : mode === "video" ? <ImageReferenceField images={videoReferences} names={videoReferenceNames} max={VIDEO_REFERENCE_LIMIT} disabled={generating} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                }} /> : mode === "video" ? <VideoReferenceField references={videoReferences} assets={libraryAssets} disabled={generating || uploadingReferences} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
                   setVideoReferences((current) => current.filter((_, candidate) => candidate !== index));
-                  setVideoReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
                 }} /> : null}
-                {referenceError && (mode !== "3d" || model3DSource === "image") ? <p className="asset-field-error" role="alert">{referenceError}</p> : null}
-                <input ref={uploadInput} hidden multiple={mode !== "3d"} type="file" accept={mode === "3d" ? "image/png,image/jpeg" : "image/png,image/jpeg,image/webp"} onChange={(event) => {
+                {(referenceError ?? (mode === "video" ? videoReferenceError : undefined)) && (mode !== "3d" || model3DSource === "image") ? <p className="asset-field-error" role="alert">{referenceError ?? videoReferenceError}</p> : null}
+                <input ref={uploadInput} hidden multiple={mode !== "3d"} type="file" accept={mode === "3d" ? "image/png,image/jpeg" : mode === "video" ? VIDEO_REFERENCE_ACCEPT : "image/png,image/jpeg,image/webp"} onChange={(event) => {
                   const files = [...(event.target.files ?? [])];
                   event.target.value = "";
                   if (mode === "3d") void selectModelReference(modelReferenceTarget.current, files);
@@ -851,9 +881,9 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
               <button className="asset-save-template-button" type="button" aria-label="Save as template" title="Save as template" disabled={phase !== "ready" || generating || templateBusy} onClick={openTemplateDialog}>
                 {templateBusy ? <LoaderCircle className="spin" size={15} /> : <Bookmark size={16} />}
               </button>
-              <button className="asset-generate-button" type="submit" disabled={phase !== "ready" || !canGenerate || generating}>
-                {generating ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
-                {generating ? "Generating..." : "Generate"}
+              <button className="asset-generate-button" type="submit" disabled={phase !== "ready" || !canGenerate || generating || uploadingReferences}>
+                {generating || uploadingReferences ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
+                {uploadingReferences ? "Uploading..." : generating ? "Generating..." : "Generate"}
               </button>
             </div>
           </form>
@@ -1169,6 +1199,25 @@ function ImageReferenceField({ images, names, max = 14, primaryLabel, disabled, 
     const label = index === 0 && primaryLabel ? `${name} · ${primaryLabel}` : name;
     return <div className="asset-reference-item" key={`${name}-${index}`}><img src={`data:${image.mediaType};base64,${image.data}`} alt="" /><span title={label}>{label}</span><button type="button" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onRemove(index)}><X size={13} /></button></div>;
   })}{images.length < max ? <button className="asset-reference-add" type="button" disabled={disabled} onClick={onChoose}><Plus size={16} /><span>{images.length ? "Add more" : "Add reference images"}</span><small>{images.length}/{max}</small></button> : null}</div></Field>;
+}
+
+function VideoReferenceField({ references, assets, disabled, onChoose, onRemove }: { references: VideoGenerationReference[]; assets: LibraryAsset[]; disabled: boolean; onChoose: () => void; onRemove: (index: number) => void }) {
+  return <Field label="References"><div className="asset-reference-list">{references.map((reference, index) => {
+    const number = references.slice(0, index + 1).filter((candidate) => candidate.type === reference.type).length;
+    return <VideoReferenceItem key={`${reference.type}:${reference.assetId}:${index}`} reference={reference} asset={assets.find((candidate) => candidate.id === reference.assetId)} label={`${titleCase(reference.type)} ${number}`} disabled={disabled} onRemove={() => onRemove(index)} />;
+  })}<button className="asset-reference-add" type="button" disabled={disabled} onClick={onChoose}><Plus size={16} /><span>{references.length ? "Add more" : "Add references"}</span><small>Images, video, or audio</small></button></div></Field>;
+}
+
+function VideoReferenceItem({ reference, asset, label, disabled, onRemove }: { reference: VideoGenerationReference; asset?: LibraryAsset; label: string; disabled: boolean; onRemove: () => void }) {
+  const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" ? undefined : asset?.id);
+  const Icon = reference.type === "image" ? Image : reference.type === "video" ? Film : Music2;
+  return <div className="asset-reference-item">
+    {preview.url && reference.type === "image" ? <img src={preview.url} alt="" /> : null}
+    {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
+    {reference.type === "audio" || !preview.url ? <span className="asset-reference-media" aria-hidden="true"><Icon size={16} /></span> : null}
+    <span className="asset-reference-copy"><strong>{label}</strong><small title={asset?.name}>{asset?.name ?? "Missing asset"}</small></span>
+    <button type="button" aria-label={`Remove ${label}`} disabled={disabled} onClick={onRemove}><X size={13} /></button>
+  </div>;
 }
 
 const MODEL_3D_REFERENCE_LABELS = ["Main view", "Left", "Back", "Right"] as const;

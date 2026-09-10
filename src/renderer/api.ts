@@ -12,6 +12,7 @@ import {
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
   type LibraryAsset,
+  type LibraryUploadMediaType,
   type ImageGenerationSettings,
   type ImageModel,
   type ModelAuthEvent,
@@ -410,6 +411,16 @@ export async function listLibraryAssets(): Promise<LibraryAsset[]> {
 
 export async function createLibraryImage(input: CreateLibraryImageRequest): Promise<LibraryAsset> {
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number): Promise<LibraryAsset> {
+  const query = new URLSearchParams({ name: file.name, mediaType });
+  if (duration !== undefined) query.set("duration", String(duration));
+  return request(`/library/assets/upload?${query}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
 }
 
 export async function getLibraryAsset(assetId: string): Promise<Blob> {

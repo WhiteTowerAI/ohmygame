@@ -11,7 +11,7 @@ describe("AssetLibrary", () => {
     await library.load();
 
     const [first, repeated] = await Promise.all([
-      library.add("opening.mp4", Buffer.from("video"), { prompt: "Opening shot", sourceKey: "tool:run:file" }),
+      library.add("opening.mp4", Buffer.from("video"), { prompt: "Opening shot", sourceKey: "tool:run:file", duration: 6.5 }),
       library.add("opening.mp4", Buffer.from("different"), { sourceKey: "tool:run:file" }),
     ]);
 

@@ -17,6 +17,7 @@ import {
   type ImageResolution,
   type PromptImage,
   type VideoAspectRatio,
+  type VideoGenerationReference,
   type VideoResolution,
   type ImageSize,
   type RunImageToolRequest,
@@ -29,7 +30,7 @@ import {
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { Meshy3DGenerator, Model3DGenerationError, type Model3DGenerator } from "./meshy-3d.js";
-import { VideoGenerationError, type VideoGenerator } from "./seedance-video.js";
+import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./seedance-video.js";
 import type { AssetLibrary } from "./asset-library.js";
 
 const generateImage: ToolDefinition = {
@@ -56,7 +57,7 @@ const VIDEO_DEFAULT_DURATION = 6;
 const generateVideo: ToolDefinition = {
   id: "generate-video",
   name: "Video Generator",
-  description: "Generate a project-ready video from a text prompt or reference image.",
+  description: "Generate a project-ready video from a prompt and optional image, video, or audio references.",
   category: "video",
   inputKind: "image-prompt",
   outputKind: "video",
@@ -118,7 +119,7 @@ export class ToolRunner {
       return this.#run3D(input as Run3DToolRequest, signal, metadata);
     }
     if (toolId === generateVideo.id) {
-      assertOnlyKeys(input, ["prompt", "images", "duration", "aspectRatio", "resolution"]);
+      assertOnlyKeys(input, ["prompt", "references", "duration", "aspectRatio", "resolution"]);
       return this.#runVideo(input as RunVideoToolRequest, signal, metadata);
     }
     if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
@@ -284,8 +285,8 @@ export class ToolRunner {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
-    const images = input.images;
-    if (images && (images.length > 9 || images.some((image) => !isPromptImage(image, true)))) throw new ToolRunError("Up to 9 PNG, JPEG, or WebP reference images are supported", 400);
+    const references = input.references ?? [];
+    validateVideoReferences(references);
     const duration = input.duration ?? VIDEO_DEFAULT_DURATION;
     if (!Number.isInteger(duration) || duration < 4 || duration > 15) throw new ToolRunError("Unsupported video duration", 400);
     const id = randomUUID();
@@ -298,12 +299,15 @@ export class ToolRunner {
       const resolution = input.resolution ?? "720p";
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
-      const generated = await this.videoGenerator.generate({ prompt, images, duration, aspectRatio, resolution }, signal);
+      const resolvedReferences = await this.#videoReferences(references);
+      validateVideoReferenceDurations(resolvedReferences);
+      const generated = await this.videoGenerator.generate({ prompt, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
           prompt,
           sourceKey: `tool:${id}:output.mp4`,
+          duration,
         })).id;
       }
       const run: StoredToolRun = {
@@ -331,6 +335,28 @@ export class ToolRunner {
       if (cause instanceof ToolRunError) throw cause;
       if (cause instanceof VideoGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
       throw cause;
+    }
+  }
+
+  async #videoReferences(references: VideoGenerationReference[]): Promise<VideoReferenceAsset[]> {
+    if (!references.length) return [];
+    if (!this.assetLibrary) throw new ToolRunError("Asset Library is not configured", 503);
+    try {
+      return await Promise.all(references.map(async (reference) => {
+        const { asset, absolutePath } = await this.assetLibrary!.content(reference.assetId);
+        if (asset.mediaType !== reference.type) throw new ToolRunError(`Reference ${asset.name} is not a ${reference.type} asset`, 400);
+        if (!supportedVideoReferenceType(reference.type, asset.contentType)) {
+          throw new ToolRunError(`Unsupported ${reference.type} reference format: ${asset.contentType}`, 400);
+        }
+        const maximum = reference.type === "image" ? 30 * 1024 * 1024
+          : reference.type === "video" ? 200 * 1024 * 1024
+            : 15 * 1024 * 1024;
+        if (asset.size > maximum) throw new ToolRunError(`${reference.type} reference is too large`, 400);
+        return { type: reference.type, name: asset.name, mediaType: asset.contentType, absolutePath, ...(asset.duration !== undefined ? { duration: asset.duration } : {}) };
+      }));
+    } catch (cause) {
+      if (cause instanceof ToolRunError) throw cause;
+      throw new ToolRunError(cause instanceof Error ? cause.message : String(cause), 400);
     }
   }
 
@@ -406,6 +432,35 @@ function isPromptImage(value: unknown, allowWebP = false): value is PromptImage 
   if (!value || typeof value !== "object") return false;
   const image = value as { mediaType?: unknown; data?: unknown };
   return (image.mediaType === "image/png" || image.mediaType === "image/jpeg" || (allowWebP && image.mediaType === "image/webp")) && typeof image.data === "string" && image.data.length > 0;
+}
+
+function validateVideoReferences(references: VideoGenerationReference[]): void {
+  if (!Array.isArray(references) || references.some((reference) => !reference || typeof reference.assetId !== "string" || !reference.assetId || !["image", "video", "audio"].includes(reference.type))) {
+    throw new ToolRunError("Invalid video references", 400);
+  }
+  const count = (type: VideoGenerationReference["type"]) => references.filter((reference) => reference.type === type).length;
+  if (count("image") > 9) throw new ToolRunError("Seedance supports up to 9 reference images", 400);
+  if (count("video") > 3) throw new ToolRunError("Seedance supports up to 3 reference videos", 400);
+  if (count("audio") > 3) throw new ToolRunError("Seedance supports up to 3 reference audio files", 400);
+  if (count("audio") && !count("image") && !count("video")) throw new ToolRunError("Audio references require an image or video reference", 400);
+}
+
+function validateVideoReferenceDurations(references: VideoReferenceAsset[]): void {
+  for (const type of ["video", "audio"] as const) {
+    const durations = references.filter((reference) => reference.type === type && reference.duration !== undefined).map((reference) => reference.duration!);
+    if (durations.some((duration) => duration < 2 || duration > 15)) {
+      throw new ToolRunError(`${type === "video" ? "Video" : "Audio"} references must be 2 to 15 seconds long`, 400);
+    }
+    if (durations.reduce((total, duration) => total + duration, 0) > 15) {
+      throw new ToolRunError(`Reference ${type}s must total no more than 15 seconds`, 400);
+    }
+  }
+}
+
+function supportedVideoReferenceType(type: VideoGenerationReference["type"], contentType: string): boolean {
+  if (type === "image") return contentType === "image/png" || contentType === "image/jpeg" || contentType === "image/webp";
+  if (type === "video") return contentType === "video/mp4" || contentType === "video/quicktime";
+  return contentType === "audio/mpeg" || contentType === "audio/wav";
 }
 
 function isAssetPublication(value: unknown): value is NonNullable<ToolRun["files"][number]["publication"]> {

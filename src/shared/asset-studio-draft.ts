@@ -1,4 +1,4 @@
-import type { ImageAspectRatio, ImageOutputCount, ImageResolution, Model3DModel, Model3DPose, Model3DQuality, VideoAspectRatio, VideoResolution } from "./contracts.js";
+import type { ImageAspectRatio, ImageOutputCount, ImageResolution, Model3DModel, Model3DPose, Model3DQuality, VideoAspectRatio, VideoGenerationReference, VideoResolution } from "./contracts.js";
 import type { Model3DSource, StudioMode } from "./asset-templates.js";
 
 export interface AssetStudioDraft {
@@ -15,6 +15,7 @@ export interface AssetStudioDraft {
   };
   video: {
     prompt: string;
+    references: VideoGenerationReference[];
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;

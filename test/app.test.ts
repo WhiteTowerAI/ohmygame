@@ -244,7 +244,7 @@ describe("daemon", () => {
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
-        images: [],
+        references: [],
         assetId: first[0].id,
       },
     }, {
@@ -369,7 +369,7 @@ describe("daemon", () => {
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
-        images: [{ type: "library", assetId: response.json().id }],
+        references: [{ type: "library", assetId: response.json().id }],
       },
     });
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
@@ -377,7 +377,7 @@ describe("daemon", () => {
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.images).toEqual([]);
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -396,6 +396,59 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "Image data does not match its media type" });
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
+  });
+
+  it("uploads a video into the global Library", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    apps.push(app);
+    const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=opening.mp4&mediaType=video%2Fmp4&duration=6.5",
+      headers: { "content-type": "application/octet-stream" },
+      payload: mp4,
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({ name: "opening.mp4", mediaType: "video", contentType: "video/mp4", duration: 6.5 });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
+    expect(content.rawPayload).toEqual(mp4);
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.chapters[0].nodes.push(
+      { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
+      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "uploaded-video" } }] } },
+    );
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([]);
+  });
+
+  it("removes deleted Library assets from image references", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-reference-")) });
+    apps.push(app);
+    const image = (await app.inject({
+      method: "POST",
+      url: "/library/assets",
+      payload: { name: "reference.png", image: { mediaType: "image/png", data: "iVBORw0KGgo=" } },
+    })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.chapters[0].nodes.push(
+      { id: "library-image", type: "asset", position: { x: 100, y: 0 }, data: { assetId: image.id, mediaType: "image" } },
+      { id: "generated-image", type: "image", position: { x: 400, y: 0 }, data: { prompt: "Compose", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: image.id }, { type: "node", nodeId: "library-image" }] } },
+    );
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}?force=true` })).statusCode).toBe(204);
+
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
   });
 
   it("rejects unsafe workspace file paths", async () => {

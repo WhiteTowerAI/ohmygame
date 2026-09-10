@@ -63,9 +63,10 @@ function isStoredDraft(value: unknown): value is StoredDraft {
   if (!record(value.image) || !onlyKeys(value.image, ["prompt", "resolution", "aspectRatio", "outputs"])
     || !text(value.image.prompt, 32_000) || !member(value.image.resolution, IMAGE_RESOLUTIONS)
     || !member(value.image.aspectRatio, IMAGE_ASPECT_RATIOS) || !member(value.image.outputs, IMAGE_OUTPUT_COUNTS)) return false;
-  if (!record(value.video) || !onlyKeys(value.video, ["prompt", "resolution", "aspectRatio", "duration"])
+  if (!record(value.video) || !onlyKeys(value.video, ["prompt", "references", "resolution", "aspectRatio", "duration"])
     || !text(value.video.prompt, 32_000) || !member(value.video.resolution, VIDEO_RESOLUTIONS)
-    || !member(value.video.aspectRatio, VIDEO_ASPECT_RATIOS) || !integer(value.video.duration, 4, 15)) return false;
+    || !member(value.video.aspectRatio, VIDEO_ASPECT_RATIOS) || !integer(value.video.duration, 4, 15)
+    || value.video.references !== undefined && (!Array.isArray(value.video.references) || !value.video.references.every(videoReference))) return false;
   if (!record(value.model3D) || !onlyKeys(value.model3D, ["prompt", "model", "source", "multiView", "quality", "targetPolycount", "texture", "pose", "imageEnhancement"])
     || !text(value.model3D.prompt, 32_000) || !member(value.model3D.model, MODEL_3D_MODELS)
     || !mode3DSource(value.model3D.source) || typeof value.model3D.multiView !== "boolean"
@@ -76,7 +77,13 @@ function isStoredDraft(value: unknown): value is StoredDraft {
 }
 
 function publicDraft({ version: _, ...draft }: StoredDraft): AssetStudioDraft {
-  return structuredClone(draft);
+  return structuredClone({ ...draft, video: { ...draft.video, references: draft.video.references ?? [] } });
+}
+
+function videoReference(value: unknown): boolean {
+  return record(value) && onlyKeys(value, ["type", "assetId"])
+    && (value.type === "image" || value.type === "video" || value.type === "audio")
+    && text(value.assetId, 100);
 }
 
 function record(value: unknown): value is Record<string, unknown> {

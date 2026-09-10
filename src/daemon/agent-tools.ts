@@ -219,12 +219,13 @@ export function createAgentTools(
       if (source && source.contentType !== "image/png" && source.contentType !== "image/jpeg" && source.contentType !== "image/webp") {
         throw new Error("Video generation requires a PNG, JPEG, or WebP image");
       }
+      const assetId = source ? await projects.ensureLibraryAsset(project.id, input.imagePath!) : undefined;
       const request: RunVideoToolRequest = {
         prompt: input.prompt,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
         resolution: input.resolution,
-        ...(source ? { images: [{ mediaType: source.contentType as "image/png" | "image/jpeg" | "image/webp", data: (await readFile(source.absolutePath)).toString("base64") }] } : {}),
+        ...(assetId ? { references: [{ type: "image", assetId }] } : {}),
       };
       const run = await tools.run("generate-video", request, signal);
       const output = run.files[0];

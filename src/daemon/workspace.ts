@@ -18,6 +18,7 @@ const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaT
   ".ogg": { mediaType: "audio", contentType: "audio/ogg" },
   ".wav": { mediaType: "audio", contentType: "audio/wav" },
   ".mp4": { mediaType: "video", contentType: "video/mp4" },
+  ".mov": { mediaType: "video", contentType: "video/quicktime" },
   ".webm": { mediaType: "video", contentType: "video/webm" },
   ".glb": { mediaType: "model", contentType: "model/gltf-binary" },
 };

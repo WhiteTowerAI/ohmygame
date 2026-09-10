@@ -37,7 +37,7 @@ describe("tool runner", () => {
     }, {
       id: "generate-video",
       name: "Video Generator",
-      description: "Generate a project-ready video from a text prompt or reference image.",
+      description: "Generate a project-ready video from a prompt and optional image, video, or audio references.",
       category: "video",
       inputKind: "image-prompt",
       outputKind: "video",
@@ -203,7 +203,7 @@ describe("tool runner", () => {
     }, undefined);
   });
 
-  it("runs Seedance 2.0 with reference images", async () => {
+  it("runs Seedance 2.0 with typed Library references", async () => {
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("video"),
       mediaType: "video/mp4" as const,
@@ -215,15 +215,33 @@ describe("tool runner", () => {
       videoGenerator: { generate },
     });
     apps.push(app);
+    const image = (await app.inject({
+      method: "POST",
+      url: "/library/assets",
+      payload: { name: "frame.png", image: { mediaType: "image/png", data: "iVBORw0KGgo=" } },
+    })).json();
+    const video = (await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=motion.mp4&mediaType=video%2Fmp4",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from("0000ftypvideo"),
+    })).json();
+    const audio = (await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=music.mp3&mediaType=audio%2Fmpeg",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from("ID3audio"),
+    })).json();
 
     const response = await app.inject({
       method: "POST",
       url: "/tools/generate-video/runs",
       payload: {
         prompt: "  A spaceship crossing a nebula  ",
-        images: [
-          { mediaType: "image/png", data: "ZnJvbnQ=" },
-          { mediaType: "image/webp", data: "c2lkZQ==" },
+        references: [
+          { type: "image", assetId: image.id },
+          { type: "video", assetId: video.id },
+          { type: "audio", assetId: audio.id },
         ],
         duration: 6,
         aspectRatio: "16:9",
@@ -234,9 +252,10 @@ describe("tool runner", () => {
     expect(response.statusCode, response.body).toBe(201);
     expect(generate).toHaveBeenCalledWith({
       prompt: "A spaceship crossing a nebula",
-      images: [
-        { mediaType: "image/png", data: "ZnJvbnQ=" },
-        { mediaType: "image/webp", data: "c2lkZQ==" },
+      references: [
+        expect.objectContaining({ type: "image", name: "frame.png", mediaType: "image/png" }),
+        expect.objectContaining({ type: "video", name: "motion.mp4", mediaType: "video/mp4" }),
+        expect.objectContaining({ type: "audio", name: "music.mp3", mediaType: "audio/mpeg" }),
       ],
       duration: 6,
       aspectRatio: "16:9",
@@ -246,6 +265,32 @@ describe("tool runner", () => {
       toolId: "generate-video",
       files: [{ name: "output.mp4", mediaType: "video/mp4", assetId: expect.any(String) }],
     });
+  });
+
+  it("rejects out-of-range Seedance reference durations recorded in Library", async () => {
+    const generate = vi.fn();
+    const app = createApp({
+      dataDirectory: await temporaryData(),
+      imageGenerator: fakeGenerator(),
+      videoGenerator: { generate },
+    });
+    apps.push(app);
+    const video = (await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=short.mp4&mediaType=video%2Fmp4&duration=1.5",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from("0000ftypvideo"),
+    })).json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/generate-video/runs",
+      payload: { prompt: "Animate", references: [{ type: "video", assetId: video.id }] },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("2 to 15 seconds");
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it("adds a generated 3D result to a project workspace", async () => {

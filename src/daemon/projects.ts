@@ -102,6 +102,22 @@ export class ProjectManager {
     }
   }
 
+  async ensureLibraryAsset(id: string, assetPath: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
+    const metadata = await readAssetMetadata(project.workspacePath);
+    const existing = metadata.libraryAssets[assetPath];
+    if (existing && this.assetLibrary.get(existing)) return existing;
+    const media = await getWorkspaceMedia(project.workspacePath, assetPath);
+    const asset = await this.assetLibrary.addFile(path.basename(assetPath), media.absolutePath, {
+      ...(metadata.prompts[assetPath] ? { prompt: metadata.prompts[assetPath] } : {}),
+      sourceKey: `project:${id}:${assetPath}`,
+    });
+    await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: asset.id }));
+    return asset.id;
+  }
+
   async rename(id: string, name: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -421,8 +437,6 @@ export class ProjectManager {
       let story: StoryDocument;
       try {
         const parsed: unknown = JSON.parse(await readFile(path.join(project.workspacePath, STORY_FILE), "utf8"));
-        // Older Story documents do not contain global asset references. They must not
-        // prevent unrelated Library assets from being deleted.
         if (!isStoryDocument(parsed)) continue;
         story = parsed;
       } catch (error) {
@@ -431,8 +445,9 @@ export class ProjectManager {
       }
       if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
         (node.type === "scene" && node.data.clips.some((clip) => clip.source.type === "library" && clip.source.assetId === assetId)) ||
-        (node.type === "video" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-        ((node.type === "image" || node.type === "video") && node.data.assetId === assetId)
+        (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
+        (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
+        ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
       )))) references.push(project);
     }
     return references;
@@ -457,32 +472,46 @@ export class ProjectManager {
         if (!isStoryDocument(parsed)) continue;
         const story: StoryDocument = {
           ...parsed,
-          chapters: parsed.chapters.map((chapter) => ({
-            ...chapter,
-            nodes: chapter.nodes.map((node) => {
-              if (node.type === "scene") return {
-                ...node,
-                data: { ...node.data, clips: node.data.clips.filter((clip) => clip.source.type !== "library" || clip.source.assetId !== assetId) },
-              };
-              if (node.type === "image" && node.data.assetId === assetId) {
-                const { assetId: _, ...data } = node.data;
-                return { ...node, data };
-              }
-              if (node.type === "video") {
-                const images = node.data.images.filter((image) => image.type !== "library" || image.assetId !== assetId);
-                if (node.data.assetId === assetId) {
-                  const { assetId: _, ...data } = node.data;
-                  return { ...node, data: { ...data, images } };
-                }
-                if (images.length === node.data.images.length) return node;
-                return {
+          chapters: parsed.chapters.map((chapter) => {
+            const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
+            return {
+              ...chapter,
+              nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
+                if (node.type === "scene") return {
                   ...node,
-                  data: { ...node.data, images },
+                  data: { ...node.data, clips: node.data.clips.filter((clip) =>
+                    (clip.source.type !== "library" || clip.source.assetId !== assetId) &&
+                    (clip.source.type !== "node" || !removedNodeIds.has(clip.source.nodeId))) },
                 };
-              }
-              return node;
-            }),
-          })),
+                if (node.type === "image") {
+                  const images = node.data.images.filter((image) =>
+                    (image.type !== "library" || image.assetId !== assetId) &&
+                    (image.type !== "node" || !removedNodeIds.has(image.nodeId)));
+                  if (node.data.assetId === assetId) {
+                    const { assetId: _, ...data } = node.data;
+                    return { ...node, data: { ...data, images } };
+                  }
+                  if (images.length === node.data.images.length) return node;
+                  return { ...node, data: { ...node.data, images } };
+                }
+                if (node.type === "video") {
+                  const references = node.data.references.filter((reference) =>
+                    (reference.type !== "library" || reference.assetId !== assetId) &&
+                    (reference.type !== "node" || !removedNodeIds.has(reference.nodeId)));
+                  if (node.data.assetId === assetId) {
+                    const { assetId: _, ...data } = node.data;
+                    return { ...node, data: { ...data, references } };
+                  }
+                  if (references.length === node.data.references.length) return node;
+                  return {
+                    ...node,
+                    data: { ...node.data, references },
+                  };
+                }
+                return node;
+              }),
+            };
+          }),
         };
         await writeStory(destination, story);
         await this.touch(project.id);

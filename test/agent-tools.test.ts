@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "../src/daemon/agent-tools.js";
+import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -155,20 +156,21 @@ describe("agent tools", () => {
 
   it("generates a video from a project image", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
-    const projects = new ProjectManager(dataDirectory);
-    await projects.load();
+    const library = new AssetLibrary(dataDirectory);
+    const projects = new ProjectManager(dataDirectory, library);
+    await Promise.all([library.load(), projects.load()]);
     const project = await projects.create("Game");
     await projects.addGeneratedAsset(project.id, "source.webp", Buffer.from("source image"));
     const videoGenerator: VideoGenerator = {
       generate: async (input) => {
         expect(input.prompt).toBe("Slow camera move");
         expect(input.duration).toBe(8);
-        expect(input.images).toHaveLength(1);
-        expect(input.images?.[0]?.mediaType).toBe("image/webp");
+        expect(input.references).toHaveLength(1);
+        expect(input.references?.[0]?.type).toBe("image");
         return { bytes: Buffer.from("generated mp4"), mediaType: "video/mp4" };
       },
     };
-    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, videoGenerator);
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, videoGenerator, library);
     await runner.load();
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
