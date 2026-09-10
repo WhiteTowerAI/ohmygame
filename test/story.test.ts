@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   createStoryDocument,
   combineStoryPrompt,
+  applyStoryEffect,
+  countStoryVariableReferences,
   getNextNode,
   getOutgoingEdge,
   getStartNode,
   isStoryDocument,
+  initialStoryVariables,
+  matchesStoryCondition,
+  normalizeStoryVariableReferences,
+  removeStoryVariableReferences,
   replaceOutgoingEdge,
   resolveStoryAssetId,
   resolveStoryImageAssetId,
@@ -27,6 +33,64 @@ describe("story documents", () => {
     expect(isStoryDocument({ ...story, version: 2 })).toBe(false);
     expect(story.chapters).toHaveLength(1);
     expect(story.chapters[0]?.nodes).toEqual([expect.objectContaining({ type: "start" })]);
+  });
+
+  it("evaluates story variables and applies choice effects", () => {
+    const definitions = [
+      { id: "trusted", name: "Trusted", type: "boolean" as const, initialValue: false },
+      { id: "score", name: "Score", type: "number" as const, initialValue: 2 },
+    ];
+    const initial = initialStoryVariables(definitions);
+
+    expect(matchesStoryCondition({ variableId: "trusted", operator: "equals", value: false }, initial)).toBe(true);
+    expect(matchesStoryCondition({ variableId: "score", operator: "greater-than", value: 1 }, initial)).toBe(true);
+    expect(matchesStoryCondition({ variableId: "score", operator: "less-than", value: 1 }, initial)).toBe(false);
+    expect(applyStoryEffect({ variableId: "trusted", value: true }, initial)).toEqual({ trusted: true, score: 2 });
+    expect(initial).toEqual({ trusted: false, score: 2 });
+  });
+
+  it("validates variable-backed choice rules", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "trusted", name: "Trusted", type: "boolean", initialValue: false }];
+    story.chapters[0]!.nodes.push({
+      id: "choice",
+      type: "choice",
+      position: { x: 0, y: 0 },
+      data: {
+        title: "Enter?",
+        options: [{
+          id: "enter",
+          label: "Enter",
+          condition: { variableId: "trusted", operator: "equals", value: true },
+          effect: { variableId: "trusted", value: false },
+        }],
+      },
+    });
+
+    expect(isStoryDocument(story)).toBe(true);
+    story.variables = [];
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("cleans and normalizes variable-backed choice rules", () => {
+    const options = [{
+      id: "enter",
+      label: "Enter",
+      condition: { variableId: "state", operator: "greater-than" as const, value: 3 },
+      effect: { variableId: "state", value: 4 },
+    }];
+
+    expect(countStoryVariableReferences(options, "state")).toBe(2);
+    expect(removeStoryVariableReferences(options, "state")).toEqual([{ id: "enter", label: "Enter", condition: undefined, effect: undefined }]);
+    expect(normalizeStoryVariableReferences(options, new Map([
+      ["state", { id: "state", name: "State", type: "text" as const, initialValue: "" }],
+    ]))).toEqual([{
+      id: "enter",
+      label: "Enter",
+      condition: { variableId: "state", operator: "equals", value: "" },
+      effect: { variableId: "state", value: "" },
+    }]);
+    expect(normalizeStoryVariableReferences(options, new Map())).toEqual([{ id: "enter", label: "Enter", condition: undefined, effect: undefined }]);
   });
 
   it("rejects missing starts, duplicate ids, and dangling edges", () => {

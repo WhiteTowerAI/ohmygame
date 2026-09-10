@@ -141,6 +141,29 @@ export interface StoryPosition {
 export interface StoryChoiceOption {
   id: string;
   label: string;
+  condition?: StoryVariableCondition;
+  effect?: StoryVariableEffect;
+}
+
+export type StoryVariableType = "boolean" | "number" | "text";
+export type StoryVariableValue = boolean | number | string;
+
+export interface StoryVariable {
+  id: string;
+  name: string;
+  type: StoryVariableType;
+  initialValue: StoryVariableValue;
+}
+
+export interface StoryVariableCondition {
+  variableId: string;
+  operator: "equals" | "not-equals" | "greater-than" | "less-than";
+  value: StoryVariableValue;
+}
+
+export interface StoryVariableEffect {
+  variableId: string;
+  value: StoryVariableValue;
 }
 
 export interface StoryVideoClip {
@@ -217,6 +240,7 @@ export interface StoryChapter {
 
 export interface StoryDocument {
   version: 3;
+  variables?: StoryVariable[];
   chapters: StoryChapter[];
 }
 

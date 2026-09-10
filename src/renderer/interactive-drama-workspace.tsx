@@ -20,6 +20,7 @@ import {
   Play,
   Plus,
   Search,
+  SlidersHorizontal,
   Trash2,
   Upload,
   X,
@@ -67,12 +68,17 @@ import {
   type StoryNode,
   type StoryNodeType,
   type StoryTextReference,
+  type StoryVariable,
+  type StoryVariableCondition,
+  type StoryVariableEffect,
+  type StoryVariableType,
+  type StoryVariableValue,
   type StoryVideoClip,
   type VideoAspectRatio,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, countStoryVariableReferences, normalizeStoryVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -183,9 +189,11 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [chapter, setChapter] = useState<{ id: string; title: string }>();
+  const [variables, setVariables] = useState<StoryVariable[]>([]);
   const [nodes, setNodes] = useState<StoryFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
+  const [variablesOpen, setVariablesOpen] = useState(false);
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
@@ -212,6 +220,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       const firstChapter = story.chapters[0];
       if (!firstChapter) throw new Error("Story has no chapters");
       setChapter({ id: firstChapter.id, title: firstChapter.title });
+      setVariables(story.variables ?? []);
       setNodes(firstChapter.nodes.map((node) => toFlowNode(node, models)));
       setEdges(firstChapter.edges);
       remainingChapters.current = story.chapters.slice(1);
@@ -228,8 +237,8 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   }, [projectId]);
 
   const document = useMemo(
-    () => chapter ? storyDocument(chapter, nodes, edges, remainingChapters.current) : undefined,
-    [chapter, nodes, edges],
+    () => chapter ? storyDocument(variables, chapter, nodes, edges, remainingChapters.current) : undefined,
+    [chapter, edges, nodes, variables],
   );
   latestStory.current = document;
 
@@ -385,13 +394,14 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   }
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
-  const inspectorOpen = Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
+  const inspectorOpen = variablesOpen || Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
   const activeChapter = document?.chapters[0];
 
   function addNode(type: Exclude<StoryNodeType, "start" | "asset">, position: { x: number; y: number }): void {
     const node = { ...createFlowNode(type, position, imageModels, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
+    setVariablesOpen(false);
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration">, position: { x: number; y: number }): void {
@@ -406,6 +416,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
+    setVariablesOpen(false);
   }
 
   async function importAssetFile(file: File, position: { x: number; y: number }): Promise<void> {
@@ -448,6 +459,29 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     setSelectedId(undefined);
     setSelectedAssetEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
+  }
+
+  function removeVariable(variableId: string): void {
+    const variable = variables.find((candidate) => candidate.id === variableId);
+    const references = [...nodes, ...remainingChapters.current.flatMap((candidate) => candidate.nodes)]
+      .reduce((count, node) => count + (node.type === "choice" ? countStoryVariableReferences(node.data.options ?? [], variableId) : 0), 0);
+    if (references > 0 && !window.confirm(`Delete “${variable?.name || "Unnamed variable"}”? This will remove ${references} ${references === 1 ? "rule" : "rules"} that use it.`)) return;
+    setVariables((current) => current.filter((variable) => variable.id !== variableId));
+    setNodes((current) => current.map((node) => removeVariableFromFlowNode(node, variableId)));
+    remainingChapters.current = remainingChapters.current.map((chapter) => ({
+      ...chapter,
+      nodes: chapter.nodes.map((node) => removeVariableFromStoryNode(node, variableId)),
+    }));
+  }
+
+  function updateVariables(next: StoryVariable[]): void {
+    const byId = new Map(next.map((variable) => [variable.id, variable]));
+    setVariables(next);
+    setNodes((current) => current.map((node) => normalizeFlowNodeVariables(node, byId)));
+    remainingChapters.current = remainingChapters.current.map((chapter) => ({
+      ...chapter,
+      nodes: chapter.nodes.map((node) => normalizeStoryNodeVariables(node, byId)),
+    }));
   }
 
   async function generateImage(node: StoryFlowNode): Promise<void> {
@@ -733,6 +767,13 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
           <ChevronDown size={14} />
         </button>
         <div className="interactive-drama-header-actions">
+          <button className={`interactive-drama-action${variablesOpen ? " is-active" : ""}`} type="button" title="Variables" aria-pressed={variablesOpen} onClick={() => {
+            clearSelection();
+            setVariablesOpen((open) => !open);
+          }}>
+            <SlidersHorizontal size={14} />
+            <span>Variables</span>
+          </button>
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
@@ -770,8 +811,8 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
                 setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined);
                 setSelectedId(undefined);
               }}
-              onNodeClick={(_event, node) => { setSelectedAssetEdgeId(undefined); setSelectedId(node.id); }}
-              onPaneClick={clearSelection}
+              onNodeClick={(_event, node) => { setVariablesOpen(false); setSelectedAssetEdgeId(undefined); setSelectedId(node.id); }}
+              onPaneClick={() => { setVariablesOpen(false); clearSelection(); }}
               onNodesDelete={(deleted) => {
                 if (deleted.some((node) => node.id === selectedId)) setSelectedId(undefined);
                 setNodes((current) => removeNodesAndReferences(current, new Set(deleted.map((node) => node.id))));
@@ -807,11 +848,14 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
             </div>
           ) : null}
         </div>
-        {selectedNode && !isInlineNodeType(selectedNode.type) ? (
+        {variablesOpen ? (
+          <StoryVariablesPanel variables={variables} onChange={updateVariables} onRemove={removeVariable} onClose={() => setVariablesOpen(false)} />
+        ) : selectedNode && !isInlineNodeType(selectedNode.type) ? (
           <StoryInspector
             libraryAssets={libraryAssets}
             nodes={nodes}
             node={selectedNode}
+            variables={variables}
             onChange={updateSelected}
             onClose={clearSelection}
             onDelete={deleteSelected}
@@ -1293,10 +1337,85 @@ function StoryNodeHeading({ icon, type, title }: { icon: React.ReactNode; type: 
   return <div className="story-node-heading"><span>{icon}{type}</span><strong>{title}</strong></div>;
 }
 
+function StoryVariablesPanel({ variables, onChange, onRemove, onClose }: {
+  variables: StoryVariable[];
+  onChange: (variables: StoryVariable[]) => void;
+  onRemove: (variableId: string) => void;
+  onClose: () => void;
+}) {
+  function update(id: string, next: StoryVariable): void {
+    onChange(variables.map((variable) => variable.id === id ? next : variable));
+  }
+
+  return (
+    <aside className="story-inspector story-variables-panel" aria-label="Story variables">
+      <header>
+        <div><span>Story</span><strong>Variables</strong></div>
+        <button type="button" title="Close variables" aria-label="Close variables" onClick={onClose}><X size={15} /></button>
+      </header>
+      <div className="story-inspector-content">
+        <p className="story-inspector-help">Keep story state and use it to control which choices players can see.</p>
+        <div className="story-variable-list">
+          {variables.map((variable, index) => (
+            <div className="story-variable-row" key={variable.id}>
+              <div>
+                <input aria-label={`Variable ${index + 1} name`} value={variable.name} placeholder="Variable name" onChange={(event) => update(variable.id, { ...variable, name: event.target.value })} onBlur={() => update(variable.id, { ...variable, name: uniqueVariableName(variable.name, variables, variable.id) })} />
+                <button type="button" title="Delete variable" aria-label={`Delete ${variable.name || `variable ${index + 1}`}`} onClick={() => onRemove(variable.id)}><Trash2 size={13} /></button>
+              </div>
+              <div>
+                <select aria-label={`${variable.name || `Variable ${index + 1}`} type`} value={variable.type} onChange={(event) => {
+                  const type = event.target.value as StoryVariableType;
+                  update(variable.id, { ...variable, type, initialValue: defaultVariableValue(type) });
+                }}>
+                  <option value="boolean">Boolean</option>
+                  <option value="number">Number</option>
+                  <option value="text">Text</option>
+                </select>
+                <VariableValueInput variable={variable} value={variable.initialValue} label={`${variable.name || `Variable ${index + 1}`} default value`} onChange={(initialValue) => update(variable.id, { ...variable, initialValue })} />
+              </div>
+            </div>
+          ))}
+          {!variables.length ? <p className="story-variable-empty">No variables yet.</p> : null}
+          <button className="story-inspector-add-option story-variable-add" type="button" onClick={() => onChange([...variables, {
+            id: crypto.randomUUID(),
+            name: nextVariableName(variables),
+            type: "boolean",
+            initialValue: false,
+          }])}><Plus size={14} />Add variable</button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function ChoiceConditionRule({ variables, value, onChange }: { variables: StoryVariable[]; value?: StoryVariableCondition; onChange: (value?: StoryVariableCondition) => void }) {
+  const variable = variables.find((candidate) => candidate.id === value?.variableId);
+  return <div className="story-choice-rule"><span>Show when</span><select value={variable?.id ?? ""} onChange={(event) => {
+    const next = variables.find((candidate) => candidate.id === event.target.value);
+    onChange(next ? { variableId: next.id, operator: "equals", value: defaultVariableValue(next.type) } : undefined);
+  }}><option value="">Always</option>{variables.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name || "Unnamed variable"}</option>)}</select>{variable && value ? <><select value={value.operator} onChange={(event) => onChange({ ...value, operator: event.target.value as StoryVariableCondition["operator"] })}>
+    <option value="equals">is</option><option value="not-equals">is not</option>{variable.type === "number" ? <><option value="greater-than">is greater than</option><option value="less-than">is less than</option></> : null}
+  </select><VariableValueInput variable={variable} value={value.value} label="Condition value" onChange={(next) => onChange({ ...value, value: next })} /></> : null}</div>;
+}
+
+function ChoiceEffectRule({ variables, value, onChange }: { variables: StoryVariable[]; value?: StoryVariableEffect; onChange: (value?: StoryVariableEffect) => void }) {
+  const variable = variables.find((candidate) => candidate.id === value?.variableId);
+  return <div className="story-choice-rule"><span>Then set</span><select value={variable?.id ?? ""} onChange={(event) => {
+    const next = variables.find((candidate) => candidate.id === event.target.value);
+    onChange(next ? { variableId: next.id, value: defaultVariableValue(next.type) } : undefined);
+  }}><option value="">No change</option>{variables.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name || "Unnamed variable"}</option>)}</select>{variable && value ? <VariableValueInput variable={variable} value={value.value} label="New value" onChange={(next) => onChange({ ...value, value: next })} /> : null}</div>;
+}
+
+function VariableValueInput({ variable, value, label, onChange }: { variable: StoryVariable; value: StoryVariableValue; label: string; onChange: (value: StoryVariableValue) => void }) {
+  if (variable.type === "boolean") return <select aria-label={label} value={value === true ? "true" : "false"} onChange={(event) => onChange(event.target.value === "true")}><option value="false">False</option><option value="true">True</option></select>;
+  return <input aria-label={label} type={variable.type === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(variable.type === "number" ? Number(event.target.value) : event.target.value)} />;
+}
+
 function StoryInspector({
   libraryAssets,
   nodes,
   node,
+  variables,
   onChange,
   onClose,
   onDelete,
@@ -1304,6 +1423,7 @@ function StoryInspector({
   libraryAssets: LibraryAsset[];
   nodes: StoryFlowNode[];
   node: StoryFlowNode;
+  variables: StoryVariable[];
   onChange: (data: StoryFlowData, removedHandle?: string) => void;
   onClose: () => void;
   onDelete: () => void;
@@ -1348,20 +1468,32 @@ function StoryInspector({
             <div className="story-inspector-options">
               <span>Options</span>
               {node.data.options?.map((option, index, options) => (
-                <div key={option.id}>
-                  <span>{index + 1}</span>
-                  <input
-                    aria-label={`Option ${index + 1}`}
-                    value={option.label}
-                    onChange={(event) => onChange({ ...node.data, options: options.map((current) => current.id === option.id ? { ...current, label: event.target.value } : current) })}
+                <div className="story-choice-option-editor" key={option.id}>
+                  <div className="story-choice-option-label">
+                    <span>{index + 1}</span>
+                    <input
+                      aria-label={`Option ${index + 1}`}
+                      value={option.label}
+                      onChange={(event) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, label: event.target.value }) })}
+                    />
+                    <button
+                      type="button"
+                      title="Remove option"
+                      aria-label={`Remove option ${index + 1}`}
+                      disabled={options.length === 1}
+                      onClick={() => onChange({ ...node.data, options: options.filter((current) => current.id !== option.id) }, option.id)}
+                    ><X size={14} /></button>
+                  </div>
+                  <ChoiceConditionRule
+                    variables={variables}
+                    value={option.condition}
+                    onChange={(condition) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, condition }) })}
                   />
-                  <button
-                    type="button"
-                    title="Remove option"
-                    aria-label={`Remove option ${index + 1}`}
-                    disabled={options.length === 1}
-                    onClick={() => onChange({ ...node.data, options: options.filter((current) => current.id !== option.id) }, option.id)}
-                  ><X size={14} /></button>
+                  <ChoiceEffectRule
+                    variables={variables}
+                    value={option.effect}
+                    onChange={(effect) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, effect }) })}
+                  />
                 </div>
               ))}
               <button className="story-inspector-add-option" type="button" onClick={() => onChange({
@@ -1712,6 +1844,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "start" | "asset">, positio
 }
 
 function storyDocument(
+  variables: StoryVariable[],
   chapter: { id: string; title: string },
   nodes: StoryFlowNode[],
   edges: Edge[],
@@ -1719,12 +1852,57 @@ function storyDocument(
 ): StoryDocument {
   return {
     version: 3,
+    variables,
     chapters: [{
       ...chapter,
       nodes: nodes.map(toStoryNode),
       edges: edges.map(({ id, source, target, sourceHandle }) => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })),
     }, ...remainingChapters],
   };
+}
+
+function updateChoiceOption(options: StoryChoiceOption[], id: string, next: StoryChoiceOption): StoryChoiceOption[] {
+  return options.map((option) => option.id === id ? next : option);
+}
+
+function defaultVariableValue(type: StoryVariableType): StoryVariableValue {
+  return type === "boolean" ? false : type === "number" ? 0 : "";
+}
+
+function removeVariableFromFlowNode(node: StoryFlowNode, variableId: string): StoryFlowNode {
+  if (node.type !== "choice") return node;
+  return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options ?? [], variableId) } };
+}
+
+function removeVariableFromStoryNode(node: StoryNode, variableId: string): StoryNode {
+  if (node.type !== "choice") return node;
+  return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options, variableId) } };
+}
+
+function normalizeFlowNodeVariables(node: StoryFlowNode, variables: ReadonlyMap<string, StoryVariable>): StoryFlowNode {
+  if (node.type !== "choice") return node;
+  return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options ?? [], variables) } };
+}
+
+function normalizeStoryNodeVariables(node: StoryNode, variables: ReadonlyMap<string, StoryVariable>): StoryNode {
+  if (node.type !== "choice") return node;
+  return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options, variables) } };
+}
+
+function uniqueVariableName(name: string, variables: readonly StoryVariable[], currentId?: string): string {
+  const base = name.trim() || "Variable";
+  const existing = new Set(variables.filter((variable) => variable.id !== currentId).map((variable) => variable.name.trim().toLocaleLowerCase()));
+  if (!existing.has(base.toLocaleLowerCase())) return base;
+  let suffix = 2;
+  while (existing.has(`${base} ${suffix}`.toLocaleLowerCase())) suffix += 1;
+  return `${base} ${suffix}`;
+}
+
+function nextVariableName(variables: readonly StoryVariable[]): string {
+  const existing = new Set(variables.map((variable) => variable.name.trim().toLocaleLowerCase()));
+  let suffix = 1;
+  while (existing.has(`variable ${suffix}`)) suffix += 1;
+  return `Variable ${suffix}`;
 }
 
 function toStoryNode(node: StoryFlowNode): StoryNode {

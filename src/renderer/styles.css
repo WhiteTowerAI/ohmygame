@@ -4123,6 +4123,11 @@ button {
   background: var(--surface-hover);
 }
 
+.interactive-drama-action.is-active {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
 .interactive-drama-action-primary {
   border-color: var(--accent);
   background: var(--accent);
@@ -4486,6 +4491,12 @@ button {
   border-radius: 50%;
   color: var(--text-muted);
   font-size: 9px;
+}
+
+.story-player-choice > div > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .story-player-ending {
@@ -5241,7 +5252,22 @@ button {
   gap: 7px;
 }
 
-.story-inspector-options > div > span {
+.story-inspector-options > .story-choice-option-editor {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-raised) 54%, transparent);
+}
+
+.story-choice-option-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.story-choice-option-label > span {
   display: grid;
   width: 20px;
   height: 20px;
@@ -5251,6 +5277,101 @@ button {
   border-radius: 50%;
   color: var(--text-muted);
   font-size: 9px;
+}
+
+.story-choice-rule {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.story-choice-rule > span {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.story-choice-rule > :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+
+.story-choice-rule > :is(input, select):nth-child(n + 3) {
+  grid-column: 2;
+}
+
+.story-variable-list,
+.story-variable-row {
+  display: grid;
+  gap: 9px;
+}
+
+.story-variable-row {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-raised) 54%, transparent);
+}
+
+.story-variable-row > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.story-variable-row > div:last-child {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.story-variable-row :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+}
+
+.story-variable-row button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.story-variable-row button:hover {
+  background: var(--surface-hover);
+  color: var(--danger);
+}
+
+.story-variable-empty {
+  margin: 4px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.story-variable-list .story-variable-add {
+  margin-left: 0;
 }
 
 .story-inspector-options div button:disabled {

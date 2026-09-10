@@ -1,7 +1,7 @@
 import { RotateCcw } from "./icons.js";
-import { useEffect, useState } from "react";
-import type { StoryChapter, StoryNode } from "../shared/contracts.js";
-import { getNextNode, getStartNode, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../shared/story.js";
+import { useEffect, useRef, useState } from "react";
+import type { StoryChapter, StoryNode, StoryVariableValue } from "../shared/contracts.js";
+import { applyStoryEffect, getNextNode, getStartNode, initialStoryVariables, matchesStoryCondition, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
@@ -9,6 +9,8 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   const [chapter, setChapter] = useState<StoryChapter>();
   const [currentNodeId, setCurrentNodeId] = useState<string>();
   const [playbackStep, setPlaybackStep] = useState(0);
+  const [variables, setVariables] = useState<Record<string, StoryVariableValue>>({});
+  const initialVariables = useRef<Record<string, StoryVariableValue>>({});
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -23,6 +25,8 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       const first = start ? getNextNode(selected, start.id) : undefined;
       if (!first) throw new Error("The chapter has no opening scene");
       setChapter(selected);
+      initialVariables.current = initialStoryVariables(story.variables ?? []);
+      setVariables(initialVariables.current);
       setCurrentNodeId(first.id);
       document.title = `${selected.title} - Playtest`;
     }).catch((cause) => {
@@ -38,6 +42,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     const start = getStartNode(chapter);
     const first = start ? getNextNode(chapter, start.id) : undefined;
     if (first) {
+      setVariables(initialVariables.current);
       setCurrentNodeId(first.id);
       setPlaybackStep((step) => step + 1);
     }
@@ -45,6 +50,10 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   function advance(sourceHandle = "out"): void {
     if (!chapter || !node) return;
+    if (node.type === "choice") {
+      const option = node.data.options.find((candidate) => candidate.id === sourceHandle);
+      setVariables((current) => applyStoryEffect(option?.effect, current));
+    }
     const next = getNextNode(chapter, node.id, sourceHandle);
     if (next) {
       setCurrentNodeId(next.id);
@@ -60,7 +69,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       </header>
       {error ? <div className="story-playtest-state" role="alert">{error}</div> : null}
       {!error && !node ? <div className="story-playtest-state">Loading playtest...</div> : null}
-      {node && chapter ? <StoryPlayer key={`${node.id}:${playbackStep}`} chapter={chapter} node={node} onAdvance={advance} onRestart={restart} /> : null}
+      {node && chapter ? <StoryPlayer key={`${node.id}:${playbackStep}`} chapter={chapter} node={node} variables={variables} onAdvance={advance} onRestart={restart} /> : null}
     </main>
   );
 }
@@ -68,14 +77,19 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 function StoryPlayer({
   chapter,
   node,
+  variables,
   onAdvance,
   onRestart,
 }: {
   chapter: StoryChapter;
   node: StoryNode;
+  variables: Readonly<Record<string, StoryVariableValue>>;
   onAdvance: (sourceHandle?: string) => void;
   onRestart: () => void;
 }) {
+  const visibleOptions = node.type === "choice"
+    ? node.data.options.filter((option) => matchesStoryCondition(option.condition, variables))
+    : [];
   return (
     <section className="story-player" aria-label="Story playtest">
       <div className="story-player-stage">
@@ -85,11 +99,12 @@ function StoryPlayer({
             <span>Choice</span>
             <h2>{node.data.title || "Make a choice"}</h2>
             <div>
-              {node.data.options.map((option, index) => (
+              {visibleOptions.map((option, index) => (
                 <button type="button" key={option.id} onClick={() => onAdvance(option.id)}>
                   <span>{index + 1}</span>{option.label || `Option ${index + 1}`}
                 </button>
               ))}
+              {!visibleOptions.length ? <p>No choices are available for the current story state.</p> : null}
             </div>
           </article>
         ) : null}

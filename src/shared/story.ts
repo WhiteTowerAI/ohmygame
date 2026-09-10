@@ -1,10 +1,11 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAssetReference, type StoryChapter, type StoryDocument, type StoryEdge, type StoryNode } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryVariable, type StoryVariableCondition, type StoryVariableEffect, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
 
 export function createStoryDocument(): StoryDocument {
   return {
     version: 3,
+    variables: [],
     chapters: [{
       id: crypto.randomUUID(),
       title: "Untitled",
@@ -16,6 +17,8 @@ export function createStoryDocument(): StoryDocument {
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
   if (!isRecord(value) || value.version !== 3 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (value.variables !== undefined && !isVariables(value.variables)) return false;
+  const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
   const chapterIds = new Set<string>();
   return value.chapters.every((chapter) => {
     if (!isRecord(chapter) || !nonEmptyString(chapter.id) || chapterIds.has(chapter.id) || typeof chapter.title !== "string" ||
@@ -25,7 +28,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const nodeIds = new Set<string>();
     const nodeById = new Map<string, StoryNode>();
     for (const node of nodes) {
-      if (!isStoryNode(node) || nodeIds.has(node.id)) return false;
+      if (!isStoryNode(node, variables) || nodeIds.has(node.id)) return false;
       nodeIds.add(node.id);
       nodeById.set(node.id, node);
     }
@@ -113,6 +116,43 @@ export function combineStoryPrompt(linkedText: string | undefined, localPrompt: 
   return [linkedText, localPrompt].map((part) => part?.trim()).filter(Boolean).join("\n\n");
 }
 
+export function initialStoryVariables(variables: readonly StoryVariable[]): Record<string, StoryVariableValue> {
+  return Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue]));
+}
+
+export function matchesStoryCondition(condition: StoryVariableCondition | undefined, values: Readonly<Record<string, StoryVariableValue>>): boolean {
+  if (!condition) return true;
+  const current = values[condition.variableId];
+  if (condition.operator === "equals") return current === condition.value;
+  if (condition.operator === "not-equals") return current !== condition.value;
+  if (typeof current !== "number" || typeof condition.value !== "number") return false;
+  return condition.operator === "greater-than" ? current > condition.value : current < condition.value;
+}
+
+export function applyStoryEffect(effect: StoryVariableEffect | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
+  return effect ? { ...values, [effect.variableId]: effect.value } : { ...values };
+}
+
+export function countStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): number {
+  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + Number(option.effect?.variableId === variableId), 0);
+}
+
+export function removeStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): StoryChoiceOption[] {
+  return options.map((option) => ({
+    ...option,
+    ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
+    ...(option.effect?.variableId === variableId ? { effect: undefined } : {}),
+  }));
+}
+
+export function normalizeStoryVariableReferences(options: readonly StoryChoiceOption[], variables: ReadonlyMap<string, StoryVariable>): StoryChoiceOption[] {
+  return options.map((option) => ({
+    ...option,
+    ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
+    ...(option.effect ? { effect: normalizeEffect(option.effect, variables.get(option.effect.variableId)) } : {}),
+  }));
+}
+
 export function replaceOutgoingEdge<T extends { source: string; sourceHandle?: string | null }>(edges: T[], next: T): T[] {
   const nextHandle = next.sourceHandle ?? "out";
   return [
@@ -160,7 +200,7 @@ export function validatePlayableChapter(chapter: StoryChapter, availableAssetIds
   return undefined;
 }
 
-function isStoryNode(value: unknown): value is StoryNode {
+function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryNode {
   if (!isRecord(value) || !nonEmptyString(value.id) || typeof value.type !== "string" ||
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data)) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
@@ -207,9 +247,57 @@ function isStoryNode(value: unknown): value is StoryNode {
   const optionIds = new Set<string>();
   return value.data.options.every((option) => {
     if (!isRecord(option) || !nonEmptyString(option.id) || optionIds.has(option.id) || typeof option.label !== "string") return false;
+    if (option.condition !== undefined && !isCondition(option.condition, variables)) return false;
+    if (option.effect !== undefined && !isEffect(option.effect, variables)) return false;
     optionIds.add(option.id);
     return true;
   });
+}
+
+function isVariables(value: unknown): value is StoryVariable[] {
+  if (!Array.isArray(value)) return false;
+  const ids = new Set<string>();
+  return value.every((candidate) => {
+    if (!isRecord(candidate) || !nonEmptyString(candidate.id) || ids.has(candidate.id) || typeof candidate.name !== "string" || candidate.name.length > 80) return false;
+    if (!variableValueMatches(candidate.type, candidate.initialValue)) return false;
+    ids.add(candidate.id);
+    return true;
+  });
+}
+
+function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
+  if (!isRecord(value) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "less-than"].includes(String(value.operator))) return false;
+  const variable = variables.get(value.variableId);
+  return Boolean(variable && variableValueMatches(variable.type, value.value) &&
+    (variable.type === "number" || value.operator === "equals" || value.operator === "not-equals"));
+}
+
+function normalizeCondition(condition: StoryVariableCondition, variable?: StoryVariable): StoryVariableCondition | undefined {
+  if (!variable) return undefined;
+  const operator = variable.type === "number" || condition.operator === "equals" || condition.operator === "not-equals"
+    ? condition.operator
+    : "equals";
+  return { ...condition, operator, value: variableValue(condition.value, variable.type) };
+}
+
+function normalizeEffect(effect: StoryVariableEffect, variable?: StoryVariable): StoryVariableEffect | undefined {
+  return variable ? { ...effect, value: variableValue(effect.value, variable.type) } : undefined;
+}
+
+function variableValue(value: StoryVariableValue, type: StoryVariable["type"]): StoryVariableValue {
+  if (type === "boolean") return typeof value === "boolean" ? value : false;
+  if (type === "number") return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return typeof value === "string" ? value : "";
+}
+
+function isEffect(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
+  if (!isRecord(value) || !nonEmptyString(value.variableId)) return false;
+  const variable = variables.get(value.variableId);
+  return Boolean(variable && variableValueMatches(variable.type, value.value));
+}
+
+function variableValueMatches(type: unknown, value: unknown): boolean {
+  return type === "boolean" ? typeof value === "boolean" : type === "number" ? typeof value === "number" && Number.isFinite(value) : type === "text" && typeof value === "string";
 }
 
 function isPosition(value: unknown): boolean {
