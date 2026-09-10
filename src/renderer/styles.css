@@ -3978,6 +3978,18 @@ button {
 }
 
 .asset-history-card { height: max-content; }
+.asset-job-card:hover { border-color: var(--border); background: #121317; }
+.asset-job-preview { position: relative; display: grid; width: 100%; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: #181a20; color: var(--home-accent); }
+.asset-job-card.is-failed .asset-job-preview { color: var(--danger); }
+.asset-job-card.is-cancelled .asset-job-preview { color: var(--text-faint); }
+.asset-job-icon { display: grid; width: 52px; height: 52px; place-items: center; border: 1px solid #343b3e; border-radius: 8px; background: #202628; }
+.asset-job-card.is-running .asset-job-icon { box-shadow: 0 0 0 1px color-mix(in srgb, var(--home-accent) 18%, transparent); }
+.asset-job-status { color: var(--home-accent) !important; }
+.asset-job-card.is-failed .asset-job-status { color: var(--danger) !important; }
+.asset-job-card.is-cancelled .asset-job-status { color: var(--text-muted) !important; }
+.asset-job-action { position: absolute; top: 8px; right: 8px; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 50%; background: rgb(12 13 16 / 62%); color: rgb(255 255 255 / 78%); cursor: pointer; }
+.asset-job-action:hover:not(:disabled) { background: rgb(24 26 31 / 84%); color: #fff; }
+.asset-job-action:disabled { cursor: default; opacity: 0.5; }
 .library-asset-thumbnail .model-preview { width: 100%; height: 100%; min-height: 0 !important; pointer-events: none; }
 
 @container asset-results (max-width: 736px) {

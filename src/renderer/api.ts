@@ -34,6 +34,7 @@ import {
   type RuntimeEvent,
   type RunToolRequest,
   type ToolDefinition,
+  type ToolJob,
   type ToolRun,
   type UpdateImageGenerationSettings,
   type PromptImage,
@@ -295,6 +296,22 @@ export async function updateAssetStudioDraft(draft: AssetStudioDraft): Promise<A
 
 export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolRun> {
   return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
+}
+
+export async function startToolJob(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolJob> {
+  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
+}
+
+export async function listToolJobs(): Promise<ToolJob[]> {
+  return request("/tool-jobs");
+}
+
+export async function cancelToolJob(jobId: string): Promise<ToolJob> {
+  return request(`/tool-jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+}
+
+export async function retryToolJob(jobId: string): Promise<ToolJob> {
+  return request(`/tool-jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
 }
 
 export async function listToolRuns(): Promise<ToolRun[]> {

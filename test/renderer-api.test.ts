@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -719,6 +720,27 @@ describe("renderer tools API", () => {
       body: JSON.stringify({ prompt: "A forest", size: "1536x1024", title: "General Image" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-runs", expect.objectContaining({ headers: {} }));
+  });
+
+  it("creates, lists, cancels, and retries background tool jobs", async () => {
+    installWindow();
+    const job = { id: "job-1", toolId: "generate-image", status: "running" };
+    const retry = { ...job, id: "job-2" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(job, { status: 202 }))
+      .mockResolvedValueOnce(Response.json([job]))
+      .mockResolvedValueOnce(Response.json({ ...job, status: "cancelled" }))
+      .mockResolvedValueOnce(Response.json(retry, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" })).resolves.toEqual(job);
+    await expect(listToolJobs()).resolves.toEqual([job]);
+    await expect(cancelToolJob("job-1")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(retryToolJob("job-1")).resolves.toEqual(retry);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools/generate-image/jobs", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-jobs", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-jobs/job-1/cancel", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/tool-jobs/job-1/retry", expect.objectContaining({ method: "POST" }));
   });
 
   it("downloads tool output with desktop authorization", async () => {

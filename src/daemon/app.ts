@@ -976,6 +976,40 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/tool-runs", async () => tools.recentRuns());
 
+  app.get("/tool-jobs", async () => tools.jobs());
+
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
+    "/tools/:toolId/jobs",
+    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
+    async (request, reply) => {
+      try {
+        const { title, ...input } = request.body;
+        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, { title: title?.trim() }));
+      } catch (cause) {
+        if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
+  app.post<{ Params: { jobId: string } }>("/tool-jobs/:jobId/cancel", async (request, reply) => {
+    try {
+      return reply.send(tools.cancelJob(request.params.jobId));
+    } catch (cause) {
+      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.post<{ Params: { jobId: string } }>("/tool-jobs/:jobId/retry", async (request, reply) => {
+    try {
+      return reply.code(202).send(tools.retryJob(request.params.jobId));
+    } catch (cause) {
+      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
     "/tools/:toolId/runs",
     { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
@@ -2498,6 +2532,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    tools.close();
     modelAuth.close();
     await agents.close();
     await previews.stopAll();

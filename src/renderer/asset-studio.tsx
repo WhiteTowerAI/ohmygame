@@ -23,11 +23,12 @@ import {
   type LibraryAsset,
   type PromptImage,
   type ToolRun,
+  type ToolJob,
   type VideoAspectRatio,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, runTool, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
+import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, retryToolJob, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
@@ -99,7 +100,9 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [model3DPbr, setModel3DPbr] = useState(false);
   const [model3DPose, setModel3DPose] = useState<Model3DPose>("auto");
   const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(true);
-  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [jobs, setJobs] = useState<ToolJob[]>([]);
+  const [jobActions, setJobActions] = useState<Set<string>>(() => new Set());
   const [uploadingReferences, setUploadingReferences] = useState(false);
   const [result, setResult] = useState<PreviewResult>();
   const [history, setHistory] = useState<PreviewResult[]>([]);
@@ -130,6 +133,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const latestDraft = useRef<AssetStudioDraft | undefined>(undefined);
   const pendingSelection = useRef<{ runId?: string; output?: number }>({});
   const historyRef = useRef<PreviewResult[]>([]);
+  const hydratingJobs = useRef(new Set<string>());
   const templateCoverRequest = useRef(0);
   const templateCoverUrlRef = useRef<string | undefined>(undefined);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -173,6 +177,22 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       templateCoverRequest.current += 1;
       if (templateCoverUrlRef.current) URL.revokeObjectURL(templateCoverUrlRef.current);
       historyRef.current.forEach((entry) => entry.urls.forEach((url) => URL.revokeObjectURL(url)));
+    };
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      await loadJobs();
+      if (!stopped) timer = window.setTimeout(poll, 1_500);
+    };
+    void waitForRuntime()
+      .then(() => { if (!stopped) void poll(); })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -325,25 +345,51 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
   }
 
+  async function loadJobs(): Promise<void> {
+    try {
+      const loaded = await listToolJobs();
+      if (!mounted.current) return;
+      setJobs(loaded);
+      for (const job of loaded) {
+        const run = job.status === "succeeded" ? job.run : undefined;
+        if (!run || historyRef.current.some((entry) => entry.run.id === run.id) || hydratingJobs.current.has(job.id)) continue;
+        hydratingJobs.current.add(job.id);
+        void Promise.all(run.files.map((file) => getToolRunFile(run.id, file.name)))
+          .then((blobs) => {
+            if (!mounted.current) return;
+            addHistoryResult({ run, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: historyRunTitle(run) });
+          })
+          .catch((cause) => { if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) }); })
+          .finally(() => hydratingJobs.current.delete(job.id));
+      }
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    }
+  }
+
   async function generate(event?: FormEvent): Promise<void> {
     event?.preventDefault();
-    if (!canGenerate || generating) return;
-    setGenerating(true);
+    if (!canGenerate || submitting) return;
+    setSubmitting(true);
     setGenerationError(undefined);
     setActionStatus(undefined);
     setMenuOpen(false);
     setHistoryDetailOpen(false);
     setPanelView("history");
     try {
-      let nextRun: ToolRun;
+      let job: ToolJob;
       if (mode === "image") {
         if (!selectedImageModel) throw new Error("Connect an image model before generating");
-        nextRun = await runTool("generate-image", {
-          prompt: imagePrompt.trim(), resolution, aspectRatio, outputs,
+        job = await startToolJob("generate-image", {
+          prompt: imagePrompt.trim(),
+          imageModel: { provider: selectedImageModel.provider, id: selectedImageModel.id },
+          resolution,
+          aspectRatio,
+          outputs,
           ...(imageReferences.length ? { images: imageReferences } : {}),
         }, selectedTemplate?.name);
       } else if (mode === "video") {
-        nextRun = await runTool("generate-video", {
+        job = await startToolJob("generate-video", {
           prompt: videoPrompt.trim(), duration: videoDuration, aspectRatio: videoAspectRatio, resolution: videoResolution,
           ...(videoReferences.length ? { references: videoReferences } : {}),
         }, selectedTemplate?.name);
@@ -351,7 +397,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         const images = modelReferences
           .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
           .filter((image): image is PromptImage => image !== undefined);
-        nextRun = await runTool("image-to-3d", {
+        job = await startToolJob("image-to-3d", {
           ...(model3DSource === "text" ? { prompt: model3DPrompt.trim() } : { images }),
           model: model3D,
           ...(isMeshyT2 ? { targetPolycount: model3DTargetPolycount } : { quality: model3DQuality }),
@@ -371,17 +417,35 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           })
           .catch(() => undefined);
       }
-      const blobs = await Promise.all(nextRun.files.map((file) => getToolRunFile(nextRun.id, file.name)));
-      if (!mounted.current) return;
-      const nextResult = { run: nextRun, urls: blobs.map((blob) => URL.createObjectURL(blob)), title: historyRunTitle(nextRun) };
-      setResult(nextResult);
-      addHistoryResult(nextResult);
-      setSelectedResult(0);
-      setHistoryDetailOpen(true);
+      if (mounted.current) setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (cause) {
       if (mounted.current) setGenerationError(errorMessage(cause));
     } finally {
-      if (mounted.current) setGenerating(false);
+      if (mounted.current) setSubmitting(false);
+    }
+  }
+
+  async function cancelJob(jobId: string): Promise<void> {
+    setJobActions((current) => new Set(current).add(jobId));
+    try {
+      const job = await cancelToolJob(jobId);
+      if (mounted.current) setJobs((current) => current.map((candidate) => candidate.id === job.id ? job : candidate));
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    } finally {
+      if (mounted.current) setJobActions((current) => withoutJob(current, jobId));
+    }
+  }
+
+  async function retryJob(jobId: string): Promise<void> {
+    setJobActions((current) => new Set(current).add(jobId));
+    try {
+      const job = await retryToolJob(jobId);
+      if (mounted.current) setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== jobId && candidate.id !== job.id)]);
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    } finally {
+      if (mounted.current) setJobActions((current) => withoutJob(current, jobId));
     }
   }
 
@@ -441,7 +505,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   function applyTemplate(template: AssetTemplate): void {
-    if (generating) return;
     setMode(template.mode);
     setTemplateIds((current) => ({ ...current, [template.mode]: template.id }));
     const prompt = template.defaultPrompt ?? "";
@@ -479,7 +542,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   function chooseMode(nextMode: StudioMode): void {
-    if (generating || nextMode === mode) return;
+    if (nextMode === mode) return;
     setMode(nextMode);
     setGenerationError(undefined);
     setReferenceError(undefined);
@@ -805,25 +868,25 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
             {phase === "error" ? <div className="asset-config-state asset-config-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => void load()}><RefreshCw size={13} />Retry</button></div> : null}
             {phase === "ready" ? (
               <div className="asset-config-fields">
-                <ModeSwitcher mode={mode} disabled={generating} onChange={chooseMode} />
+                <ModeSwitcher mode={mode} onChange={chooseMode} />
                 {mode === "image" ? (
                   <>
                     <Field label="Model" htmlFor="asset-model">
                       {imagePhase === "loading" ? <p className="asset-inline-state"><LoaderCircle className="spin" size={13} />Loading models</p> : null}
                       {imagePhase === "error" ? <div className="asset-inline-error" role="alert"><span>{imageLoadError}</span><button type="button" onClick={() => void loadImageConfig()}><RefreshCw size={12} />Retry</button></div> : null}
-                      {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} disabled={generating} onChange={chooseImageModel} /> : null}
+                      {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} onChange={chooseImageModel} /> : null}
                       {imagePhase === "ready" && !imageModels.length ? <p className="asset-inline-state">No image model is connected</p> : null}
                     </Field>
-                    <PromptField id="asset-image-prompt" value={imagePrompt} disabled={generating} placeholder={activeTemplate.promptPlaceholder} onChange={setImagePrompt} />
+                    <PromptField id="asset-image-prompt" value={imagePrompt} placeholder={activeTemplate.promptPlaceholder} onChange={setImagePrompt} />
                   </>
                 ) : mode === "video" ? (
                   <>
-                    <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={VIDEO_MODEL} options={VIDEO_MODEL_OPTIONS} disabled={generating} onChange={() => undefined} /></Field>
-                    <PromptField id="asset-video-prompt" value={videoPrompt} disabled={generating} placeholder={activeTemplate.promptPlaceholder} onChange={setVideoPrompt} />
+                    <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={VIDEO_MODEL} options={VIDEO_MODEL_OPTIONS} onChange={() => undefined} /></Field>
+                    <PromptField id="asset-video-prompt" value={videoPrompt} placeholder={activeTemplate.promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
                   <>
-                    <Field label="Model" htmlFor="asset-3d-model"><ModelSelect id="asset-3d-model" value={model3D} options={MODEL_3D_OPTIONS} disabled={generating} onChange={(model) => {
+                    <Field label="Model" htmlFor="asset-3d-model"><ModelSelect id="asset-3d-model" value={model3D} options={MODEL_3D_OPTIONS} onChange={(model) => {
                       setModel3D(model);
                       if (model === "meshy-t2") {
                         setModel3DSource("image");
@@ -840,7 +903,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       multiView={model3DMultiView}
                       allowMultiView={!isMeshyT2}
                       promptPlaceholder={activeTemplate.promptPlaceholder}
-                      disabled={generating}
                       onSourceChange={setModel3DSource}
                       onPromptChange={setModel3DPrompt}
                       onMultiViewChange={setModel3DMultiView}
@@ -855,11 +917,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 )}
 
-                {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={generating || uploadingReferences || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={uploadingReferences || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
                   setImageReferences((current) => current.filter((_, candidate) => candidate !== index));
                   setImageReferenceNames((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
-                }} /> : mode === "video" ? <VideoReferenceField references={videoReferences} assets={libraryAssets} disabled={generating || uploadingReferences} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
+                }} /> : mode === "video" ? <VideoReferenceField references={videoReferences} assets={libraryAssets} disabled={uploadingReferences} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
                   setVideoReferences((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
                 }} /> : null}
@@ -873,58 +935,58 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
 
                 {mode === "image" && selectedImageModel ? (
                   <>
-                    <OptionGroup label="Resolution" values={supportedImageResolutions} value={resolution} disabled={generating} onChange={chooseImageResolution} />
-                    <OptionGroup label="Aspect ratio" values={supportedImageAspectRatios} value={aspectRatio} disabled={generating} onChange={chooseImageAspectRatio} />
-                    <OptionGroup label="Outputs" values={IMAGE_OUTPUT_COUNTS} value={outputs} disabled={generating} isOptionDisabled={(value) => value > selectedImageModel.maxOutputs} onChange={setOutputs} />
+                    <OptionGroup label="Resolution" values={supportedImageResolutions} value={resolution} onChange={chooseImageResolution} />
+                    <OptionGroup label="Aspect ratio" values={supportedImageAspectRatios} value={aspectRatio} onChange={chooseImageAspectRatio} />
+                    <OptionGroup label="Outputs" values={IMAGE_OUTPUT_COUNTS} value={outputs} isOptionDisabled={(value) => value > selectedImageModel.maxOutputs} onChange={setOutputs} />
                   </>
                 ) : mode === "video" ? (
                   <>
-                    <OptionGroup label="Resolution" values={VIDEO_RESOLUTIONS} value={videoResolution} disabled={generating} format={(value) => value.toUpperCase()} onChange={setVideoResolution} />
-                    <OptionGroup label="Aspect ratio" values={VIDEO_ASPECT_RATIOS} value={videoAspectRatio} disabled={generating} format={(value) => value === "adaptive" ? "Auto" : value} onChange={setVideoAspectRatio} />
-                    <RangeField label="Duration" value={videoDuration} min={4} max={15} disabled={generating} onChange={setVideoDuration} />
+                    <OptionGroup label="Resolution" values={VIDEO_RESOLUTIONS} value={videoResolution} format={(value) => value.toUpperCase()} onChange={setVideoResolution} />
+                    <OptionGroup label="Aspect ratio" values={VIDEO_ASPECT_RATIOS} value={videoAspectRatio} format={(value) => value === "adaptive" ? "Auto" : value} onChange={setVideoAspectRatio} />
+                    <RangeField label="Duration" value={videoDuration} min={4} max={15} onChange={setVideoDuration} />
                   </>
                 ) : mode === "3d" ? (
                   <div className="asset-3d-options">
                     {isMeshyT2
-                      ? <PolyCountField value={model3DTargetPolycount} disabled={generating} onChange={setModel3DTargetPolycount} />
-                      : <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} disabled={generating} format={titleCase} onChange={setModel3DQuality} />}
-                    <ToggleField label="Texture" checked={model3DTexture} disabled={generating} onChange={setModel3DTexture} />
-                    {!isMeshyT2 && model3DTexture ? <OptionGroup equal label="Texture resolution" values={MODEL_3D_TEXTURE_RESOLUTIONS} value={model3DTextureResolution} disabled={generating} onChange={setModel3DTextureResolution} /> : null}
-                    {model3DTexture ? <ToggleField label="PBR" checked={model3DPbr} disabled={generating} onChange={setModel3DPbr} /> : null}
-                    {!isMeshyT2 ? <OptionGroup equal label="Pose" values={MODEL_3D_POSES} value={model3DPose} disabled={generating} format={(value) => value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"} onChange={setModel3DPose} /> : null}
-                    {model3DSource === "image" && !isMeshyT2 ? <ToggleField label="Image enhancement" checked={model3DImageEnhancement} disabled={generating} onChange={setModel3DImageEnhancement} /> : null}
+                      ? <PolyCountField value={model3DTargetPolycount} onChange={setModel3DTargetPolycount} />
+                      : <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} format={titleCase} onChange={setModel3DQuality} />}
+                    <ToggleField label="Texture" checked={model3DTexture} onChange={setModel3DTexture} />
+                    {!isMeshyT2 && model3DTexture ? <OptionGroup equal label="Texture resolution" values={MODEL_3D_TEXTURE_RESOLUTIONS} value={model3DTextureResolution} onChange={setModel3DTextureResolution} /> : null}
+                    {model3DTexture ? <ToggleField label="PBR" checked={model3DPbr} onChange={setModel3DPbr} /> : null}
+                    {!isMeshyT2 ? <OptionGroup equal label="Pose" values={MODEL_3D_POSES} value={model3DPose} format={(value) => value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"} onChange={setModel3DPose} /> : null}
+                    {model3DSource === "image" && !isMeshyT2 ? <ToggleField label="Image enhancement" checked={model3DImageEnhancement} onChange={setModel3DImageEnhancement} /> : null}
                   </div>
                 ) : null}
               </div>
             ) : null}
             <div className="asset-config-actions">
-              <button className="asset-save-template-button" type="button" aria-label="Save as template" title="Save as template" disabled={phase !== "ready" || generating || templateBusy} onClick={openTemplateDialog}>
+              <button className="asset-save-template-button" type="button" aria-label="Save as template" title="Save as template" disabled={phase !== "ready" || templateBusy} onClick={openTemplateDialog}>
                 {templateBusy ? <LoaderCircle className="spin" size={15} /> : <Bookmark size={16} />}
               </button>
-              <button className="asset-generate-button" type="submit" disabled={phase !== "ready" || !canGenerate || generating || uploadingReferences}>
-                {generating || uploadingReferences ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
-                {uploadingReferences ? "Uploading..." : generating ? "Generating..." : "Generate"}
+              <button className="asset-generate-button" type="submit" disabled={phase !== "ready" || !canGenerate || submitting || uploadingReferences}>
+                {submitting || uploadingReferences ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
+                {uploadingReferences ? "Uploading..." : submitting ? "Submitting..." : "Generate"}
               </button>
             </div>
           </form>
 
           <section className="asset-result-panel" aria-label={panelView === "templates" ? "Asset templates" : "Generation history"}>
-            <header><PanelViewSwitcher view={panelView} disabled={generating} onChange={choosePanelView} /></header>
-            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && history.length && !generating ? " library-grid asset-history-grid" : ""}`}>
+            <header><PanelViewSwitcher view={panelView} onChange={choosePanelView} /></header>
+            <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && (history.length || jobs.length) ? " library-grid asset-history-grid" : ""}`}>
               {panelView === "templates" ? <TemplateGallery
                 yours={yoursTemplates}
                 explore={communityTemplates}
                 selectedId={selectedTemplate?.id}
-                busy={templateBusy || generating}
+                busy={templateBusy}
                 onSelect={applyTemplate}
                 onPublish={(template) => void shareTemplate(template)}
                 onSetPublication={(template, status) => void setTemplatePublication(template, status)}
                 onDelete={(template) => void deleteTemplate(template)}
               /> : null}
-              {panelView === "history" && generating ? <div className="asset-result-empty"><LoaderCircle className="spin" size={28} /><strong>Generating your {mode === "3d" ? "model" : mode}</strong><span>This may take a moment.</span></div> : null}
-              {panelView === "history" && !generating && generationError && !history.length ? <div className="asset-result-empty asset-result-error" role="alert"><strong>Generation failed</strong><span>{generationError}</span></div> : null}
-              {panelView === "history" && !generating && !generationError && !history.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><Sparkles size={24} /></span><strong>No history yet</strong><span>Generated assets will appear here.</span></div> : null}
-              {panelView === "history" && !generating && history.length ? history.flatMap((entry) => entry.urls.map((url, index) => {
+              {panelView === "history" ? jobs.filter((job) => job.status !== "succeeded" || !job.run || !history.some((entry) => entry.run.id === job.run?.id)).map((job) => <GenerationJobCard key={job.id} job={job} busy={jobActions.has(job.id)} onCancel={() => void cancelJob(job.id)} onRetry={() => void retryJob(job.id)} />) : null}
+              {panelView === "history" && generationError && !history.length && !jobs.length ? <div className="asset-result-empty asset-result-error" role="alert"><strong>Could not submit generation</strong><span>{generationError}</span></div> : null}
+              {panelView === "history" && !generationError && !history.length && !jobs.length ? <div className="asset-result-empty"><span className="asset-result-empty-icon"><Sparkles size={24} /></span><strong>No history yet</strong><span>Generated assets will appear here.</span></div> : null}
+              {panelView === "history" && history.length ? history.flatMap((entry) => entry.urls.map((url, index) => {
                 return <HistoryAssetCard
                   key={`${entry.run.id}:${index}`}
                   entry={entry}
@@ -999,11 +1061,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   );
 }
 
-function PanelViewSwitcher({ view, disabled, onChange }: { view: AssetPanelView; disabled: boolean; onChange: (view: AssetPanelView) => void }) {
+function PanelViewSwitcher({ view, disabled = false, onChange }: { view: AssetPanelView; disabled?: boolean; onChange: (view: AssetPanelView) => void }) {
   return <div className="asset-panel-switcher" aria-label="Asset Studio view">{(["templates", "history"] as const).map((value) => <button key={value} type="button" className={view === value ? "is-active" : undefined} aria-pressed={view === value} disabled={disabled} onClick={() => onChange(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>;
 }
 
-function ModeSwitcher({ mode, disabled, onChange }: { mode: StudioMode; disabled: boolean; onChange: (mode: StudioMode) => void }) {
+function ModeSwitcher({ mode, disabled = false, onChange }: { mode: StudioMode; disabled?: boolean; onChange: (mode: StudioMode) => void }) {
   const options = [
     { value: "image", label: "Image", icon: Image },
     { value: "video", label: "Video", icon: Film },
@@ -1132,6 +1194,35 @@ function HistoryIcon({ mode, size = 24 }: { mode: StudioMode; size?: number }) {
   return <Image size={size} />;
 }
 
+function GenerationJobCard({ job, busy, onCancel, onRetry }: {
+  job: ToolJob;
+  busy: boolean;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  const mode = studioModeForTool(job.toolId);
+  const active = job.status === "running" || job.status === "succeeded";
+  const status = job.status === "running" ? "Generating"
+      : job.status === "succeeded" ? "Finishing"
+        : job.status === "cancelled" ? "Cancelled" : "Failed";
+  const detail = job.error ? `${status} · ${job.error}` : `${status} · ${formatHistoryTime(job.createdAt)}`;
+  return <article className={`library-asset-card asset-history-card asset-job-card is-${job.status}`} aria-label={`${job.title}: ${status}`}>
+    <div className="asset-job-preview">
+      <span className="asset-job-icon">{active ? <LoaderCircle className="spin" size={25} /> : <HistoryIcon mode={mode} size={24} />}</span>
+      <span className="library-asset-type"><HistoryIcon mode={mode} size={11} />{studioModeLabel(mode)}</span>
+      {job.status === "running"
+        ? <button className="asset-job-action" type="button" aria-label={`Cancel ${job.title}`} title="Cancel generation" disabled={busy} onClick={onCancel}>{busy ? <LoaderCircle className="spin" size={14} /> : <X size={14} />}</button>
+        : job.status === "failed" || job.status === "cancelled"
+          ? <button className="asset-job-action" type="button" aria-label={`Retry ${job.title}`} title="Retry generation" disabled={busy} onClick={onRetry}>{busy ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}</button>
+          : null}
+    </div>
+    <div className="library-asset-info">
+      <strong title={job.title}>{job.title}</strong>
+      <span className="asset-job-status" title={detail}>{detail}</span>
+    </div>
+  </article>;
+}
+
 function HistoryAssetCard({ entry, output, url, busy, sharing, onOpen, onShare }: {
   entry: PreviewResult;
   output: number;
@@ -1191,11 +1282,11 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; 
   return <div className="asset-field"><label htmlFor={htmlFor}>{label}</label>{children}</div>;
 }
 
-function ModelSelect<T extends string>({ id, value, options, disabled, onChange }: { id: string; value: T; options: readonly { value: T; label: string }[]; disabled: boolean; onChange: (value: T) => void }) {
+function ModelSelect<T extends string>({ id, value, options, disabled = false, onChange }: { id: string; value: T; options: readonly { value: T; label: string }[]; disabled?: boolean; onChange: (value: T) => void }) {
   return <div className="asset-select-wrap"><select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={14} /></div>;
 }
 
-function PromptField({ id, value, placeholder, maxLength = 2000, disabled, onChange }: { id: string; value: string; placeholder: string; maxLength?: number; disabled: boolean; onChange: (value: string) => void }) {
+function PromptField({ id, value, placeholder, maxLength = 2000, disabled = false, onChange }: { id: string; value: string; placeholder: string; maxLength?: number; disabled?: boolean; onChange: (value: string) => void }) {
   return <Field label="Prompt" htmlFor={id}><PromptControl id={id} value={value} placeholder={placeholder} maxLength={maxLength} disabled={disabled} onChange={onChange} /></Field>;
 }
 
@@ -1203,7 +1294,7 @@ function PromptControl({ id, value, placeholder, maxLength, ariaLabel, disabled,
   return <div className="asset-prompt-wrap"><textarea id={id} aria-label={ariaLabel} maxLength={maxLength} value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /><span>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</span></div>;
 }
 
-function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptPlaceholder, disabled, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptPlaceholder: string; disabled: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
+function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptPlaceholder, disabled = false, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptPlaceholder: string; disabled?: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
   return <div className={`asset-3d-input is-${source}`}><div className="asset-3d-input-header"><span>Input</span>{allowMultiView ? <SourceSwitch value={source} disabled={disabled} onChange={onSourceChange} /> : null}</div><div className="asset-3d-input-body">{source === "text"
     ? <PromptControl id="asset-3d-prompt" ariaLabel="Prompt" value={prompt} maxLength={800} disabled={disabled} placeholder={promptPlaceholder} onChange={onPromptChange} />
     : <Model3DReferenceField images={images} names={imageNames} multiView={multiView} allowMultiView={allowMultiView} disabled={disabled} onMultiViewChange={onMultiViewChange} onChoose={onChooseImage} onFiles={onSelectFiles} onRemove={onRemoveImage} />}</div></div>;
@@ -1285,16 +1376,16 @@ function ResultMedia({ mode, url, label, preview = false }: { mode: StudioMode; 
   return <img src={url} alt={label} />;
 }
 
-function OptionGroup<T extends string | number>({ label, values, value, disabled, equal = false, isOptionDisabled, format, onChange }: { label: string; values: readonly T[]; value: T; disabled: boolean; equal?: boolean; isOptionDisabled?: (value: T) => boolean; format?: (value: T) => string; onChange: (value: T) => void }) {
+function OptionGroup<T extends string | number>({ label, values, value, disabled = false, equal = false, isOptionDisabled, format, onChange }: { label: string; values: readonly T[]; value: T; disabled?: boolean; equal?: boolean; isOptionDisabled?: (value: T) => boolean; format?: (value: T) => string; onChange: (value: T) => void }) {
   return <fieldset className={`asset-option-group${equal ? " is-equal" : ""}`} disabled={disabled}><legend>{label}</legend><div style={equal ? { gridTemplateColumns: `repeat(${values.length}, minmax(0, 1fr))` } : undefined}>{values.map((option) => <button type="button" key={option} className={option === value ? "is-active" : undefined} aria-pressed={option === value} disabled={disabled || isOptionDisabled?.(option)} onClick={() => onChange(option)}>{format ? format(option) : option}</button>)}</div></fieldset>;
 }
 
-function RangeField({ label, value, min, max, disabled, onChange }: { label: string; value: number; min: number; max: number; disabled: boolean; onChange: (value: number) => void }) {
+function RangeField({ label, value, min, max, disabled = false, onChange }: { label: string; value: number; min: number; max: number; disabled?: boolean; onChange: (value: number) => void }) {
   const style = { "--asset-range-progress": `${((value - min) / (max - min)) * 100}%` } as CSSProperties;
   return <div className="asset-range-field"><div><label htmlFor="asset-video-duration">{label}</label><output htmlFor="asset-video-duration">{value}s</output></div><input id="asset-video-duration" type="range" value={value} min={min} max={max} step={1} disabled={disabled} style={style} onChange={(event) => onChange(Number(event.target.value))} /><div className="asset-range-bounds"><span>{min}s</span><span>{max}s</span></div></div>;
 }
 
-function PolyCountField({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (value: number) => void }) {
+function PolyCountField({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (value: number) => void }) {
   const min = 100;
   const max = 15_000;
   const style = { "--asset-range-progress": `${((value - min) / (max - min)) * 100}%` } as CSSProperties;
@@ -1304,7 +1395,7 @@ function PolyCountField({ value, disabled, onChange }: { value: number; disabled
   return <div className="asset-number-range-field"><div><label htmlFor="asset-3d-polycount">Poly Count</label><input aria-label="Poly count value" type="number" value={value} min={min} max={max} step={100} disabled={disabled} onChange={(event) => update(event.target.valueAsNumber)} /></div><input id="asset-3d-polycount" type="range" value={value} min={min} max={max} step={100} disabled={disabled} style={style} onChange={(event) => update(event.target.valueAsNumber)} /><div className="asset-range-bounds"><span>{min.toLocaleString()}</span><span>{max.toLocaleString()}</span></div></div>;
 }
 
-function ToggleField({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange: (checked: boolean) => void }) {
+function ToggleField({ label, checked, disabled = false, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
   return <div className="asset-toggle-field"><span>{label}</span><button type="button" role="switch" aria-label={label} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}><span /></button></div>;
 }
 
@@ -1363,6 +1454,12 @@ function replaceAt<T>(values: readonly (T | undefined)[], index: number, value: 
   const next = [...values];
   next[index] = value;
   while (next.length && next.at(-1) === undefined) next.pop();
+  return next;
+}
+
+function withoutJob(jobIds: ReadonlySet<string>, jobId: string): Set<string> {
+  const next = new Set(jobIds);
+  next.delete(jobId);
   return next;
 }
 

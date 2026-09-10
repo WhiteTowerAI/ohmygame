@@ -25,6 +25,7 @@ import {
   type RunVideoToolRequest,
   type RunToolRequest,
   type ToolDefinition,
+  type ToolJob,
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
@@ -70,6 +71,12 @@ const generateVideo: ToolDefinition = {
 
 const HISTORY_LIMIT = 20;
 
+interface ToolJobRecord extends ToolJob {
+  input?: RunToolRequest;
+  metadata: ToolRunMetadata;
+  controller: AbortController;
+}
+
 interface StoredToolRun extends ToolRun {
   version: 1;
   files: StoredToolRunFile[];
@@ -94,6 +101,7 @@ export class ToolRunError extends Error {
 
 export class ToolRunner {
   readonly #runsDirectory: string;
+  readonly #jobs = new Map<string, ToolJobRecord>();
 
   constructor(
     dataDirectory: string,
@@ -111,6 +119,82 @@ export class ToolRunner {
 
   list(): ToolDefinition[] {
     return [generateImage, imageTo3D, generateVideo];
+  }
+
+  start(toolId: string, input: RunToolRequest, metadata: ToolRunMetadata = {}): ToolJob {
+    if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
+    const id = randomUUID();
+    const controller = new AbortController();
+    const job: ToolJobRecord = {
+      id,
+      toolId,
+      createdAt: new Date().toISOString(),
+      status: "running",
+      title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
+      input,
+      metadata,
+      controller,
+    };
+    this.#jobs.set(id, job);
+    void this.#execute(job);
+    return publicJob(job);
+  }
+
+  jobs(): ToolJob[] {
+    return [...this.#jobs.values()]
+      .reverse()
+      .map(publicJob);
+  }
+
+  cancelJob(jobId: string): ToolJob {
+    const job = this.#jobs.get(jobId);
+    if (!job) throw new ToolRunError("Generation job not found", 404);
+    if (job.status === "running") {
+      job.status = "cancelled";
+      job.error = "Generation cancelled";
+      job.controller.abort();
+    }
+    return publicJob(job);
+  }
+
+  retryJob(jobId: string): ToolJob {
+    const job = this.#jobs.get(jobId);
+    if (!job) throw new ToolRunError("Generation job not found", 404);
+    if (job.status !== "failed" && job.status !== "cancelled") throw new ToolRunError("Only failed or cancelled jobs can be retried", 409);
+    if (!job.input) throw new ToolRunError("Generation job can no longer be retried", 409);
+    this.#jobs.delete(jobId);
+    return this.start(job.toolId, job.input, job.metadata);
+  }
+
+  close(): void {
+    for (const job of this.#jobs.values()) {
+      if (job.status === "running") job.controller.abort();
+    }
+  }
+
+  async #execute(job: ToolJobRecord): Promise<void> {
+    try {
+      job.run = await this.run(job.toolId, job.input!, job.controller.signal, job.metadata);
+      job.status = "succeeded";
+      job.input = undefined;
+    } catch (cause) {
+      if (job.controller.signal.aborted || cause instanceof Error && cause.name === "AbortError") {
+        job.status = "cancelled";
+        job.error = "Generation cancelled";
+      } else {
+        job.status = "failed";
+        job.error = cause instanceof Error ? cause.message : String(cause);
+      }
+    } finally {
+      this.#pruneJobs();
+    }
+  }
+
+  #pruneJobs(): void {
+    const terminal = [...this.#jobs.values()]
+      .filter((job) => job.status !== "running")
+      .reverse();
+    for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, metadata: ToolRunMetadata = {}): Promise<ToolRun> {
@@ -479,6 +563,16 @@ function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: 
     files: run.files.map((file) => ({ ...file })),
     ...(title ? { title } : {}),
   };
+}
+
+function publicJob({ input: _, metadata: __, controller: ___, ...job }: ToolJobRecord): ToolJob {
+  return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
+}
+
+function toolName(toolId: ToolDefinition["id"]): string {
+  if (toolId === "generate-video") return "Generated Video";
+  if (toolId === "image-to-3d") return "Generated 3D Model";
+  return "Generated Image";
 }
 
 function promptTitle(value?: string): string | undefined {

@@ -568,6 +568,75 @@ describe("tool runner", () => {
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
+  it("runs Asset Studio generations as concurrent background jobs", async () => {
+    const pending: Array<(value: { bytes: Buffer; mediaType: "image/webp" }) => void> = [];
+    const generate: ImageGenerator["generate"] = async () => new Promise((resolve) => pending.push(resolve));
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: { generate } });
+    apps.push(app);
+
+    const first = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "First image" } });
+    const second = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Second image" } });
+
+    expect(first.statusCode).toBe(202);
+    expect(second.statusCode).toBe(202);
+    expect(pending).toHaveLength(2);
+    expect((await app.inject({ method: "GET", url: "/tool-jobs" })).json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: second.json().id, status: "running", title: "Second image" }),
+      expect.objectContaining({ id: first.json().id, status: "running", title: "First image" }),
+    ]));
+
+    pending[0]!({ bytes: Buffer.from("first"), mediaType: "image/webp" });
+    pending[1]!({ bytes: Buffer.from("second"), mediaType: "image/webp" });
+    await vi.waitFor(async () => {
+      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(jobs.every((job: { status: string }) => job.status === "succeeded")).toBe(true);
+    });
+    expect((await app.inject({ method: "GET", url: "/tool-runs" })).json()).toHaveLength(2);
+  });
+
+  it("cancels and retries a background generation job", async () => {
+    let attempt = 0;
+    const generate: ImageGenerator["generate"] = async (_input, signal) => {
+      attempt += 1;
+      if (attempt > 1) return { bytes: Buffer.from("retried"), mediaType: "image/webp" };
+      return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: { generate } });
+    apps.push(app);
+    const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Retry me" } });
+
+    const cancelled = await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/cancel` });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe("cancelled");
+    await vi.waitFor(async () => {
+      const [job] = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(job.status).toBe("cancelled");
+    });
+    const retried = await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/retry` });
+    expect(retried.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(jobs.find((job: { id: string }) => job.id === retried.json().id)?.status).toBe("succeeded");
+      expect(jobs.some((job: { id: string }) => job.id === created.json().id)).toBe(false);
+    });
+  });
+
+  it("keeps only recent completed background jobs", async () => {
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
+    apps.push(app);
+
+    await Promise.all(Array.from({ length: 21 }, (_, index) => app.inject({
+      method: "POST",
+      url: "/tools/generate-image/jobs",
+      payload: { prompt: `Image ${index}` },
+    })));
+    await vi.waitFor(async () => {
+      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(jobs).toHaveLength(20);
+      expect(jobs.every((job: { status: string }) => job.status === "succeeded")).toBe(true);
+    });
+  });
+
 });
 
 function temporaryData(): Promise<string> {

@@ -681,6 +681,18 @@ export interface ToolRun {
   title?: string;
 }
 
+export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
+
+export interface ToolJob {
+  id: string;
+  toolId: ToolDefinition["id"];
+  createdAt: string;
+  status: ToolJobStatus;
+  title: string;
+  run?: ToolRun;
+  error?: string;
+}
+
 export type ToolArtifact =
   | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
   | { type: "model"; path: string; mediaType: "model/gltf-binary" }
