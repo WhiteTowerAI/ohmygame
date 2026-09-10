@@ -84,6 +84,7 @@ import "@xyflow/react/dist/style.css";
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
 const ASSET_EDGE_PREFIX = "asset:";
+const OUTPUT_HANDLE = "out";
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
@@ -238,8 +239,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       id: assetEdgeId("scene", node.id, clip.id),
       source: clip.source.nodeId,
       target: node.id,
-      sourceHandle: "asset-out",
-      targetHandle: "video-in",
+      sourceHandle: OUTPUT_HANDLE,
       className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("scene", node.id, clip.id),
       data: { relation: "scene-clip", referenceId: clip.id },
@@ -248,8 +248,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       id: assetEdgeId("image", node.id, image.nodeId),
       source: image.nodeId,
       target: node.id,
-      sourceHandle: "asset-out",
-      targetHandle: "image-in",
+      sourceHandle: OUTPUT_HANDLE,
       className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("image", node.id, image.nodeId),
       data: { relation: "media-image", referenceId: image.nodeId },
@@ -258,8 +257,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       id: assetEdgeId("reference", node.id, reference.nodeId),
       source: reference.nodeId,
       target: node.id,
-      sourceHandle: "asset-out",
-      targetHandle: "reference-in",
+      sourceHandle: OUTPUT_HANDLE,
       className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
       data: { relation: "video-reference", referenceId: reference.nodeId },
@@ -268,8 +266,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       id: assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       source: node.data.promptSource.nodeId,
       target: node.id,
-      sourceHandle: "text-out",
-      targetHandle: "prompt-in",
+      sourceHandle: OUTPUT_HANDLE,
       className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       data: { relation: "media-prompt", referenceId: node.data.promptSource.nodeId },
@@ -345,7 +342,9 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     if (!connection.source || !connection.target) return;
     const source = nodes.find((node) => node.id === connection.source);
     const target = nodes.find((node) => node.id === connection.target);
-    if (source && isVideoFlowSource(source) && target?.type === "scene" && connection.sourceHandle === "asset-out" && connection.targetHandle === "video-in") {
+    if (!source || !target) return;
+    const relation = connectionRelation(source, target, nodes, libraryAssets, imageModels);
+    if (relation === "scene-clip" && target.type === "scene") {
       setNodes((current) => current.map((node) => node.id === target.id && node.type === "scene"
         ? {
             ...node,
@@ -357,26 +356,25 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         : node));
       return;
     }
-    if (source && isSupportedImageReferenceSource(source, libraryAssets) && target?.type === "image" && source.id !== target.id && connection.sourceHandle === "asset-out" && connection.targetHandle === "image-in") {
+    if (relation === "image-reference" && target.type === "image") {
       setNodes((current) => current.map((node) => node.id === target.id && node.type === "image"
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
         : node));
       return;
     }
-    const referenceType = videoReferenceType(source, libraryAssets);
-    if (source && referenceType && target?.type === "video" && canAddVideoReference(target, source, nodes, libraryAssets) && connection.sourceHandle === "asset-out" && connection.targetHandle === "reference-in") {
+    if (relation === "video-reference" && target.type === "video") {
       setNodes((current) => current.map((node) => node.id === target.id && node.type === "video"
         ? { ...node, data: { ...node.data, references: [...(node.data.references ?? []), { type: "node", nodeId: source.id }] } }
         : node));
       return;
     }
-    if (source?.type === "text" && (target?.type === "image" || target?.type === "video") && connection.sourceHandle === "text-out" && connection.targetHandle === "prompt-in") {
+    if (relation === "prompt" && (target.type === "image" || target.type === "video")) {
       setNodes((current) => current.map((node) => node.id === target.id
         ? { ...node, data: { ...node.data, promptSource: { type: "node", nodeId: source.id } } }
         : node));
       return;
     }
-    if (!source || !target || connection.sourceHandle === "asset-out" || connection.sourceHandle === "text-out" || connection.targetHandle === "video-in" || connection.targetHandle === "image-in" || connection.targetHandle === "reference-in" || connection.targetHandle === "prompt-in") return;
+    if (relation !== "story") return;
     setPlayIssue(undefined);
     setEdges((current) => replaceOutgoingEdge(current, {
       id: crypto.randomUUID(),
@@ -781,21 +779,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
               isValidConnection={(connection) => {
                 const source = nodes.find((node) => node.id === connection.source);
                 const target = nodes.find((node) => node.id === connection.target);
-                if (source && isVideoFlowSource(source) && target?.type === "scene" && connection.sourceHandle === "asset-out" && connection.targetHandle === "video-in") {
-                  return !(target.data.clips ?? []).some((clip) => clip.source.type === "node" && clip.source.nodeId === source.id);
-                }
-                if (source && isSupportedImageReferenceSource(source, libraryAssets) && target?.type === "image" && connection.sourceHandle === "asset-out" && connection.targetHandle === "image-in") {
-                  return source.id !== target.id && (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&
-                    !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id);
-                }
-                const referenceType = videoReferenceType(source, libraryAssets);
-                if (source && referenceType && target?.type === "video" && connection.sourceHandle === "asset-out" && connection.targetHandle === "reference-in") {
-                  return canAddVideoReference(target, source, nodes, libraryAssets);
-                }
-                if (source?.type === "text" && (target?.type === "image" || target?.type === "video") && connection.sourceHandle === "text-out" && connection.targetHandle === "prompt-in") {
-                  return target.data.promptSource?.nodeId !== source.id;
-                }
-                return Boolean(source && target && connection.sourceHandle !== "asset-out" && connection.sourceHandle !== "text-out" && connection.targetHandle !== "video-in" && connection.targetHandle !== "image-in" && connection.targetHandle !== "reference-in" && connection.targetHandle !== "prompt-in" && source.type !== "ending" && !isInlineNodeType(source.type) && target.type !== "start" && !isInlineNodeType(target.type) && source.id !== target.id);
+                return Boolean(source && target && connectionRelation(source, target, nodes, libraryAssets, imageModels));
               }}
               proOptions={{ hideAttribution: true }}
               defaultViewport={{ x: 64, y: 32, zoom: 1 }}
@@ -843,7 +827,7 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
     <div className={`story-node story-node-start${selected ? " is-selected" : ""}`}>
       <Flag size={15} />
       <span>Start</span>
-      <Handle id="out" type="source" position={Position.Right} />
+      <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
 }
@@ -852,13 +836,10 @@ function SceneNode({ data, selected }: NodeProps<StoryFlowNode>) {
   const clipCount = data.clips?.length ?? 0;
   return (
     <div className={`story-node story-node-scene${selected ? " is-selected" : ""}`}>
-      <Handle className="story-scene-flow-handle" type="target" position={Position.Left} />
-      <span className="story-port-label story-scene-flow-label">Flow</span>
-      <Handle className="story-asset-handle story-scene-video-handle" id="video-in" type="target" position={Position.Left} />
-      <span className="story-port-label story-scene-video-label">Videos</span>
+      <Handle type="target" position={Position.Left} />
       <StoryNodeHeading icon={<Clapperboard size={14} />} type="Scene" title={data.title || "Untitled scene"} />
       <p className={clipCount ? undefined : "is-placeholder"}>{clipCount ? `${clipCount} video ${clipCount === 1 ? "clip" : "clips"}` : "Add video clips"}</p>
-      <Handle id="out" type="source" position={Position.Right} />
+      <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
 }
@@ -942,7 +923,7 @@ function TextNode({ data, selected }: NodeProps<StoryFlowNode>) {
           </div>
         </div>
       ) : null}
-      <Handle className="story-asset-handle story-text-output-handle" id="text-out" type="source" position={Position.Right} />
+      <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
 }
@@ -1047,7 +1028,7 @@ function AssetNode({ data, selected }: NodeProps<StoryFlowNode>) {
         {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{preview.error ? "Asset unavailable" : "Audio"}</strong>{data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
         {!preview.url && kind !== "audio" ? <div className="story-media-empty"><Icon size={34} /><strong>{preview.error ? "Asset unavailable" : "Loading asset..."}</strong></div> : null}
       </div>
-      <Handle className="story-asset-handle story-media-output-handle" id="asset-out" type="source" position={Position.Right} />
+      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
 }
@@ -1174,11 +1155,8 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
         ) : null}
         {runtime?.generating && preview.url ? <div className="story-media-running"><span className="spin"><LoaderCircle size={18} /></span>Generating...</div> : null}
       </div>
-      <Handle className="story-asset-handle story-prompt-input-handle" id="prompt-in" type="target" position={Position.Left} />
-      <span className="story-port-label story-prompt-input-label">Prompt</span>
-      <Handle className="story-asset-handle story-reference-input-handle" id={kind === "video" ? "reference-in" : "image-in"} type="target" position={Position.Left} />
-      <span className="story-port-label story-reference-input-label">References</span>
-      <Handle className="story-asset-handle story-media-output-handle" id="asset-out" type="source" position={Position.Right} />
+      <Handle className="story-media-input-handle" type="target" position={Position.Left} />
+      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
       {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
     </div>
   );
@@ -1886,6 +1864,38 @@ function videoReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], librar
 function imageReferenceLimit(node: StoryFlowNode, imageModels: ImageModel[]): number {
   if (node.type !== "image") return 0;
   return imageModels.find((model) => sameImageModel(model, node.data.model))?.supportsReferenceImage ? IMAGE_REFERENCE_LIMIT : 0;
+}
+
+type ConnectionRelation = "scene-clip" | "image-reference" | "video-reference" | "prompt" | "story";
+
+function connectionRelation(
+  source: StoryFlowNode,
+  target: StoryFlowNode,
+  nodes: StoryFlowNode[],
+  libraryAssets: LibraryAsset[],
+  imageModels: ImageModel[],
+): ConnectionRelation | undefined {
+  if (source.id === target.id) return undefined;
+  if (isVideoFlowSource(source) && target.type === "scene") {
+    return (target.data.clips ?? []).some((clip) => clip.source.type === "node" && clip.source.nodeId === source.id)
+      ? undefined
+      : "scene-clip";
+  }
+  if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "image") {
+    return (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&
+      !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
+      ? "image-reference"
+      : undefined;
+  }
+  if (source.type === "text" && (target.type === "image" || target.type === "video")) {
+    return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
+  }
+  if (target.type === "video") {
+    return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;
+  }
+  return source.type !== "ending" && !isInlineNodeType(source.type) && target.type !== "start" && !isInlineNodeType(target.type)
+    ? "story"
+    : undefined;
 }
 
 function preferredImageOption(model?: ImageModel): ImageModel["generationOptions"][number] | undefined {

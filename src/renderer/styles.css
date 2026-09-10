@@ -4615,66 +4615,9 @@ button {
   background: #e58888;
 }
 
-.story-node .story-asset-handle {
-  border-color: #1b1c20;
-  background: #76b5a4;
-}
-
+.story-media-input-handle,
 .story-media-output-handle {
   top: calc(28px + var(--story-media-height, 280px) / 2);
-}
-
-.story-prompt-input-handle {
-  top: calc(28px + var(--story-media-height, 280px) * 0.38);
-}
-
-.story-reference-input-handle {
-  top: calc(28px + var(--story-media-height, 280px) * 0.68);
-}
-
-.story-scene-flow-handle {
-  top: 36%;
-}
-
-.story-scene-video-handle {
-  top: 72%;
-}
-
-.story-port-label {
-  position: absolute;
-  z-index: 2;
-  left: -8px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: rgb(20 21 25 / 88%);
-  color: var(--text-faint);
-  font-size: 9px;
-  line-height: 1;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-100%, -50%);
-  transition: opacity 120ms ease;
-}
-
-.story-node:hover > .story-port-label,
-.story-node.is-selected > .story-port-label {
-  opacity: 1;
-}
-
-.story-prompt-input-label {
-  top: calc(28px + var(--story-media-height, 280px) * 0.38);
-}
-
-.story-reference-input-label {
-  top: calc(28px + var(--story-media-height, 280px) * 0.68);
-}
-
-.story-scene-flow-label {
-  top: 36%;
-}
-
-.story-scene-video-label {
-  top: 72%;
 }
 
 .story-asset-edge .react-flow__edge-path {
