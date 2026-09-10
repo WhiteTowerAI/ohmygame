@@ -1,7 +1,6 @@
 import { ArrowLeft, ChevronDown, ExternalLink, LoaderCircle, Search } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
-  Model3DGenerationSettings,
   ModelAuthEvent,
   ModelAuthMethod,
   ModelAuthNotification,
@@ -13,13 +12,11 @@ import {
   cancelModelAuth,
   disconnectModelProvider,
   getOpenAIEndpointSettings,
-  getModel3DGenerationSettings,
   listProviders,
   notifyAgentModelsChanged,
   respondToModelAuth,
   startModelProviderLogin,
   subscribeToModelAuth,
-  updateModel3DGenerationSettings,
   updateOpenAIEndpointSettings,
 } from "./api.js";
 import { useAuth } from "./auth.js";
@@ -28,7 +25,7 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "meshy"];
+const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "opengame"];
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   const openProvider = (provider: ProviderSummary): void => {
@@ -41,67 +38,8 @@ export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onVie
   if (view.page === "providers") {
     return <ProviderList onProvider={openProvider} />;
   }
-  if (view.provider.kind === "custom") return <CustomProviderSettings provider={view.provider} onBack={() => onViewChange({ page: "providers" })} />;
   if (view.provider.kind === "portal") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
-}
-
-function CustomProviderSettings({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
-  const [model3DSettings, setModel3DSettings] = useState<Model3DGenerationSettings>();
-  const [model3DApiUrl, setModel3DApiUrl] = useState("");
-  const [model3DApiKey, setModel3DApiKey] = useState("");
-  const [savingModel3D, setSavingModel3D] = useState(false);
-  const [notice, setNotice] = useState<string>();
-
-  useEffect(() => {
-    let active = true;
-    const load = getModel3DGenerationSettings().then((loaded) => {
-          if (!active) return;
-          setModel3DSettings(loaded);
-          setModel3DApiUrl(loaded.apiUrl);
-        });
-    void load.catch((cause) => {
-      if (active) setNotice(errorMessage(cause));
-    });
-    return () => { active = false; };
-  }, []);
-
-  async function saveModel3D(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    if (!model3DApiUrl.trim() || savingModel3D) return;
-    setSavingModel3D(true);
-    setNotice(undefined);
-    try {
-      const updated = await updateModel3DGenerationSettings({
-        apiUrl: model3DApiUrl.trim(),
-        ...(model3DApiKey.trim() ? { apiKey: model3DApiKey.trim() } : {}),
-      });
-      setModel3DSettings(updated);
-      setModel3DApiUrl(updated.apiUrl);
-      setModel3DApiKey("");
-      setNotice("3D generation settings saved.");
-    } catch (cause) {
-      setNotice(errorMessage(cause));
-    } finally {
-      setSavingModel3D(false);
-    }
-  }
-
-  return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={onBack} />
-      <form className="settings-image-form" onSubmit={(event) => void saveModel3D(event)}>
-        <label htmlFor="model-3d-api-url">API endpoint</label>
-        <input id="model-3d-api-url" value={model3DApiUrl} onChange={(event) => setModel3DApiUrl(event.target.value)} placeholder="https://api.meshy.ai" />
-        <label htmlFor="model-3d-api-key">API key</label>
-        <input id="model-3d-api-key" type="password" value={model3DApiKey} onChange={(event) => setModel3DApiKey(event.target.value)} placeholder={model3DSettings?.hasApiKey ? "API key is configured" : "Enter Meshy API key"} />
-        <div className="settings-form-actions">
-          <button className="settings-primary-button" type="submit" disabled={savingModel3D || !model3DApiUrl.trim()}>{savingModel3D ? <LoaderCircle className="spin" size={15} /> : null}Save</button>
-        </div>
-      </form>
-      {notice ? <p className={notice.endsWith("saved.") ? "settings-success" : "settings-error"} role="status">{notice}</p> : null}
-    </section>
-  );
 }
 
 function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {

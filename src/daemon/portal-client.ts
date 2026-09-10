@@ -37,7 +37,7 @@ export class PortalClient {
   }
 
   async stageMedia(accessToken: string, reference: VideoReferenceAsset, signal?: AbortSignal): Promise<StagedVideoReference> {
-    const query = new URLSearchParams({ name: reference.name, media_type: reference.mediaType });
+    const query = new URLSearchParams({ media_type: reference.mediaType });
     const response = await this.request(`/api/media?${query}`, accessToken, signal, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },

@@ -43,7 +43,7 @@ describe("PortalClient", () => {
       .resolves.toEqual({ id: "media.mp4", url: "https://storage.example/media.mp4" });
     await client.removeMedia("supabase-token", "media.mp4");
 
-    expect(fetch).toHaveBeenNthCalledWith(1, new URL("https://portal.open-game.ai/api/media?name=reference.mp4&media_type=video%2Fmp4"), expect.objectContaining({
+    expect(fetch).toHaveBeenNthCalledWith(1, new URL("https://portal.open-game.ai/api/media?media_type=video%2Fmp4"), expect.objectContaining({
       method: "POST",
       headers: expect.objectContaining({ authorization: "Bearer supabase-token", "content-type": "application/octet-stream" }),
       body: Buffer.from("video"),

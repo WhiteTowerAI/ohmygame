@@ -1064,6 +1064,7 @@ describe("daemon", () => {
       unregisterProvider: vi.fn(),
       setRuntimeApiKey: vi.fn(async () => undefined),
       removeRuntimeApiKey: vi.fn(async () => undefined),
+      listCredentials: vi.fn(async () => []),
     } as unknown as ModelRuntime;
     const portalFetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ data: { base_url: "https://portal.open-game.ai/v1", api_key: "sk-portal" } }))
@@ -1082,6 +1083,69 @@ describe("daemon", () => {
     expect(disconnected.statusCode).toBe(204);
     expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
+  });
+
+  it("uses the connected Portal credential for Meshy 7 generation", async () => {
+    const runtime = {
+      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
+      getModels: vi.fn(() => [{
+        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
+        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
+      }]),
+      registerProvider: vi.fn(),
+      unregisterProvider: vi.fn(),
+      setRuntimeApiKey: vi.fn(async () => undefined),
+      removeRuntimeApiKey: vi.fn(async () => undefined),
+      listCredentials: vi.fn(async () => []),
+      getProviders: vi.fn(() => []),
+    } as unknown as ModelRuntime;
+    const portalFetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.open-game.test/v1", api_key: "sk-portal" } }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-7" }, { id: "meshy-t2" }] }))
+      .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
+      .mockResolvedValueOnce(Response.json({
+        id: "task_123",
+        status: "completed",
+        artifacts: [{ id: "artifact_123", kind: "model", variant: "primary", format: "glb", content_url: "/v1/3d/generations/task_123/content" }],
+      }))
+      .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-3d-")),
+      createModelRuntime: async () => runtime,
+      portalFetch,
+    });
+    apps.push(app);
+
+    const connected = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
+    expect(connected.statusCode).toBe(200);
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "meshy" })]));
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "opengame", capabilities: ["language", "image", "video", "3d"] }),
+    ]));
+    const generated = await app.inject({
+      method: "POST",
+      url: "/tools/image-to-3d/runs",
+      payload: {
+        prompt: "A wooden knight",
+        model: "meshy-7",
+        quality: "standard",
+        texture: true,
+        pose: "auto",
+      },
+    });
+
+    expect(generated.statusCode, generated.body).toBe(201);
+    const run = generated.json();
+    const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
+    expect(file.rawPayload).toEqual(Buffer.from("glb"));
+    expect(portalFetch).toHaveBeenNthCalledWith(3, "https://api.open-game.test/v1/3d/generations", expect.objectContaining({
+      method: "POST",
+      headers: { authorization: "Bearer sk-portal", "content-type": "application/json" },
+    }));
+    expect(portalFetch).toHaveBeenNthCalledWith(5, "https://api.open-game.test/v1/3d/generations/task_123/content", expect.objectContaining({
+      headers: { authorization: "Bearer sk-portal" },
+    }));
   });
 
   it("reports Portal connection failures as gateway errors", async () => {

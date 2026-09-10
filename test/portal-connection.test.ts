@@ -58,7 +58,7 @@ describe("PortalConnection", () => {
     const runtime = runtimeMock();
     const client = {
       credential: vi.fn(async () => ({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "sk-portal" })),
-      modelIds: vi.fn(async () => ["known-model"]),
+      modelIds: vi.fn(async () => ["known-model", "meshy-7", "meshy-t2"]),
       stageMedia: vi.fn(async () => ({ id: "media", url: "https://storage.example/media" })),
       removeMedia: vi.fn(async () => undefined),
     } as unknown as PortalClient;
@@ -68,8 +68,9 @@ describe("PortalConnection", () => {
     expect(connection.imageSource()).toEqual({
       baseUrl: "https://portal.open-game.ai/v1",
       apiKey: "sk-portal",
-      modelIds: ["known-model"],
+      modelIds: ["known-model", "meshy-7", "meshy-t2"],
     });
+    expect(connection.model3DSource()).toEqual(connection.imageSource());
     expect(runtime.registerProvider).toHaveBeenCalledWith("opengame", expect.objectContaining({
       baseUrl: "https://portal.open-game.ai/v1",
       api: "openai-responses",

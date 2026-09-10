@@ -133,10 +133,10 @@ definitions. Provider credentials stay in the daemon. Tool runs are not added
 to project workspaces until the user chooses Add to Project. Enabled tools are
 also available to Pi through the existing custom-tool integration.
 
-Image to 3D uses Meshy's native API. Set `MESHY_API_KEY`; `MESHY_API_URL`
-defaults to `https://api.meshy.ai`. Provider URLs are used only during the run.
-The same values can be saved from Settings → Providers → Meshy and take
-effect without restarting the daemon. Saved settings take precedence over the
-environment fallback.
+Image to 3D uses the authenticated OpenGame Portal connection and New API's
+provider-independent 3D endpoint. Meshy 7 supports text and one-to-four-image
+generation; Meshy T2 supports single-image generation. Meshy credentials,
+including Meshy 7's private preview/refine stages, remain inside New API and
+are never exposed to the desktop application.
 The completed `model.glb` is downloaded into the local tool-run directory, so
 downloads and project assets do not depend on an expiring provider URL.

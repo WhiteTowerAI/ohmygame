@@ -41,7 +41,7 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
-export type ProviderKind = "pi" | "portal" | "custom";
+export type ProviderKind = "pi" | "portal";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video";
 
@@ -100,16 +100,6 @@ export type ImageProtocol = "openai-images" | "gemini-generate-content";
 
 export interface UpdateImageGenerationSettings {
   model: ImageModelRef;
-}
-
-export interface Model3DGenerationSettings {
-  apiUrl: string;
-  hasApiKey: boolean;
-}
-
-export interface UpdateModel3DGenerationSettings {
-  apiUrl: string;
-  apiKey?: string;
 }
 
 export interface PublicationState {

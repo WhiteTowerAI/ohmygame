@@ -97,7 +97,9 @@ export function isAssetTemplateDefinition(value: unknown): value is AssetTemplat
   }
   return defaults.imageResolution === undefined && defaults.imageAspectRatio === undefined && defaults.imageOutputs === undefined
     && defaults.videoResolution === undefined && defaults.videoAspectRatio === undefined && defaults.videoDuration === undefined
-    && (defaults.model3DModel === "meshy-t2" ? defaults.model3DQuality === undefined : defaults.model3DTargetPolycount === undefined);
+    && (defaults.model3DModel === "meshy-t2"
+      ? defaults.model3DQuality === undefined && defaults.model3DSource !== "text"
+      : defaults.model3DTargetPolycount === undefined);
 }
 
 function validDefaults(value: unknown): value is AssetTemplateDefaults {

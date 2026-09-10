@@ -28,6 +28,6 @@ export const BUILT_IN_ASSET_TEMPLATES: readonly BuiltInAssetTemplate[] = [
     id: "general-3d", releaseId: "general-3d-v1", publishedAt: PUBLISHED_AT,
     mode: "3d", name: "General 3D Model", description: "A balanced starting point for a textured model.",
     promptPlaceholder: "A stylized wooden treasure chest with iron bands and a hinged lid...",
-    defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000, model3DPose: "auto", model3DSource: "image" },
+    defaults: { model3DModel: "meshy-7", model3DQuality: "standard", model3DPose: "auto", model3DSource: "text" },
   },
 ];

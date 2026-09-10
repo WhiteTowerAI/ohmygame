@@ -541,27 +541,6 @@ describe("tool runner", () => {
     expect(saved.json()).toEqual({ model: { provider: "openai", id: "gpt-image-2" } });
   });
 
-  it("persists Meshy settings without exposing the key", async () => {
-    const app = createApp({
-      dataDirectory: await temporaryData(),
-      imageGenerator: fakeGenerator(),
-      model3DGenerator: {
-        generate: async () => ({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary" }),
-      },
-    });
-    apps.push(app);
-
-    expect((await app.inject({ method: "GET", url: "/settings/model-3d-generation" })).json())
-      .toEqual({ apiUrl: "https://api.meshy.ai", hasApiKey: false });
-    const saved = await app.inject({
-      method: "PUT",
-      url: "/settings/model-3d-generation",
-      payload: { apiUrl: "https://mesh.example", apiKey: "secret" },
-    });
-    expect(saved.json()).toEqual({ apiUrl: "https://mesh.example", hasApiKey: true });
-    expect(saved.body).not.toContain("secret");
-  });
-
   it("limits tool request bodies", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
     apps.push(app);

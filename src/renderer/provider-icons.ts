@@ -14,7 +14,6 @@ import googleVertex from "@lobehub/icons-static-svg/icons/vertexai-color.svg";
 import groq from "@lobehub/icons-static-svg/icons/groq.svg";
 import huggingFace from "@lobehub/icons-static-svg/icons/huggingface-color.svg";
 import kimi from "@lobehub/icons-static-svg/icons/kimi-color.svg";
-import meshy from "@lobehub/icons-static-svg/icons/meshy-color.svg";
 import minimax from "@lobehub/icons-static-svg/icons/minimax-color.svg";
 import mistral from "@lobehub/icons-static-svg/icons/mistral-color.svg";
 import moonshot from "@lobehub/icons-static-svg/icons/moonshot.svg";
@@ -54,7 +53,6 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   groq: monochrome(groq),
   huggingface: color(huggingFace),
   "kimi-coding": color(kimi),
-  meshy: { src: meshy, tone: "light" },
   minimax: color(minimax),
   "minimax-cn": color(minimax),
   mistral: color(mistral),

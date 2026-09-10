@@ -17,7 +17,6 @@ import {
   type ImageModel,
   type ModelAuthEvent,
   type ModelAuthMethod,
-  type Model3DGenerationSettings,
   type ModelProviderEndpointSettings,
   type ProviderSummary,
   type CreateProjectRequest,
@@ -37,7 +36,6 @@ import {
   type ToolDefinition,
   type ToolRun,
   type UpdateImageGenerationSettings,
-  type UpdateModel3DGenerationSettings,
   type PromptImage,
   type PluginMention,
   type PromptMode,
@@ -186,14 +184,6 @@ export async function listImageModels(): Promise<ImageModel[]> {
 
 export async function updateImageGenerationSettings(input: UpdateImageGenerationSettings): Promise<ImageGenerationSettings> {
   return request("/settings/image-generation", { method: "PUT", body: JSON.stringify(input) });
-}
-
-export async function getModel3DGenerationSettings(): Promise<Model3DGenerationSettings> {
-  return request("/settings/model-3d-generation");
-}
-
-export async function updateModel3DGenerationSettings(input: UpdateModel3DGenerationSettings): Promise<Model3DGenerationSettings> {
-  return request("/settings/model-3d-generation", { method: "PUT", body: JSON.stringify(input) });
 }
 
 export async function listExploreGames(): Promise<CommunityGame[]> {

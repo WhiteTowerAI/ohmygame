@@ -1,4 +1,4 @@
-import type { ImageAspectRatio, ImageOutputCount, ImageResolution, Model3DModel, Model3DPose, Model3DQuality, VideoAspectRatio, VideoGenerationReference, VideoResolution } from "./contracts.js";
+import type { ImageAspectRatio, ImageOutputCount, ImageResolution, Model3DModel, Model3DPose, Model3DQuality, Model3DTextureResolution, VideoAspectRatio, VideoGenerationReference, VideoResolution } from "./contracts.js";
 import type { Model3DSource, StudioMode } from "./asset-templates.js";
 
 export interface AssetStudioDraft {
@@ -28,6 +28,8 @@ export interface AssetStudioDraft {
     quality: Model3DQuality;
     targetPolycount: number;
     texture: boolean;
+    textureResolution?: Model3DTextureResolution;
+    pbr?: boolean;
     pose: Model3DPose;
     imageEnhancement: boolean;
   };

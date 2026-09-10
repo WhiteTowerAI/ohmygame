@@ -29,7 +29,7 @@ import {
   type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
-import { Meshy3DGenerator, Model3DGenerationError, type Model3DGenerator } from "./meshy-3d.js";
+import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./seedance-video.js";
 import type { AssetLibrary } from "./asset-library.js";
 
@@ -98,7 +98,7 @@ export class ToolRunner {
   constructor(
     dataDirectory: string,
     private readonly imageGenerator: ImageGenerator,
-    private readonly model3DGenerator: Model3DGenerator = new Meshy3DGenerator(),
+    private readonly model3DGenerator?: Model3DGenerator,
     private readonly videoGenerator?: VideoGenerator,
     private readonly assetLibrary?: AssetLibrary,
   ) {
@@ -195,6 +195,7 @@ export class ToolRunner {
   }
 
   async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
+    if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
     const prompt = input.prompt?.trim();
     const images = "images" in input ? input.images : undefined;
     const hasImages = images !== undefined;

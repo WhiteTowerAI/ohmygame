@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings, type UpdateModel3DGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
@@ -23,11 +23,11 @@ import { PreviewManager } from "./preview.js";
 import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
 import { isRunnableWorkspace, ProjectAssetError, ProjectManager } from "./projects.js";
-import { ApiSettingsStore } from "./api-settings.js";
 import { ImageSettingsStore } from "./image-settings.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
-import { Meshy3DGenerator, type Model3DGenerator } from "./meshy-3d.js";
+import type { Model3DGenerator } from "./model3d.js";
+import { Portal3DGenerator } from "./portal-3d.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
@@ -65,8 +65,6 @@ export interface AppOptions {
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
   videoGenerator?: VideoGenerator;
-  meshyApiKey?: string;
-  meshyApiUrl?: string;
   createModelRuntime?: () => Promise<ModelRuntime>;
   generateConversationTitle?: TitleGenerator;
   generateProjectTitle?: TitleGenerator;
@@ -470,18 +468,6 @@ const imageSettingsSchema = {
   },
 } as const;
 
-const apiSettingsSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["apiUrl"],
-    properties: {
-      apiUrl: { type: "string", minLength: 1, maxLength: 2_000 },
-      apiKey: { type: "string", maxLength: 100_000 },
-    },
-  },
-} as const;
-
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 
 export function createApp(options: AppOptions = {}) {
@@ -503,10 +489,6 @@ export function createApp(options: AppOptions = {}) {
   const assetStudioDraft = new AssetStudioDraftStore(dataDirectory);
   const previews = new PreviewManager(events);
   const imageSettings = new ImageSettingsStore(dataDirectory);
-  const model3DSettings = new ApiSettingsStore(dataDirectory, "model-3d-settings.json", "https://api.meshy.ai", "3D", {
-    apiKey: options.meshyApiKey ?? process.env.MESHY_API_KEY,
-    apiUrl: options.meshyApiUrl ?? process.env.MESHY_API_URL,
-  });
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
     "openai-endpoint.json",
@@ -555,7 +537,7 @@ export function createApp(options: AppOptions = {}) {
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new Meshy3DGenerator(() => model3DSettings.resolve()),
+    options.model3DGenerator ?? new Portal3DGenerator(() => portal.model3DSource(), options.portalFetch),
     options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
     library,
   );
@@ -654,7 +636,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), model3DSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -1862,13 +1844,11 @@ export function createApp(options: AppOptions = {}) {
   app.get("/settings/providers", async () => {
     const piProviders = await modelAuth.providers();
     const portalState = portal.get();
-    const model3d = await model3DSettings.get();
     const portalStatus = portalState.status === "connected"
       ? "connected"
       : portalState.status === "connecting"
         ? "connecting"
         : portalState.status === "error" ? "error" : "not_configured";
-    const toolStatus = (configured: boolean) => configured ? "connected" as const : "not_configured" as const;
     return [
       ...piProviders
         .filter((provider) => provider.id !== "opengame")
@@ -1884,18 +1864,9 @@ export function createApp(options: AppOptions = {}) {
         configured: portalStatus === "connected",
         kind: "portal" as const,
         status: portalStatus,
-        capabilities: ["language", "image", "video"] as const,
+        capabilities: ["language", "image", "video", "3d"] as const,
         methods: [],
         ...(portalState.error ? { error: portalState.error } : {}),
-      },
-      {
-        id: "meshy",
-        name: "Meshy",
-        configured: model3d.hasApiKey,
-        kind: "custom" as const,
-        status: toolStatus(model3d.hasApiKey),
-        capabilities: ["3d"] as const,
-        methods: [{ type: "api_key" as const, label: "API key" }],
       },
     ].sort((left, right) => left.name.localeCompare(right.name));
   });
@@ -1981,20 +1952,6 @@ export function createApp(options: AppOptions = {}) {
           return reply.code(400).send({ error: "Image model is not available" });
         }
         return await imageSettings.update(requested);
-      } catch (cause) {
-        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
-
-  app.get("/settings/model-3d-generation", async () => model3DSettings.get());
-
-  app.put<{ Body: UpdateModel3DGenerationSettings }>(
-    "/settings/model-3d-generation",
-    { schema: apiSettingsSchema },
-    async (request, reply) => {
-      try {
-        return await model3DSettings.update(request.body);
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }

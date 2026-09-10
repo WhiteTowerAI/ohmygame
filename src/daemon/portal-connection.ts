@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
 import { PortalClient } from "./portal-client.js";
+import type { Model3DSource } from "./portal-3d.js";
 import type { VideoSource } from "./seedance-video.js";
 
 const PROVIDER_ID = "opengame";
@@ -106,6 +107,10 @@ export class PortalConnection {
       stageMedia: (reference, signal) => this.client.stageMedia(accessToken, reference, signal),
       removeMedia: (id) => this.client.removeMedia(accessToken, id),
     };
+  }
+
+  model3DSource(): Model3DSource | undefined {
+    return this.imageSource();
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

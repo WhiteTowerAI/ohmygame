@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getModel3DGenerationSettings, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateModel3DGenerationSettings, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -700,21 +700,6 @@ describe("renderer tools API", () => {
     }));
   });
 
-  it("loads and updates 3D generation settings", async () => {
-    installWindow();
-    const settings = { apiUrl: "https://api.meshy.ai", hasApiKey: true };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(settings))
-      .mockResolvedValueOnce(Response.json(settings));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getModel3DGenerationSettings()).resolves.toEqual(settings);
-    await expect(updateModel3DGenerationSettings({ apiUrl: settings.apiUrl, apiKey: "secret" })).resolves.toEqual(settings);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/settings/model-3d-generation", expect.objectContaining({
-      method: "PUT",
-      body: JSON.stringify({ apiUrl: settings.apiUrl, apiKey: "secret" }),
-    }));
-  });
   it("lists and runs tools", async () => {
     installWindow();
     const tool = { id: "generate-image", name: "Image Generator" };
