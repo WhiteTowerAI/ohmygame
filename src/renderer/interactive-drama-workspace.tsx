@@ -61,7 +61,9 @@ import {
   type PromptImage,
   type RunImageToolRequest,
   type RunVideoToolRequest,
+  type StoryAction,
   type StoryChapter,
+  type StoryChoiceTimeout,
   type StoryChoiceOption,
   type StoryDocument,
   type StoryAssetReference,
@@ -70,7 +72,6 @@ import {
   type StoryTextReference,
   type StoryVariable,
   type StoryVariableCondition,
-  type StoryVariableEffect,
   type StoryVariableType,
   type StoryVariableValue,
   type StoryVideoClip,
@@ -120,6 +121,7 @@ type StoryFlowData = {
   assetDuration?: number;
   name?: string;
   options?: StoryChoiceOption[];
+  timeout?: StoryChoiceTimeout;
   clips?: StoryVideoClip[];
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
@@ -1398,12 +1400,46 @@ function ChoiceConditionRule({ variables, value, onChange }: { variables: StoryV
   </select><VariableValueInput variable={variable} value={value.value} label="Condition value" onChange={(next) => onChange({ ...value, value: next })} /></> : null}</div>;
 }
 
-function ChoiceEffectRule({ variables, value, onChange }: { variables: StoryVariable[]; value?: StoryVariableEffect; onChange: (value?: StoryVariableEffect) => void }) {
-  const variable = variables.find((candidate) => candidate.id === value?.variableId);
-  return <div className="story-choice-rule"><span>Then set</span><select value={variable?.id ?? ""} onChange={(event) => {
-    const next = variables.find((candidate) => candidate.id === event.target.value);
-    onChange(next ? { variableId: next.id, value: defaultVariableValue(next.type) } : undefined);
-  }}><option value="">No change</option>{variables.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name || "Unnamed variable"}</option>)}</select>{variable && value ? <VariableValueInput variable={variable} value={value.value} label="New value" onChange={(next) => onChange({ ...value, value: next })} /> : null}</div>;
+function ChoiceActionsEditor({ variables, value, onChange }: { variables: StoryVariable[]; value: StoryAction[]; onChange: (value: StoryAction[]) => void }) {
+  const numberVariables = variables.filter((variable) => variable.type === "number");
+  return <div className="story-choice-actions">
+    <span>Actions</span>
+    {value.map((action, index) => {
+      const availableVariables = action.type === "increment-variable" ? numberVariables : variables;
+      const variable = availableVariables.find((candidate) => candidate.id === action.variableId);
+      return <div className="story-choice-action" key={`${action.type}:${action.variableId}:${index}`}>
+        <select aria-label={`Action ${index + 1} type`} value={action.type} onChange={(event) => {
+          const type = event.target.value as StoryAction["type"];
+          const nextVariable = type === "increment-variable" ? numberVariables[0] : variables.find((candidate) => candidate.id === action.variableId) ?? variables[0];
+          if (!nextVariable) return;
+          const next: StoryAction = type === "increment-variable"
+            ? { type, variableId: nextVariable.id, amount: 1 }
+            : { type, variableId: nextVariable.id, value: defaultVariableValue(nextVariable.type) };
+          onChange(value.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate));
+        }}>
+          <option value="set-variable">Set</option>
+          <option value="increment-variable" disabled={!numberVariables.length}>Change by</option>
+        </select>
+        <select aria-label={`Action ${index + 1} variable`} value={variable?.id ?? ""} onChange={(event) => {
+          const nextVariable = availableVariables.find((candidate) => candidate.id === event.target.value);
+          if (!nextVariable) return;
+          const next: StoryAction = action.type === "increment-variable"
+            ? { ...action, variableId: nextVariable.id }
+            : { ...action, variableId: nextVariable.id, value: defaultVariableValue(nextVariable.type) };
+          onChange(value.map((candidate, candidateIndex) => candidateIndex === index ? next : candidate));
+        }}>
+          {availableVariables.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name || "Unnamed variable"}</option>)}
+        </select>
+        {variable && action.type === "set-variable" ? <VariableValueInput variable={variable} value={action.value} label={`Action ${index + 1} value`} onChange={(next) => onChange(value.map((candidate, candidateIndex) => candidateIndex === index ? { ...action, value: next } : candidate))} /> : null}
+        {variable && action.type === "increment-variable" ? <input aria-label={`Action ${index + 1} amount`} type="number" value={action.amount} onChange={(event) => onChange(value.map((candidate, candidateIndex) => candidateIndex === index ? { ...action, amount: Number(event.target.value) } : candidate))} /> : null}
+        <button type="button" title="Remove action" aria-label={`Remove action ${index + 1}`} onClick={() => onChange(value.filter((_, candidateIndex) => candidateIndex !== index))}><X size={13} /></button>
+      </div>;
+    })}
+    <button className="story-choice-add-action" type="button" disabled={!variables.length} onClick={() => {
+      const variable = variables[0];
+      if (variable) onChange([...value, { type: "set-variable", variableId: variable.id, value: defaultVariableValue(variable.type) }]);
+    }}><Plus size={13} />Add action</button>
+  </div>;
 }
 
 function VariableValueInput({ variable, value, label, onChange }: { variable: StoryVariable; value: StoryVariableValue; label: string; onChange: (value: StoryVariableValue) => void }) {
@@ -1481,7 +1517,11 @@ function StoryInspector({
                       title="Remove option"
                       aria-label={`Remove option ${index + 1}`}
                       disabled={options.length === 1}
-                      onClick={() => onChange({ ...node.data, options: options.filter((current) => current.id !== option.id) }, option.id)}
+                      onClick={() => onChange({
+                        ...node.data,
+                        options: options.filter((current) => current.id !== option.id),
+                        ...(node.data.timeout?.defaultOptionId === option.id ? { timeout: undefined } : {}),
+                      }, option.id)}
                     ><X size={14} /></button>
                   </div>
                   <ChoiceConditionRule
@@ -1489,10 +1529,10 @@ function StoryInspector({
                     value={option.condition}
                     onChange={(condition) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, condition }) })}
                   />
-                  <ChoiceEffectRule
+                  <ChoiceActionsEditor
                     variables={variables}
-                    value={option.effect}
-                    onChange={(effect) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, effect }) })}
+                    value={option.actions ?? []}
+                    onChange={(actions) => onChange({ ...node.data, options: updateChoiceOption(options, option.id, { ...option, actions }) })}
                   />
                 </div>
               ))}
@@ -1500,6 +1540,16 @@ function StoryInspector({
                 ...node.data,
                 options: [...(node.data.options ?? []), { id: crypto.randomUUID(), label: `Option ${(node.data.options?.length ?? 0) + 1}` }],
               })}><Plus size={14} />Add option</button>
+            </div>
+            <div className="story-choice-timeout">
+              <label><input type="checkbox" checked={Boolean(node.data.timeout)} onChange={(event) => {
+                const firstOption = node.data.options?.[0];
+                onChange({ ...node.data, timeout: event.target.checked && firstOption ? { durationMs: 8_000, defaultOptionId: firstOption.id } : undefined });
+              }} /><span>Time limit</span></label>
+              {node.data.timeout ? <div>
+                <label><span>Seconds</span><input type="number" min={1} max={300} step={1} value={node.data.timeout.durationMs / 1_000} onChange={(event) => onChange({ ...node.data, timeout: { ...node.data.timeout!, durationMs: Math.round(Math.min(300, Math.max(1, Number(event.target.value) || 1)) * 1_000) } })} /></label>
+                <label><span>Default</span><select value={node.data.timeout.defaultOptionId} onChange={(event) => onChange({ ...node.data, timeout: { ...node.data.timeout!, defaultOptionId: event.target.value } })}>{node.data.options?.map((option) => <option key={option.id} value={option.id}>{option.label || "Untitled option"}</option>)}</select></label>
+              </div> : null}
             </div>
           </>
         ) : null}
@@ -1851,7 +1901,7 @@ function storyDocument(
   remainingChapters: StoryChapter[],
 ): StoryDocument {
   return {
-    version: 3,
+    version: 4,
     variables,
     chapters: [{
       ...chapter,
@@ -1917,7 +1967,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "choice",
     position: node.position,
-    data: { title: node.data.title ?? "", options: node.data.options ?? [] },
+    data: { title: node.data.title ?? "", options: node.data.options ?? [], ...(node.data.timeout ? { timeout: node.data.timeout } : {}) },
   };
   if (node.type === "scene") return {
     id: node.id,

@@ -4465,14 +4465,43 @@ button {
   background: #292c33;
 }
 
-.story-player-choice > div {
+.story-player-choice-options {
   display: grid;
   width: 100%;
   gap: 9px;
   margin-top: 28px;
 }
 
-.story-player-choice > div button {
+.story-player-choice > .story-choice-countdown {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 20px;
+  margin-top: 20px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #25272d;
+}
+
+.story-choice-countdown-value {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--text);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-choice-countdown-bar {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: #516aa8;
+}
+
+.story-player-choice-options button {
   display: flex;
   width: 100%;
   min-height: 46px;
@@ -4488,12 +4517,12 @@ button {
   cursor: pointer;
 }
 
-.story-player-choice > div button:hover {
+.story-player-choice-options button:hover {
   border-color: #68718a;
   background: #1b1d22;
 }
 
-.story-player-choice > div button span {
+.story-player-choice-options button span {
   display: grid;
   width: 22px;
   height: 22px;
@@ -4505,7 +4534,7 @@ button {
   font-size: 9px;
 }
 
-.story-player-choice > div > p {
+.story-player-choice-options > p {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
@@ -5319,6 +5348,77 @@ button {
 
 .story-choice-rule > :is(input, select):nth-child(n + 3) {
   grid-column: 2;
+}
+
+.story-choice-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.story-choice-actions > span,
+.story-choice-timeout span {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.story-choice-action {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 70px 24px;
+  gap: 5px;
+  align-items: center;
+}
+
+.story-choice-action :is(input, select),
+.story-choice-timeout :is(input[type="number"], select) {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+
+.story-inspector-options .story-choice-action > button {
+  width: 24px;
+  height: 24px;
+}
+
+.story-inspector-options .story-choice-actions .story-choice-add-action {
+  display: flex;
+  width: max-content;
+  height: 26px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+
+.story-choice-timeout {
+  display: grid;
+  gap: 8px;
+  padding-top: 3px;
+}
+
+.story-choice-timeout > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.story-choice-timeout > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 7px;
+}
+
+.story-choice-timeout > div label {
+  display: grid;
+  gap: 5px;
 }
 
 .story-variable-list,

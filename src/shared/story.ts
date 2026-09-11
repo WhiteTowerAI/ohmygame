@@ -1,10 +1,10 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryVariable, type StoryVariableCondition, type StoryVariableEffect, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 3,
+    version: 4,
     variables: [],
     chapters: [{
       id: crypto.randomUUID(),
@@ -16,7 +16,7 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 3 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 4 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
   const chapterIds = new Set<string>();
@@ -120,6 +120,12 @@ export function initialStoryVariables(variables: readonly StoryVariable[]): Reco
   return Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue]));
 }
 
+export interface StoryRuntimeState {
+  chapterId: string;
+  nodeId: string;
+  variables: Record<string, StoryVariableValue>;
+}
+
 export function matchesStoryCondition(condition: StoryVariableCondition | undefined, values: Readonly<Record<string, StoryVariableValue>>): boolean {
   if (!condition) return true;
   const current = values[condition.variableId];
@@ -129,28 +135,96 @@ export function matchesStoryCondition(condition: StoryVariableCondition | undefi
   return condition.operator === "greater-than" ? current > condition.value : current < condition.value;
 }
 
-export function applyStoryEffect(effect: StoryVariableEffect | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
-  return effect ? { ...values, [effect.variableId]: effect.value } : { ...values };
+export function applyStoryActions(actions: readonly StoryAction[] | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
+  const next = { ...values };
+  for (const action of actions ?? []) {
+    if (action.type === "set-variable") next[action.variableId] = action.value;
+    else {
+      const current = next[action.variableId];
+      if (typeof current !== "number") throw new Error(`Cannot increment non-number variable: ${action.variableId}`);
+      const incremented = current + action.amount;
+      if (!Number.isFinite(incremented)) throw new Error(`Variable increment is not finite: ${action.variableId}`);
+      next[action.variableId] = incremented;
+    }
+  }
+  return next;
+}
+
+export function resolveStoryChoice(chapter: StoryChapter, state: StoryRuntimeState, optionId: string): StoryRuntimeState {
+  if (state.chapterId !== chapter.id) throw new Error("Runtime state belongs to a different chapter");
+  const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
+  if (node?.type !== "choice") throw new Error("The current story node is not a choice");
+  const option = node.data.options.find((candidate) => candidate.id === optionId);
+  if (!option || !matchesStoryCondition(option.condition, state.variables)) throw new Error("The selected choice is not available");
+  const next = getNextNode(chapter, node.id, option.id);
+  if (!next) throw new Error("The selected choice is not connected");
+  return { ...state, nodeId: next.id, variables: applyStoryActions(option.actions, state.variables) };
 }
 
 export function countStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): number {
-  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + Number(option.effect?.variableId === variableId), 0);
+  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + (option.actions ?? []).filter((action) => action.variableId === variableId).length, 0);
 }
 
 export function removeStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): StoryChoiceOption[] {
-  return options.map((option) => ({
-    ...option,
-    ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
-    ...(option.effect?.variableId === variableId ? { effect: undefined } : {}),
-  }));
+  return options.map((option) => {
+    const actions = option.actions?.filter((action) => action.variableId !== variableId);
+    return {
+      ...option,
+      ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
+      ...(actions?.length ? { actions } : { actions: undefined }),
+    };
+  });
 }
 
 export function normalizeStoryVariableReferences(options: readonly StoryChoiceOption[], variables: ReadonlyMap<string, StoryVariable>): StoryChoiceOption[] {
-  return options.map((option) => ({
-    ...option,
-    ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
-    ...(option.effect ? { effect: normalizeEffect(option.effect, variables.get(option.effect.variableId)) } : {}),
-  }));
+  return options.map((option) => {
+    const actions = option.actions?.reduce<StoryAction[]>((normalized, action) => {
+      const variable = variables.get(action.variableId);
+      if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
+      normalized.push(action.type === "set-variable"
+        ? { ...action, value: variableValue(action.value, variable.type) }
+        : { ...action, amount: Number.isFinite(action.amount) ? action.amount : 0 });
+      return normalized;
+    }, []);
+    return {
+      ...option,
+      ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
+      ...(actions?.length ? { actions } : { actions: undefined }),
+    };
+  });
+}
+
+export function parseStoryDocument(value: unknown): StoryDocument {
+  const migrated = migrateStoryDocument(value);
+  if (!isStoryDocument(migrated)) throw new Error("Invalid story document");
+  return migrated;
+}
+
+function migrateStoryDocument(value: unknown): unknown {
+  if (!isRecord(value) || value.version !== 3 || !Array.isArray(value.chapters)) return value;
+  return {
+    ...value,
+    version: 4,
+    chapters: value.chapters.map((chapter) => !isRecord(chapter) || !Array.isArray(chapter.nodes) ? chapter : ({
+      ...chapter,
+      nodes: chapter.nodes.map(migrateStoryNode),
+    })),
+  };
+}
+
+function migrateStoryNode(node: unknown): unknown {
+  if (!isRecord(node) || node.type !== "choice" || !isRecord(node.data) || !Array.isArray(node.data.options)) return node;
+  return {
+    ...node,
+    data: {
+      ...node.data,
+      options: node.data.options.map((option) => {
+        if (!isRecord(option)) return option;
+        const { effect, ...rest } = option;
+        return effect === undefined ? rest : { ...rest, actions: [{ type: "set-variable", ...(isRecord(effect) ? effect : {}) }] };
+      }),
+    },
+  };
 }
 
 export function replaceOutgoingEdge<T extends { source: string; sourceHandle?: string | null }>(edges: T[], next: T): T[] {
@@ -245,13 +319,18 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   }
   if (value.type !== "choice" || typeof value.data.title !== "string" || !Array.isArray(value.data.options) || value.data.options.length < 1) return false;
   const optionIds = new Set<string>();
-  return value.data.options.every((option) => {
+  const validOptions = value.data.options.every((option) => {
     if (!isRecord(option) || !nonEmptyString(option.id) || optionIds.has(option.id) || typeof option.label !== "string") return false;
     if (option.condition !== undefined && !isCondition(option.condition, variables)) return false;
-    if (option.effect !== undefined && !isEffect(option.effect, variables)) return false;
+    if (option.actions !== undefined && (!Array.isArray(option.actions) || !option.actions.every((action) => isAction(action, variables)))) return false;
     optionIds.add(option.id);
     return true;
   });
+  if (!validOptions) return false;
+  if (value.data.timeout === undefined) return true;
+  const timeout = value.data.timeout;
+  return isRecord(timeout) && typeof timeout.durationMs === "number" && Number.isInteger(timeout.durationMs) &&
+    timeout.durationMs >= 1_000 && timeout.durationMs <= 300_000 && nonEmptyString(timeout.defaultOptionId) && optionIds.has(timeout.defaultOptionId);
 }
 
 function isVariables(value: unknown): value is StoryVariable[] {
@@ -280,20 +359,18 @@ function normalizeCondition(condition: StoryVariableCondition, variable?: StoryV
   return { ...condition, operator, value: variableValue(condition.value, variable.type) };
 }
 
-function normalizeEffect(effect: StoryVariableEffect, variable?: StoryVariable): StoryVariableEffect | undefined {
-  return variable ? { ...effect, value: variableValue(effect.value, variable.type) } : undefined;
-}
-
 function variableValue(value: StoryVariableValue, type: StoryVariable["type"]): StoryVariableValue {
   if (type === "boolean") return typeof value === "boolean" ? value : false;
   if (type === "number") return typeof value === "number" && Number.isFinite(value) ? value : 0;
   return typeof value === "string" ? value : "";
 }
 
-function isEffect(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
+function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
   if (!isRecord(value) || !nonEmptyString(value.variableId)) return false;
   const variable = variables.get(value.variableId);
-  return Boolean(variable && variableValueMatches(variable.type, value.value));
+  if (!variable) return false;
+  if (value.type === "set-variable") return variableValueMatches(variable.type, value.value);
+  return value.type === "increment-variable" && variable.type === "number" && typeof value.amount === "number" && Number.isFinite(value.amount);
 }
 
 function variableValueMatches(type: unknown, value: unknown): boolean {

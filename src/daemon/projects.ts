@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
-import { createStoryDocument, isStoryDocument } from "../shared/story.js";
+import { createStoryDocument, isStoryDocument, parseStoryDocument } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 
@@ -406,8 +406,11 @@ export class ProjectManager {
     const destination = path.join(project.workspacePath, STORY_FILE);
     try {
       const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-      if (!isStoryDocument(parsed)) throw new Error(`Invalid story document: ${destination}`);
-      return parsed;
+      try {
+        return parseStoryDocument(parsed);
+      } catch {
+        throw new Error(`Invalid story document: ${destination}`);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       const story = createStoryDocument();
@@ -437,8 +440,7 @@ export class ProjectManager {
       let story: StoryDocument;
       try {
         const parsed: unknown = JSON.parse(await readFile(path.join(project.workspacePath, STORY_FILE), "utf8"));
-        if (!isStoryDocument(parsed)) continue;
-        story = parsed;
+        try { story = parseStoryDocument(parsed); } catch { continue; }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
@@ -469,10 +471,11 @@ export class ProjectManager {
       const destination = path.join(project.workspacePath, STORY_FILE);
       try {
         const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-        if (!isStoryDocument(parsed)) continue;
+        let current: StoryDocument;
+        try { current = parseStoryDocument(parsed); } catch { continue; }
         const story: StoryDocument = {
-          ...parsed,
-          chapters: parsed.chapters.map((chapter) => {
+          ...current,
+          chapters: current.chapters.map((chapter) => {
             const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
             return {
               ...chapter,

@@ -132,7 +132,7 @@ export interface StoryChoiceOption {
   id: string;
   label: string;
   condition?: StoryVariableCondition;
-  effect?: StoryVariableEffect;
+  actions?: StoryAction[];
 }
 
 export type StoryVariableType = "boolean" | "number" | "text";
@@ -151,9 +151,13 @@ export interface StoryVariableCondition {
   value: StoryVariableValue;
 }
 
-export interface StoryVariableEffect {
-  variableId: string;
-  value: StoryVariableValue;
+export type StoryAction =
+  | { type: "set-variable"; variableId: string; value: StoryVariableValue }
+  | { type: "increment-variable"; variableId: string; amount: number };
+
+export interface StoryChoiceTimeout {
+  durationMs: number;
+  defaultOptionId: string;
 }
 
 export interface StoryVideoClip {
@@ -183,7 +187,7 @@ export interface StoryTextGenerationResponse {
 export type StoryNode =
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
   | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[] } }
-  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[] } }
+  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
     assetId: string;
@@ -229,7 +233,7 @@ export interface StoryChapter {
 }
 
 export interface StoryDocument {
-  version: 3;
+  version: 4;
   variables?: StoryVariable[];
   chapters: StoryChapter[];
 }

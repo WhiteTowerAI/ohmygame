@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createStoryDocument,
   combineStoryPrompt,
-  applyStoryEffect,
+  applyStoryActions,
   countStoryVariableReferences,
   getNextNode,
   getOutgoingEdge,
@@ -11,11 +11,13 @@ import {
   initialStoryVariables,
   matchesStoryCondition,
   normalizeStoryVariableReferences,
+  parseStoryDocument,
   removeStoryVariableReferences,
   replaceOutgoingEdge,
   resolveStoryAssetId,
   resolveStoryImageAssetId,
   resolveStoryVideoClipAssetId,
+  resolveStoryChoice,
   validatePlayableChapter,
 } from "../src/shared/story.js";
 import { VIDEO_MODEL } from "../src/shared/contracts.js";
@@ -35,7 +37,7 @@ describe("story documents", () => {
     expect(story.chapters[0]?.nodes).toEqual([expect.objectContaining({ type: "start" })]);
   });
 
-  it("evaluates story variables and applies choice effects", () => {
+  it("evaluates story variables and applies actions in order", () => {
     const definitions = [
       { id: "trusted", name: "Trusted", type: "boolean" as const, initialValue: false },
       { id: "score", name: "Score", type: "number" as const, initialValue: 2 },
@@ -45,8 +47,75 @@ describe("story documents", () => {
     expect(matchesStoryCondition({ variableId: "trusted", operator: "equals", value: false }, initial)).toBe(true);
     expect(matchesStoryCondition({ variableId: "score", operator: "greater-than", value: 1 }, initial)).toBe(true);
     expect(matchesStoryCondition({ variableId: "score", operator: "less-than", value: 1 }, initial)).toBe(false);
-    expect(applyStoryEffect({ variableId: "trusted", value: true }, initial)).toEqual({ trusted: true, score: 2 });
+    expect(applyStoryActions([
+      { type: "set-variable", variableId: "trusted", value: true },
+      { type: "set-variable", variableId: "score", value: 4 },
+      { type: "increment-variable", variableId: "score", amount: 3 },
+    ], initial)).toEqual({ trusted: true, score: 7 });
     expect(initial).toEqual({ trusted: false, score: 2 });
+    expect(() => applyStoryActions([{ type: "increment-variable", variableId: "trusted", amount: 1 }], initial))
+      .toThrow("Cannot increment non-number variable");
+    expect(initial).toEqual({ trusted: false, score: 2 });
+  });
+
+  it("migrates version 3 choice effects to version 4 actions", () => {
+    const migrated = parseStoryDocument({
+      version: 3,
+      variables: [{ id: "trusted", name: "Trusted", type: "boolean", initialValue: false }],
+      chapters: [{
+        id: "chapter",
+        title: "Chapter",
+        nodes: [
+          { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} },
+          { id: "choice", type: "choice", position: { x: 100, y: 0 }, data: { title: "Trust?", options: [{ id: "yes", label: "Yes", effect: { variableId: "trusted", value: true } }] } },
+          { id: "ending", type: "ending", position: { x: 200, y: 0 }, data: { title: "End", description: "" } },
+        ],
+        edges: [
+          { id: "start-choice", source: "start", target: "choice" },
+          { id: "choice-ending", source: "choice", sourceHandle: "yes", target: "ending" },
+        ],
+      }],
+    });
+
+    expect(migrated.version).toBe(4);
+    const choice = migrated.chapters[0]!.nodes.find((node) => node.type === "choice");
+    expect(choice?.type === "choice" ? choice.data.options[0]?.actions : undefined).toEqual([
+      { type: "set-variable", variableId: "trusted", value: true },
+    ]);
+  });
+
+  it("resolves a choice through shared actions and its edge", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 1 }];
+    const chapter = story.chapters[0]!;
+    const start = chapter.nodes[0]!;
+    chapter.nodes.push(
+      { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }] } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-choice", source: start.id, target: "choice" },
+      { id: "choice-ending", source: "choice", sourceHandle: "go", target: "ending" },
+    );
+
+    expect(resolveStoryChoice(chapter, { chapterId: chapter.id, nodeId: "choice", variables: { score: 1 } }, "go"))
+      .toEqual({ chapterId: chapter.id, nodeId: "ending", variables: { score: 3 } });
+  });
+
+  it("validates timed choice bounds and default options", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push({ id: "choice", type: "choice", position: { x: 0, y: 0 }, data: {
+      title: "Choose",
+      options: [{ id: "wait", label: "Wait" }],
+      timeout: { durationMs: 8_000, defaultOptionId: "wait" },
+    } });
+    expect(isStoryDocument(story)).toBe(true);
+    const choice = chapter.nodes.at(-1);
+    if (choice?.type === "choice") choice.data.timeout = { durationMs: 999, defaultOptionId: "wait" };
+    expect(isStoryDocument(story)).toBe(false);
+    if (choice?.type === "choice") choice.data.timeout = { durationMs: 8_000, defaultOptionId: "missing" };
+    expect(isStoryDocument(story)).toBe(false);
   });
 
   it("validates variable-backed choice rules", () => {
@@ -62,7 +131,7 @@ describe("story documents", () => {
           id: "enter",
           label: "Enter",
           condition: { variableId: "trusted", operator: "equals", value: true },
-          effect: { variableId: "trusted", value: false },
+          actions: [{ type: "set-variable", variableId: "trusted", value: false }],
         }],
       },
     });
@@ -77,20 +146,20 @@ describe("story documents", () => {
       id: "enter",
       label: "Enter",
       condition: { variableId: "state", operator: "greater-than" as const, value: 3 },
-      effect: { variableId: "state", value: 4 },
+      actions: [{ type: "set-variable" as const, variableId: "state", value: 4 }],
     }];
 
     expect(countStoryVariableReferences(options, "state")).toBe(2);
-    expect(removeStoryVariableReferences(options, "state")).toEqual([{ id: "enter", label: "Enter", condition: undefined, effect: undefined }]);
+    expect(removeStoryVariableReferences(options, "state")).toEqual([{ id: "enter", label: "Enter", condition: undefined, actions: undefined }]);
     expect(normalizeStoryVariableReferences(options, new Map([
       ["state", { id: "state", name: "State", type: "text" as const, initialValue: "" }],
     ]))).toEqual([{
       id: "enter",
       label: "Enter",
       condition: { variableId: "state", operator: "equals", value: "" },
-      effect: { variableId: "state", value: "" },
+      actions: [{ type: "set-variable", variableId: "state", value: "" }],
     }]);
-    expect(normalizeStoryVariableReferences(options, new Map())).toEqual([{ id: "enter", label: "Enter", condition: undefined, effect: undefined }]);
+    expect(normalizeStoryVariableReferences(options, new Map())).toEqual([{ id: "enter", label: "Enter", condition: undefined, actions: undefined }]);
   });
 
   it("rejects missing starts, duplicate ids, and dangling edges", () => {
