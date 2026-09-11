@@ -11,6 +11,7 @@ files:
   - dist/daemon/**/*.js
   - dist/shared/**/*.js
   - dist/renderer/**/*
+  - dist/player/**/*
 
 extraResources:
   - from: plugins

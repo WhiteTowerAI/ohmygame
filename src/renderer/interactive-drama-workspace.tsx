@@ -22,6 +22,7 @@ import {
   Play,
   Plus,
   Search,
+  Share2,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -61,6 +62,7 @@ import {
   type ImageResolution,
   type LibraryUploadMediaType,
   type PromptImage,
+  type ProjectState,
   type RunImageToolRequest,
   type RunVideoToolRequest,
   type StoryAction,
@@ -89,12 +91,13 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineStoryPrompt, countSceneVariableReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeOverlayVariableReferences, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneInteractionHandle, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
+import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { playtestHash } from "./routes.js";
 import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
+import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -202,7 +205,13 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) {
+export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPublish }: {
+  project: ProjectState;
+  agentBusy: boolean;
+  publishing: boolean;
+  onPublish: (details: PublishDetails) => Promise<boolean>;
+}) {
+  const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [chapter, setChapter] = useState<{ id: string; title: string }>();
@@ -224,6 +233,8 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   const [generatingTextNodeId, setGeneratingTextNodeId] = useState<string>();
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
   const canvas = useRef<HTMLDivElement>(null);
   const remainingChapters = useRef<StoryChapter[]>([]);
@@ -814,6 +825,32 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
+  async function buildGame(): Promise<void> {
+    if (!document || building) return;
+    setBuilding(true);
+    setPlayIssue(undefined);
+    try {
+      await save(document);
+      const artifact = await buildInteractiveDrama(projectId);
+      const url = URL.createObjectURL(artifact);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = `${project.name}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      setPlayIssue({ nodeId: "", message: errorMessage(cause) });
+    } finally {
+      setBuilding(false);
+    }
+  }
+
+  async function publishGame(details: PublishDetails): Promise<boolean> {
+    if (!document) return false;
+    await save(document);
+    return onPublish(details);
+  }
+
   return (
     <section className="viewer-pane interactive-drama-workspace" aria-label="Interactive Drama workspace">
       <header className="interactive-drama-header window-drag-handle">
@@ -834,9 +871,13 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
           </button>
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Build game">
-            <Download size={14} />
-            <span>Build game</span>
+          <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+            {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+            <span>Publish</span>
+          </button>
+          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Build game" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
+            {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
+            <span>{building ? "Building" : "Build game"}</span>
           </button>
         </div>
       </header>
@@ -922,8 +963,8 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
           {playIssue && phase === "ready" ? (
             <div className="story-play-issue" role="alert">
-              <div><strong>Cannot start playtest</strong><span>{playIssue.message}</span></div>
-              <button type="button" aria-label="Dismiss playtest issue" onClick={() => setPlayIssue(undefined)}><X size={14} /></button>
+              <div><strong>Story needs attention</strong><span>{playIssue.message}</span></div>
+              <button type="button" aria-label="Dismiss story issue" onClick={() => setPlayIssue(undefined)}><X size={14} /></button>
             </div>
           ) : null}
         </div>
@@ -962,6 +1003,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
           />
         ) : null}
       </div>
+      {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
     </section>
   );
 }

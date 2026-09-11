@@ -193,7 +193,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   </main>;
 }
 
-function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, hasCheckpoint, saveStatus, onStart, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onClipComplete, onContinue, onInteraction, onChoice }: {
+export function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, hasCheckpoint, saveStatus, assetUrls, onStart, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onClipComplete, onContinue, onInteraction, onChoice }: {
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   overlays: StoryOverlay[];
@@ -202,6 +202,7 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
   paused: boolean;
   hasCheckpoint: boolean;
   saveStatus?: "saved" | "error";
+  assetUrls?: Readonly<Record<string, string>>;
   onStart: () => void;
   onContinueGame: () => void;
   onPause: () => void;
@@ -215,7 +216,7 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
   onInteraction: (eventId: string, result: "success" | "timeout", clipEnded: boolean, durationMs: number) => void;
   onChoice: (optionId: string) => void;
 }) {
-  const background = useWorkspaceAssetUrl(undefined, "", 0, config.backgroundAssetId);
+  const background = useStoryAssetUrl(config.backgroundAssetId, assetUrls);
   const backgroundStyle = background.url ? { backgroundImage: `linear-gradient(rgb(0 0 0 / 38%), rgb(0 0 0 / 62%)), url("${background.url}")` } : undefined;
   if (runtime.mode === "menu") return (
     <section className="story-player story-player-menu" aria-label="Game menu" style={backgroundStyle}>
@@ -232,9 +233,9 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
     <div className="story-player-stage">
-      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} onInteraction={onInteraction} /> : null}
+      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} assetUrls={assetUrls} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} onInteraction={onInteraction} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
-      {node?.type !== "ending" ? <StoryOverlays overlays={overlays} visibleIds={runtime.visibleOverlayIds} variables={runtime.variables} /> : null}
+      {node?.type !== "ending" ? <StoryOverlays overlays={overlays} visibleIds={runtime.visibleOverlayIds} variables={runtime.variables} assetUrls={assetUrls} /> : null}
       {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestartGame} onMenu={onMenu} /> : null}
       {!node ? <div className="story-playtest-state" role="alert">The current story node is missing.</div> : null}
       {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
@@ -244,7 +245,7 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
   </section>;
 }
 
-function StoryOverlays({ overlays, visibleIds, variables }: { overlays: StoryOverlay[]; visibleIds: readonly string[]; variables: Readonly<Record<string, StoryVariableValue>> }) {
+function StoryOverlays({ overlays, visibleIds, variables, assetUrls }: { overlays: StoryOverlay[]; visibleIds: readonly string[]; variables: Readonly<Record<string, StoryVariableValue>>; assetUrls?: Readonly<Record<string, string>> }) {
   const visible = new Set(visibleIds);
   const active = overlays.filter((overlay) => visible.has(overlay.id) && matchesStoryCondition(overlay.condition, variables));
   const placements = ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"] as const;
@@ -253,16 +254,16 @@ function StoryOverlays({ overlays, visibleIds, variables }: { overlays: StoryOve
       const placed = active.filter((overlay) => overlay.placement === placement);
       return placed.length ? <div className={`story-player-overlay-stack story-player-overlay-${placement}`} key={placement}>{placed.map((overlay) => (
         <section className="story-player-overlay" key={overlay.id} aria-label={overlay.name || "Game information"}>
-          {overlay.components.map((component) => <StoryOverlayItem key={component.id} component={component} variables={variables} />)}
+          {overlay.components.map((component) => <StoryOverlayItem key={component.id} component={component} variables={variables} assetUrls={assetUrls} />)}
         </section>
       ))}</div> : null;
     })}
   </div>;
 }
 
-function StoryOverlayItem({ component, variables }: { component: StoryOverlayComponent; variables: Readonly<Record<string, StoryVariableValue>> }) {
+function StoryOverlayItem({ component, variables, assetUrls }: { component: StoryOverlayComponent; variables: Readonly<Record<string, StoryVariableValue>>; assetUrls?: Readonly<Record<string, string>> }) {
   if (component.type === "text") return <p>{component.text}</p>;
-  if (component.type === "image") return <StoryOverlayImage component={component} />;
+  if (component.type === "image") return <StoryOverlayImage component={component} assetUrls={assetUrls} />;
   const value = variables[component.variableId];
   if (component.type === "value") return <div className="story-player-overlay-value"><span>{component.label}</span><strong>{String(value ?? "")}</strong></div>;
   const numericValue = typeof value === "number" ? value : component.min;
@@ -274,8 +275,8 @@ function StoryOverlayItem({ component, variables }: { component: StoryOverlayCom
   </div>;
 }
 
-function StoryOverlayImage({ component }: { component: Extract<StoryOverlayComponent, { type: "image" }> }) {
-  const image = useWorkspaceAssetUrl(undefined, "", 0, component.assetId);
+function StoryOverlayImage({ component, assetUrls }: { component: Extract<StoryOverlayComponent, { type: "image" }>; assetUrls?: Readonly<Record<string, string>> }) {
+  const image = useStoryAssetUrl(component.assetId, assetUrls);
   return image.url ? <img src={image.url} alt={component.alt} /> : null;
 }
 
@@ -352,12 +353,13 @@ function StoryChoicePlayer({ node, variables, paused, onSelect }: {
   </article>;
 }
 
-function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onComplete, onContinue, onInteraction }: {
+function StoryScenePlayer({ chapter, node, runtime, fit, paused, assetUrls, onTime, onComplete, onContinue, onInteraction }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "scene" }>;
   runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
   fit: StoryPlayerConfig["videoFit"];
   paused: boolean;
+  assetUrls?: Readonly<Record<string, string>>;
   onTime: (clipId: string, timeMs: number) => void;
   onComplete: (clipId: string, durationMs: number) => void;
   onContinue: (clipEnded: boolean, durationMs: number) => void;
@@ -372,7 +374,7 @@ function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onCompl
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
   const waitingEvent = playback?.waitingEventId ? node.data.events.find((event) => event.id === playback.waitingEventId) : undefined;
   return <div className="story-player-scene">
-    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} initialTimeMs={playback?.timeMs ?? 0} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onMetrics={setVideoMetrics} onEnded={(duration) => {
+    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onMetrics={setVideoMetrics} onEnded={(duration) => {
       clipStatus.current.ended = true;
       clipStatus.current.durationMs = duration;
       onComplete(clip.id, duration);
@@ -396,11 +398,11 @@ interface VideoMetrics {
   videoHeight: number;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTimeMs, onTime, onDuration, onMetrics, onEnded }: {
-  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; initialTimeMs: number;
+function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTimeMs, assetUrls, onTime, onDuration, onMetrics, onEnded }: {
+  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; initialTimeMs: number; assetUrls?: Readonly<Record<string, string>>;
   onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onMetrics: (metrics: VideoMetrics) => void; onEnded: (durationMs: number) => void;
 }) {
-  const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
+  const media = useStoryAssetUrl(assetId, assetUrls);
   const video = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState(false);
   useEffect(() => { if (paused) video.current?.pause(); else void video.current?.play().catch(() => {}); }, [paused]);
@@ -425,6 +427,11 @@ function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTi
     {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={() => onEnded(0)}>Skip clip</button></div> : null}
     <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
   </article>;
+}
+
+function useStoryAssetUrl(assetId: string | undefined, assetUrls?: Readonly<Record<string, string>>): { url?: string; error?: string } {
+  const library = useWorkspaceAssetUrl(undefined, "", 0, assetUrls ? undefined : assetId);
+  return assetUrls && assetId ? { url: assetUrls[assetId], ...(assetUrls[assetId] ? {} : { error: "The published asset is missing." }) } : library;
 }
 
 function StorySceneInteraction({ event, fit, metrics, paused, onResolve }: {

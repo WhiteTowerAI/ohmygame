@@ -1,11 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
-import type { ProjectState } from "../../shared/contracts.js";
+import type { LibraryAsset, ProjectState, StoryDocument } from "../../shared/contracts.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
+import { parseStoryDocument, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../../shared/story.js";
+import type { AssetLibrary } from "../asset-library.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -22,12 +25,31 @@ export class PublishError extends Error {
 export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
 
+  constructor(private readonly library?: AssetLibrary, private readonly playerDirectory?: string) {}
+
   async create(project: ProjectState, cover?: Buffer): Promise<Buffer> {
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
+  }
+
+  async buildInteractiveDrama(project: ProjectState): Promise<Buffer> {
+    if (project.type !== "interactive-drama") throw new PublishError("Build requires an Interactive Drama project");
+    return this.#create(project);
+  }
+
+  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
+    let temporary: string | undefined;
     try {
-      const source = await prepareSource(project.workspacePath, (child) => this.#running.set(project.id, child));
-      return createZip(source, false, cover);
+      let source: string;
+      if (project.type === "interactive-drama") {
+        temporary = await prepareInteractiveDrama(project, this.library, this.playerDirectory);
+        source = temporary;
+      } else {
+        source = await prepareSource(project.workspacePath, (child) => this.#running.set(project.id, child));
+      }
+      return await createZip(source, false, cover, maxBytes);
     } finally {
       this.#running.delete(project.id);
+      if (temporary) await rm(temporary, { recursive: true, force: true });
     }
   }
 
@@ -37,8 +59,85 @@ export class ArtifactBuilder {
   }
 }
 
+async function prepareInteractiveDrama(project: ProjectState, library?: AssetLibrary, playerDirectory?: string): Promise<string> {
+  if (!library || !playerDirectory || !await exists(path.join(playerDirectory, "index.html"))) {
+    throw new PublishError("Interactive Drama Player is not built. Run npm run build:player first.");
+  }
+  let story: StoryDocument;
+  try {
+    story = parseStoryDocument(JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8")));
+  } catch {
+    throw new PublishError("Interactive Drama story.json is missing or invalid");
+  }
+  if (story.chapters.length !== 1) {
+    throw new PublishError("Build and publish currently support one chapter per Interactive Drama.");
+  }
+  const assets = new Map(library.list().map((asset) => [asset.id, asset]));
+  validatePublishedStory(story, assets);
+  const requiredIds = referencedAssetIds(story);
+  const output = await mkdtemp(path.join(tmpdir(), "open-game-story-build-"));
+  try {
+    await cp(playerDirectory, output, { recursive: true });
+    await mkdir(path.join(output, "assets", "media"), { recursive: true });
+    const assetPaths: Record<string, string> = {};
+    for (const assetId of [...requiredIds].sort()) {
+      const { asset, absolutePath } = await library.content(assetId);
+      const extension = path.extname(asset.name).toLowerCase();
+      const relative = `assets/media/${asset.id}${extension}`;
+      await copyFile(absolutePath, path.join(output, ...relative.split("/")));
+      assetPaths[asset.id] = `./${relative}`;
+    }
+    await writeFile(path.join(output, "story.json"), `${JSON.stringify(story, null, 2)}\n`);
+    await writeFile(path.join(output, "manifest.json"), `${JSON.stringify({
+      version: 1,
+      story: "story.json",
+      scope: `published:${project.id}`,
+      assets: assetPaths,
+    }, null, 2)}\n`);
+    return output;
+  } catch (cause) {
+    await rm(output, { recursive: true, force: true });
+    throw cause;
+  }
+}
+
+function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string, LibraryAsset>): void {
+  const videoIds = new Set([...assets.values()].filter((asset) => asset.mediaType === "video").map((asset) => asset.id));
+  const durations = new Map([...assets.values()].flatMap((asset) => asset.mediaType === "video" && asset.duration !== undefined
+    ? [[asset.id, asset.duration * 1_000] as const]
+    : []));
+  for (const chapter of story.chapters) {
+    const issue = validatePlayableChapter(chapter, { availableAssetIds: videoIds, assetDurationsMs: durations });
+    if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
+  }
+  if (story.player?.backgroundAssetId && assets.get(story.player.backgroundAssetId)?.mediaType !== "image") {
+    throw new PublishError("The Player background is missing from Library or is not an image.");
+  }
+  const missingOverlay = (story.overlays ?? []).flatMap((overlay) => overlay.components)
+    .find((component) => component.type === "image" && assets.get(component.assetId)?.mediaType !== "image");
+  if (missingOverlay) throw new PublishError("An Overlay image is missing from Library or is not an image.");
+}
+
+function referencedAssetIds(story: StoryDocument): Set<string> {
+  const ids = new Set<string>();
+  if (story.player?.backgroundAssetId) ids.add(story.player.backgroundAssetId);
+  for (const overlay of story.overlays ?? []) {
+    for (const component of overlay.components) if (component.type === "image") ids.add(component.assetId);
+  }
+  for (const chapter of story.chapters) {
+    for (const node of chapter.nodes) {
+      if (node.type !== "scene") continue;
+      for (const clip of node.data.clips) {
+        const assetId = resolveStoryVideoClipAssetId(chapter, clip);
+        if (assetId) ids.add(assetId);
+      }
+    }
+  }
+  return ids;
+}
+
 export async function createPluginArchive(source: string): Promise<Buffer> {
-  return createZip(source, true);
+  return createZip(source, true, undefined, PUBLISH_ARTIFACT_MAX_BYTES);
 }
 
 async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void): Promise<string> {
@@ -60,7 +159,7 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
   throw new PublishError("Project has no build script or static index.html yet");
 }
 
-async function createZip(source: string, plugin = false, cover?: Buffer): Promise<Buffer> {
+async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
   const zip = new ZipFile();
   const files = await filesIn(source, "", plugin);
   const zipOptions = { mtime: new Date(1980, 0, 2), forceDosTimestamp: true } as const;
@@ -77,7 +176,7 @@ async function createZip(source: string, plugin = false, cover?: Buffer): Promis
     let bytes = 0;
     output.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > PUBLISH_ARTIFACT_MAX_BYTES) {
+      if (maxBytes !== undefined && bytes > maxBytes) {
         output.destroy(new PublishError("Publish artifact exceeds 25 MB", 413));
         return;
       }

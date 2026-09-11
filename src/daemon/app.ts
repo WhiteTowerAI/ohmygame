@@ -70,6 +70,7 @@ export interface AppOptions {
   generateProjectTitle?: TitleGenerator;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
+  interactiveDramaPlayerDirectory?: string;
 }
 
 const createProjectSchema = {
@@ -480,7 +481,7 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager();
   const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
-  const artifacts = new ArtifactBuilder();
+  const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -2467,6 +2468,24 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-drama/build", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Build requires an Interactive Drama project" });
+    if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
+    if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
+    try {
+      const artifact = await artifacts.buildInteractiveDrama(project);
+      return reply
+        .header("content-type", "application/zip")
+        .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
+        .send(artifact);
+    } catch (cause) {
+      const statusCode = cause instanceof PublishError ? cause.statusCode : 500;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.get<{ Params: { projectId: string }; Querystring: { cursor?: string } }>("/projects/:projectId/events", async (request, reply) => {
     const project = projects.get(request.params.projectId);

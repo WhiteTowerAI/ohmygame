@@ -352,6 +352,15 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
+export async function buildInteractiveDrama(projectId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-drama/build`), {
+    method: "POST",
+    headers: runtimeHeaders(),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

@@ -752,7 +752,10 @@ export function ProjectShell({
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
         />
       ) : <InteractiveDramaWorkspace
-        projectId={project.id}
+        project={project}
+        agentBusy={agentBusy}
+        publishing={publishing}
+        onPublish={publish}
       />}
     </main>
   );

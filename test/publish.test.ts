@@ -404,6 +404,73 @@ describe("remote publish", () => {
     ]);
   });
 
+  it("builds and publishes an Interactive Drama as a static game", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Drama", "interactive-drama");
+    const videoContents = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+    const video = (await runtime.daemon.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=clip.mp4&mediaType=video%2Fmp4&duration=1",
+      headers: { "content-type": "application/octet-stream" },
+      payload: videoContents,
+    })).json();
+    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    const chapter = story.chapters[0];
+    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: video.id } }], events: [] } });
+    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 300, y: 0 }, data: { title: "The End", description: "Done" } });
+    chapter.edges.push(
+      { id: "start-scene", source: chapter.nodes[0].id, target: "scene" },
+      { id: "scene-ending", source: "scene", target: "ending" },
+    );
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
+    expect(built.statusCode).toBe(200);
+    expect(built.headers["content-type"]).toBe("application/zip");
+
+    const published = await publishProject(runtime.daemon, project.id);
+    expect(published.statusCode, published.body).toBe(201);
+    const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
+    expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
+    expect(JSON.parse(await readFile(path.join(output, "story.json"), "utf8"))).toEqual(story);
+    expect(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"))).toMatchObject({
+      version: 1,
+      story: "story.json",
+      scope: `published:${project.id}`,
+      assets: { [video.id]: `./assets/media/${video.id}.mp4` },
+    });
+    expect(await readFile(path.join(output, "assets", "media", `${video.id}.mp4`))).toEqual(videoContents);
+  });
+
+  it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
+    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    const chapter = story.chapters[0];
+    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 200, y: 0 }, data: { title: "The End", description: "Done" } });
+    chapter.edges.push({ id: "start-ending", source: chapter.nodes[0].id, target: "ending" });
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
+
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
+
+    expect(built.statusCode, built.body).toBe(200);
+    expect(built.rawPayload.length).toBeGreaterThan(25 * 1024 * 1024);
+  });
+
+  it("rejects a multi-chapter Interactive Drama until chapter transitions are supported", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Chapters", "interactive-drama");
+    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.chapters.push({ ...story.chapters[0], id: "chapter-2", title: "Chapter 2" });
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
+
+    expect(built.statusCode).toBe(409);
+    expect(built.json()).toEqual({ error: "Build and publish currently support one chapter per Interactive Drama." });
+  });
+
   it("reuses the remote Game and persists its latest publication across restarts", async () => {
     const dataDirectory = await temporary("open-game-daemon-");
     const runtime = await testRuntime(dataDirectory);
@@ -716,19 +783,23 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   });
   apps.push(publishServer);
   const apiUrl = await publishServer.listen({ host: "127.0.0.1", port: 0 });
+  const playerDirectory = await temporary("open-game-player-");
+  await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
+  await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("open-game-daemon-"),
     publishApiUrl: apiUrl,
     publishFetch,
     imageGenerator,
+    interactiveDramaPlayerDirectory: playerDirectory,
   });
   apps.push(daemon);
   await daemon.ready();
-  return { apiUrl, daemon, publishData, publishServer };
+  return { apiUrl, daemon, playerDirectory, publishData, publishServer };
 }
 
-async function createProject(app: FastifyInstance, name: string) {
-  return (await app.inject({ method: "POST", url: "/projects", payload: { name } })).json();
+async function createProject(app: FastifyInstance, name: string, type?: "web-game" | "interactive-drama") {
+  return (await app.inject({ method: "POST", url: "/projects", payload: { name, ...(type ? { type } : {}) } })).json();
 }
 
 async function publishProject(app: FastifyInstance, projectId: string, metadata?: { title: string; description?: string }) {
