@@ -4316,6 +4316,12 @@ button {
   line-height: 1.15;
 }
 
+.story-player-menu-actions {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
 .story-player-menu-content button,
 .story-player-ending-actions button,
 .story-player-pause-layer button {
@@ -4334,6 +4340,16 @@ button {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.story-player-menu-content button.is-secondary {
+  border-color: rgb(255 255 255 / 18%);
+  background: rgb(17 18 22 / 72%);
+}
+
+.story-player-pause-layer button:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .story-player-stage {
@@ -4733,6 +4749,22 @@ button {
   color: var(--story-player-text);
   cursor: pointer;
 }
+
+.story-player-save-status {
+  position: absolute;
+  z-index: 2;
+  top: max(64px, calc(env(safe-area-inset-top) + 52px));
+  right: max(18px, env(safe-area-inset-right));
+  max-width: min(240px, calc(100% - 36px));
+  padding: 6px 9px;
+  border-radius: 5px;
+  background: rgb(9 10 12 / 78%);
+  color: color-mix(in srgb, var(--story-player-text) 72%, transparent);
+  font-size: 10px;
+  text-align: right;
+}
+
+.story-player-save-status.is-error { color: #ffb6b6; }
 
 .story-player-pause-layer {
   position: absolute;

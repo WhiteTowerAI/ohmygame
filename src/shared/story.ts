@@ -162,7 +162,58 @@ export type PlayerRuntimeState =
   | PlayerRuntimeStateBase & { mode: "menu"; nodeId?: never }
   | PlayerRuntimeStateBase & { mode: "playing"; nodeId: string; scenePlayback?: ScenePlaybackState };
 
-type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" }>;
+export type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" }>;
+
+export interface StorySaveDataV1 {
+  version: 1;
+  storyVersion: 7;
+  storySignature: string;
+  savedAt: string;
+  checkpoint: PlayingRuntimeState;
+}
+
+export function createStoryCheckpoint(storySignature: string, state: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
+  if (!storySignature) throw new Error("Story signature is required");
+  if (state.mode !== "playing") throw new Error("Only a playing state can be saved");
+  return { version: 1, storyVersion: 7, storySignature, savedAt, checkpoint: clonePlayingState(state) };
+}
+
+export function restoreStoryCheckpoint(
+  value: unknown,
+  storySignature: string,
+  chapter: StoryChapter,
+  variables: readonly StoryVariable[],
+  overlays: readonly StoryOverlay[],
+): PlayingRuntimeState | undefined {
+  if (!isRecord(value) || value.version !== 1 || value.storyVersion !== 7 || value.storySignature !== storySignature ||
+    typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)) || !isRecord(value.checkpoint)) return undefined;
+  const checkpoint = value.checkpoint;
+  if (checkpoint.mode !== "playing" || checkpoint.chapterId !== chapter.id || !nonEmptyString(checkpoint.nodeId) ||
+    !isRecord(checkpoint.variables) || !Array.isArray(checkpoint.visibleOverlayIds)) return undefined;
+  const definitions = new Map(variables.map((variable) => [variable.id, variable]));
+  const values = Object.entries(checkpoint.variables);
+  if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
+  const overlayIds = new Set(overlays.map((overlay) => overlay.id));
+  if (!uniqueStrings(checkpoint.visibleOverlayIds) || checkpoint.visibleOverlayIds.some((id) => !overlayIds.has(id))) return undefined;
+  const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
+  if (!node || node.type === "start" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (node.type !== "scene") {
+    if (checkpoint.scenePlayback !== undefined) return undefined;
+  } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) {
+    return undefined;
+  }
+  return clonePlayingState(checkpoint as unknown as PlayingRuntimeState);
+}
+
+export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): next is PlayingRuntimeState {
+  if (next.mode !== "playing") return false;
+  if (!previous || previous.chapterId !== next.chapterId || previous.nodeId !== next.nodeId) return true;
+  if (!sameRecord(previous.variables, next.variables) || !sameStrings(previous.visibleOverlayIds, next.visibleOverlayIds)) return true;
+  const before = previous.scenePlayback;
+  const after = next.scenePlayback;
+  if (!before || !after) return before !== after;
+  return before.clipId !== after.clipId || before.waitingEventId !== after.waitingEventId || !sameStrings(before.firedEventIds, after.firedEventIds);
+}
 
 export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
   return { mode: "menu", chapterId, variables: initialStoryVariables(variables), visibleOverlayIds: [] };
@@ -709,6 +760,58 @@ function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>,
 
 function variableValueMatches(type: unknown, value: unknown): boolean {
   return type === "boolean" ? typeof value === "boolean" : type === "number" ? typeof value === "number" && Number.isFinite(value) : type === "text" && typeof value === "string";
+}
+
+function validSavedScenePlayback(node: Extract<StoryNode, { type: "scene" }>, value: unknown): value is ScenePlaybackState {
+  if (!isRecord(value) || !nonEmptyString(value.clipId) || !Number.isInteger(value.timeMs) || Number(value.timeMs) < 0 ||
+    !Array.isArray(value.firedEventIds) || !uniqueStrings(value.firedEventIds) ||
+    (value.waitingEventId !== undefined && !nonEmptyString(value.waitingEventId))) return false;
+  if (!node.data.clips.some((clip) => clip.id === value.clipId)) return false;
+  const due = node.data.events
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.clipId === value.clipId && event.timeMs <= Number(value.timeMs))
+    .sort((left, right) => left.event.timeMs - right.event.timeMs || left.index - right.index)
+    .map(({ event }) => event);
+  if (!value.firedEventIds.every((id, index) => due[index]?.id === id)) return false;
+  if (value.waitingEventId === undefined) return value.firedEventIds.length === due.length;
+  const waiting = due[value.firedEventIds.length];
+  return Boolean(waiting && waiting.id === value.waitingEventId && waiting.timeMs === value.timeMs &&
+    (waiting.type === "continue" || waiting.type === "hotspot" || waiting.type === "qte"));
+}
+
+function reachableStoryNodeIds(chapter: StoryChapter): Set<string> {
+  const start = getStartNode(chapter);
+  const reachable = new Set<string>();
+  const pending = start ? [start.id] : [];
+  while (pending.length) {
+    const nodeId = pending.pop()!;
+    if (reachable.has(nodeId)) continue;
+    reachable.add(nodeId);
+    for (const edge of chapter.edges) if (edge.source === nodeId) pending.push(edge.target);
+  }
+  return reachable;
+}
+
+function clonePlayingState(state: PlayingRuntimeState): PlayingRuntimeState {
+  return {
+    ...state,
+    variables: { ...state.variables },
+    visibleOverlayIds: [...state.visibleOverlayIds],
+    ...(state.scenePlayback ? { scenePlayback: { ...state.scenePlayback, firedEventIds: [...state.scenePlayback.firedEventIds] } } : {}),
+  };
+}
+
+function uniqueStrings(value: unknown[]): value is string[] {
+  return value.every((item) => typeof item === "string") && new Set(value).size === value.length;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameRecord(left: Readonly<Record<string, StoryVariableValue>>, right: Readonly<Record<string, StoryVariableValue>>): boolean {
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
 }
 
 function isPosition(value: unknown): boolean {

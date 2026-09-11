@@ -7,6 +7,7 @@ import {
   completeSceneClip,
   continueSceneEvent,
   createPlayerState,
+  createStoryCheckpoint,
   applyStoryActions,
   applyRuntimeActions,
   countSceneVariableReferences,
@@ -25,11 +26,13 @@ import {
   removeStoryVariableReferences,
   replaceOutgoingEdge,
   resolveSceneInteraction,
+  restoreStoryCheckpoint,
   resolveStoryAssetId,
   resolveStoryImageAssetId,
   resolveStoryVideoClipAssetId,
   resolveStoryChoice,
   restartGame,
+  shouldCreateStoryCheckpoint,
   startGame,
   validatePlayableChapter,
 } from "../src/shared/story.js";
@@ -91,6 +94,44 @@ describe("story documents", () => {
     expect(choice.nodeId).toBe("choice");
     expect(chooseOption(chapter, choice, "go")).toMatchObject({ nodeId: "ending", variables: { score: 3 }, visibleOverlayIds: ["hud"] });
     expect(restartGame(chapter, story.variables)).toMatchObject({ mode: "playing", nodeId: "scene", variables: { score: 1 }, visibleOverlayIds: [] });
+  });
+
+  it("creates and restores validated story checkpoints", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    story.overlays = [{ id: "hud", name: "HUD", placement: "top-left", components: [] }];
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", clips: [{ id: "clip", source: { type: "library", assetId: "video" } }], events: [
+        { id: "update", clipId: "clip", timeMs: 250, type: "actions", actions: [{ type: "set-variable", variableId: "score", value: 2 }] },
+        { id: "wait", clipId: "clip", timeMs: 500, type: "continue", label: "Continue" },
+      ] } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: chapter.nodes[0]!.id, target: "scene" },
+      { id: "scene-ending", source: "scene", target: "ending" },
+    );
+    const playing = advanceSceneTime(chapter, restartGame(chapter, story.variables), "clip", 500);
+    const saved = createStoryCheckpoint("signature", { ...playing, variables: { score: 2 }, visibleOverlayIds: ["hud"] }, "2026-09-11T08:00:00.000Z");
+
+    expect(restoreStoryCheckpoint(saved, "signature", chapter, story.variables, story.overlays)).toEqual(saved.checkpoint);
+    expect(restoreStoryCheckpoint(saved, "changed", chapter, story.variables, story.overlays)).toBeUndefined();
+    expect(restoreStoryCheckpoint({ ...saved, checkpoint: { ...saved.checkpoint, variables: { score: "wrong" } } }, "signature", chapter, story.variables, story.overlays)).toBeUndefined();
+    expect(restoreStoryCheckpoint({ ...saved, checkpoint: { ...saved.checkpoint, scenePlayback: { ...saved.checkpoint.scenePlayback!, waitingEventId: "missing" } } }, "signature", chapter, story.variables, story.overlays)).toBeUndefined();
+    expect(restoreStoryCheckpoint({ ...saved, checkpoint: { ...saved.checkpoint, scenePlayback: { ...saved.checkpoint.scenePlayback!, firedEventIds: [] } } }, "signature", chapter, story.variables, story.overlays)).toBeUndefined();
+    expect(restoreStoryCheckpoint({ ...saved, checkpoint: { ...saved.checkpoint, scenePlayback: { ...saved.checkpoint.scenePlayback!, firedEventIds: ["wait"], waitingEventId: undefined } } }, "signature", chapter, story.variables, story.overlays)).toBeUndefined();
+    expect(() => createStoryCheckpoint("signature", createPlayerState(chapter.id, story.variables ?? []))).toThrow("playing state");
+  });
+
+  it("creates checkpoints for semantic changes but not playback time alone", () => {
+    const initial = { mode: "playing" as const, chapterId: "chapter", nodeId: "scene", variables: { score: 0 }, visibleOverlayIds: [], scenePlayback: { clipId: "clip", timeMs: 0, firedEventIds: [] } };
+    expect(shouldCreateStoryCheckpoint(undefined, initial)).toBe(true);
+    expect(shouldCreateStoryCheckpoint(initial, { ...initial, scenePlayback: { ...initial.scenePlayback, timeMs: 400 } })).toBe(false);
+    expect(shouldCreateStoryCheckpoint(initial, { ...initial, scenePlayback: { ...initial.scenePlayback, timeMs: 400, firedEventIds: ["event"] } })).toBe(true);
+    expect(shouldCreateStoryCheckpoint(initial, { ...initial, variables: { score: 1 } })).toBe(true);
+    expect(shouldCreateStoryCheckpoint(initial, { ...initial, nodeId: "choice", scenePlayback: undefined })).toBe(true);
+    expect(shouldCreateStoryCheckpoint(initial, createPlayerState("chapter", []))).toBe(false);
   });
 
   it("runs Scene events once, in order, and blocks on Continue", () => {

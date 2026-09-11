@@ -1,8 +1,9 @@
 import { Pause, Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StoryChapter, StoryHotspotRegion, StoryNode, StoryOverlay, StoryOverlayComponent, StoryPlayerConfig, StorySceneEvent, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
-import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveSceneInteraction, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
+import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveSceneInteraction, resolveStoryVideoClipAssetId, restartGame, shouldCreateStoryCheckpoint, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
+import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
@@ -13,11 +14,21 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   const [runtime, setRuntime] = useState<PlayerRuntimeState>();
   const [paused, setPaused] = useState(false);
   const [playbackStep, setPlaybackStep] = useState(0);
+  const [hasCheckpoint, setHasCheckpoint] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "error">();
   const [error, setError] = useState<string>();
+  const progress = useRef<{ key: string; signature: string } | undefined>(undefined);
+  const checkpointRef = useRef<PlayingRuntimeState | undefined>(undefined);
 
   useEffect(() => {
     let disposed = false;
-    void Promise.all([getStory(projectId), listLibraryAssets()]).then(([story, assets]) => {
+    progress.current = undefined;
+    checkpointRef.current = undefined;
+    setHasCheckpoint(false);
+    setRuntime(undefined);
+    setSaveStatus(undefined);
+    setError(undefined);
+    void Promise.all([getStory(projectId), listLibraryAssets()]).then(async ([story, assets]) => {
       if (disposed) return;
       const selected = story.chapters.find((candidate) => candidate.id === chapterId);
       if (!selected) throw new Error("Chapter not found");
@@ -32,10 +43,17 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       const missingOverlayImage = story.overlays?.flatMap((overlay) => overlay.components).find((component) => component.type === "image" && !assets.some((asset) => asset.id === component.assetId && asset.mediaType === "image"));
       if (missingOverlayImage) throw new Error("An Overlay image is missing from Library or is not an image.");
       const definitions = story.variables ?? [];
+      const storyHash = await storySignature(story);
+      if (disposed) return;
+      const key = storyProgressKey(`project:${projectId}`, selected.id);
+      const saved = loadStoryProgress(window.localStorage, key, storyHash, selected, definitions, story.overlays ?? []);
+      progress.current = { key, signature: storyHash };
+      checkpointRef.current = saved;
       setChapter(selected);
       setVariables(definitions);
       setConfig(story.player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: selected.title });
       setOverlays(story.overlays ?? []);
+      setHasCheckpoint(Boolean(saved));
       setRuntime(createPlayerState(selected.id, definitions));
       document.title = `${story.player?.title || selected.title} - Playtest`;
     }).catch((cause) => {
@@ -44,19 +62,53 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     return () => { disposed = true; };
   }, [chapterId, projectId]);
 
-  const start = useCallback(() => {
-    if (!chapter) return;
-    setRuntime((current) => startGame(chapter, current ?? createPlayerState(chapter.id, variables)));
-    setPaused(false);
-    setPlaybackStep((step) => step + 1);
-  }, [chapter, variables]);
+  useEffect(() => {
+    const storage = progress.current;
+    if (!storage || !runtime || !shouldCreateStoryCheckpoint(checkpointRef.current, runtime)) return;
+    const save = createStoryCheckpoint(storage.signature, runtime);
+    checkpointRef.current = save.checkpoint;
+    setHasCheckpoint(true);
+    try {
+      saveStoryProgress(window.localStorage, storage.key, save);
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [runtime]);
 
-  const restart = useCallback(() => {
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    const timeout = window.setTimeout(() => setSaveStatus(undefined), 1_600);
+    return () => window.clearTimeout(timeout);
+  }, [saveStatus]);
+
+  const startNewGame = useCallback(() => {
     if (!chapter) return;
+    if (checkpointRef.current && !window.confirm("Start a new game? Your current progress will be replaced.")) return;
+    const storage = progress.current;
+    if (storage) clearStoryProgress(window.localStorage, storage.key);
+    checkpointRef.current = undefined;
+    setHasCheckpoint(false);
     setRuntime(restartGame(chapter, variables));
     setPaused(false);
     setPlaybackStep((step) => step + 1);
   }, [chapter, variables]);
+
+  const continueGame = useCallback(() => {
+    const saved = checkpointRef.current;
+    if (!saved) return;
+    setRuntime(saved);
+    setPaused(false);
+    setPlaybackStep((step) => step + 1);
+  }, []);
+
+  const restartCheckpoint = useCallback(() => {
+    const saved = checkpointRef.current;
+    if (!saved) return;
+    setRuntime(saved);
+    setPaused(false);
+    setPlaybackStep((step) => step + 1);
+  }, []);
 
   const returnToMenu = useCallback(() => {
     if (!chapter) return;
@@ -122,10 +174,14 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         node={node}
         runtime={runtime}
         paused={paused}
-        onStart={start}
+        hasCheckpoint={hasCheckpoint}
+        saveStatus={saveStatus}
+        onStart={startNewGame}
+        onContinueGame={continueGame}
         onPause={() => setPaused(true)}
         onResume={() => setPaused(false)}
-        onRestart={restart}
+        onRestartCheckpoint={restartCheckpoint}
+        onRestartGame={startNewGame}
         onMenu={returnToMenu}
         onSceneTime={updateSceneTime}
         onClipComplete={completeCurrentClip}
@@ -137,17 +193,21 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   </main>;
 }
 
-function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onInteraction, onChoice }: {
+function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, hasCheckpoint, saveStatus, onStart, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onClipComplete, onContinue, onInteraction, onChoice }: {
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   overlays: StoryOverlay[];
   node?: StoryNode;
   runtime: PlayerRuntimeState;
   paused: boolean;
+  hasCheckpoint: boolean;
+  saveStatus?: "saved" | "error";
   onStart: () => void;
+  onContinueGame: () => void;
   onPause: () => void;
   onResume: () => void;
-  onRestart: () => void;
+  onRestartCheckpoint: () => void;
+  onRestartGame: () => void;
   onMenu: () => void;
   onSceneTime: (clipId: string, timeMs: number) => void;
   onClipComplete: (clipId: string, durationMs: number) => void;
@@ -162,7 +222,10 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
       <div className="story-player-menu-content">
         <span>Interactive Drama</span>
         <h1>{config.title || chapter.title}</h1>
-        <button type="button" onClick={onStart}><Play size={16} fill="currentColor" />Start game</button>
+        <div className="story-player-menu-actions">
+          {hasCheckpoint ? <button type="button" onClick={onContinueGame}><Play size={16} fill="currentColor" />Continue</button> : null}
+          <button className={hasCheckpoint ? "is-secondary" : undefined} type="button" onClick={onStart}>{hasCheckpoint ? <RotateCcw size={15} /> : <Play size={16} fill="currentColor" />}{hasCheckpoint ? "New game" : "Start game"}</button>
+        </div>
       </div>
     </section>
   );
@@ -172,10 +235,11 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
       {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} onInteraction={onInteraction} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
       {node?.type !== "ending" ? <StoryOverlays overlays={overlays} visibleIds={runtime.visibleOverlayIds} variables={runtime.variables} /> : null}
-      {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestart} onMenu={onMenu} /> : null}
+      {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestartGame} onMenu={onMenu} /> : null}
       {!node ? <div className="story-playtest-state" role="alert">The current story node is missing.</div> : null}
+      {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
       {node?.type !== "ending" ? <button className="story-player-pause" type="button" title="Pause" aria-label="Pause" onClick={onPause}><Pause size={16} fill="currentColor" /></button> : null}
-      {paused ? <PauseMenu onResume={onResume} onRestart={onRestart} onMenu={onMenu} /> : null}
+      {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
     </div>
   </section>;
 }
@@ -215,12 +279,13 @@ function StoryOverlayImage({ component }: { component: Extract<StoryOverlayCompo
   return image.url ? <img src={image.url} alt={component.alt} /> : null;
 }
 
-function PauseMenu({ onResume, onRestart, onMenu }: { onResume: () => void; onRestart: () => void; onMenu: () => void }) {
+function PauseMenu({ canRestartCheckpoint, onResume, onRestartCheckpoint, onRestartGame, onMenu }: { canRestartCheckpoint: boolean; onResume: () => void; onRestartCheckpoint: () => void; onRestartGame: () => void; onMenu: () => void }) {
   return <div className="story-player-pause-layer" role="dialog" aria-modal="true" aria-label="Game paused">
     <div>
       <span>Paused</span>
       <button type="button" onClick={onResume}><Play size={15} fill="currentColor" />Resume</button>
-      <button type="button" onClick={onRestart}><RotateCcw size={15} />Restart</button>
+      <button type="button" disabled={!canRestartCheckpoint} onClick={onRestartCheckpoint}><RotateCcw size={15} />Restart checkpoint</button>
+      <button type="button" onClick={onRestartGame}>Restart game</button>
       <button type="button" onClick={onMenu}>Main menu</button>
     </div>
   </div>;
@@ -307,7 +372,7 @@ function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onCompl
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
   const waitingEvent = playback?.waitingEventId ? node.data.events.find((event) => event.id === playback.waitingEventId) : undefined;
   return <div className="story-player-scene">
-    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onMetrics={setVideoMetrics} onEnded={(duration) => {
+    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} initialTimeMs={playback?.timeMs ?? 0} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onMetrics={setVideoMetrics} onEnded={(duration) => {
       clipStatus.current.ended = true;
       clipStatus.current.durationMs = duration;
       onComplete(clip.id, duration);
@@ -331,8 +396,8 @@ interface VideoMetrics {
   videoHeight: number;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onTime, onDuration, onMetrics, onEnded }: {
-  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean;
+function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTimeMs, onTime, onDuration, onMetrics, onEnded }: {
+  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; initialTimeMs: number;
   onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onMetrics: (metrics: VideoMetrics) => void; onEnded: (durationMs: number) => void;
 }) {
   const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
@@ -350,7 +415,12 @@ function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onTime, o
   }, [media.url, onMetrics]);
   const error = media.error ?? (playbackError ? "The video could not be played." : undefined);
   return <article className="story-player-video">
-    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onLoadedMetadata={(event) => { onDuration(Math.round(event.currentTarget.duration * 1_000)); onMetrics({ boxWidth: event.currentTarget.clientWidth, boxHeight: event.currentTarget.clientHeight, videoWidth: event.currentTarget.videoWidth, videoHeight: event.currentTarget.videoHeight }); }} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
+    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onLoadedMetadata={(event) => {
+      const durationMs = Math.round(event.currentTarget.duration * 1_000);
+      if (initialTimeMs > 0) event.currentTarget.currentTime = Math.min(initialTimeMs, durationMs) / 1_000;
+      onDuration(durationMs);
+      onMetrics({ boxWidth: event.currentTarget.clientWidth, boxHeight: event.currentTarget.clientHeight, videoWidth: event.currentTarget.videoWidth, videoHeight: event.currentTarget.videoHeight });
+    }} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
     {!media.url && !error ? <span>Loading video...</span> : null}
     {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={() => onEnded(0)}>Skip clip</button></div> : null}
     <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
