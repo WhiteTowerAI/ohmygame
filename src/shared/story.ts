@@ -1,6 +1,7 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryOverlay, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_OVERLAY_PLACEMENTS = new Set(["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]);
 
 export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
   title: "Untitled Story",
@@ -11,8 +12,9 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 5,
+    version: 6,
     variables: [],
+    overlays: [],
     chapters: [{
       id: crypto.randomUUID(),
       title: "Untitled",
@@ -23,10 +25,12 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 5 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 6 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (value.player !== undefined && !isPlayerConfig(value.player)) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
+  if (value.overlays !== undefined && !isOverlays(value.overlays, variables)) return false;
+  const overlays = new Set((value.overlays ?? []).map((overlay) => overlay.id));
   const chapterIds = new Set<string>();
   return value.chapters.every((chapter) => {
     if (!isRecord(chapter) || !nonEmptyString(chapter.id) || chapterIds.has(chapter.id) || typeof chapter.title !== "string" ||
@@ -36,7 +40,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const nodeIds = new Set<string>();
     const nodeById = new Map<string, StoryNode>();
     for (const node of nodes) {
-      if (!isStoryNode(node, variables) || nodeIds.has(node.id)) return false;
+      if (!isStoryNode(node, variables, overlays) || nodeIds.has(node.id)) return false;
       nodeIds.add(node.id);
       nodeById.set(node.id, node);
     }
@@ -132,6 +136,7 @@ export interface StoryRuntimeState {
   chapterId: string;
   nodeId: string;
   variables: Record<string, StoryVariableValue>;
+  visibleOverlayIds: string[];
 }
 
 export interface ScenePlaybackState {
@@ -144,6 +149,7 @@ export interface ScenePlaybackState {
 interface PlayerRuntimeStateBase {
   chapterId: string;
   variables: Record<string, StoryVariableValue>;
+  visibleOverlayIds: string[];
 }
 
 export type PlayerRuntimeState =
@@ -153,7 +159,7 @@ export type PlayerRuntimeState =
 type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" }>;
 
 export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
-  return { mode: "menu", chapterId, variables: initialStoryVariables(variables) };
+  return { mode: "menu", chapterId, variables: initialStoryVariables(variables), visibleOverlayIds: [] };
 }
 
 export function startGame(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
@@ -175,10 +181,10 @@ function advanceFromScene(chapter: StoryChapter, state: PlayingRuntimeState): Pl
 
 export function chooseOption(chapter: StoryChapter, state: PlayerRuntimeState, optionId: string): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
-  const resolved = resolveStoryChoice(chapter, { chapterId: state.chapterId, nodeId: state.nodeId, variables: state.variables }, optionId);
+  const resolved = resolveStoryChoice(chapter, state, optionId);
   const next = chapter.nodes.find((node) => node.id === resolved.nodeId);
   if (!next) throw new Error("The selected choice points to a missing node");
-  return enterStoryNode({ ...resolved, mode: "playing" }, next);
+  return enterStoryNode({ ...state, ...resolved, mode: "playing" }, next);
 }
 
 export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[]): PlayingRuntimeState {
@@ -233,6 +239,7 @@ function beginSceneClip(state: PlayingRuntimeState, node: Extract<StoryNode, { t
 
 function runSceneEvents(state: PlayingRuntimeState, node: Extract<StoryNode, { type: "scene" }>, playback: ScenePlaybackState, timeMs: number): PlayingRuntimeState {
   let variables = state.variables;
+  let visibleOverlayIds = state.visibleOverlayIds;
   let nextPlayback = { ...playback, timeMs };
   const fired = new Set(playback.firedEventIds);
   const due = node.data.events
@@ -244,11 +251,11 @@ function runSceneEvents(state: PlayingRuntimeState, node: Extract<StoryNode, { t
       nextPlayback = { ...nextPlayback, timeMs: event.timeMs, waitingEventId: event.id };
       break;
     }
-    variables = applyStoryActions(event.actions, variables);
+    ({ variables, visibleOverlayIds } = applyRuntimeActions({ variables, visibleOverlayIds }, event.actions));
     fired.add(event.id);
     nextPlayback = { ...nextPlayback, firedEventIds: [...fired] };
   }
-  return { ...state, variables, scenePlayback: nextPlayback };
+  return { ...state, variables, visibleOverlayIds, scenePlayback: nextPlayback };
 }
 
 function currentScenePlayback(chapter: StoryChapter, state: PlayingRuntimeState, clipId?: string): { node: Extract<StoryNode, { type: "scene" }>; playback: ScenePlaybackState } {
@@ -268,18 +275,28 @@ export function matchesStoryCondition(condition: StoryVariableCondition | undefi
 }
 
 export function applyStoryActions(actions: readonly StoryAction[] | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
-  const next = { ...values };
+  return applyRuntimeActions({ variables: values, visibleOverlayIds: [] }, actions).variables;
+}
+
+export function applyRuntimeActions(state: { variables: Readonly<Record<string, StoryVariableValue>>; visibleOverlayIds: readonly string[] }, actions: readonly StoryAction[] | undefined): { variables: Record<string, StoryVariableValue>; visibleOverlayIds: string[] } {
+  const variables = { ...state.variables };
+  const visibleOverlayIds = [...state.visibleOverlayIds];
   for (const action of actions ?? []) {
-    if (action.type === "set-variable") next[action.variableId] = action.value;
-    else {
-      const current = next[action.variableId];
+    if (action.type === "set-variable") variables[action.variableId] = action.value;
+    else if (action.type === "increment-variable") {
+      const current = variables[action.variableId];
       if (typeof current !== "number") throw new Error(`Cannot increment non-number variable: ${action.variableId}`);
       const incremented = current + action.amount;
       if (!Number.isFinite(incremented)) throw new Error(`Variable increment is not finite: ${action.variableId}`);
-      next[action.variableId] = incremented;
+      variables[action.variableId] = incremented;
+    } else if (action.type === "show-overlay") {
+      if (!visibleOverlayIds.includes(action.overlayId)) visibleOverlayIds.push(action.overlayId);
+    } else {
+      const index = visibleOverlayIds.indexOf(action.overlayId);
+      if (index >= 0) visibleOverlayIds.splice(index, 1);
     }
   }
-  return next;
+  return { variables, visibleOverlayIds };
 }
 
 export function resolveStoryChoice(chapter: StoryChapter, state: StoryRuntimeState, optionId: string): StoryRuntimeState {
@@ -290,16 +307,16 @@ export function resolveStoryChoice(chapter: StoryChapter, state: StoryRuntimeSta
   if (!option || !matchesStoryCondition(option.condition, state.variables)) throw new Error("The selected choice is not available");
   const next = getNextNode(chapter, node.id, option.id);
   if (!next) throw new Error("The selected choice is not connected");
-  return { ...state, nodeId: next.id, variables: applyStoryActions(option.actions, state.variables) };
+  return { ...state, nodeId: next.id, ...applyRuntimeActions(state, option.actions) };
 }
 
 export function countStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): number {
-  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + (option.actions ?? []).filter((action) => action.variableId === variableId).length, 0);
+  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + (option.actions ?? []).filter((action) => "variableId" in action && action.variableId === variableId).length, 0);
 }
 
 export function removeStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): StoryChoiceOption[] {
   return options.map((option) => {
-    const actions = option.actions?.filter((action) => action.variableId !== variableId);
+    const actions = option.actions?.filter((action) => !("variableId" in action) || action.variableId !== variableId);
     return {
       ...option,
       ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
@@ -320,12 +337,12 @@ export function normalizeStoryVariableReferences(options: readonly StoryChoiceOp
 }
 
 export function countSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): number {
-  return events.reduce((count, event) => count + (event.type === "actions" ? event.actions.filter((action) => action.variableId === variableId).length : 0), 0);
+  return events.reduce((count, event) => count + (event.type === "actions" ? event.actions.filter((action) => "variableId" in action && action.variableId === variableId).length : 0), 0);
 }
 
 export function removeSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): StorySceneEvent[] {
   return events.map((event) => event.type === "actions"
-    ? { ...event, actions: event.actions.filter((action) => action.variableId !== variableId) }
+    ? { ...event, actions: event.actions.filter((action) => !("variableId" in action) || action.variableId !== variableId) }
     : event);
 }
 
@@ -333,8 +350,21 @@ export function normalizeSceneVariableReferences(events: readonly StorySceneEven
   return events.map((event) => event.type === "actions" ? { ...event, actions: normalizeActions(event.actions, variables) } : event);
 }
 
+export function normalizeOverlayVariableReferences(overlays: readonly StoryOverlay[], variables: ReadonlyMap<string, StoryVariable>): StoryOverlay[] {
+  return overlays.map((overlay) => ({
+    ...overlay,
+    ...(overlay.condition ? { condition: normalizeCondition(overlay.condition, variables.get(overlay.condition.variableId)) } : {}),
+    components: overlay.components.filter((component) => component.type !== "value" && component.type !== "meter" ||
+      variables.has(component.variableId) && (component.type !== "meter" || variables.get(component.variableId)?.type === "number")),
+  }));
+}
+
 function normalizeActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
   return actions.reduce<StoryAction[]>((normalized, action) => {
+    if (action.type === "show-overlay" || action.type === "hide-overlay") {
+      normalized.push(action);
+      return normalized;
+    }
     const variable = variables.get(action.variableId);
     if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
     normalized.push(action.type === "set-variable"
@@ -360,8 +390,7 @@ function migrateStoryDocument(value: unknown): unknown {
       nodes: chapter.nodes.map(migrateStoryNode),
     })),
   } : value;
-  if (version4.version !== 4 || !Array.isArray(version4.chapters)) return version4;
-  return {
+  const version5 = version4.version === 4 && Array.isArray(version4.chapters) ? {
     ...version4,
     version: 5,
     chapters: version4.chapters.map((chapter) => !isRecord(chapter) || !Array.isArray(chapter.nodes) ? chapter : ({
@@ -370,7 +399,9 @@ function migrateStoryDocument(value: unknown): unknown {
         ? node
         : { ...node, data: { ...node.data, events: [] } }),
     })),
-  };
+  } : version4;
+  if (version5.version !== 5) return version5;
+  return { ...version5, version: 6, overlays: [] };
 }
 
 function migrateStoryNode(node: unknown): unknown {
@@ -455,7 +486,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
   return undefined;
 }
 
-function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryNode {
+function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariable>, overlays: ReadonlySet<string>): value is StoryNode {
   if (!isRecord(value) || !nonEmptyString(value.id) || typeof value.type !== "string" ||
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data)) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
@@ -473,7 +504,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       if (!isRecord(event) || !nonEmptyString(event.id) || eventIds.has(event.id) || !clipIds.has(String(event.clipId)) ||
         typeof event.timeMs !== "number" || !Number.isInteger(event.timeMs) || event.timeMs < 0) return false;
       eventIds.add(event.id);
-      if (event.type === "actions") return Array.isArray(event.actions) && event.actions.every((action) => isAction(action, variables));
+      if (event.type === "actions") return Array.isArray(event.actions) && event.actions.every((action) => isAction(action, variables, overlays));
       return event.type === "continue" && typeof event.label === "string" && event.label.length <= 80;
     });
   }
@@ -511,7 +542,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   const validOptions = value.data.options.every((option) => {
     if (!isRecord(option) || !nonEmptyString(option.id) || optionIds.has(option.id) || typeof option.label !== "string") return false;
     if (option.condition !== undefined && !isCondition(option.condition, variables)) return false;
-    if (option.actions !== undefined && (!Array.isArray(option.actions) || !option.actions.every((action) => isAction(action, variables)))) return false;
+    if (option.actions !== undefined && (!Array.isArray(option.actions) || !option.actions.every((action) => isAction(action, variables, overlays)))) return false;
     optionIds.add(option.id);
     return true;
   });
@@ -543,6 +574,29 @@ function isPlayerConfig(value: unknown): value is StoryPlayerConfig {
     (value.theme.font === "sans" || value.theme.font === "serif");
 }
 
+function isOverlays(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryOverlay[] {
+  if (!Array.isArray(value)) return false;
+  const ids = new Set<string>();
+  return value.every((overlay) => {
+    if (!isRecord(overlay) || !nonEmptyString(overlay.id) || ids.has(overlay.id) || typeof overlay.name !== "string" || overlay.name.length > 80 ||
+      !STORY_OVERLAY_PLACEMENTS.has(String(overlay.placement)) || !Array.isArray(overlay.components) ||
+      (overlay.condition !== undefined && !isCondition(overlay.condition, variables))) return false;
+    ids.add(overlay.id);
+    const componentIds = new Set<string>();
+    return overlay.components.every((component) => {
+      if (!isRecord(component) || !nonEmptyString(component.id) || componentIds.has(component.id)) return false;
+      componentIds.add(component.id);
+      if (component.type === "text") return typeof component.text === "string" && component.text.length <= 500;
+      if (component.type === "image") return nonEmptyString(component.assetId) && typeof component.alt === "string" && component.alt.length <= 120;
+      if (component.type === "value") return typeof component.label === "string" && component.label.length <= 80 && variables.has(String(component.variableId));
+      if (component.type !== "meter" || typeof component.label !== "string" || component.label.length > 80) return false;
+      const variable = variables.get(String(component.variableId));
+      return variable?.type === "number" && typeof component.min === "number" && Number.isFinite(component.min) &&
+        typeof component.max === "number" && Number.isFinite(component.max) && component.max > component.min;
+    });
+  });
+}
+
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
   if (!isRecord(value) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "less-than"].includes(String(value.operator))) return false;
   const variable = variables.get(value.variableId);
@@ -564,8 +618,10 @@ function variableValue(value: StoryVariableValue, type: StoryVariable["type"]): 
   return typeof value === "string" ? value : "";
 }
 
-function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
-  if (!isRecord(value) || !nonEmptyString(value.variableId)) return false;
+function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>, overlays: ReadonlySet<string>): boolean {
+  if (!isRecord(value)) return false;
+  if (value.type === "show-overlay" || value.type === "hide-overlay") return nonEmptyString(value.overlayId) && overlays.has(value.overlayId);
+  if (!nonEmptyString(value.variableId)) return false;
   const variable = variables.get(value.variableId);
   if (!variable) return false;
   if (value.type === "set-variable") return variableValueMatches(variable.type, value.value);

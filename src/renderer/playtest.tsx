@@ -1,6 +1,6 @@
 import { Pause, Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import type { StoryChapter, StoryNode, StoryPlayerConfig, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
+import type { StoryChapter, StoryNode, StoryOverlay, StoryOverlayComponent, StoryPlayerConfig, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
 import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -9,6 +9,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   const [chapter, setChapter] = useState<StoryChapter>();
   const [variables, setVariables] = useState<StoryVariable[]>([]);
   const [config, setConfig] = useState<StoryPlayerConfig>(DEFAULT_STORY_PLAYER_CONFIG);
+  const [overlays, setOverlays] = useState<StoryOverlay[]>([]);
   const [runtime, setRuntime] = useState<PlayerRuntimeState>();
   const [paused, setPaused] = useState(false);
   const [playbackStep, setPlaybackStep] = useState(0);
@@ -28,10 +29,13 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       if (story.player?.backgroundAssetId && !assets.some((asset) => asset.id === story.player?.backgroundAssetId && asset.mediaType === "image")) {
         throw new Error("The Player background is missing from Library or is not an image.");
       }
+      const missingOverlayImage = story.overlays?.flatMap((overlay) => overlay.components).find((component) => component.type === "image" && !assets.some((asset) => asset.id === component.assetId && asset.mediaType === "image"));
+      if (missingOverlayImage) throw new Error("An Overlay image is missing from Library or is not an image.");
       const definitions = story.variables ?? [];
       setChapter(selected);
       setVariables(definitions);
       setConfig(story.player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: selected.title });
+      setOverlays(story.overlays ?? []);
       setRuntime(createPlayerState(selected.id, definitions));
       document.title = `${story.player?.title || selected.title} - Playtest`;
     }).catch((cause) => {
@@ -101,6 +105,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         key={playbackStep}
         chapter={chapter}
         config={config}
+        overlays={overlays}
         node={node}
         runtime={runtime}
         paused={paused}
@@ -118,9 +123,10 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   </main>;
 }
 
-function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onChoice }: {
+function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onChoice }: {
   chapter: StoryChapter;
   config: StoryPlayerConfig;
+  overlays: StoryOverlay[];
   node?: StoryNode;
   runtime: PlayerRuntimeState;
   paused: boolean;
@@ -150,12 +156,48 @@ function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStar
     <div className="story-player-stage">
       {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
+      {node?.type !== "ending" ? <StoryOverlays overlays={overlays} visibleIds={runtime.visibleOverlayIds} variables={runtime.variables} /> : null}
       {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestart} onMenu={onMenu} /> : null}
       {!node ? <div className="story-playtest-state" role="alert">The current story node is missing.</div> : null}
       {node?.type !== "ending" ? <button className="story-player-pause" type="button" title="Pause" aria-label="Pause" onClick={onPause}><Pause size={16} fill="currentColor" /></button> : null}
       {paused ? <PauseMenu onResume={onResume} onRestart={onRestart} onMenu={onMenu} /> : null}
     </div>
   </section>;
+}
+
+function StoryOverlays({ overlays, visibleIds, variables }: { overlays: StoryOverlay[]; visibleIds: readonly string[]; variables: Readonly<Record<string, StoryVariableValue>> }) {
+  const visible = new Set(visibleIds);
+  const active = overlays.filter((overlay) => visible.has(overlay.id) && matchesStoryCondition(overlay.condition, variables));
+  const placements = ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"] as const;
+  return <div className="story-player-overlays" aria-live="polite">
+    {placements.map((placement) => {
+      const placed = active.filter((overlay) => overlay.placement === placement);
+      return placed.length ? <div className={`story-player-overlay-stack story-player-overlay-${placement}`} key={placement}>{placed.map((overlay) => (
+        <section className="story-player-overlay" key={overlay.id} aria-label={overlay.name || "Game information"}>
+          {overlay.components.map((component) => <StoryOverlayItem key={component.id} component={component} variables={variables} />)}
+        </section>
+      ))}</div> : null;
+    })}
+  </div>;
+}
+
+function StoryOverlayItem({ component, variables }: { component: StoryOverlayComponent; variables: Readonly<Record<string, StoryVariableValue>> }) {
+  if (component.type === "text") return <p>{component.text}</p>;
+  if (component.type === "image") return <StoryOverlayImage component={component} />;
+  const value = variables[component.variableId];
+  if (component.type === "value") return <div className="story-player-overlay-value"><span>{component.label}</span><strong>{String(value ?? "")}</strong></div>;
+  const numericValue = typeof value === "number" ? value : component.min;
+  const progress = Math.max(0, Math.min(1, (numericValue - component.min) / (component.max - component.min)));
+  const meterValue = Math.max(component.min, Math.min(component.max, numericValue));
+  return <div className="story-player-overlay-meter">
+    <div><span>{component.label}</span><strong>{numericValue}</strong></div>
+    <div role="meter" aria-label={component.label || "Value"} aria-valuemin={component.min} aria-valuemax={component.max} aria-valuenow={meterValue}><span style={{ transform: `scaleX(${progress})` }} /></div>
+  </div>;
+}
+
+function StoryOverlayImage({ component }: { component: Extract<StoryOverlayComponent, { type: "image" }> }) {
+  const image = useWorkspaceAssetUrl(undefined, "", 0, component.assetId);
+  return image.url ? <img src={image.url} alt={component.alt} /> : null;
 }
 
 function PauseMenu({ onResume, onRestart, onMenu }: { onResume: () => void; onRestart: () => void; onMenu: () => void }) {

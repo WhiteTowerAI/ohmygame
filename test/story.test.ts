@@ -8,6 +8,7 @@ import {
   continueSceneEvent,
   createPlayerState,
   applyStoryActions,
+  applyRuntimeActions,
   countStoryVariableReferences,
   getNextNode,
   getOutgoingEdge,
@@ -15,6 +16,7 @@ import {
   isStoryDocument,
   initialStoryVariables,
   matchesStoryCondition,
+  normalizeOverlayVariableReferences,
   normalizeStoryVariableReferences,
   parseStoryDocument,
   removeStoryVariableReferences,
@@ -61,11 +63,12 @@ describe("story documents", () => {
   it("runs menu, scene, choice, and restart through the shared Player runtime", () => {
     const story = createStoryDocument();
     story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 1 }];
+    story.overlays = [{ id: "hud", name: "HUD", placement: "top-left", components: [] }];
     const chapter = story.chapters[0]!;
     const start = chapter.nodes[0]!;
     chapter.nodes.push(
       { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: "video" } }], events: [] } },
-      { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }] } },
+      { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }, { type: "show-overlay", overlayId: "hud" }] }] } },
       { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
     );
     chapter.edges.push(
@@ -75,15 +78,15 @@ describe("story documents", () => {
     );
 
     const menu = createPlayerState(chapter.id, story.variables);
-    expect(menu).toEqual({ mode: "menu", chapterId: chapter.id, variables: { score: 1 } });
+    expect(menu).toEqual({ mode: "menu", chapterId: chapter.id, variables: { score: 1 }, visibleOverlayIds: [] });
     expect(() => chooseOption(chapter, menu, "go")).toThrow("The game is not playing");
     const scene = startGame(chapter, menu);
     expect(scene.nodeId).toBe("scene");
     expect(() => startGame(chapter, scene)).toThrow("The game has already started");
     const choice = completeSceneClip(chapter, scene, "clip", 1_000);
     expect(choice.nodeId).toBe("choice");
-    expect(chooseOption(chapter, choice, "go")).toMatchObject({ nodeId: "ending", variables: { score: 3 } });
-    expect(restartGame(chapter, story.variables)).toMatchObject({ mode: "playing", nodeId: "scene", variables: { score: 1 } });
+    expect(chooseOption(chapter, choice, "go")).toMatchObject({ nodeId: "ending", variables: { score: 3 }, visibleOverlayIds: ["hud"] });
+    expect(restartGame(chapter, story.variables)).toMatchObject({ mode: "playing", nodeId: "scene", variables: { score: 1 }, visibleOverlayIds: [] });
   });
 
   it("runs Scene events once, in order, and blocks on Continue", () => {
@@ -183,6 +186,70 @@ describe("story documents", () => {
     expect(initial).toEqual({ trusted: false, score: 2 });
   });
 
+  it("validates overlays and applies their actions idempotently", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "health", name: "Health", type: "number", initialValue: 80 }];
+    story.overlays = [{
+      id: "hud",
+      name: "HUD",
+      placement: "top-left",
+      condition: { variableId: "health", operator: "greater-than", value: 0 },
+      components: [
+        { id: "title", type: "text", text: "Status" },
+        { id: "portrait", type: "image", assetId: "portrait-image", alt: "Portrait" },
+        { id: "health-value", type: "value", label: "Health", variableId: "health" },
+        { id: "health-meter", type: "meter", label: "Health", variableId: "health", min: 0, max: 100 },
+      ],
+    }];
+    story.chapters[0]!.nodes.push({ id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choice", options: [{ id: "show", label: "Show", actions: [{ type: "show-overlay", overlayId: "hud" }] }] } });
+    expect(isStoryDocument(story)).toBe(true);
+    expect(applyRuntimeActions({ variables: { health: 80 }, visibleOverlayIds: [] }, [
+      { type: "show-overlay", overlayId: "hud" },
+      { type: "show-overlay", overlayId: "hud" },
+      { type: "increment-variable", variableId: "health", amount: -10 },
+    ])).toEqual({ variables: { health: 70 }, visibleOverlayIds: ["hud"] });
+    expect(applyRuntimeActions({ variables: { health: 80 }, visibleOverlayIds: ["hud"] }, [
+      { type: "hide-overlay", overlayId: "missing" },
+      { type: "hide-overlay", overlayId: "hud" },
+    ])).toEqual({ variables: { health: 80 }, visibleOverlayIds: [] });
+    const choice = story.chapters[0]!.nodes.find((node) => node.id === "choice");
+    if (choice?.type !== "choice") throw new Error("Choice missing");
+    choice.data.options[0]!.actions = [{ type: "show-overlay", overlayId: "missing" }];
+    expect(isStoryDocument(story)).toBe(false);
+    choice.data.options[0]!.actions = [{ type: "show-overlay", overlayId: "hud" }];
+    story.overlays[0]!.components[3] = { id: "health-meter", type: "meter", label: "Health", variableId: "health", min: 100, max: 0 };
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("normalizes Overlay references when Variables change", () => {
+    const overlays = [{
+      id: "hud",
+      name: "HUD",
+      placement: "top-left" as const,
+      condition: { variableId: "health", operator: "greater-than" as const, value: 10 },
+      components: [
+        { id: "value", type: "value" as const, label: "Name", variableId: "name" },
+        { id: "meter", type: "meter" as const, label: "Health", variableId: "health", min: 0, max: 100 },
+      ],
+    }];
+    const variables = new Map([
+      ["health", { id: "health", name: "Health", type: "text" as const, initialValue: "full" }],
+      ["name", { id: "name", name: "Name", type: "text" as const, initialValue: "Ari" }],
+    ]);
+    expect(normalizeOverlayVariableReferences(overlays, variables)).toEqual([{
+      ...overlays[0],
+      condition: { variableId: "health", operator: "equals", value: "" },
+      components: [overlays[0]!.components[0]],
+    }]);
+  });
+
+  it("migrates version 5 documents with an empty overlay list", () => {
+    const current = createStoryDocument();
+    const legacy = { ...current, version: 5 };
+    delete (legacy as { overlays?: unknown }).overlays;
+    expect(parseStoryDocument(legacy).overlays).toEqual([]);
+  });
+
   it("migrates version 3 choice effects into the current document", () => {
     const migrated = parseStoryDocument({
       version: 3,
@@ -202,7 +269,7 @@ describe("story documents", () => {
       }],
     });
 
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     const choice = migrated.chapters[0]!.nodes.find((node) => node.type === "choice");
     expect(choice?.type === "choice" ? choice.data.options[0]?.actions : undefined).toEqual([
       { type: "set-variable", variableId: "trusted", value: true },
@@ -218,7 +285,7 @@ describe("story documents", () => {
 
     const migrated = parseStoryDocument(legacy);
     const scene = migrated.chapters[0]!.nodes.find((node) => node.type === "scene");
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     expect(scene?.type === "scene" ? scene.data.events : undefined).toEqual([]);
   });
 
@@ -264,8 +331,8 @@ describe("story documents", () => {
       { id: "choice-ending", source: "choice", sourceHandle: "go", target: "ending" },
     );
 
-    expect(resolveStoryChoice(chapter, { chapterId: chapter.id, nodeId: "choice", variables: { score: 1 } }, "go"))
-      .toEqual({ chapterId: chapter.id, nodeId: "ending", variables: { score: 3 } });
+    expect(resolveStoryChoice(chapter, { chapterId: chapter.id, nodeId: "choice", variables: { score: 1 }, visibleOverlayIds: [] }, "go"))
+      .toEqual({ chapterId: chapter.id, nodeId: "ending", variables: { score: 3 }, visibleOverlayIds: [] });
   });
 
   it("validates timed choice bounds and default options", () => {

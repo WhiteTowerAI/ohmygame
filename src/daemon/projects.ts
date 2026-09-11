@@ -445,7 +445,7 @@ export class ProjectManager {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
       }
-      if (story.player?.backgroundAssetId === assetId || story.chapters.some((chapter) => chapter.nodes.some((node) => (
+      if (story.player?.backgroundAssetId === assetId || story.overlays?.some((overlay) => overlay.components.some((component) => component.type === "image" && component.assetId === assetId)) || story.chapters.some((chapter) => chapter.nodes.some((node) => (
         (node.type === "scene" && node.data.clips.some((clip) => clip.source.type === "library" && clip.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
@@ -475,6 +475,10 @@ export class ProjectManager {
         try { current = parseStoryDocument(parsed); } catch { continue; }
         const story: StoryDocument = {
           ...current,
+          overlays: current.overlays?.map((overlay) => ({
+            ...overlay,
+            components: overlay.components.filter((component) => component.type !== "image" || component.assetId !== assetId),
+          })),
           ...(current.player?.backgroundAssetId === assetId
             ? { player: { ...current.player, backgroundAssetId: undefined } }
             : {}),

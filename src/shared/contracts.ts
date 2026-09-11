@@ -153,7 +153,9 @@ export interface StoryVariableCondition {
 
 export type StoryAction =
   | { type: "set-variable"; variableId: string; value: StoryVariableValue }
-  | { type: "increment-variable"; variableId: string; amount: number };
+  | { type: "increment-variable"; variableId: string; amount: number }
+  | { type: "show-overlay"; overlayId: string }
+  | { type: "hide-overlay"; overlayId: string };
 
 export interface StoryChoiceTimeout {
   durationMs: number;
@@ -248,10 +250,33 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
+export type StoryOverlayPlacement =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export type StoryOverlayComponent =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "image"; assetId: string; alt: string }
+  | { id: string; type: "value"; label: string; variableId: string }
+  | { id: string; type: "meter"; label: string; variableId: string; min: number; max: number };
+
+export interface StoryOverlay {
+  id: string;
+  name: string;
+  placement: StoryOverlayPlacement;
+  condition?: StoryVariableCondition;
+  components: StoryOverlayComponent[];
+}
+
 export interface StoryDocument {
-  version: 5;
+  version: 6;
   player?: StoryPlayerConfig;
   variables?: StoryVariable[];
+  overlays?: StoryOverlay[];
   chapters: StoryChapter[];
 }
 
