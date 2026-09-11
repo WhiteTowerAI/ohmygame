@@ -9,6 +9,7 @@ import {
   createPlayerState,
   applyStoryActions,
   applyRuntimeActions,
+  countSceneVariableReferences,
   countStoryVariableReferences,
   getNextNode,
   getOutgoingEdge,
@@ -17,10 +18,13 @@ import {
   initialStoryVariables,
   matchesStoryCondition,
   normalizeOverlayVariableReferences,
+  normalizeSceneVariableReferences,
   normalizeStoryVariableReferences,
   parseStoryDocument,
+  removeSceneVariableReferences,
   removeStoryVariableReferences,
   replaceOutgoingEdge,
+  resolveSceneInteraction,
   resolveStoryAssetId,
   resolveStoryImageAssetId,
   resolveStoryVideoClipAssetId,
@@ -250,6 +254,11 @@ describe("story documents", () => {
     expect(parseStoryDocument(legacy).overlays).toEqual([]);
   });
 
+  it("migrates version 6 documents to version 7", () => {
+    const legacy = { ...createStoryDocument(), version: 6 };
+    expect(parseStoryDocument(legacy).version).toBe(7);
+  });
+
   it("migrates version 3 choice effects into the current document", () => {
     const migrated = parseStoryDocument({
       version: 3,
@@ -269,7 +278,7 @@ describe("story documents", () => {
       }],
     });
 
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     const choice = migrated.chapters[0]!.nodes.find((node) => node.type === "choice");
     expect(choice?.type === "choice" ? choice.data.options[0]?.actions : undefined).toEqual([
       { type: "set-variable", variableId: "trusted", value: true },
@@ -285,7 +294,7 @@ describe("story documents", () => {
 
     const migrated = parseStoryDocument(legacy);
     const scene = migrated.chapters[0]!.nodes.find((node) => node.type === "scene");
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     expect(scene?.type === "scene" ? scene.data.events : undefined).toEqual([]);
   });
 
@@ -315,6 +324,88 @@ describe("story documents", () => {
     if (scene?.type !== "scene") throw new Error("Scene missing");
     scene.data.events[0] = { ...scene.data.events[0]!, clipId: "missing" };
     expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("resolves Scene interactions through shared outcomes", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    story.overlays = [{ id: "hud", name: "HUD", placement: "top-left", components: [] }];
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: {
+        title: "Scene",
+        clips: [{ id: "clip", source: { type: "library", assetId: "video" } }],
+        events: [
+          { id: "hotspot", clipId: "clip", timeMs: 500, type: "hotspot", durationMs: 3_000, label: "Door", region: { x: 0.2, y: 0.2, width: 0.3, height: 0.4 }, success: { transition: "continue", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }, { type: "show-overlay", overlayId: "hud" }] }, timeout: { transition: "branch", actions: [] } },
+          { id: "after", clipId: "clip", timeMs: 500, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 4 }] },
+          { id: "qte", clipId: "clip", timeMs: 1_000, type: "qte", durationMs: 2_000, prompt: "Dodge", key: "Space", success: { transition: "continue", actions: [] }, timeout: { transition: "branch", actions: [{ type: "increment-variable", variableId: "score", amount: 8 }] } },
+        ],
+      } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "Missed", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: chapter.nodes[0]!.id, target: "scene" },
+      { id: "scene-end", source: "scene", target: "ending" },
+      { id: "hotspot-timeout", source: "scene", sourceHandle: "interaction:hotspot:timeout", target: "ending" },
+      { id: "qte-timeout", source: "scene", sourceHandle: "interaction:qte:timeout", target: "ending" },
+    );
+
+    expect(isStoryDocument(story)).toBe(true);
+    expect(validatePlayableChapter(chapter)).toBeUndefined();
+    const entered = startGame(chapter, createPlayerState(chapter.id, story.variables));
+    const waitingHotspot = advanceSceneTime(chapter, entered, "clip", 800);
+    expect(waitingHotspot.scenePlayback?.waitingEventId).toBe("hotspot");
+    expect(() => continueSceneEvent(chapter, waitingHotspot)).toThrow("not waiting for Continue");
+    expect(() => resolveSceneInteraction(chapter, waitingHotspot, "qte", "success")).toThrow("not active");
+    const continued = resolveSceneInteraction(chapter, waitingHotspot, "hotspot", "success");
+    expect(continued).toMatchObject({ variables: { score: 6 }, visibleOverlayIds: ["hud"], scenePlayback: { waitingEventId: undefined } });
+    const waitingQte = advanceSceneTime(chapter, continued, "clip", 1_200);
+    expect(waitingQte.scenePlayback?.waitingEventId).toBe("qte");
+    expect(resolveSceneInteraction(chapter, waitingQte, "qte", "timeout")).toMatchObject({ nodeId: "ending", variables: { score: 14 }, scenePlayback: undefined });
+  });
+
+  it("validates Scene interaction fields and branch connections", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: {
+      title: "Scene",
+      clips: [{ id: "clip", source: { type: "library", assetId: "video" } }],
+      events: [{ id: "qte", clipId: "clip", timeMs: 0, type: "qte", durationMs: 3_000, prompt: "Dodge", key: "KeyE", success: { transition: "continue", actions: [] }, timeout: { transition: "branch", actions: [] } }],
+    } });
+    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } });
+    chapter.edges.push(
+      { id: "start-scene", source: chapter.nodes[0]!.id, target: "scene" },
+      { id: "scene-end", source: "scene", target: "ending" },
+    );
+    expect(isStoryDocument(story)).toBe(true);
+    expect(validatePlayableChapter(chapter)).toEqual({ nodeId: "scene", message: "Connect the timeout outcome in \"Scene\"." });
+    const scene = chapter.nodes[1];
+    if (scene?.type !== "scene") throw new Error("Scene missing");
+    const qte = scene.data.events[0];
+    if (qte?.type !== "qte") throw new Error("QTE missing");
+    scene.data.events[0] = { ...qte, key: "Escape" };
+    expect(isStoryDocument(story)).toBe(false);
+    scene.data.events[0] = { ...qte, durationMs: 100 };
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("cleans and normalizes variable actions in Scene outcomes", () => {
+    const events = [{
+      id: "qte",
+      clipId: "clip",
+      timeMs: 0,
+      type: "qte" as const,
+      durationMs: 3_000,
+      prompt: "Dodge",
+      key: "KeyE",
+      success: { transition: "continue" as const, actions: [{ type: "set-variable" as const, variableId: "score", value: 4 }] },
+      timeout: { transition: "continue" as const, actions: [{ type: "increment-variable" as const, variableId: "score", amount: 1 }] },
+    }];
+    expect(countSceneVariableReferences(events, "score")).toBe(2);
+    expect(removeSceneVariableReferences(events, "score")[0]).toMatchObject({ success: { actions: [] }, timeout: { actions: [] } });
+    expect(normalizeSceneVariableReferences(events, new Map([
+      ["score", { id: "score", name: "Score", type: "text" as const, initialValue: "" }],
+    ]))[0]).toMatchObject({ success: { actions: [{ value: "" }] }, timeout: { actions: [] } });
   });
 
   it("resolves a choice through shared actions and its edge", () => {

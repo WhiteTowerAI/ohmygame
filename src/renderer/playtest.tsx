@@ -1,7 +1,7 @@
 import { Pause, Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import type { StoryChapter, StoryNode, StoryOverlay, StoryOverlayComponent, StoryPlayerConfig, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
-import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
+import type { StoryChapter, StoryHotspotRegion, StoryNode, StoryOverlay, StoryOverlayComponent, StoryPlayerConfig, StorySceneEvent, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
+import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveSceneInteraction, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
@@ -78,9 +78,22 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   const continueCurrentScene = useCallback((clipEnded: boolean, durationMs: number) => {
     if (!chapter) return;
     setRuntime((current) => {
-      if (!current) return current;
+      if (!current || current.mode !== "playing") return current;
       const resolved = continueSceneEvent(chapter, current);
       return clipEnded && resolved.scenePlayback ? completeSceneClip(chapter, resolved, resolved.scenePlayback.clipId, durationMs) : resolved;
+    });
+  }, [chapter]);
+
+  const resolveCurrentInteraction = useCallback((eventId: string, result: "success" | "timeout", clipEnded: boolean, durationMs: number) => {
+    if (!chapter) return;
+    setRuntime((current) => {
+      if (!current || current.mode !== "playing") return current;
+      const nodeId = current.nodeId;
+      const clipId = current.scenePlayback?.clipId;
+      const resolved = resolveSceneInteraction(chapter, current, eventId, result);
+      return clipEnded && clipId && resolved.nodeId === nodeId && resolved.scenePlayback?.clipId === clipId
+        ? completeSceneClip(chapter, resolved, clipId, durationMs)
+        : resolved;
     });
   }, [chapter]);
 
@@ -117,13 +130,14 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         onSceneTime={updateSceneTime}
         onClipComplete={completeCurrentClip}
         onContinue={continueCurrentScene}
+        onInteraction={resolveCurrentInteraction}
         onChoice={selectChoice}
       />
     ) : null}
   </main>;
 }
 
-function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onChoice }: {
+function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onInteraction, onChoice }: {
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   overlays: StoryOverlay[];
@@ -138,6 +152,7 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
   onSceneTime: (clipId: string, timeMs: number) => void;
   onClipComplete: (clipId: string, durationMs: number) => void;
   onContinue: (clipEnded: boolean, durationMs: number) => void;
+  onInteraction: (eventId: string, result: "success" | "timeout", clipEnded: boolean, durationMs: number) => void;
   onChoice: (optionId: string) => void;
 }) {
   const background = useWorkspaceAssetUrl(undefined, "", 0, config.backgroundAssetId);
@@ -154,7 +169,7 @@ function InteractiveDramaPlayer({ chapter, config, overlays, node, runtime, paus
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
     <div className="story-player-stage">
-      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} /> : null}
+      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} onInteraction={onInteraction} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
       {node?.type !== "ending" ? <StoryOverlays overlays={overlays} visibleIds={runtime.visibleOverlayIds} variables={runtime.variables} /> : null}
       {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestart} onMenu={onMenu} /> : null}
@@ -272,7 +287,7 @@ function StoryChoicePlayer({ node, variables, paused, onSelect }: {
   </article>;
 }
 
-function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onComplete, onContinue }: {
+function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onComplete, onContinue, onInteraction }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "scene" }>;
   runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
@@ -281,39 +296,140 @@ function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onCompl
   onTime: (clipId: string, timeMs: number) => void;
   onComplete: (clipId: string, durationMs: number) => void;
   onContinue: (clipEnded: boolean, durationMs: number) => void;
+  onInteraction: (eventId: string, result: "success" | "timeout", clipEnded: boolean, durationMs: number) => void;
 }) {
   const playback = runtime.scenePlayback;
   const clipIndex = node.data.clips.findIndex((candidate) => candidate.id === playback?.clipId);
   const clip = node.data.clips[clipIndex];
   const clipStatus = useRef({ clipId: "", ended: false, durationMs: 0 });
+  const [videoMetrics, setVideoMetrics] = useState<VideoMetrics>();
   if (clip && clipStatus.current.clipId !== clip.id) clipStatus.current = { clipId: clip.id, ended: false, durationMs: 0 };
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
   const waitingEvent = playback?.waitingEventId ? node.data.events.find((event) => event.id === playback.waitingEventId) : undefined;
   return <div className="story-player-scene">
-    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onEnded={(duration) => {
+    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onMetrics={setVideoMetrics} onEnded={(duration) => {
       clipStatus.current.ended = true;
       clipStatus.current.durationMs = duration;
       onComplete(clip.id, duration);
     }} />
     {waitingEvent?.type === "continue" ? <button className="story-player-continue" type="button" onClick={() => onContinue(clipStatus.current.ended, clipStatus.current.durationMs)}>{waitingEvent.label || "Continue"}</button> : null}
+    {waitingEvent?.type === "hotspot" || waitingEvent?.type === "qte" ? <StorySceneInteraction
+      key={waitingEvent.id}
+      event={waitingEvent}
+      fit={fit}
+      metrics={videoMetrics}
+      paused={paused}
+      onResolve={(result) => onInteraction(waitingEvent.id, result, clipStatus.current.ended, clipStatus.current.durationMs)}
+    /> : null}
   </div>;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onTime, onDuration, onEnded }: {
+interface VideoMetrics {
+  boxWidth: number;
+  boxHeight: number;
+  videoWidth: number;
+  videoHeight: number;
+}
+
+function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onTime, onDuration, onMetrics, onEnded }: {
   assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean;
-  onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onEnded: (durationMs: number) => void;
+  onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onMetrics: (metrics: VideoMetrics) => void; onEnded: (durationMs: number) => void;
 }) {
   const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   const video = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState(false);
   useEffect(() => { if (paused) video.current?.pause(); else void video.current?.play().catch(() => {}); }, [paused]);
+  useEffect(() => {
+    const element = video.current;
+    if (!element) return;
+    const measure = () => onMetrics({ boxWidth: element.clientWidth, boxHeight: element.clientHeight, videoWidth: element.videoWidth, videoHeight: element.videoHeight });
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [media.url, onMetrics]);
   const error = media.error ?? (playbackError ? "The video could not be played." : undefined);
   return <article className="story-player-video">
-    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onLoadedMetadata={(event) => onDuration(Math.round(event.currentTarget.duration * 1_000))} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
+    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onLoadedMetadata={(event) => { onDuration(Math.round(event.currentTarget.duration * 1_000)); onMetrics({ boxWidth: event.currentTarget.clientWidth, boxHeight: event.currentTarget.clientHeight, videoWidth: event.currentTarget.videoWidth, videoHeight: event.currentTarget.videoHeight }); }} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
     {!media.url && !error ? <span>Loading video...</span> : null}
     {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={() => onEnded(0)}>Skip clip</button></div> : null}
     <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
   </article>;
+}
+
+function StorySceneInteraction({ event, fit, metrics, paused, onResolve }: {
+  event: Extract<StorySceneEvent, { type: "hotspot" | "qte" }>;
+  fit: StoryPlayerConfig["videoFit"];
+  metrics?: VideoMetrics;
+  paused: boolean;
+  onResolve: (result: "success" | "timeout") => void;
+}) {
+  const [remainingMs, setRemainingMs] = useState(event.durationMs);
+  const remaining = useRef(event.durationMs);
+  const resolved = useRef(false);
+
+  useEffect(() => {
+    if (paused || resolved.current) return;
+    const deadline = performance.now() + remaining.current;
+    const tick = () => {
+      remaining.current = Math.max(0, deadline - performance.now());
+      setRemainingMs(remaining.current);
+    };
+    const interval = window.setInterval(tick, 50);
+    const timer = window.setTimeout(() => resolve("timeout"), remaining.current);
+    return () => { tick(); window.clearInterval(interval); window.clearTimeout(timer); };
+  }, [paused]);
+
+  useEffect(() => {
+    if (event.type !== "qte" || paused) return;
+    const keydown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.code !== event.key || keyEvent.repeat) return;
+      keyEvent.preventDefault();
+      resolve("success");
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [event, paused]);
+
+  function resolve(result: "success" | "timeout"): void {
+    if (resolved.current || paused) return;
+    resolved.current = true;
+    onResolve(result);
+  }
+
+  const progress = Math.max(0, remainingMs / event.durationMs);
+  return <div className="story-player-interaction" aria-live="polite">
+    {event.type === "hotspot" ? <button
+      className="story-player-hotspot"
+      type="button"
+      aria-label={event.label || "Hotspot"}
+      style={hotspotStyle(event.region, fit, metrics)}
+      onClick={() => resolve("success")}
+    ><span>{event.label || "Hotspot"}</span></button> : <div className="story-player-qte">
+      <span>{event.prompt || "Act now"}</span>
+      <button type="button" onClick={() => resolve("success")}><kbd>{qteKeyLabel(event.key)}</kbd></button>
+    </div>}
+    <div className="story-player-interaction-timer" role="timer" aria-label="Time remaining"><span style={{ transform: `scaleX(${progress})` }} /></div>
+  </div>;
+}
+
+function hotspotStyle(region: StoryHotspotRegion, fit: StoryPlayerConfig["videoFit"], metrics?: VideoMetrics): CSSProperties {
+  if (!metrics || !metrics.videoWidth || !metrics.videoHeight) return { visibility: "hidden" };
+  const scale = fit === "contain"
+    ? Math.min(metrics.boxWidth / metrics.videoWidth, metrics.boxHeight / metrics.videoHeight)
+    : Math.max(metrics.boxWidth / metrics.videoWidth, metrics.boxHeight / metrics.videoHeight);
+  const width = metrics.videoWidth * scale;
+  const height = metrics.videoHeight * scale;
+  const left = (metrics.boxWidth - width) / 2 + region.x * width;
+  const top = (metrics.boxHeight - height) / 2 + region.y * height;
+  return { left, top, width: region.width * width, height: region.height * height };
+}
+
+function qteKeyLabel(code: string): string {
+  if (code === "Space") return "Space";
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return code.replace("Arrow", "Arrow ");
 }
 
 function errorMessage(error: unknown): string {

@@ -69,6 +69,8 @@ import {
   type StoryChoiceOption,
   type StoryDocument,
   type StoryAssetReference,
+  type StoryHotspotRegion,
+  type StoryInteractionOutcome,
   type StoryNode,
   type StoryNodeType,
   type StoryOverlay,
@@ -86,7 +88,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, countSceneVariableReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeOverlayVariableReferences, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, countSceneVariableReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeOverlayVariableReferences, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneInteractionHandle, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -347,6 +349,11 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         const edge = assetEdges.find((candidate) => candidate.id === change.id);
         const relation = edge?.data?.relation;
         const referenceId = edge?.data?.referenceId;
+        if (edge && relation === "scene-clip" && typeof referenceId === "string") {
+          const scene = nodes.find((node) => node.id === edge.target && node.type === "scene");
+          const removedHandles = scene?.type === "scene" ? interactionHandlesForClips(scene.data.events ?? [], new Set([referenceId])) : [];
+          if (removedHandles.length) setEdges((current) => current.filter((candidate) => candidate.source !== edge.target || !removedHandles.includes(candidate.sourceHandle ?? OUTPUT_HANDLE)));
+        }
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
           if (relation === "scene-clip" && node.id === edge.target && node.type === "scene") {
             return { ...node, data: sceneDataWithClips(node.data, (node.data.clips ?? []).filter((clip) => clip.id !== referenceId)) };
@@ -464,11 +471,12 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     }
   }
 
-  function updateSelected(data: StoryFlowData, removedHandle?: string): void {
+  function updateSelected(data: StoryFlowData, removedHandle?: string | string[]): void {
     if (!selectedId) return;
     setNodes((current) => current.map((node) => node.id === selectedId ? { ...node, data } : node));
     if (removedHandle) {
-      setEdges((current) => current.filter((edge) => edge.source !== selectedId || edge.sourceHandle !== removedHandle));
+      const removed = new Set(Array.isArray(removedHandle) ? removedHandle : [removedHandle]);
+      setEdges((current) => current.filter((edge) => edge.source !== selectedId || !removed.has(edge.sourceHandle ?? OUTPUT_HANDLE)));
     }
   }
 
@@ -478,8 +486,10 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
 
   function deleteSelected(): void {
     if (!selectedNode || selectedNode.type === "start") return;
-    setNodes((current) => removeNodesAndReferences(current, new Set([selectedNode.id])));
-    setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id));
+    const removedIds = new Set([selectedNode.id]);
+    const removedOutputs = interactionOutputsRemovedWithNodes(nodes, removedIds);
+    setNodes((current) => removeNodesAndReferences(current, removedIds));
+    setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target) && !removedOutputs.has(interactionOutputKey(edge.source, edge.sourceHandle ?? OUTPUT_HANDLE))));
     setSelectedId(undefined);
   }
 
@@ -880,8 +890,11 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
               onNodeClick={(_event, node) => { setVariablesOpen(false); setSelectedAssetEdgeId(undefined); setSelectedId(node.id); }}
               onPaneClick={() => { setVariablesOpen(false); clearSelection(); }}
               onNodesDelete={(deleted) => {
-                if (deleted.some((node) => node.id === selectedId)) setSelectedId(undefined);
-                setNodes((current) => removeNodesAndReferences(current, new Set(deleted.map((node) => node.id))));
+                const removedIds = new Set(deleted.map((node) => node.id));
+                const removedOutputs = interactionOutputsRemovedWithNodes(nodes, removedIds);
+                if (removedIds.has(selectedId ?? "")) setSelectedId(undefined);
+                setNodes((current) => removeNodesAndReferences(current, removedIds));
+                setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target) && !removedOutputs.has(interactionOutputKey(edge.source, edge.sourceHandle ?? OUTPUT_HANDLE))));
               }}
               isValidConnection={(connection) => {
                 const source = nodes.find((node) => node.id === connection.source);
@@ -985,6 +998,10 @@ function SceneNode({ data, selected }: NodeProps<StoryFlowNode>) {
       <Handle type="target" position={Position.Left} />
       <StoryNodeHeading icon={<Clapperboard size={14} />} type="Scene" title={data.title || "Untitled scene"} />
       <p className={clipCount ? undefined : "is-placeholder"}>{clipCount ? `${clipCount} ${clipCount === 1 ? "clip" : "clips"} · ${eventCount} ${eventCount === 1 ? "event" : "events"}` : "Add video clips"}</p>
+      {(data.events ?? []).flatMap((event) => event.type === "hotspot" || event.type === "qte" ? [event] : []).map((event) => <div className="story-node-interaction" key={event.id}>
+        <span>{formatEventTime(event.timeMs)} · {event.type === "hotspot" ? "Hotspot" : `QTE · ${qteKeyLabel(event.key)}`}</span>
+        <div>{(["success", "timeout"] as const).map((result) => event[result].transition === "branch" ? <div key={result}><span>{result}</span><Handle id={sceneInteractionHandle(event.id, result)} type="source" position={Position.Right} /></div> : null)}</div>
+      </div>)}
       <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
@@ -1718,7 +1735,7 @@ function StoryInspector({
   node: StoryFlowNode;
   variables: StoryVariable[];
   overlays: StoryOverlay[];
-  onChange: (data: StoryFlowData, removedHandle?: string) => void;
+  onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onClose: () => void;
   onDelete: () => void;
 }) {
@@ -1740,14 +1757,20 @@ function StoryInspector({
               libraryAssets={libraryAssets}
               nodes={nodes}
               clips={node.data.clips ?? []}
-              onChange={(clips) => onChange(sceneDataWithClips(node.data, clips))}
+              onChange={(clips) => {
+                const clipIds = new Set(clips.map((clip) => clip.id));
+                const removedHandles = (node.data.events ?? []).flatMap((event) => !clipIds.has(event.clipId) && (event.type === "hotspot" || event.type === "qte")
+                  ? [sceneInteractionHandle(event.id, "success"), sceneInteractionHandle(event.id, "timeout")]
+                  : []);
+                onChange(sceneDataWithClips(node.data, clips), removedHandles);
+              }}
             />
             <StoryEventEditor
               clips={node.data.clips ?? []}
               events={node.data.events ?? []}
               variables={variables}
               overlays={overlays}
-              onChange={(events) => onChange({ ...node.data, events })}
+              onChange={(events, removedHandles) => onChange({ ...node.data, events }, removedHandles)}
             />
           </>
         ) : null}
@@ -1876,7 +1899,7 @@ function StoryEventEditor({ clips, events, variables, overlays, onChange }: {
   events: StorySceneEvent[];
   variables: StoryVariable[];
   overlays: StoryOverlay[];
-  onChange: (events: StorySceneEvent[]) => void;
+  onChange: (events: StorySceneEvent[], removedHandles?: string[]) => void;
 }) {
   function update(id: string, next: StorySceneEvent): void {
     onChange(events.map((event) => event.id === id ? next : event));
@@ -1901,18 +1924,33 @@ function StoryEventEditor({ clips, events, variables, overlays, onChange }: {
           {clips.map((clip, clipIndex) => <option key={clip.id} value={clip.id}>Clip {clipIndex + 1}</option>)}
         </select>
         <label><span>Seconds</span><input aria-label={`Event ${index + 1} time`} type="number" min={0} step={0.1} value={event.timeMs / 1_000} onChange={(change) => update(event.id, { ...event, timeMs: Math.max(0, Math.round((Number(change.target.value) || 0) * 1_000)) })} /></label>
-        <select aria-label={`Event ${index + 1} type`} value={event.type} onChange={(change) => update(event.id, change.target.value === "continue"
-          ? { id: event.id, clipId: event.clipId, timeMs: event.timeMs, type: "continue", label: "Continue" }
-          : { id: event.id, clipId: event.clipId, timeMs: event.timeMs, type: "actions", actions: [] })}>
+        <select aria-label={`Event ${index + 1} type`} value={event.type} onChange={(change) => {
+          const base = { id: event.id, clipId: event.clipId, timeMs: event.timeMs };
+          const outcome: StoryInteractionOutcome = { actions: [], transition: "continue" };
+          const type = change.target.value;
+          const next: StorySceneEvent = type === "continue" ? { ...base, type, label: "Continue" }
+            : type === "hotspot" ? { ...base, type, durationMs: 5_000, label: "Hotspot", region: { x: 0.35, y: 0.35, width: 0.3, height: 0.3 }, success: outcome, timeout: outcome }
+            : type === "qte" ? { ...base, type, durationMs: 3_000, prompt: "Act now", key: "KeyE", success: outcome, timeout: outcome }
+            : { ...base, type: "actions", actions: [] };
+          const removed = event.type === "hotspot" || event.type === "qte" ? [sceneInteractionHandle(event.id, "success"), sceneInteractionHandle(event.id, "timeout")] : undefined;
+          onChange(events.map((candidate) => candidate.id === event.id ? next : candidate), removed);
+        }}>
           <option value="actions">Actions</option>
           <option value="continue">Continue</option>
+          <option value="hotspot">Hotspot</option>
+          <option value="qte">QTE</option>
         </select>
       </div>
-      {event.type === "actions" ? <ChoiceActionsEditor variables={variables} overlays={overlays} value={event.actions} onChange={(actions) => update(event.id, { ...event, actions })} /> : <InspectorField label="Button label"><input maxLength={80} value={event.label} onChange={(change) => update(event.id, { ...event, label: change.target.value.slice(0, 80) })} /></InspectorField>}
+      {event.type === "actions" ? <ChoiceActionsEditor variables={variables} overlays={overlays} value={event.actions} onChange={(actions) => update(event.id, { ...event, actions })} /> : null}
+      {event.type === "continue" ? <InspectorField label="Button label"><input maxLength={80} value={event.label} onChange={(change) => update(event.id, { ...event, label: change.target.value.slice(0, 80) })} /></InspectorField> : null}
+      {event.type === "hotspot" || event.type === "qte" ? <InteractionEventEditor event={event} variables={variables} overlays={overlays} onChange={(next, removedHandle) => onChange(
+        events.map((candidate) => candidate.id === event.id ? next : candidate),
+        removedHandle ? [removedHandle] : undefined,
+      )} /> : null}
       <div className="story-event-actions">
         <button type="button" title="Move event up" aria-label={`Move event ${index + 1} up`} disabled={!events.slice(0, index).some((candidate) => candidate.clipId === event.clipId && candidate.timeMs === event.timeMs)} onClick={() => move(index, -1)}><ArrowUp size={13} /></button>
         <button type="button" title="Move event down" aria-label={`Move event ${index + 1} down`} disabled={!events.slice(index + 1).some((candidate) => candidate.clipId === event.clipId && candidate.timeMs === event.timeMs)} onClick={() => move(index, 1)}><ChevronDown size={13} /></button>
-        <button type="button" title="Delete event" aria-label={`Delete event ${index + 1}`} onClick={() => onChange(events.filter((candidate) => candidate.id !== event.id))}><Trash2 size={13} /></button>
+        <button type="button" title="Delete event" aria-label={`Delete event ${index + 1}`} onClick={() => onChange(events.filter((candidate) => candidate.id !== event.id), event.type === "hotspot" || event.type === "qte" ? [sceneInteractionHandle(event.id, "success"), sceneInteractionHandle(event.id, "timeout")] : undefined)}><Trash2 size={13} /></button>
       </div>
     </div>)}
     {!events.length ? <p>No events yet</p> : null}
@@ -1921,6 +1959,64 @@ function StoryEventEditor({ clips, events, variables, overlays, onChange }: {
       if (clip) onChange([...events, { id: crypto.randomUUID(), clipId: clip.id, timeMs: 0, type: "continue", label: "Continue" }]);
     }}><Plus size={14} />Add event</button>
   </section>;
+}
+
+function InteractionEventEditor({ event, variables, overlays, onChange }: {
+  event: Extract<StorySceneEvent, { type: "hotspot" | "qte" }>;
+  variables: StoryVariable[];
+  overlays: StoryOverlay[];
+  onChange: (event: Extract<StorySceneEvent, { type: "hotspot" | "qte" }>, removedHandle?: string) => void;
+}) {
+  function updateOutcome(result: "success" | "timeout", outcome: StoryInteractionOutcome): void {
+    const removedHandle = event[result].transition === "branch" && outcome.transition === "continue" ? sceneInteractionHandle(event.id, result) : undefined;
+    onChange({ ...event, [result]: outcome }, removedHandle);
+  }
+  return <div className="story-interaction-editor">
+    <label><span>Time limit</span><input type="number" min={0.5} max={60} step={0.5} value={event.durationMs / 1_000} onChange={(change) => onChange({ ...event, durationMs: Math.round(Math.min(60, Math.max(0.5, Number(change.target.value) || 0.5)) * 1_000) })} /></label>
+    {event.type === "hotspot" ? <>
+      <InspectorField label="Label"><input maxLength={80} value={event.label} onChange={(change) => onChange({ ...event, label: change.target.value.slice(0, 80) })} /></InspectorField>
+      <HotspotRegionEditor value={event.region} onChange={(region) => onChange({ ...event, region })} />
+    </> : <>
+      <InspectorField label="Prompt"><input maxLength={120} value={event.prompt} onChange={(change) => onChange({ ...event, prompt: change.target.value.slice(0, 120) })} /></InspectorField>
+      <label><span>Input</span><button className="story-qte-key" type="button" onKeyDown={(keyEvent) => {
+        if (validQteCode(keyEvent.code)) { keyEvent.preventDefault(); onChange({ ...event, key: keyEvent.code }); }
+      }}>Focus, then press a key · {qteKeyLabel(event.key)}</button></label>
+    </>}
+    {(["success", "timeout"] as const).map((result) => <section className="story-interaction-outcome" key={result}>
+      <strong>{result === "success" ? "Success" : "Timeout"}</strong>
+      <label><span>Transition</span><select value={event[result].transition} onChange={(change) => updateOutcome(result, { ...event[result], transition: change.target.value as StoryInteractionOutcome["transition"] })}><option value="continue">Continue video</option><option value="branch">Branch</option></select></label>
+      <ChoiceActionsEditor variables={variables} overlays={overlays} value={event[result].actions} onChange={(actions) => updateOutcome(result, { ...event[result], actions })} />
+    </section>)}
+  </div>;
+}
+
+function HotspotRegionEditor({ value, onChange }: { value: StoryHotspotRegion; onChange: (region: StoryHotspotRegion) => void }) {
+  const preview = useRef<HTMLDivElement>(null);
+  function position(pointer: { clientX: number; clientY: number }): void {
+    const bounds = preview.current?.getBoundingClientRect();
+    if (!bounds) return;
+    const x = Math.min(1 - value.width, Math.max(0, (pointer.clientX - bounds.left) / bounds.width - value.width / 2));
+    const y = Math.min(1 - value.height, Math.max(0, (pointer.clientY - bounds.top) / bounds.height - value.height / 2));
+    onChange({ ...value, x, y });
+  }
+  return <div className="story-hotspot-region"><span>Area</span><div ref={preview} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); position(event); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) position(event); }}>
+    <span style={{ left: `${value.x * 100}%`, top: `${value.y * 100}%`, width: `${value.width * 100}%`, height: `${value.height * 100}%` }} />
+  </div><div><label><span>W</span><input type="number" min={5} max={100} value={Math.round(value.width * 100)} onChange={(event) => { const width = Math.min(1, Math.max(0.05, Number(event.target.value) / 100)); onChange({ ...value, width, x: Math.min(value.x, 1 - width) }); }} /></label><label><span>H</span><input type="number" min={5} max={100} value={Math.round(value.height * 100)} onChange={(event) => { const height = Math.min(1, Math.max(0.05, Number(event.target.value) / 100)); onChange({ ...value, height, y: Math.min(value.y, 1 - height) }); }} /></label></div></div>;
+}
+
+function formatEventTime(timeMs: number): string {
+  return `${(timeMs / 1_000).toFixed(1)}s`;
+}
+
+function validQteCode(code: string): boolean {
+  return /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$/.test(code);
+}
+
+function qteKeyLabel(code: string): string {
+  if (code === "Space") return "Space";
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return code.replace("Arrow", "Arrow ");
 }
 
 function StoryAssetPicker({ title, assets, onClose, onSelect }: {
@@ -2221,7 +2317,7 @@ function storyDocument(
   remainingChapters: StoryChapter[],
 ): StoryDocument {
   return {
-    version: 6,
+    version: 7,
     ...(player ? { player } : {}),
     variables,
     overlays,
@@ -2255,14 +2351,27 @@ function removeVariableFromStoryNode(node: StoryNode, variableId: string): Story
 
 function removeOverlayFromFlowNode(node: StoryFlowNode, overlayId: string): StoryFlowNode {
   if (node.type === "choice") return { ...node, data: { ...node.data, options: (node.data.options ?? []).map((option) => ({ ...option, actions: option.actions?.filter((action) => !("overlayId" in action) || action.overlayId !== overlayId) })) } };
-  if (node.type === "scene") return { ...node, data: { ...node.data, events: (node.data.events ?? []).map((event) => event.type === "actions" ? { ...event, actions: event.actions.filter((action) => !("overlayId" in action) || action.overlayId !== overlayId) } : event) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: removeOverlayFromEvents(node.data.events ?? [], overlayId) } };
   return node;
 }
 
 function removeOverlayFromStoryNode(node: StoryNode, overlayId: string): StoryNode {
   if (node.type === "choice") return { ...node, data: { ...node.data, options: node.data.options.map((option) => ({ ...option, actions: option.actions?.filter((action) => !("overlayId" in action) || action.overlayId !== overlayId) })) } };
-  if (node.type === "scene") return { ...node, data: { ...node.data, events: node.data.events.map((event) => event.type === "actions" ? { ...event, actions: event.actions.filter((action) => !("overlayId" in action) || action.overlayId !== overlayId) } : event) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: removeOverlayFromEvents(node.data.events, overlayId) } };
   return node;
+}
+
+function removeOverlayFromEvents(events: StorySceneEvent[], overlayId: string): StorySceneEvent[] {
+  const remove = (actions: StoryAction[]) => actions.filter((action) => !("overlayId" in action) || action.overlayId !== overlayId);
+  return events.map((event) => {
+    if (event.type === "actions") return { ...event, actions: remove(event.actions) };
+    if (event.type === "hotspot" || event.type === "qte") return {
+      ...event,
+      success: { ...event.success, actions: remove(event.success.actions) },
+      timeout: { ...event.timeout, actions: remove(event.timeout.actions) },
+    };
+    return event;
+  });
 }
 
 function normalizeFlowNodeVariables(node: StoryFlowNode, variables: ReadonlyMap<string, StoryVariable>): StoryFlowNode {
@@ -2583,6 +2692,24 @@ function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySe
 function sceneDataWithClips(data: StoryFlowData, clips: StoryVideoClip[]): StoryFlowData {
   const clipIds = new Set(clips.map((clip) => clip.id));
   return { ...data, clips, events: (data.events ?? []).filter((event) => clipIds.has(event.clipId)) };
+}
+
+function interactionHandlesForClips(events: readonly StorySceneEvent[], clipIds: ReadonlySet<string>): string[] {
+  return events.flatMap((event) => clipIds.has(event.clipId) && (event.type === "hotspot" || event.type === "qte")
+    ? [sceneInteractionHandle(event.id, "success"), sceneInteractionHandle(event.id, "timeout")]
+    : []);
+}
+
+function interactionOutputsRemovedWithNodes(nodes: readonly StoryFlowNode[], removedNodeIds: ReadonlySet<string>): Set<string> {
+  return new Set(nodes.flatMap((node) => {
+    if (node.type !== "scene") return [];
+    const removedClipIds = new Set((node.data.clips ?? []).flatMap((clip) => clip.source.type === "node" && removedNodeIds.has(clip.source.nodeId) ? [clip.id] : []));
+    return interactionHandlesForClips(node.data.events ?? [], removedClipIds).map((handle) => interactionOutputKey(node.id, handle));
+  }));
+}
+
+function interactionOutputKey(nodeId: string, handle: string): string {
+  return `${nodeId}\0${handle}`;
 }
 
 function resolveLinkedPrompt(node: StoryFlowNode, nodes: StoryFlowNode[]): string | undefined {

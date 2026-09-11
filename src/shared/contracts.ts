@@ -167,9 +167,23 @@ export interface StoryVideoClip {
   source: StoryAssetReference;
 }
 
+export interface StoryInteractionOutcome {
+  actions: StoryAction[];
+  transition: "continue" | "branch";
+}
+
+export interface StoryHotspotRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type StorySceneEvent =
   | { id: string; clipId: string; timeMs: number; type: "actions"; actions: StoryAction[] }
-  | { id: string; clipId: string; timeMs: number; type: "continue"; label: string };
+  | { id: string; clipId: string; timeMs: number; type: "continue"; label: string }
+  | { id: string; clipId: string; timeMs: number; type: "hotspot"; durationMs: number; label: string; region: StoryHotspotRegion; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome }
+  | { id: string; clipId: string; timeMs: number; type: "qte"; durationMs: number; prompt: string; key: string; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome };
 
 export type StoryAssetReference =
   | { type: "library"; assetId: string }
@@ -273,7 +287,7 @@ export interface StoryOverlay {
 }
 
 export interface StoryDocument {
-  version: 6;
+  version: 7;
   player?: StoryPlayerConfig;
   variables?: StoryVariable[];
   overlays?: StoryOverlay[];

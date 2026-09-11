@@ -69,7 +69,7 @@ describe("ProjectManager", () => {
 
     const story = await manager.story(project.id);
     expect(story).toMatchObject({
-      version: 6,
+      version: 7,
       chapters: [{ title: "Untitled", nodes: [{ type: "start" }], edges: [] }],
     });
 
@@ -121,7 +121,7 @@ describe("ProjectManager", () => {
     const legacy = { ...current, version: 3 };
     await writeFile(path.join(project.workspacePath, "story.json"), JSON.stringify(legacy));
 
-    expect((await manager.story(project.id)).version).toBe(6);
+    expect((await manager.story(project.id)).version).toBe(7);
   });
 
   it("rejects stories for Web Game projects and invalid story documents", async () => {
@@ -131,7 +131,7 @@ describe("ProjectManager", () => {
     const story = await manager.create("Story", "interactive-drama");
 
     await expect(manager.story(webGame.id)).rejects.toThrow("Interactive Drama");
-    await expect(manager.setStory(story.id, { version: 6, chapters: [] })).rejects.toThrow("Invalid story document");
+    await expect(manager.setStory(story.id, { version: 7, chapters: [] })).rejects.toThrow("Invalid story document");
   });
 
   it("writes generated assets only under the project workspace", async () => {

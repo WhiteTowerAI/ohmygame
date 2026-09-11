@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryOverlay, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryInteractionOutcome, type StoryNode, type StoryOverlay, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
 const STORY_OVERLAY_PLACEMENTS = new Set(["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]);
@@ -12,7 +12,7 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 6,
+    version: 7,
     variables: [],
     overlays: [],
     chapters: [{
@@ -25,7 +25,7 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 6 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 7 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (value.player !== undefined && !isPlayerConfig(value.player)) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
@@ -77,7 +77,9 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       const target = nodeById.get(edge.target);
       if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
       const handle = edge.sourceHandle ?? "out";
-      if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle) : handle !== "out") return false;
+      if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
+        : source.type === "scene" ? handle !== "out" && !isSceneInteractionHandle(source.data.events, handle)
+        : handle !== "out") return false;
       edgeIds.add(edge.id);
       outputs.add(output);
       return true;
@@ -101,6 +103,10 @@ export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHan
 export function getNextNode(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryNode | undefined {
   const edge = getOutgoingEdge(chapter, nodeId, sourceHandle);
   return edge ? chapter.nodes.find((node) => node.id === edge.target) : undefined;
+}
+
+export function sceneInteractionHandle(eventId: string, result: "success" | "timeout"): string {
+  return `interaction:${eventId}:${result}`;
 }
 
 export function resolveStoryVideoClipAssetId(chapter: StoryChapter, clip: Extract<StoryNode, { type: "scene" }>["data"]["clips"][number]): string | undefined {
@@ -201,8 +207,9 @@ export function advanceSceneTime(chapter: StoryChapter, state: PlayerRuntimeStat
 
 export function continueSceneEvent(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
-  const { playback } = currentScenePlayback(chapter, state);
+  const { node, playback } = currentScenePlayback(chapter, state);
   if (!playback.waitingEventId) throw new Error("The scene is not waiting for Continue");
+  if (node.data.events.find((event) => event.id === playback.waitingEventId)?.type !== "continue") throw new Error("The scene is not waiting for Continue");
   const resumed: PlayingRuntimeState = {
     ...state,
     scenePlayback: {
@@ -211,7 +218,31 @@ export function continueSceneEvent(chapter: StoryChapter, state: PlayerRuntimeSt
       waitingEventId: undefined,
     },
   };
-  const { node } = currentScenePlayback(chapter, resumed);
+  return runSceneEvents(resumed, node, resumed.scenePlayback!, resumed.scenePlayback!.timeMs);
+}
+
+export function resolveSceneInteraction(chapter: StoryChapter, state: PlayerRuntimeState, eventId: string, result: "success" | "timeout"): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  const { node, playback } = currentScenePlayback(chapter, state);
+  if (playback.waitingEventId !== eventId) throw new Error("The interaction is not active");
+  const event = node.data.events.find((candidate) => candidate.id === eventId);
+  if (!event || (event.type !== "hotspot" && event.type !== "qte")) throw new Error("The active event is not an interaction");
+  const outcome = event[result];
+  const applied = applyRuntimeActions(state, outcome.actions);
+  const resumed: PlayingRuntimeState = {
+    ...state,
+    ...applied,
+    scenePlayback: {
+      ...playback,
+      firedEventIds: [...playback.firedEventIds, event.id],
+      waitingEventId: undefined,
+    },
+  };
+  if (outcome.transition === "branch") {
+    const next = getNextNode(chapter, node.id, sceneInteractionHandle(event.id, result));
+    if (!next) throw new Error(`The ${result} outcome is not connected`);
+    return enterStoryNode(resumed, next);
+  }
   return runSceneEvents(resumed, node, resumed.scenePlayback!, resumed.scenePlayback!.timeMs);
 }
 
@@ -247,7 +278,7 @@ function runSceneEvents(state: PlayingRuntimeState, node: Extract<StoryNode, { t
     .filter(({ event }) => event.clipId === playback.clipId && !fired.has(event.id) && event.timeMs >= playback.timeMs && event.timeMs <= timeMs)
     .sort((left, right) => left.event.timeMs - right.event.timeMs || left.index - right.index);
   for (const { event } of due) {
-    if (event.type === "continue") {
+    if (event.type === "continue" || event.type === "hotspot" || event.type === "qte") {
       nextPlayback = { ...nextPlayback, timeMs: event.timeMs, waitingEventId: event.id };
       break;
     }
@@ -337,17 +368,27 @@ export function normalizeStoryVariableReferences(options: readonly StoryChoiceOp
 }
 
 export function countSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): number {
-  return events.reduce((count, event) => count + (event.type === "actions" ? event.actions.filter((action) => "variableId" in action && action.variableId === variableId).length : 0), 0);
+  return events.reduce((count, event) => count + sceneEventActions(event).filter((action) => "variableId" in action && action.variableId === variableId).length, 0);
 }
 
 export function removeSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): StorySceneEvent[] {
-  return events.map((event) => event.type === "actions"
-    ? { ...event, actions: event.actions.filter((action) => !("variableId" in action) || action.variableId !== variableId) }
-    : event);
+  return events.map((event) => mapSceneEventActions(event, (actions) => actions.filter((action) => !("variableId" in action) || action.variableId !== variableId)));
 }
 
 export function normalizeSceneVariableReferences(events: readonly StorySceneEvent[], variables: ReadonlyMap<string, StoryVariable>): StorySceneEvent[] {
-  return events.map((event) => event.type === "actions" ? { ...event, actions: normalizeActions(event.actions, variables) } : event);
+  return events.map((event) => mapSceneEventActions(event, (actions) => normalizeActions(actions, variables)));
+}
+
+function sceneEventActions(event: StorySceneEvent): StoryAction[] {
+  if (event.type === "actions") return event.actions;
+  return event.type === "hotspot" || event.type === "qte" ? [...event.success.actions, ...event.timeout.actions] : [];
+}
+
+function mapSceneEventActions(event: StorySceneEvent, update: (actions: StoryAction[]) => StoryAction[]): StorySceneEvent {
+  if (event.type === "actions") return { ...event, actions: update(event.actions) };
+  return event.type === "hotspot" || event.type === "qte"
+    ? { ...event, success: { ...event.success, actions: update(event.success.actions) }, timeout: { ...event.timeout, actions: update(event.timeout.actions) } }
+    : event;
 }
 
 export function normalizeOverlayVariableReferences(overlays: readonly StoryOverlay[], variables: ReadonlyMap<string, StoryVariable>): StoryOverlay[] {
@@ -400,8 +441,9 @@ function migrateStoryDocument(value: unknown): unknown {
         : { ...node, data: { ...node.data, events: [] } }),
     })),
   } : version4;
-  if (version5.version !== 5) return version5;
-  return { ...version5, version: 6, overlays: [] };
+  const version6 = version5.version === 5 ? { ...version5, version: 6, overlays: [] } : version5;
+  if (version6.version !== 6) return version6;
+  return { ...version6, version: 7 };
 }
 
 function migrateStoryNode(node: unknown): unknown {
@@ -469,14 +511,20 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
         };
       }
     }
-    const handles = node.type === "choice" ? node.data.options.map((option) => option.id) : ["out"];
+    const handles = node.type === "choice" ? node.data.options.map((option) => option.id)
+      : node.type === "scene" ? ["out", ...node.data.events.flatMap((event) => event.type === "hotspot" || event.type === "qte"
+        ? (["success", "timeout"] as const).flatMap((result) => event[result].transition === "branch" ? [sceneInteractionHandle(event.id, result)] : [])
+        : [])]
+      : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
       if (!edge) return {
         nodeId: node.id,
         message: node.type === "choice"
           ? `Connect the choice "${node.data.options.find((option) => option.id === handle)?.label || "Untitled option"}".`
-          : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
+          : node.type === "scene" && handle !== "out"
+            ? `Connect the ${handle.endsWith(":success") ? "success" : "timeout"} outcome in "${node.data.title || "Untitled scene"}".`
+            : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
       };
       const target = chapter.nodes.find((candidate) => candidate.id === edge.target);
       if (!target) return { nodeId: node.id, message: "A connection points to a missing node." };
@@ -505,7 +553,11 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
         typeof event.timeMs !== "number" || !Number.isInteger(event.timeMs) || event.timeMs < 0) return false;
       eventIds.add(event.id);
       if (event.type === "actions") return Array.isArray(event.actions) && event.actions.every((action) => isAction(action, variables, overlays));
-      return event.type === "continue" && typeof event.label === "string" && event.label.length <= 80;
+      if (event.type === "continue") return typeof event.label === "string" && event.label.length <= 80;
+      if ((event.type !== "hotspot" && event.type !== "qte") || !validInteractionDuration(event.durationMs) ||
+        !isOutcome(event.success, variables, overlays) || !isOutcome(event.timeout, variables, overlays)) return false;
+      if (event.type === "qte") return typeof event.prompt === "string" && event.prompt.length <= 120 && isQteKey(event.key);
+      return typeof event.label === "string" && event.label.length <= 80 && isHotspotRegion(event.region);
     });
   }
   if (value.type === "ending") {
@@ -551,6 +603,33 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   const timeout = value.data.timeout;
   return isRecord(timeout) && typeof timeout.durationMs === "number" && Number.isInteger(timeout.durationMs) &&
     timeout.durationMs >= 1_000 && timeout.durationMs <= 300_000 && nonEmptyString(timeout.defaultOptionId) && optionIds.has(timeout.defaultOptionId);
+}
+
+function isSceneInteractionHandle(events: readonly StorySceneEvent[], handle: string): boolean {
+  return events.some((event) => (event.type === "hotspot" || event.type === "qte") &&
+    ((event.success.transition === "branch" && handle === sceneInteractionHandle(event.id, "success")) ||
+      (event.timeout.transition === "branch" && handle === sceneInteractionHandle(event.id, "timeout"))));
+}
+
+function validInteractionDuration(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 500 && value <= 60_000;
+}
+
+function isOutcome(value: unknown, variables: ReadonlyMap<string, StoryVariable>, overlays: ReadonlySet<string>): value is StoryInteractionOutcome {
+  return isRecord(value) && (value.transition === "continue" || value.transition === "branch") &&
+    Array.isArray(value.actions) && value.actions.every((action) => isAction(action, variables, overlays));
+}
+
+function isHotspotRegion(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const { x, y, width, height } = value;
+  return [x, y, width, height].every((part) => typeof part === "number" && Number.isFinite(part)) &&
+    Number(width) > 0 && Number(height) > 0 && Number(x) >= 0 && Number(y) >= 0 &&
+    Number(x) + Number(width) <= 1 && Number(y) + Number(height) <= 1;
+}
+
+function isQteKey(value: unknown): boolean {
+  return typeof value === "string" && /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$/.test(value);
 }
 
 function isVariables(value: unknown): value is StoryVariable[] {
