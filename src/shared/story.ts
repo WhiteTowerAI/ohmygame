@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryPlayerConfig, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
 
@@ -11,7 +11,7 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 4,
+    version: 5,
     variables: [],
     chapters: [{
       id: crypto.randomUUID(),
@@ -23,7 +23,7 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 4 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 5 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (value.player !== undefined && !isPlayerConfig(value.player)) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
@@ -134,6 +134,13 @@ export interface StoryRuntimeState {
   variables: Record<string, StoryVariableValue>;
 }
 
+export interface ScenePlaybackState {
+  clipId: string;
+  timeMs: number;
+  firedEventIds: string[];
+  waitingEventId?: string;
+}
+
 interface PlayerRuntimeStateBase {
   chapterId: string;
   variables: Record<string, StoryVariableValue>;
@@ -141,7 +148,7 @@ interface PlayerRuntimeStateBase {
 
 export type PlayerRuntimeState =
   | PlayerRuntimeStateBase & { mode: "menu"; nodeId?: never }
-  | PlayerRuntimeStateBase & { mode: "playing"; nodeId: string };
+  | PlayerRuntimeStateBase & { mode: "playing"; nodeId: string; scenePlayback?: ScenePlaybackState };
 
 type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" }>;
 
@@ -151,28 +158,104 @@ export function createPlayerState(chapterId: string, variables: readonly StoryVa
 
 export function startGame(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
   if (state.chapterId !== chapter.id) throw new Error("Runtime state belongs to a different chapter");
+  if (state.mode !== "menu") throw new Error("The game has already started");
   const start = getStartNode(chapter);
   const first = start ? getNextNode(chapter, start.id) : undefined;
   if (!first) throw new Error("The chapter has no opening node");
-  return { ...state, mode: "playing", nodeId: first.id };
+  return enterStoryNode({ ...state, mode: "playing" }, first);
 }
 
-export function completeScene(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
-  if (state.mode !== "playing") throw new Error("The game is not playing");
+function advanceFromScene(chapter: StoryChapter, state: PlayingRuntimeState): PlayingRuntimeState {
   const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
   if (node?.type !== "scene") throw new Error("The current story node is not a scene");
   const next = getNextNode(chapter, node.id);
   if (!next) throw new Error("The scene is not connected");
-  return { ...state, nodeId: next.id };
+  return enterStoryNode(state, next);
 }
 
 export function chooseOption(chapter: StoryChapter, state: PlayerRuntimeState, optionId: string): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
-  return { ...resolveStoryChoice(chapter, { chapterId: state.chapterId, nodeId: state.nodeId, variables: state.variables }, optionId), mode: "playing" };
+  const resolved = resolveStoryChoice(chapter, { chapterId: state.chapterId, nodeId: state.nodeId, variables: state.variables }, optionId);
+  const next = chapter.nodes.find((node) => node.id === resolved.nodeId);
+  if (!next) throw new Error("The selected choice points to a missing node");
+  return enterStoryNode({ ...resolved, mode: "playing" }, next);
 }
 
 export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[]): PlayingRuntimeState {
   return startGame(chapter, createPlayerState(chapter.id, variables));
+}
+
+export function advanceSceneTime(chapter: StoryChapter, state: PlayerRuntimeState, clipId: string, timeMs: number): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  if (!Number.isFinite(timeMs) || timeMs < 0) throw new Error("Scene time must be a non-negative finite number");
+  const { node, playback } = currentScenePlayback(chapter, state, clipId);
+  if (playback.waitingEventId || timeMs <= playback.timeMs) return state;
+  return runSceneEvents(state, node, playback, timeMs);
+}
+
+export function continueSceneEvent(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  const { playback } = currentScenePlayback(chapter, state);
+  if (!playback.waitingEventId) throw new Error("The scene is not waiting for Continue");
+  const resumed: PlayingRuntimeState = {
+    ...state,
+    scenePlayback: {
+      ...playback,
+      firedEventIds: [...playback.firedEventIds, playback.waitingEventId],
+      waitingEventId: undefined,
+    },
+  };
+  const { node } = currentScenePlayback(chapter, resumed);
+  return runSceneEvents(resumed, node, resumed.scenePlayback!, resumed.scenePlayback!.timeMs);
+}
+
+export function completeSceneClip(chapter: StoryChapter, state: PlayerRuntimeState, clipId: string, durationMs: number): PlayingRuntimeState {
+  const advanced = advanceSceneTime(chapter, state, clipId, durationMs);
+  const { node, playback } = currentScenePlayback(chapter, advanced, clipId);
+  if (playback.waitingEventId) return advanced;
+  const clipIndex = node.data.clips.findIndex((clip) => clip.id === clipId);
+  const nextClip = node.data.clips[clipIndex + 1];
+  if (nextClip) return beginSceneClip(advanced, node, nextClip.id);
+  return advanceFromScene(chapter, advanced);
+}
+
+function enterStoryNode(state: PlayerRuntimeStateBase & { mode: "playing" }, node: StoryNode): PlayingRuntimeState {
+  const entered = { ...state, nodeId: node.id, scenePlayback: undefined };
+  return node.type === "scene" && node.data.clips[0]
+    ? beginSceneClip(entered, node, node.data.clips[0].id)
+    : entered;
+}
+
+function beginSceneClip(state: PlayingRuntimeState, node: Extract<StoryNode, { type: "scene" }>, clipId: string): PlayingRuntimeState {
+  const playback: ScenePlaybackState = { clipId, timeMs: 0, firedEventIds: [] };
+  return runSceneEvents({ ...state, scenePlayback: playback }, node, playback, 0);
+}
+
+function runSceneEvents(state: PlayingRuntimeState, node: Extract<StoryNode, { type: "scene" }>, playback: ScenePlaybackState, timeMs: number): PlayingRuntimeState {
+  let variables = state.variables;
+  let nextPlayback = { ...playback, timeMs };
+  const fired = new Set(playback.firedEventIds);
+  const due = node.data.events
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.clipId === playback.clipId && !fired.has(event.id) && event.timeMs >= playback.timeMs && event.timeMs <= timeMs)
+    .sort((left, right) => left.event.timeMs - right.event.timeMs || left.index - right.index);
+  for (const { event } of due) {
+    if (event.type === "continue") {
+      nextPlayback = { ...nextPlayback, timeMs: event.timeMs, waitingEventId: event.id };
+      break;
+    }
+    variables = applyStoryActions(event.actions, variables);
+    fired.add(event.id);
+    nextPlayback = { ...nextPlayback, firedEventIds: [...fired] };
+  }
+  return { ...state, variables, scenePlayback: nextPlayback };
+}
+
+function currentScenePlayback(chapter: StoryChapter, state: PlayingRuntimeState, clipId?: string): { node: Extract<StoryNode, { type: "scene" }>; playback: ScenePlaybackState } {
+  const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
+  if (node?.type !== "scene" || !state.scenePlayback) throw new Error("The current story node is not a scene");
+  if (clipId !== undefined && state.scenePlayback.clipId !== clipId) throw new Error("The clip is not active");
+  return { node, playback: state.scenePlayback };
 }
 
 export function matchesStoryCondition(condition: StoryVariableCondition | undefined, values: Readonly<Record<string, StoryVariableValue>>): boolean {
@@ -227,20 +310,38 @@ export function removeStoryVariableReferences(options: readonly StoryChoiceOptio
 
 export function normalizeStoryVariableReferences(options: readonly StoryChoiceOption[], variables: ReadonlyMap<string, StoryVariable>): StoryChoiceOption[] {
   return options.map((option) => {
-    const actions = option.actions?.reduce<StoryAction[]>((normalized, action) => {
-      const variable = variables.get(action.variableId);
-      if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
-      normalized.push(action.type === "set-variable"
-        ? { ...action, value: variableValue(action.value, variable.type) }
-        : { ...action, amount: Number.isFinite(action.amount) ? action.amount : 0 });
-      return normalized;
-    }, []);
+    const actions = normalizeActions(option.actions ?? [], variables);
     return {
       ...option,
       ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
-      ...(actions?.length ? { actions } : { actions: undefined }),
+      ...(actions.length ? { actions } : { actions: undefined }),
     };
   });
+}
+
+export function countSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): number {
+  return events.reduce((count, event) => count + (event.type === "actions" ? event.actions.filter((action) => action.variableId === variableId).length : 0), 0);
+}
+
+export function removeSceneVariableReferences(events: readonly StorySceneEvent[], variableId: string): StorySceneEvent[] {
+  return events.map((event) => event.type === "actions"
+    ? { ...event, actions: event.actions.filter((action) => action.variableId !== variableId) }
+    : event);
+}
+
+export function normalizeSceneVariableReferences(events: readonly StorySceneEvent[], variables: ReadonlyMap<string, StoryVariable>): StorySceneEvent[] {
+  return events.map((event) => event.type === "actions" ? { ...event, actions: normalizeActions(event.actions, variables) } : event);
+}
+
+function normalizeActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
+  return actions.reduce<StoryAction[]>((normalized, action) => {
+    const variable = variables.get(action.variableId);
+    if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
+    normalized.push(action.type === "set-variable"
+      ? { ...action, value: variableValue(action.value, variable.type) }
+      : { ...action, amount: Number.isFinite(action.amount) ? action.amount : 0 });
+    return normalized;
+  }, []);
 }
 
 export function parseStoryDocument(value: unknown): StoryDocument {
@@ -250,13 +351,24 @@ export function parseStoryDocument(value: unknown): StoryDocument {
 }
 
 function migrateStoryDocument(value: unknown): unknown {
-  if (!isRecord(value) || value.version !== 3 || !Array.isArray(value.chapters)) return value;
-  return {
+  if (!isRecord(value) || !Array.isArray(value.chapters)) return value;
+  const version4 = value.version === 3 ? {
     ...value,
     version: 4,
     chapters: value.chapters.map((chapter) => !isRecord(chapter) || !Array.isArray(chapter.nodes) ? chapter : ({
       ...chapter,
       nodes: chapter.nodes.map(migrateStoryNode),
+    })),
+  } : value;
+  if (version4.version !== 4 || !Array.isArray(version4.chapters)) return version4;
+  return {
+    ...version4,
+    version: 5,
+    chapters: version4.chapters.map((chapter) => !isRecord(chapter) || !Array.isArray(chapter.nodes) ? chapter : ({
+      ...chapter,
+      nodes: chapter.nodes.map((node) => !isRecord(node) || node.type !== "scene" || !isRecord(node.data)
+        ? node
+        : { ...node, data: { ...node.data, events: [] } }),
     })),
   };
 }
@@ -284,7 +396,12 @@ export function replaceOutgoingEdge<T extends { source: string; sourceHandle?: s
   ];
 }
 
-export function validatePlayableChapter(chapter: StoryChapter, availableAssetIds?: ReadonlySet<string>): StoryPlayIssue | undefined {
+export interface StoryPlayValidationOptions {
+  availableAssetIds?: ReadonlySet<string>;
+  assetDurationsMs?: ReadonlyMap<string, number>;
+}
+
+export function validatePlayableChapter(chapter: StoryChapter, options: StoryPlayValidationOptions = {}): StoryPlayIssue | undefined {
   const start = getStartNode(chapter);
   if (!start) return { nodeId: "", message: "This chapter has no Start node." };
   const visited = new Set<string>();
@@ -299,12 +416,27 @@ export function validatePlayableChapter(chapter: StoryChapter, availableAssetIds
       nodeId: node.id,
       message: `Add at least one video to the scene "${node.data.title || "Untitled scene"}".`,
     };
-    if (node.type === "scene" && availableAssetIds) {
+    if (node.type === "scene" && options.availableAssetIds) {
       const missing = node.data.clips.find((clip) => {
         const assetId = resolveStoryVideoClipAssetId(chapter, clip);
-        return !assetId || !availableAssetIds.has(assetId);
+        return !assetId || !options.availableAssetIds!.has(assetId);
       });
       if (missing) return { nodeId: node.id, message: "A video used by this scene is missing from Library." };
+    }
+    if (node.type === "scene" && options.assetDurationsMs) {
+      for (const event of node.data.events) {
+        const clip = node.data.clips.find((candidate) => candidate.id === event.clipId);
+        if (!clip) continue;
+        const assetId = resolveStoryVideoClipAssetId(chapter, clip);
+        const source = clip.source;
+        const sourceNode = source.type === "node" ? chapter.nodes.find((candidate) => candidate.id === source.nodeId) : undefined;
+        const durationMs = assetId ? options.assetDurationsMs.get(assetId) : undefined;
+        const knownDurationMs = durationMs ?? (sourceNode?.type === "video" ? sourceNode.data.duration * 1_000 : undefined);
+        if (knownDurationMs !== undefined && event.timeMs > knownDurationMs) return {
+          nodeId: node.id,
+          message: `An event in "${node.data.title || "Untitled scene"}" is after its video clip ends.`,
+        };
+      }
     }
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id) : ["out"];
     for (const handle of handles) {
@@ -329,12 +461,20 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   if (value.type === "start") return Object.keys(value.data).length === 0;
   if (value.type === "scene") {
     if (typeof value.data.title !== "string") return false;
-    if (!Array.isArray(value.data.clips)) return false;
+    if (!Array.isArray(value.data.clips) || !Array.isArray(value.data.events)) return false;
     const clipIds = new Set<string>();
-    return value.data.clips.every((clip) => {
+    if (!value.data.clips.every((clip) => {
       if (!isRecord(clip) || !nonEmptyString(clip.id) || clipIds.has(clip.id) || !isAssetReference(clip.source)) return false;
       clipIds.add(clip.id);
       return true;
+    })) return false;
+    const eventIds = new Set<string>();
+    return value.data.events.every((event) => {
+      if (!isRecord(event) || !nonEmptyString(event.id) || eventIds.has(event.id) || !clipIds.has(String(event.clipId)) ||
+        typeof event.timeMs !== "number" || !Number.isInteger(event.timeMs) || event.timeMs < 0) return false;
+      eventIds.add(event.id);
+      if (event.type === "actions") return Array.isArray(event.actions) && event.actions.every((action) => isAction(action, variables));
+      return event.type === "continue" && typeof event.label === "string" && event.label.length <= 80;
     });
   }
   if (value.type === "ending") {

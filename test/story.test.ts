@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceSceneTime,
   createStoryDocument,
   combineStoryPrompt,
   chooseOption,
-  completeScene,
+  completeSceneClip,
+  continueSceneEvent,
   createPlayerState,
   applyStoryActions,
   countStoryVariableReferences,
@@ -62,7 +64,7 @@ describe("story documents", () => {
     const chapter = story.chapters[0]!;
     const start = chapter.nodes[0]!;
     chapter.nodes.push(
-      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: "video" } }] } },
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: "video" } }], events: [] } },
       { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }] } },
       { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
     );
@@ -74,14 +76,90 @@ describe("story documents", () => {
 
     const menu = createPlayerState(chapter.id, story.variables);
     expect(menu).toEqual({ mode: "menu", chapterId: chapter.id, variables: { score: 1 } });
-    expect(() => completeScene(chapter, menu)).toThrow("The game is not playing");
     expect(() => chooseOption(chapter, menu, "go")).toThrow("The game is not playing");
     const scene = startGame(chapter, menu);
     expect(scene.nodeId).toBe("scene");
-    const choice = completeScene(chapter, scene);
+    expect(() => startGame(chapter, scene)).toThrow("The game has already started");
+    const choice = completeSceneClip(chapter, scene, "clip", 1_000);
     expect(choice.nodeId).toBe("choice");
     expect(chooseOption(chapter, choice, "go")).toMatchObject({ nodeId: "ending", variables: { score: 3 } });
     expect(restartGame(chapter, story.variables)).toMatchObject({ mode: "playing", nodeId: "scene", variables: { score: 1 } });
+  });
+
+  it("runs Scene events once, in order, and blocks on Continue", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    const chapter = story.chapters[0]!;
+    const start = chapter.nodes[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: {
+        title: "Opening",
+        clips: [{ id: "clip", source: { type: "library", assetId: "video" } }],
+        events: [
+          { id: "at-start", clipId: "clip", timeMs: 0, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 1 }] },
+          { id: "before-wait", clipId: "clip", timeMs: 1_000, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] },
+          { id: "wait", clipId: "clip", timeMs: 1_000, type: "continue", label: "Go on" },
+          { id: "after-wait", clipId: "clip", timeMs: 1_000, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 4 }] },
+          { id: "near-end", clipId: "clip", timeMs: 1_500, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 8 }] },
+        ],
+      } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: start.id, target: "scene" },
+      { id: "scene-ending", source: "scene", target: "ending" },
+    );
+
+    const entered = startGame(chapter, createPlayerState(chapter.id, story.variables));
+    expect(entered).toMatchObject({ variables: { score: 1 }, scenePlayback: { clipId: "clip", timeMs: 0, firedEventIds: ["at-start"] } });
+    const waiting = advanceSceneTime(chapter, entered, "clip", 1_200);
+    expect(waiting).toMatchObject({ variables: { score: 3 }, scenePlayback: { timeMs: 1_000, firedEventIds: ["at-start", "before-wait"], waitingEventId: "wait" } });
+    expect(advanceSceneTime(chapter, waiting, "clip", 1_500)).toBe(waiting);
+    const resumed = continueSceneEvent(chapter, waiting);
+    const advanced = advanceSceneTime(chapter, resumed, "clip", 1_200);
+    expect(advanced).toMatchObject({ variables: { score: 7 }, scenePlayback: { timeMs: 1_200, firedEventIds: ["at-start", "before-wait", "wait", "after-wait"] } });
+    expect(advanceSceneTime(chapter, advanced, "clip", 500)).toBe(advanced);
+    expect(completeSceneClip(chapter, advanced, "clip", 2_000)).toMatchObject({ nodeId: "ending", variables: { score: 15 }, scenePlayback: undefined });
+  });
+
+  it("resolves consecutive end-of-clip Continues before advancing clips", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    const chapter = story.chapters[0]!;
+    const start = chapter.nodes[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: {
+        title: "Opening",
+        clips: [
+          { id: "first", source: { type: "library", assetId: "first-video" } },
+          { id: "second", source: { type: "library", assetId: "second-video" } },
+        ],
+        events: [
+          { id: "first-wait", clipId: "first", timeMs: 1_000, type: "continue", label: "First" },
+          { id: "second-wait", clipId: "first", timeMs: 1_000, type: "continue", label: "Second" },
+          { id: "second-start", clipId: "second", timeMs: 0, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 1 }] },
+        ],
+      } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: start.id, target: "scene" },
+      { id: "scene-ending", source: "scene", target: "ending" },
+    );
+
+    const menu = createPlayerState(chapter.id, story.variables);
+    expect(() => completeSceneClip(chapter, menu, "first", 1_000)).toThrow("The game is not playing");
+    const entered = startGame(chapter, menu);
+    expect(() => continueSceneEvent(chapter, entered)).toThrow("The scene is not waiting for Continue");
+    const firstWait = completeSceneClip(chapter, entered, "first", 1_000);
+    expect(firstWait.scenePlayback?.waitingEventId).toBe("first-wait");
+    const secondWait = continueSceneEvent(chapter, firstWait);
+    expect(secondWait.scenePlayback?.waitingEventId).toBe("second-wait");
+    const ready = continueSceneEvent(chapter, secondWait);
+    expect(ready.scenePlayback?.waitingEventId).toBeUndefined();
+    const secondClip = completeSceneClip(chapter, ready, "first", 1_000);
+    expect(secondClip).toMatchObject({ nodeId: "scene", variables: { score: 1 }, scenePlayback: { clipId: "second", firedEventIds: ["second-start"] } });
+    expect(completeSceneClip(chapter, secondClip, "second", 2_000)).toMatchObject({ nodeId: "ending", scenePlayback: undefined });
   });
 
   it("evaluates story variables and applies actions in order", () => {
@@ -105,7 +183,7 @@ describe("story documents", () => {
     expect(initial).toEqual({ trusted: false, score: 2 });
   });
 
-  it("migrates version 3 choice effects to version 4 actions", () => {
+  it("migrates version 3 choice effects into the current document", () => {
     const migrated = parseStoryDocument({
       version: 3,
       variables: [{ id: "trusted", name: "Trusted", type: "boolean", initialValue: false }],
@@ -124,11 +202,52 @@ describe("story documents", () => {
       }],
     });
 
-    expect(migrated.version).toBe(4);
+    expect(migrated.version).toBe(5);
     const choice = migrated.chapters[0]!.nodes.find((node) => node.type === "choice");
     expect(choice?.type === "choice" ? choice.data.options[0]?.actions : undefined).toEqual([
       { type: "set-variable", variableId: "trusted", value: true },
     ]);
+  });
+
+  it("adds empty Scene events when migrating version 4", () => {
+    const story = createStoryDocument();
+    story.chapters[0]!.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", clips: [], events: [] } });
+    const legacy = structuredClone(story) as unknown as { version: number; chapters: Array<{ nodes: Array<{ type: string; data: Record<string, unknown> }> }> };
+    legacy.version = 4;
+    delete legacy.chapters[0]!.nodes[1]!.data.events;
+
+    const migrated = parseStoryDocument(legacy);
+    const scene = migrated.chapters[0]!.nodes.find((node) => node.type === "scene");
+    expect(migrated.version).toBe(5);
+    expect(scene?.type === "scene" ? scene.data.events : undefined).toEqual([]);
+  });
+
+  it("validates Scene event structure and known clip duration", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: {
+        title: "Scene",
+        clips: [{ id: "clip", source: { type: "library", assetId: "video" } }],
+        events: [{ id: "event", clipId: "clip", timeMs: 2_001, type: "actions", actions: [{ type: "increment-variable", variableId: "score", amount: 1 }] }],
+      } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: chapter.nodes[0]!.id, target: "scene" },
+      { id: "scene-ending", source: "scene", target: "ending" },
+    );
+
+    expect(isStoryDocument(story)).toBe(true);
+    expect(validatePlayableChapter(chapter, { assetDurationsMs: new Map([["video", 2_000]]) })).toEqual({
+      nodeId: "scene",
+      message: "An event in \"Scene\" is after its video clip ends.",
+    });
+    const scene = chapter.nodes.find((node) => node.type === "scene");
+    if (scene?.type !== "scene") throw new Error("Scene missing");
+    scene.data.events[0] = { ...scene.data.events[0]!, clipId: "missing" };
+    expect(isStoryDocument(story)).toBe(false);
   });
 
   it("resolves a choice through shared actions and its edge", () => {
@@ -274,6 +393,7 @@ describe("story documents", () => {
           { id: "clip", source: { type: "library", assetId: "asset-a" } },
           { id: "clip", source: { type: "library", assetId: "asset-b" } },
         ],
+        events: [],
       },
     });
     expect(isStoryDocument(duplicateClip)).toBe(false);
@@ -284,7 +404,7 @@ describe("story documents", () => {
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     chapter.nodes.push(
-      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Arrival", clips: [{ id: "arrival", source: { type: "library", assetId: "arrival-video" } }] } },
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Arrival", clips: [{ id: "arrival", source: { type: "library", assetId: "arrival-video" } }], events: [] } },
       {
         id: "choice",
         type: "choice",
@@ -305,15 +425,15 @@ describe("story documents", () => {
     expect(getOutgoingEdge(chapter, "choice", "right")?.id).toBe("right-ending");
     expect(getNextNode(chapter, start.id)?.id).toBe("scene");
     expect(getNextNode(chapter, "choice", "left")?.id).toBe("ending-a");
-    expect(validatePlayableChapter(chapter, new Set(["arrival-video"]))).toBeUndefined();
-    expect(validatePlayableChapter(chapter, new Set())).toEqual({ nodeId: "scene", message: "A video used by this scene is missing from Library." });
+    expect(validatePlayableChapter(chapter, { availableAssetIds: new Set(["arrival-video"]) })).toBeUndefined();
+    expect(validatePlayableChapter(chapter, { availableAssetIds: new Set() })).toEqual({ nodeId: "scene", message: "A video used by this scene is missing from Library." });
   });
 
   it("requires a video in every reachable scene", () => {
     const story = createStoryDocument();
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
-    chapter.nodes.push({ id: "empty", type: "scene", position: { x: 0, y: 0 }, data: { title: "Empty", clips: [] } });
+    chapter.nodes.push({ id: "empty", type: "scene", position: { x: 0, y: 0 }, data: { title: "Empty", clips: [], events: [] } });
     chapter.edges.push({ id: "start-empty", source: start.id, target: "empty" });
 
     expect(validatePlayableChapter(chapter)).toEqual({ nodeId: "empty", message: "Add at least one video to the scene \"Empty\"." });
@@ -340,8 +460,8 @@ describe("story documents", () => {
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     chapter.nodes.push(
-      { id: "loop", type: "scene", position: { x: 0, y: 0 }, data: { title: "Loop", clips: [{ id: "loop-clip", source: { type: "library", assetId: "loop-video" } }] } },
-      { id: "draft", type: "scene", position: { x: 0, y: 0 }, data: { title: "Draft", clips: [] } },
+      { id: "loop", type: "scene", position: { x: 0, y: 0 }, data: { title: "Loop", clips: [{ id: "loop-clip", source: { type: "library", assetId: "loop-video" } }], events: [] } },
+      { id: "draft", type: "scene", position: { x: 0, y: 0 }, data: { title: "Draft", clips: [], events: [] } },
     );
     chapter.edges.push(
       { id: "enter-loop", source: start.id, target: "loop" },
@@ -469,7 +589,7 @@ describe("story documents", () => {
         id: "scene",
         type: "scene",
         position: { x: 600, y: 0 },
-        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "video" } }] },
+        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "video" } }], events: [] },
       },
     );
     const scene = chapter.nodes.find((node) => node.id === "scene");
@@ -497,7 +617,7 @@ describe("story documents", () => {
         id: "scene",
         type: "scene",
         position: { x: 600, y: 0 },
-        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "image" } }] },
+        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "image" } }], events: [] },
       },
     );
 
@@ -522,7 +642,7 @@ describe("story documents", () => {
         id: "scene",
         type: "scene",
         position: { x: 600, y: 0 },
-        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "video" } }] },
+        data: { title: "Forest", clips: [{ id: "clip", source: { type: "node", nodeId: "video" } }], events: [] },
       },
       { id: "ending", type: "ending", position: { x: 900, y: 0 }, data: { title: "End", description: "" } },
     );
@@ -531,13 +651,13 @@ describe("story documents", () => {
       { id: "scene-ending", source: "scene", target: "ending" },
     );
 
-    expect(validatePlayableChapter(chapter, new Set())).toEqual({
+    expect(validatePlayableChapter(chapter, { availableAssetIds: new Set() })).toEqual({
       nodeId: "scene",
       message: "A video used by this scene is missing from Library.",
     });
     const video = chapter.nodes.find((node) => node.id === "video");
     if (video?.type === "video") video.data.assetId = "generated-video";
-    expect(validatePlayableChapter(chapter, new Set(["generated-video"]))).toBeUndefined();
+    expect(validatePlayableChapter(chapter, { availableAssetIds: new Set(["generated-video"]) })).toBeUndefined();
   });
 
   it("validates image inputs and resolves the latest image-node result", () => {
@@ -627,7 +747,7 @@ describe("story documents", () => {
         position: { x: 300, y: 0 },
         data: { prompt: "Animate", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "16:9", duration: 6, references: [{ type: "node", nodeId: "image-asset" }, { type: "node", nodeId: "video-asset" }, { type: "node", nodeId: "audio-asset" }] },
       },
-      { id: "scene", type: "scene", position: { x: 600, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "video-asset" } }] } },
+      { id: "scene", type: "scene", position: { x: 600, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "video-asset" } }], events: [] } },
     );
 
     expect(isStoryDocument(story)).toBe(true);

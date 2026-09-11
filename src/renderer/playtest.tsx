@@ -1,7 +1,7 @@
 import { Pause, Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StoryChapter, StoryNode, StoryPlayerConfig, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
-import { chooseOption, completeScene, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
+import { advanceSceneTime, chooseOption, completeSceneClip, continueSceneEvent, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
@@ -20,7 +20,10 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       if (disposed) return;
       const selected = story.chapters.find((candidate) => candidate.id === chapterId);
       if (!selected) throw new Error("Chapter not found");
-      const issue = validatePlayableChapter(selected, new Set(assets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)));
+      const issue = validatePlayableChapter(selected, {
+        availableAssetIds: new Set(assets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)),
+        assetDurationsMs: new Map(assets.flatMap((asset) => asset.mediaType === "video" && asset.duration !== undefined ? [[asset.id, asset.duration * 1_000] as const] : [])),
+      });
       if (issue) throw new Error(issue.message);
       if (story.player?.backgroundAssetId && !assets.some((asset) => asset.id === story.player?.backgroundAssetId && asset.mediaType === "image")) {
         throw new Error("The Player background is missing from Library or is not an image.");
@@ -58,10 +61,23 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     setPlaybackStep((step) => step + 1);
   }, [chapter, variables]);
 
-  const completeCurrentScene = useCallback(() => {
+  const updateSceneTime = useCallback((clipId: string, timeMs: number) => {
     if (!chapter) return;
-    setRuntime((current) => current ? completeScene(chapter, current) : current);
-    setPlaybackStep((step) => step + 1);
+    setRuntime((current) => current ? advanceSceneTime(chapter, current, clipId, timeMs) : current);
+  }, [chapter]);
+
+  const completeCurrentClip = useCallback((clipId: string, durationMs: number) => {
+    if (!chapter) return;
+    setRuntime((current) => current ? completeSceneClip(chapter, current, clipId, durationMs) : current);
+  }, [chapter]);
+
+  const continueCurrentScene = useCallback((clipEnded: boolean, durationMs: number) => {
+    if (!chapter) return;
+    setRuntime((current) => {
+      if (!current) return current;
+      const resolved = continueSceneEvent(chapter, current);
+      return clipEnded && resolved.scenePlayback ? completeSceneClip(chapter, resolved, resolved.scenePlayback.clipId, durationMs) : resolved;
+    });
   }, [chapter]);
 
   const selectChoice = useCallback((optionId: string) => {
@@ -93,14 +109,16 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         onResume={() => setPaused(false)}
         onRestart={restart}
         onMenu={returnToMenu}
-        onSceneComplete={completeCurrentScene}
+        onSceneTime={updateSceneTime}
+        onClipComplete={completeCurrentClip}
+        onContinue={continueCurrentScene}
         onChoice={selectChoice}
       />
     ) : null}
   </main>;
 }
 
-function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneComplete, onChoice }: {
+function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneTime, onClipComplete, onContinue, onChoice }: {
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   node?: StoryNode;
@@ -111,7 +129,9 @@ function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStar
   onResume: () => void;
   onRestart: () => void;
   onMenu: () => void;
-  onSceneComplete: () => void;
+  onSceneTime: (clipId: string, timeMs: number) => void;
+  onClipComplete: (clipId: string, durationMs: number) => void;
+  onContinue: (clipEnded: boolean, durationMs: number) => void;
   onChoice: (optionId: string) => void;
 }) {
   const background = useWorkspaceAssetUrl(undefined, "", 0, config.backgroundAssetId);
@@ -128,7 +148,7 @@ function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStar
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
     <div className="story-player-stage">
-      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} fit={config.videoFit} paused={paused} onComplete={onSceneComplete} /> : null}
+      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} runtime={runtime} fit={config.videoFit} paused={paused} onTime={onSceneTime} onComplete={onClipComplete} onContinue={onContinue} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
       {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestart} onMenu={onMenu} /> : null}
       {!node ? <div className="story-playtest-state" role="alert">The current story node is missing.</div> : null}
@@ -210,24 +230,36 @@ function StoryChoicePlayer({ node, variables, paused, onSelect }: {
   </article>;
 }
 
-function StoryScenePlayer({ chapter, node, fit, paused, onComplete }: {
+function StoryScenePlayer({ chapter, node, runtime, fit, paused, onTime, onComplete, onContinue }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "scene" }>;
+  runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
   fit: StoryPlayerConfig["videoFit"];
   paused: boolean;
-  onComplete: () => void;
+  onTime: (clipId: string, timeMs: number) => void;
+  onComplete: (clipId: string, durationMs: number) => void;
+  onContinue: (clipEnded: boolean, durationMs: number) => void;
 }) {
-  const [clipIndex, setClipIndex] = useState(0);
+  const playback = runtime.scenePlayback;
+  const clipIndex = node.data.clips.findIndex((candidate) => candidate.id === playback?.clipId);
   const clip = node.data.clips[clipIndex];
+  const clipStatus = useRef({ clipId: "", ended: false, durationMs: 0 });
+  if (clip && clipStatus.current.clipId !== clip.id) clipStatus.current = { clipId: clip.id, ended: false, durationMs: 0 };
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
-  return <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused} onEnded={() => {
-    if (clipIndex + 1 < node.data.clips.length) setClipIndex(clipIndex + 1);
-    else onComplete();
-  }} />;
+  const waitingEvent = playback?.waitingEventId ? node.data.events.find((event) => event.id === playback.waitingEventId) : undefined;
+  return <div className="story-player-scene">
+    <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused || Boolean(waitingEvent)} onTime={(time) => onTime(clip.id, time)} onDuration={(durationMs) => { clipStatus.current.durationMs = durationMs; }} onEnded={(duration) => {
+      clipStatus.current.ended = true;
+      clipStatus.current.durationMs = duration;
+      onComplete(clip.id, duration);
+    }} />
+    {waitingEvent?.type === "continue" ? <button className="story-player-continue" type="button" onClick={() => onContinue(clipStatus.current.ended, clipStatus.current.durationMs)}>{waitingEvent.label || "Continue"}</button> : null}
+  </div>;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onEnded }: {
-  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; onEnded: () => void;
+function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onTime, onDuration, onEnded }: {
+  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean;
+  onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onEnded: (durationMs: number) => void;
 }) {
   const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   const video = useRef<HTMLVideoElement>(null);
@@ -235,9 +267,9 @@ function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onEnded }
   useEffect(() => { if (paused) video.current?.pause(); else void video.current?.play().catch(() => {}); }, [paused]);
   const error = media.error ?? (playbackError ? "The video could not be played." : undefined);
   return <article className="story-player-video">
-    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onEnded={onEnded} /> : null}
+    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onLoadedMetadata={(event) => onDuration(Math.round(event.currentTarget.duration * 1_000))} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
     {!media.url && !error ? <span>Loading video...</span> : null}
-    {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={onEnded}>Skip clip</button></div> : null}
+    {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={() => onEnded(0)}>Skip clip</button></div> : null}
     <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
   </article>;
 }

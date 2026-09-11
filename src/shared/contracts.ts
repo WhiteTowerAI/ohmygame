@@ -165,6 +165,10 @@ export interface StoryVideoClip {
   source: StoryAssetReference;
 }
 
+export type StorySceneEvent =
+  | { id: string; clipId: string; timeMs: number; type: "actions"; actions: StoryAction[] }
+  | { id: string; clipId: string; timeMs: number; type: "continue"; label: string };
+
 export type StoryAssetReference =
   | { type: "library"; assetId: string }
   | { type: "node"; nodeId: string };
@@ -186,7 +190,7 @@ export interface StoryTextGenerationResponse {
 
 export type StoryNode =
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[] } }
+  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[]; events: StorySceneEvent[] } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
@@ -245,7 +249,7 @@ export interface StoryPlayerConfig {
 }
 
 export interface StoryDocument {
-  version: 4;
+  version: 5;
   player?: StoryPlayerConfig;
   variables?: StoryVariable[];
   chapters: StoryChapter[];

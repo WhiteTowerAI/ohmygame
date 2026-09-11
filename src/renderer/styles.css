@@ -4393,6 +4393,14 @@ button {
   box-shadow: 0 14px 40px rgb(0 0 0 / 28%);
 }
 
+.story-player-scene {
+  position: relative;
+  display: grid;
+  width: min(1080px, 100%);
+}
+
+.story-player-scene .story-player-video { width: 100%; }
+
 .story-player-video > video {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -4453,6 +4461,25 @@ button {
   flex: 0 0 auto;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+.story-player-continue {
+  position: absolute;
+  z-index: 2;
+  bottom: 56px;
+  left: 50%;
+  min-width: 150px;
+  height: 42px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--story-player-accent) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--story-player-accent) 18%, #111216);
+  color: var(--story-player-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transform: translateX(-50%);
 }
 
 .story-player-choice-options {
@@ -5462,12 +5489,14 @@ button {
   font-size: 9px;
 }
 
-.story-inspector-options .story-choice-action > button {
+.story-inspector-options .story-choice-action > button,
+.story-event-editor .story-choice-action > button {
   width: 24px;
   height: 24px;
 }
 
-.story-inspector-options .story-choice-actions .story-choice-add-action {
+.story-inspector-options .story-choice-actions .story-choice-add-action,
+.story-event-editor .story-choice-actions .story-choice-add-action {
   display: flex;
   width: max-content;
   height: 26px;
@@ -5598,6 +5627,77 @@ button {
   gap: 7px;
 }
 
+.story-inspector-events {
+  display: grid;
+  gap: 7px;
+}
+
+.story-inspector-events > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.story-inspector-events > p {
+  margin: 1px 0;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.story-event-editor {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.story-event-fields {
+  display: grid;
+  grid-template-columns: 1fr 78px 1fr;
+  gap: 5px;
+}
+
+.story-event-fields :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+
+.story-event-fields label { position: relative; }
+.story-event-fields label span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+
+.story-event-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.story-event-actions button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.story-event-actions button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.story-event-actions button:disabled { cursor: default; opacity: 0.28; }
+
 .story-inspector-clips > span {
   color: var(--text-muted);
   font-size: 10px;
@@ -5694,6 +5794,7 @@ button {
 }
 
 .story-clip-add:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.story-clip-add:disabled { cursor: default; opacity: 0.45; }
 
 .story-video-picker-backdrop {
   position: fixed;

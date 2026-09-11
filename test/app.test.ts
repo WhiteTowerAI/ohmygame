@@ -257,6 +257,7 @@ describe("daemon", () => {
           { id: "library-clip", source: { type: "library", assetId: first[0].id } },
           { id: "node-clip", source: { type: "node", nodeId: "video" } },
         ],
+        events: [],
       },
     });
     await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
@@ -419,13 +420,14 @@ describe("daemon", () => {
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     story.chapters[0].nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
-      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "uploaded-video" } }] } },
+      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "uploaded-video" } }], events: [{ id: "continue", clipId: "clip", timeMs: 1_000, type: "continue", label: "Continue" }] } },
     );
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
     expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([]);
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.events).toEqual([]);
   });
 
   it("removes deleted Library assets from image references", async () => {

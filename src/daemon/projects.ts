@@ -485,9 +485,13 @@ export class ProjectManager {
               nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
                 if (node.type === "scene") return {
                   ...node,
-                  data: { ...node.data, clips: node.data.clips.filter((clip) =>
-                    (clip.source.type !== "library" || clip.source.assetId !== assetId) &&
-                    (clip.source.type !== "node" || !removedNodeIds.has(clip.source.nodeId))) },
+                  data: (() => {
+                    const clips = node.data.clips.filter((clip) =>
+                      (clip.source.type !== "library" || clip.source.assetId !== assetId) &&
+                      (clip.source.type !== "node" || !removedNodeIds.has(clip.source.nodeId)));
+                    const clipIds = new Set(clips.map((clip) => clip.id));
+                    return { ...node.data, clips, events: node.data.events.filter((event) => clipIds.has(event.clipId)) };
+                  })(),
                 };
                 if (node.type === "image") {
                   const images = node.data.images.filter((image) =>

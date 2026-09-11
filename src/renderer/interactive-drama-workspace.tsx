@@ -71,6 +71,7 @@ import {
   type StoryNode,
   type StoryNodeType,
   type StoryPlayerConfig,
+  type StorySceneEvent,
   type StoryTextReference,
   type StoryVariable,
   type StoryVariableCondition,
@@ -81,7 +82,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeStoryVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, countSceneVariableReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -126,6 +127,7 @@ type StoryFlowData = {
   options?: StoryChoiceOption[];
   timeout?: StoryChoiceTimeout;
   clips?: StoryVideoClip[];
+  events?: StorySceneEvent[];
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
   textRuntime?: TextNodeRuntime;
@@ -338,7 +340,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         const referenceId = edge?.data?.referenceId;
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
           if (relation === "scene-clip" && node.id === edge.target && node.type === "scene") {
-            return { ...node, data: { ...node.data, clips: (node.data.clips ?? []).filter((clip) => clip.id !== referenceId) } };
+            return { ...node, data: sceneDataWithClips(node.data, (node.data.clips ?? []).filter((clip) => clip.id !== referenceId)) };
           }
           if (relation === "media-image" && node.id === edge.target && node.type === "image") {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
@@ -480,7 +482,9 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   function removeVariable(variableId: string): void {
     const variable = variables.find((candidate) => candidate.id === variableId);
     const references = [...nodes, ...remainingChapters.current.flatMap((candidate) => candidate.nodes)]
-      .reduce((count, node) => count + (node.type === "choice" ? countStoryVariableReferences(node.data.options ?? [], variableId) : 0), 0);
+      .reduce((count, node) => count + (node.type === "choice"
+        ? countStoryVariableReferences(node.data.options ?? [], variableId)
+        : node.type === "scene" ? countSceneVariableReferences(node.data.events ?? [], variableId) : 0), 0);
     if (references > 0 && !window.confirm(`Delete “${variable?.name || "Unnamed variable"}”? This will remove ${references} ${references === 1 ? "rule" : "rules"} that use it.`)) return;
     setVariables((current) => current.filter((variable) => variable.id !== variableId));
     setNodes((current) => current.map((node) => removeVariableFromFlowNode(node, variableId)));
@@ -759,7 +763,10 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         setPlayIssue({ nodeId: playerUiNodeId, message: "The Player background is missing from Library or is not an image." });
         return;
       }
-      const assetIssue = validatePlayableChapter(activeChapter, new Set(libraryAssets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)));
+      const assetIssue = validatePlayableChapter(activeChapter, {
+        availableAssetIds: new Set(libraryAssets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)),
+        assetDurationsMs: new Map(libraryAssets.flatMap((asset) => asset.mediaType === "video" && asset.duration !== undefined ? [[asset.id, asset.duration * 1_000] as const] : [])),
+      });
       if (assetIssue) {
         setPlayIssue(assetIssue);
         if (assetIssue.nodeId) {
@@ -923,11 +930,12 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 
 function SceneNode({ data, selected }: NodeProps<StoryFlowNode>) {
   const clipCount = data.clips?.length ?? 0;
+  const eventCount = data.events?.length ?? 0;
   return (
     <div className={`story-node story-node-scene${selected ? " is-selected" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <StoryNodeHeading icon={<Clapperboard size={14} />} type="Scene" title={data.title || "Untitled scene"} />
-      <p className={clipCount ? undefined : "is-placeholder"}>{clipCount ? `${clipCount} video ${clipCount === 1 ? "clip" : "clips"}` : "Add video clips"}</p>
+      <p className={clipCount ? undefined : "is-placeholder"}>{clipCount ? `${clipCount} ${clipCount === 1 ? "clip" : "clips"} · ${eventCount} ${eventCount === 1 ? "event" : "events"}` : "Add video clips"}</p>
       <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
@@ -1576,7 +1584,13 @@ function StoryInspector({
               libraryAssets={libraryAssets}
               nodes={nodes}
               clips={node.data.clips ?? []}
-              onChange={(clips) => onChange({ ...node.data, clips })}
+              onChange={(clips) => onChange(sceneDataWithClips(node.data, clips))}
+            />
+            <StoryEventEditor
+              clips={node.data.clips ?? []}
+              events={node.data.events ?? []}
+              variables={variables}
+              onChange={(events) => onChange({ ...node.data, events })}
             />
           </>
         ) : null}
@@ -1697,6 +1711,57 @@ function StoryClipEditor({ libraryAssets, nodes, clips, onChange }: {
       }} /> : null}
     </section>
   );
+}
+
+function StoryEventEditor({ clips, events, variables, onChange }: {
+  clips: StoryVideoClip[];
+  events: StorySceneEvent[];
+  variables: StoryVariable[];
+  onChange: (events: StorySceneEvent[]) => void;
+}) {
+  function update(id: string, next: StorySceneEvent): void {
+    onChange(events.map((event) => event.id === id ? next : event));
+  }
+
+  function move(index: number, offset: -1 | 1): void {
+    const event = events[index];
+    if (!event) return;
+    const peers = events.flatMap((candidate, candidateIndex) => candidate.clipId === event.clipId && candidate.timeMs === event.timeMs ? [candidateIndex] : []);
+    const target = peers[peers.indexOf(index) + offset];
+    if (target === undefined) return;
+    const next = [...events];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    onChange(next);
+  }
+
+  return <section className="story-inspector-events">
+    <span>Events</span>
+    {events.map((event, index) => <div className="story-event-editor" key={event.id}>
+      <div className="story-event-fields">
+        <select aria-label={`Event ${index + 1} clip`} value={event.clipId} onChange={(change) => update(event.id, { ...event, clipId: change.target.value })}>
+          {clips.map((clip, clipIndex) => <option key={clip.id} value={clip.id}>Clip {clipIndex + 1}</option>)}
+        </select>
+        <label><span>Seconds</span><input aria-label={`Event ${index + 1} time`} type="number" min={0} step={0.1} value={event.timeMs / 1_000} onChange={(change) => update(event.id, { ...event, timeMs: Math.max(0, Math.round((Number(change.target.value) || 0) * 1_000)) })} /></label>
+        <select aria-label={`Event ${index + 1} type`} value={event.type} onChange={(change) => update(event.id, change.target.value === "continue"
+          ? { id: event.id, clipId: event.clipId, timeMs: event.timeMs, type: "continue", label: "Continue" }
+          : { id: event.id, clipId: event.clipId, timeMs: event.timeMs, type: "actions", actions: [] })}>
+          <option value="actions">Actions</option>
+          <option value="continue">Continue</option>
+        </select>
+      </div>
+      {event.type === "actions" ? <ChoiceActionsEditor variables={variables} value={event.actions} onChange={(actions) => update(event.id, { ...event, actions })} /> : <InspectorField label="Button label"><input maxLength={80} value={event.label} onChange={(change) => update(event.id, { ...event, label: change.target.value.slice(0, 80) })} /></InspectorField>}
+      <div className="story-event-actions">
+        <button type="button" title="Move event up" aria-label={`Move event ${index + 1} up`} disabled={!events.slice(0, index).some((candidate) => candidate.clipId === event.clipId && candidate.timeMs === event.timeMs)} onClick={() => move(index, -1)}><ArrowUp size={13} /></button>
+        <button type="button" title="Move event down" aria-label={`Move event ${index + 1} down`} disabled={!events.slice(index + 1).some((candidate) => candidate.clipId === event.clipId && candidate.timeMs === event.timeMs)} onClick={() => move(index, 1)}><ChevronDown size={13} /></button>
+        <button type="button" title="Delete event" aria-label={`Delete event ${index + 1}`} onClick={() => onChange(events.filter((candidate) => candidate.id !== event.id))}><Trash2 size={13} /></button>
+      </div>
+    </div>)}
+    {!events.length ? <p>No events yet</p> : null}
+    <button className="story-clip-add" type="button" disabled={!clips.length} onClick={() => {
+      const clip = clips[0];
+      if (clip) onChange([...events, { id: crypto.randomUUID(), clipId: clip.id, timeMs: 0, type: "continue", label: "Continue" }]);
+    }}><Plus size={14} />Add event</button>
+  </section>;
 }
 
 function StoryAssetPicker({ title, assets, onClose, onSelect }: {
@@ -1954,7 +2019,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "start" | "asset">, positio
       ],
     },
   };
-  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", clips: [] } };
+  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", clips: [], events: [] } };
   if (type === "image") {
     const model = imageModels[0];
     const option = preferredImageOption(model);
@@ -1996,7 +2061,7 @@ function storyDocument(
   remainingChapters: StoryChapter[],
 ): StoryDocument {
   return {
-    version: 4,
+    version: 5,
     ...(player ? { player } : {}),
     variables,
     chapters: [{
@@ -2016,23 +2081,27 @@ function defaultVariableValue(type: StoryVariableType): StoryVariableValue {
 }
 
 function removeVariableFromFlowNode(node: StoryFlowNode, variableId: string): StoryFlowNode {
-  if (node.type !== "choice") return node;
-  return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options ?? [], variableId) } };
+  if (node.type === "choice") return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options ?? [], variableId) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: removeSceneVariableReferences(node.data.events ?? [], variableId) } };
+  return node;
 }
 
 function removeVariableFromStoryNode(node: StoryNode, variableId: string): StoryNode {
-  if (node.type !== "choice") return node;
-  return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options, variableId) } };
+  if (node.type === "choice") return { ...node, data: { ...node.data, options: removeStoryVariableReferences(node.data.options, variableId) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: removeSceneVariableReferences(node.data.events, variableId) } };
+  return node;
 }
 
 function normalizeFlowNodeVariables(node: StoryFlowNode, variables: ReadonlyMap<string, StoryVariable>): StoryFlowNode {
-  if (node.type !== "choice") return node;
-  return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options ?? [], variables) } };
+  if (node.type === "choice") return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options ?? [], variables) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: normalizeSceneVariableReferences(node.data.events ?? [], variables) } };
+  return node;
 }
 
 function normalizeStoryNodeVariables(node: StoryNode, variables: ReadonlyMap<string, StoryVariable>): StoryNode {
-  if (node.type !== "choice") return node;
-  return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options, variables) } };
+  if (node.type === "choice") return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options, variables) } };
+  if (node.type === "scene") return { ...node, data: { ...node.data, events: normalizeSceneVariableReferences(node.data.events, variables) } };
+  return node;
 }
 
 function uniqueVariableName(name: string, variables: readonly StoryVariable[], currentId?: string): string {
@@ -2069,7 +2138,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "scene",
     position: node.position,
-    data: { title: node.data.title ?? "", clips: node.data.clips ?? [] },
+    data: { title: node.data.title ?? "", clips: node.data.clips ?? [], events: node.data.events ?? [] },
   };
   if (node.type === "text") return {
     id: node.id,
@@ -2300,10 +2369,7 @@ function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySe
     .map((node) => node.type === "scene"
       ? {
           ...node,
-          data: {
-            ...node.data,
-            clips: (node.data.clips ?? []).filter((clip) => clip.source.type !== "node" || !removedIds.has(clip.source.nodeId)),
-          },
+          data: sceneDataWithClips(node.data, (node.data.clips ?? []).filter((clip) => clip.source.type !== "node" || !removedIds.has(clip.source.nodeId))),
         }
       : node.type === "image"
         ? {
@@ -2324,6 +2390,11 @@ function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySe
             },
           }
       : node);
+}
+
+function sceneDataWithClips(data: StoryFlowData, clips: StoryVideoClip[]): StoryFlowData {
+  const clipIds = new Set(clips.map((clip) => clip.id));
+  return { ...data, clips, events: (data.events ?? []).filter((event) => clipIds.has(event.clipId)) };
 }
 
 function resolveLinkedPrompt(node: StoryFlowNode, nodes: StoryFlowNode[]): string | undefined {
