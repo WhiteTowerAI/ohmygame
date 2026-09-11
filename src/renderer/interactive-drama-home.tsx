@@ -1,7 +1,8 @@
-import { Plus, RefreshCw } from "./icons.js";
+import { Film, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { PluginMention, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { INTERACTIVE_DRAMA_EXAMPLE } from "../shared/interactive-drama-examples.js";
+import { createInteractiveDramaExample, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
@@ -20,7 +21,9 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+  const [exampleError, setExampleError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [creatingExample, setCreatingExample] = useState(false);
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -62,6 +65,19 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
     void runAction(() => deleteProject(project.id));
   }
 
+  async function createExample(): Promise<void> {
+    setCreatingExample(true);
+    setExampleError(undefined);
+    try {
+      const project = await createInteractiveDramaExample();
+      onOpenProject(project.id);
+    } catch (cause) {
+      setExampleError(errorMessage(cause));
+    } finally {
+      setCreatingExample(false);
+    }
+  }
+
   return (
     <main className="home-shell">
       <AppSidebar active="interactive-drama" onNavigate={onNavigate} />
@@ -78,6 +94,24 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
             <Plus size={14} />Start blank
           </button>
         </div>
+
+        <section className="home-discover interactive-drama-example" aria-labelledby="example-drama-heading">
+          <div className="home-section-heading">
+            <h2 id="example-drama-heading">Example project</h2>
+          </div>
+          <article className="interactive-drama-example-card">
+            <div className="interactive-drama-example-preview" aria-hidden="true"><Film size={30} /></div>
+            <div className="interactive-drama-example-copy">
+              <strong>{INTERACTIVE_DRAMA_EXAMPLE.name}</strong>
+              <p>{INTERACTIVE_DRAMA_EXAMPLE.description}</p>
+              <span>1 chapter · 2 endings</span>
+            </div>
+            <button type="button" disabled={creatingExample} onClick={() => void createExample()}>
+              {creatingExample ? "Creating..." : "Create from example"}
+            </button>
+          </article>
+          {exampleError ? <p className="home-notice" role="alert">{exampleError}</p> : null}
+        </section>
 
         <section className="home-discover interactive-drama-recent" aria-labelledby="recent-dramas-heading">
           <div className="home-section-heading">

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createInteractiveDramaExample, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -8,6 +8,19 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("creates an Interactive Drama project from the built-in example", async () => {
+    installWindow();
+    const project = { id: "example-project", name: "Last Train Home", type: "interactive-drama" };
+    const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createInteractiveDramaExample()).resolves.toEqual(project);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/interactive-drama/examples/night-train/projects",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("uploads a Library asset as binary data", async () => {
     installWindow();
     const file = new File(["video"], "opening.mp4", { type: "video/mp4" });

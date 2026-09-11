@@ -8,6 +8,7 @@ import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { INTERACTIVE_DRAMA_EXAMPLE_ID } from "../shared/interactive-drama-examples.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -24,6 +25,7 @@ import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
 import { isRunnableWorkspace, ProjectAssetError, ProjectManager } from "./projects.js";
 import { ImageSettingsStore } from "./image-settings.js";
+import { createInteractiveDramaExample } from "./interactive-drama-examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
@@ -71,6 +73,7 @@ export interface AppOptions {
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
+  interactiveDramaExamplesDirectory?: string;
 }
 
 const createProjectSchema = {
@@ -482,6 +485,7 @@ export function createApp(options: AppOptions = {}) {
   const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
+  const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -1129,6 +1133,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     const project = await projects.create(request.body?.name, request.body?.type);
+    return reply.code(201).send(project);
+  });
+
+  app.post(`/interactive-drama/examples/${INTERACTIVE_DRAMA_EXAMPLE_ID}/projects`, async (_request, reply) => {
+    const project = await createInteractiveDramaExample(interactiveDramaExamplesDirectory, projects, library);
     return reply.code(201).send(project);
   });
 

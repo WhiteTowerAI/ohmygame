@@ -1630,6 +1630,80 @@ button.home-nav-item-active:hover {
   margin-bottom: 15px;
 }
 
+.interactive-drama-example .home-section-heading {
+  margin-bottom: 15px;
+}
+
+.interactive-drama-example + .interactive-drama-recent {
+  margin-top: 28px;
+}
+
+.interactive-drama-example-card {
+  display: grid;
+  min-height: 104px;
+  grid-template-columns: 136px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--home-surface);
+}
+
+.interactive-drama-example-preview {
+  display: grid;
+  width: 136px;
+  height: 88px;
+  place-items: center;
+  border-radius: 6px;
+  background: #17222c;
+  color: #62d6cb;
+}
+
+.interactive-drama-example-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.interactive-drama-example-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.interactive-drama-example-copy p,
+.interactive-drama-example-copy span {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.interactive-drama-example-card > button {
+  min-width: 142px;
+  height: 32px;
+  margin-right: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.interactive-drama-example-card > button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--menu-hover);
+}
+
+.interactive-drama-example-card > button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .home-category-control {
   display: inline-flex;
   height: 32px;
@@ -9753,8 +9827,24 @@ button {
 
   .home-whats-new-grid,
   .home-project-grid,
+  .home-discover .home-project-grid,
   .projects-grid {
     grid-template-columns: 1fr;
+  }
+
+  .interactive-drama-example-card {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .interactive-drama-example-preview {
+    width: 88px;
+    height: 88px;
+  }
+
+  .interactive-drama-example-card > button {
+    width: 100%;
+    grid-column: 1 / -1;
+    margin: 0;
   }
 
   .sidebar-page { overflow: visible; padding: 0 18px 30px; }

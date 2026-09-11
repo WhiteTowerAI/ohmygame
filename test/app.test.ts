@@ -5,7 +5,8 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { VIDEO_MODEL } from "../src/shared/contracts.js";
+import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
+import { isStoryDocument, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -34,6 +35,46 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+  });
+
+  it("creates independent, playable projects from the Interactive Drama example", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-example-")),
+      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
+    });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    expect((await app.inject({ method: "POST", url: "/interactive-drama/examples/unknown/projects" })).statusCode).toBe(404);
+    const first = await app.inject({ method: "POST", url: "/interactive-drama/examples/night-train/projects" });
+    const second = await app.inject({ method: "POST", url: "/interactive-drama/examples/night-train/projects" });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({ name: "Last Train Home", type: "interactive-drama" });
+    expect(second.json().id).not.toBe(first.json().id);
+
+    const firstStoryJson: unknown = (await app.inject({ method: "GET", url: `/projects/${first.json().id}/story` })).json();
+    const secondStoryJson: unknown = (await app.inject({ method: "GET", url: `/projects/${second.json().id}/story` })).json();
+    const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
+    const durations = new Map<string, number>(assets.flatMap((asset: { id: string; duration?: number }) =>
+      asset.duration === undefined ? [] : [[asset.id, asset.duration * 1_000] as const]));
+
+    expect(isStoryDocument(firstStoryJson)).toBe(true);
+    expect(isStoryDocument(secondStoryJson)).toBe(true);
+    const firstStory = firstStoryJson as StoryDocument;
+    const secondStory = secondStoryJson as StoryDocument;
+    expect(firstStory.chapters[0].nodes[0].id).not.toBe(secondStory.chapters[0].nodes[0].id);
+    expect(firstStory.characters?.every((character) => character.avatarAssetId && assetIds.has(character.avatarAssetId))).toBe(true);
+    expect(validatePlayableChapter(firstStory.chapters[0], { availableAssetIds: assetIds, assetDurationsMs: durations })).toBeUndefined();
+    const scene = firstStory.chapters[0].nodes.find((node) => node.type === "scene");
+    expect(scene?.type === "scene" && scene.data.clips.every((clip) => assetIds.has(resolveStoryVideoClipAssetId(firstStory.chapters[0], clip)!))).toBe(true);
+
+    firstStory.chapters[0].title = "Edited example";
+    expect((await app.inject({ method: "PUT", url: `/projects/${first.json().id}/story`, payload: firstStory })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${first.json().id}/cover` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toHaveLength(2);
   });
 
   it("creates a Godot project and rejects the removed general type", async () => {

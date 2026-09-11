@@ -12,6 +12,7 @@ files:
   - dist/shared/**/*.js
   - dist/renderer/**/*
   - dist/player/**/*
+  - examples/interactive-drama/**/*
 
 extraResources:
   - from: plugins
