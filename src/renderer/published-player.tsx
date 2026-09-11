@@ -153,6 +153,7 @@ function PublishedPlayer() {
     key={playerKey}
     chapter={chapter}
     config={config}
+    characters={story.characters ?? []}
     overlays={story.overlays ?? []}
     node={node}
     runtime={runtime}

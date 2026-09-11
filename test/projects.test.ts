@@ -69,7 +69,8 @@ describe("ProjectManager", () => {
 
     const story = await manager.story(project.id);
     expect(story).toMatchObject({
-      version: 7,
+      version: 8,
+      characters: [],
       chapters: [{ title: "Untitled", nodes: [{ type: "start" }], edges: [] }],
     });
 
@@ -113,6 +114,19 @@ describe("ProjectManager", () => {
     expect((await manager.story(project.id)).overlays?.[0]?.components).toEqual([]);
   });
 
+  it("tracks and clears character avatar Library references", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Story", "interactive-drama");
+    const story = await manager.story(project.id);
+    story.characters = [{ id: "ari", name: "Ari", avatarAssetId: "ari-avatar" }];
+    await manager.setStory(project.id, story);
+
+    expect((await manager.referencesLibraryAsset("ari-avatar")).map(({ id }) => id)).toEqual([project.id]);
+    await manager.removeLibraryAssetReferences("ari-avatar");
+    expect((await manager.story(project.id)).characters).toEqual([{ id: "ari", name: "Ari" }]);
+  });
+
   it("loads version 3 Interactive Drama stories through the current migration", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);
@@ -121,7 +135,7 @@ describe("ProjectManager", () => {
     const legacy = { ...current, version: 3 };
     await writeFile(path.join(project.workspacePath, "story.json"), JSON.stringify(legacy));
 
-    expect((await manager.story(project.id)).version).toBe(7);
+    expect((await manager.story(project.id)).version).toBe(8);
   });
 
   it("rejects stories for Web Game projects and invalid story documents", async () => {
@@ -131,7 +145,7 @@ describe("ProjectManager", () => {
     const story = await manager.create("Story", "interactive-drama");
 
     await expect(manager.story(webGame.id)).rejects.toThrow("Interactive Drama");
-    await expect(manager.setStory(story.id, { version: 7, chapters: [] })).rejects.toThrow("Invalid story document");
+    await expect(manager.setStory(story.id, { version: 8, chapters: [] })).rejects.toThrow("Invalid story document");
   });
 
   it("writes generated assets only under the project workspace", async () => {

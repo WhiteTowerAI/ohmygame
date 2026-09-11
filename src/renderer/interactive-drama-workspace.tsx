@@ -26,6 +26,7 @@ import {
   SlidersHorizontal,
   Trash2,
   Upload,
+  UserRound,
   X,
 } from "./icons.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
@@ -67,6 +68,7 @@ import {
   type RunVideoToolRequest,
   type StoryAction,
   type StoryChapter,
+  type StoryCharacter,
   type StoryChoiceTimeout,
   type StoryChoiceOption,
   type StoryDocument,
@@ -90,7 +92,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, countSceneVariableReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeOverlayVariableReferences, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneInteractionHandle, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, countSceneVariableReferences, countStoryCharacterReferences, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeOverlayVariableReferences, normalizeSceneVariableReferences, normalizeStoryVariableReferences, removeSceneVariableReferences, removeStoryCharacterReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneInteractionHandle, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -111,6 +113,7 @@ const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
 const PLAYER_UI_NODE_ID = "player-ui";
 const OVERLAY_UI_NODE_ID = "overlay-ui";
+const CHARACTERS_UI_NODE_ID = "characters-ui";
 type InteractionMode = "pointer" | "pan";
 type StoryFlowData = {
   title?: string;
@@ -143,7 +146,7 @@ type StoryFlowData = {
   textRuntime?: TextNodeRuntime;
 };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
-type StoryCanvasNode = Node<StoryFlowData, StoryNodeType | "player-ui" | "overlay-ui">;
+type StoryCanvasNode = Node<StoryFlowData, StoryNodeType | "player-ui" | "overlay-ui" | "characters-ui">;
 
 interface MediaNodeRuntime {
   generating: boolean;
@@ -195,6 +198,7 @@ interface MediaReferenceView {
 const STORY_NODE_TYPES: NodeTypes = {
   "player-ui": PlayerUiNode,
   "overlay-ui": OverlayUiNode,
+  "characters-ui": CharactersUiNode,
   start: StartNode,
   scene: SceneNode,
   choice: ChoiceNode,
@@ -216,6 +220,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
   const [notice, setNotice] = useState<string>();
   const [chapter, setChapter] = useState<{ id: string; title: string }>();
   const [variables, setVariables] = useState<StoryVariable[]>([]);
+  const [characters, setCharacters] = useState<StoryCharacter[]>([]);
   const [player, setPlayer] = useState<StoryPlayerConfig>();
   const [overlays, setOverlays] = useState<StoryOverlay[]>([]);
   const [nodes, setNodes] = useState<StoryFlowNode[]>([]);
@@ -251,6 +256,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
       if (!firstChapter) throw new Error("Story has no chapters");
       setChapter({ id: firstChapter.id, title: firstChapter.title });
       setVariables(story.variables ?? []);
+      setCharacters(story.characters ?? []);
       setPlayer(story.player);
       setOverlays(story.overlays ?? []);
       setNodes(firstChapter.nodes.map((node) => toFlowNode(node, models)));
@@ -269,12 +275,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
   }, [projectId]);
 
   const document = useMemo(
-    () => chapter ? storyDocument(player, variables, overlays, chapter, nodes, edges, remainingChapters.current) : undefined,
-    [chapter, edges, nodes, overlays, player, variables],
+    () => chapter ? storyDocument(player, variables, characters, overlays, chapter, nodes, edges, remainingChapters.current) : undefined,
+    [chapter, characters, edges, nodes, overlays, player, variables],
   );
   latestStory.current = document;
   const playerUiNodeId = useMemo(() => uniquePlayerUiNodeId(nodes), [nodes]);
   const overlayUiNodeId = useMemo(() => uniqueOverlayUiNodeId(nodes, playerUiNodeId), [nodes, playerUiNodeId]);
+  const charactersUiNodeId = useMemo(() => uniqueCharactersUiNodeId(nodes, playerUiNodeId, overlayUiNodeId), [nodes, overlayUiNodeId, playerUiNodeId]);
 
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
@@ -436,7 +443,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const playerSelected = selectedId === playerUiNodeId;
   const overlaySelected = selectedId === overlayUiNodeId;
-  const inspectorOpen = variablesOpen || playerSelected || overlaySelected || Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
+  const charactersSelected = selectedId === charactersUiNodeId;
+  const inspectorOpen = variablesOpen || playerSelected || overlaySelected || charactersSelected || Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
   const activeChapter = document?.chapters[0];
 
   function addNode(type: Exclude<StoryNodeType, "start" | "asset">, position: { x: number; y: number }): void {
@@ -541,6 +549,14 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
       ...chapter,
       nodes: chapter.nodes.map((node) => normalizeStoryNodeVariables(node, byId)),
     }));
+  }
+
+  function removeCharacter(characterId: string): void {
+    const character = characters.find((candidate) => candidate.id === characterId);
+    const references = countStoryCharacterReferences(overlays, characterId);
+    if (references > 0 && !window.confirm(`Delete “${character?.name || "Unnamed character"}”? This will remove ${references} ${references === 1 ? "component" : "components"} that use it.`)) return;
+    setCharacters((current) => current.filter((candidate) => candidate.id !== characterId));
+    setOverlays((current) => removeStoryCharacterReferences(current, characterId));
   }
 
   async function generateImage(node: StoryFlowNode): Promise<void> {
@@ -908,6 +924,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
                 selectable: true,
                 selected: overlaySelected,
                 data: { title: `${overlays.length} ${overlays.length === 1 ? "overlay" : "overlays"}` },
+              }, {
+                id: charactersUiNodeId,
+                type: "characters-ui",
+                position: { x: 560, y: 48 },
+                measured: { width: 210, height: 64 },
+                draggable: false,
+                deletable: false,
+                selectable: true,
+                selected: charactersSelected,
+                data: { title: `${characters.length} ${characters.length === 1 ? "character" : "characters"}` },
               }]}
               edges={[...edges, ...assetEdges]}
               nodeTypes={STORY_NODE_TYPES}
@@ -980,6 +1006,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
         ) : overlaySelected ? (
           <OverlayInspector
             overlays={overlays}
+            characters={characters}
             variables={variables}
             libraryAssets={libraryAssets}
             onChange={setOverlays}
@@ -988,6 +1015,14 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, onPu
               setNodes((current) => current.map((node) => removeOverlayFromFlowNode(node, overlayId)));
               remainingChapters.current = remainingChapters.current.map((candidate) => ({ ...candidate, nodes: candidate.nodes.map((node) => removeOverlayFromStoryNode(node, overlayId)) }));
             }}
+            onClose={clearSelection}
+          />
+        ) : charactersSelected ? (
+          <CharactersInspector
+            characters={characters}
+            libraryAssets={libraryAssets}
+            onChange={setCharacters}
+            onDelete={removeCharacter}
             onClose={clearSelection}
           />
         ) : selectedNode && !isInlineNodeType(selectedNode.type) ? (
@@ -1019,6 +1054,13 @@ function OverlayUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   return <div className={`story-node story-node-player-ui${selected ? " is-selected" : ""}`}>
     <Layers3 size={16} />
     <div><span>Overlay UI</span><strong>{data.title}</strong></div>
+  </div>;
+}
+
+function CharactersUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
+  return <div className={`story-node story-node-player-ui${selected ? " is-selected" : ""}`}>
+    <UserRound size={16} />
+    <div><span>Characters</span><strong>{data.title}</strong></div>
   </div>;
 }
 
@@ -1668,8 +1710,66 @@ function PlayerInspector({ config, libraryAssets, onChange, onClose }: {
   </aside>;
 }
 
-function OverlayInspector({ overlays, variables, libraryAssets, onChange, onDelete, onClose }: {
+function CharactersInspector({ characters, libraryAssets, onChange, onDelete, onClose }: {
+  characters: StoryCharacter[];
+  libraryAssets: LibraryAsset[];
+  onChange: (characters: StoryCharacter[]) => void;
+  onDelete: (characterId: string) => void;
+  onClose: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState(characters[0]?.id);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const selected = characters.find((character) => character.id === selectedId) ?? characters[0];
+  const avatar = useWorkspaceAssetUrl(undefined, "", 0, selected?.avatarAssetId);
+  function update(next: StoryCharacter): void {
+    onChange(characters.map((character) => character.id === next.id ? next : character));
+  }
+  return <aside className="story-inspector" aria-label="Characters inspector">
+    <header>
+      <div><span>Characters</span><strong>{selected?.name || `${characters.length} characters`}</strong></div>
+      <button type="button" title="Close inspector" aria-label="Close inspector" onClick={onClose}><X size={15} /></button>
+    </header>
+    <div className="story-inspector-content">
+      <div className="story-inspector-field">
+        <span>Characters</span>
+        {characters.length ? <ul className="story-overlay-list" aria-label="Characters">
+          {characters.map((character) => <li key={character.id}><button
+            type="button"
+            aria-current={character.id === selected?.id ? "true" : undefined}
+            className={character.id === selected?.id ? "is-selected" : undefined}
+            onClick={() => setSelectedId(character.id)}
+          ><span>{character.name || "Unnamed character"}</span></button></li>)}
+        </ul> : <p className="story-overlay-list-empty">No characters yet</p>}
+        <button className="story-clip-add" type="button" onClick={() => {
+          const character: StoryCharacter = { id: crypto.randomUUID(), name: `Character ${characters.length + 1}` };
+          onChange([...characters, character]);
+          setSelectedId(character.id);
+        }}><Plus size={14} />Add character</button>
+      </div>
+      {selected ? <>
+        <InspectorField label="Name"><input maxLength={80} value={selected.name} onChange={(event) => update({ ...selected, name: event.target.value.slice(0, 80) })} /></InspectorField>
+        <div className="story-inspector-field">
+          <span>Avatar</span>
+          {selected.avatarAssetId ? <div className="story-character-avatar">
+            {avatar.url ? <img src={avatar.url} alt="" /> : <UserRound size={20} />}
+            <span>{libraryAssets.find((asset) => asset.id === selected.avatarAssetId)?.name ?? "Missing image"}</span>
+            <button type="button" title="Remove avatar" aria-label="Remove avatar" onClick={() => update({ ...selected, avatarAssetId: undefined })}><X size={14} /></button>
+          </div> : null}
+          <button className="story-clip-add" type="button" onClick={() => setPickerOpen(true)}><ImageIcon size={14} />{selected.avatarAssetId ? "Replace image" : "Choose image"}</button>
+        </div>
+        <button className="story-overlay-delete" type="button" onClick={() => onDelete(selected.id)}><Trash2 size={13} />Delete character</button>
+      </> : <p className="story-inspector-help">Add a character to reuse the same name and avatar across overlays.</p>}
+    </div>
+    {pickerOpen && selected ? <StoryAssetPicker title="Choose character avatar" assets={libraryAssets.filter((asset) => asset.mediaType === "image")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
+      update({ ...selected, avatarAssetId: asset.id });
+      setPickerOpen(false);
+    }} /> : null}
+  </aside>;
+}
+
+function OverlayInspector({ overlays, characters, variables, libraryAssets, onChange, onDelete, onClose }: {
   overlays: StoryOverlay[];
+  characters: StoryCharacter[];
   variables: StoryVariable[];
   libraryAssets: LibraryAsset[];
   onChange: (overlays: StoryOverlay[]) => void;
@@ -1691,6 +1791,7 @@ function OverlayInspector({ overlays, variables, libraryAssets, onChange, onDele
     const id = crypto.randomUUID();
     const component: StoryOverlayComponent | undefined = type === "text" ? { id, type, text: "Text" }
       : type === "image" ? undefined
+      : type === "character" ? characters[0] ? { id, type, characterId: characters[0].id, display: "avatar-name" } : undefined
       : type === "value" ? variables[0] ? { id, type, label: "Value", variableId: variables[0].id } : undefined
       : numericVariables[0] ? { id, type, label: "Value", variableId: numericVariables[0].id, min: 0, max: 100 } : undefined;
     if (component) update({ ...selected, components: [...selected.components, component] });
@@ -1735,6 +1836,11 @@ function OverlayInspector({ overlays, variables, libraryAssets, onChange, onDele
             </div></div>
             {component.type === "text" ? <textarea aria-label="Text" maxLength={500} rows={3} value={component.text} onChange={(event) => updateComponent({ ...component, text: event.target.value.slice(0, 500) })} /> : null}
             {component.type === "image" ? <><span>{libraryAssets.find((asset) => asset.id === component.assetId)?.name ?? "Missing image"}</span><button className="story-clip-add" type="button" onClick={() => setImageComponentId(component.id)}><ImageIcon size={13} />Replace image</button></> : null}
+            {component.type === "character" ? <><select aria-label="Character" value={component.characterId} onChange={(event) => updateComponent({ ...component, characterId: event.target.value })}>
+              {characters.map((character) => <option key={character.id} value={character.id}>{character.name || "Unnamed character"}</option>)}
+            </select><select aria-label="Character display" value={component.display} onChange={(event) => updateComponent({ ...component, display: event.target.value as Extract<StoryOverlayComponent, { type: "character" }>["display"] })}>
+              <option value="avatar-name">Avatar and name</option><option value="avatar">Avatar only</option><option value="name">Name only</option>
+            </select></> : null}
             {component.type === "value" || component.type === "meter" ? <><input aria-label="Label" maxLength={80} value={component.label} onChange={(event) => updateComponent({ ...component, label: event.target.value.slice(0, 80) })} /><select aria-label="Variable" value={component.variableId} onChange={(event) => updateComponent({ ...component, variableId: event.target.value })}>
               {(component.type === "meter" ? numericVariables : variables).map((variable) => <option key={variable.id} value={variable.id}>{variable.name || "Unnamed variable"}</option>)}
             </select></> : null}
@@ -1744,6 +1850,7 @@ function OverlayInspector({ overlays, variables, libraryAssets, onChange, onDele
           <div className="story-overlay-add-components">
             <button type="button" onClick={() => addComponent("text")}><Plus size={12} />Text</button>
             <button type="button" onClick={() => addComponent("image")}><Plus size={12} />Image</button>
+            <button type="button" disabled={!characters.length} onClick={() => addComponent("character")}><Plus size={12} />Character</button>
             <button type="button" disabled={!variables.length} onClick={() => addComponent("value")}><Plus size={12} />Value</button>
             <button type="button" disabled={!numericVariables.length} onClick={() => addComponent("meter")}><Plus size={12} />Meter</button>
           </div>
@@ -2352,6 +2459,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "start" | "asset">, positio
 function storyDocument(
   player: StoryPlayerConfig | undefined,
   variables: StoryVariable[],
+  characters: StoryCharacter[],
   overlays: StoryOverlay[],
   chapter: { id: string; title: string },
   nodes: StoryFlowNode[],
@@ -2359,9 +2467,10 @@ function storyDocument(
   remainingChapters: StoryChapter[],
 ): StoryDocument {
   return {
-    version: 7,
+    version: 8,
     ...(player ? { player } : {}),
     variables,
+    characters,
     overlays,
     chapters: [{
       ...chapter,
@@ -2625,7 +2734,7 @@ function isMediaNodeType(type: StoryNodeType): type is "image" | "video" {
 }
 
 function isStoryFlowNode(node: StoryCanvasNode): node is StoryFlowNode {
-  return node.type !== "player-ui" && node.type !== "overlay-ui";
+  return node.type !== "player-ui" && node.type !== "overlay-ui" && node.type !== "characters-ui";
 }
 
 function uniquePlayerUiNodeId(nodes: readonly StoryFlowNode[]): string {
@@ -2641,6 +2750,14 @@ function uniqueOverlayUiNodeId(nodes: readonly StoryFlowNode[], playerUiNodeId: 
   let id = OVERLAY_UI_NODE_ID;
   let suffix = 2;
   while (ids.has(id)) id = `${OVERLAY_UI_NODE_ID}-${suffix++}`;
+  return id;
+}
+
+function uniqueCharactersUiNodeId(nodes: readonly StoryFlowNode[], playerUiNodeId: string, overlayUiNodeId: string): string {
+  const ids = new Set([...nodes.map((node) => node.id), playerUiNodeId, overlayUiNodeId]);
+  let id = CHARACTERS_UI_NODE_ID;
+  let suffix = 2;
+  while (ids.has(id)) id = `${CHARACTERS_UI_NODE_ID}-${suffix++}`;
   return id;
 }
 

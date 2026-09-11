@@ -264,6 +264,12 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
+export interface StoryCharacter {
+  id: string;
+  name: string;
+  avatarAssetId?: string;
+}
+
 export type StoryOverlayPlacement =
   | "top-left"
   | "top-center"
@@ -275,6 +281,7 @@ export type StoryOverlayPlacement =
 export type StoryOverlayComponent =
   | { id: string; type: "text"; text: string }
   | { id: string; type: "image"; assetId: string; alt: string }
+  | { id: string; type: "character"; characterId: string; display: "name" | "avatar" | "avatar-name" }
   | { id: string; type: "value"; label: string; variableId: string }
   | { id: string; type: "meter"; label: string; variableId: string; min: number; max: number };
 
@@ -287,9 +294,10 @@ export interface StoryOverlay {
 }
 
 export interface StoryDocument {
-  version: 7;
+  version: 8;
   player?: StoryPlayerConfig;
   variables?: StoryVariable[];
+  characters?: StoryCharacter[];
   overlays?: StoryOverlay[];
   chapters: StoryChapter[];
 }

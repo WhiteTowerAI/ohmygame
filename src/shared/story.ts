@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryInteractionOutcome, type StoryNode, type StoryOverlay, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryCharacter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryInteractionOutcome, type StoryNode, type StoryOverlay, type StoryPlayerConfig, type StorySceneEvent, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
 const STORY_OVERLAY_PLACEMENTS = new Set(["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"]);
@@ -12,8 +12,9 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 7,
+    version: 8,
     variables: [],
+    characters: [],
     overlays: [],
     chapters: [{
       id: crypto.randomUUID(),
@@ -25,11 +26,13 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 7 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 8 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (value.player !== undefined && !isPlayerConfig(value.player)) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
-  if (value.overlays !== undefined && !isOverlays(value.overlays, variables)) return false;
+  if (value.characters !== undefined && !isCharacters(value.characters)) return false;
+  const characters = new Map((value.characters ?? []).map((character) => [character.id, character]));
+  if (value.overlays !== undefined && !isOverlays(value.overlays, variables, characters)) return false;
   const overlays = new Set((value.overlays ?? []).map((overlay) => overlay.id));
   const chapterIds = new Set<string>();
   return value.chapters.every((chapter) => {
@@ -451,6 +454,18 @@ export function normalizeOverlayVariableReferences(overlays: readonly StoryOverl
   }));
 }
 
+export function countStoryCharacterReferences(overlays: readonly StoryOverlay[], characterId: string): number {
+  return overlays.reduce((count, overlay) => count + overlay.components.filter((component) =>
+    component.type === "character" && component.characterId === characterId).length, 0);
+}
+
+export function removeStoryCharacterReferences(overlays: readonly StoryOverlay[], characterId: string): StoryOverlay[] {
+  return overlays.map((overlay) => ({
+    ...overlay,
+    components: overlay.components.filter((component) => component.type !== "character" || component.characterId !== characterId),
+  }));
+}
+
 function normalizeActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
   return actions.reduce<StoryAction[]>((normalized, action) => {
     if (action.type === "show-overlay" || action.type === "hide-overlay") {
@@ -493,8 +508,9 @@ function migrateStoryDocument(value: unknown): unknown {
     })),
   } : version4;
   const version6 = version5.version === 5 ? { ...version5, version: 6, overlays: [] } : version5;
-  if (version6.version !== 6) return version6;
-  return { ...version6, version: 7 };
+  const version7 = version6.version === 6 ? { ...version6, version: 7 } : version6;
+  if (version7.version !== 7) return version7;
+  return { ...version7, version: 8, characters: [] };
 }
 
 function migrateStoryNode(node: unknown): unknown {
@@ -704,7 +720,19 @@ function isPlayerConfig(value: unknown): value is StoryPlayerConfig {
     (value.theme.font === "sans" || value.theme.font === "serif");
 }
 
-function isOverlays(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryOverlay[] {
+function isCharacters(value: unknown): value is StoryCharacter[] {
+  if (!Array.isArray(value)) return false;
+  const ids = new Set<string>();
+  return value.every((character) => {
+    if (!isRecord(character) || !nonEmptyString(character.id) || ids.has(character.id) ||
+      typeof character.name !== "string" || character.name.length > 80 ||
+      (character.avatarAssetId !== undefined && !nonEmptyString(character.avatarAssetId))) return false;
+    ids.add(character.id);
+    return true;
+  });
+}
+
+function isOverlays(value: unknown, variables: ReadonlyMap<string, StoryVariable>, characters: ReadonlyMap<string, StoryCharacter>): value is StoryOverlay[] {
   if (!Array.isArray(value)) return false;
   const ids = new Set<string>();
   return value.every((overlay) => {
@@ -718,6 +746,8 @@ function isOverlays(value: unknown, variables: ReadonlyMap<string, StoryVariable
       componentIds.add(component.id);
       if (component.type === "text") return typeof component.text === "string" && component.text.length <= 500;
       if (component.type === "image") return nonEmptyString(component.assetId) && typeof component.alt === "string" && component.alt.length <= 120;
+      if (component.type === "character") return characters.has(String(component.characterId)) &&
+        (component.display === "name" || component.display === "avatar" || component.display === "avatar-name");
       if (component.type === "value") return typeof component.label === "string" && component.label.length <= 80 && variables.has(String(component.variableId));
       if (component.type !== "meter" || typeof component.label !== "string" || component.label.length > 80) return false;
       const variable = variables.get(String(component.variableId));

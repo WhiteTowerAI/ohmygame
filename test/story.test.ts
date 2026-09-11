@@ -11,6 +11,7 @@ import {
   applyStoryActions,
   applyRuntimeActions,
   countSceneVariableReferences,
+  countStoryCharacterReferences,
   countStoryVariableReferences,
   getNextNode,
   getOutgoingEdge,
@@ -23,6 +24,7 @@ import {
   normalizeStoryVariableReferences,
   parseStoryDocument,
   removeSceneVariableReferences,
+  removeStoryCharacterReferences,
   removeStoryVariableReferences,
   replaceOutgoingEdge,
   resolveSceneInteraction,
@@ -266,6 +268,27 @@ describe("story documents", () => {
     expect(isStoryDocument(story)).toBe(false);
   });
 
+  it("validates Character overlays and removes character references", () => {
+    const story = createStoryDocument();
+    story.characters = [{ id: "ari", name: "Ari", avatarAssetId: "ari-avatar" }];
+    story.overlays = [{
+      id: "speaker",
+      name: "Speaker",
+      placement: "bottom-left",
+      components: [{ id: "character", type: "character", characterId: "ari", display: "avatar-name" }],
+    }];
+
+    expect(isStoryDocument(story)).toBe(true);
+    expect(countStoryCharacterReferences(story.overlays, "ari")).toBe(1);
+    expect(removeStoryCharacterReferences(story.overlays, "ari")[0]?.components).toEqual([]);
+
+    story.characters.push({ id: "ari", name: "Duplicate" });
+    expect(isStoryDocument(story)).toBe(false);
+    story.characters.pop();
+    story.overlays[0]!.components[0] = { id: "character", type: "character", characterId: "missing", display: "name" };
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
   it("normalizes Overlay references when Variables change", () => {
     const overlays = [{
       id: "hud",
@@ -295,9 +318,15 @@ describe("story documents", () => {
     expect(parseStoryDocument(legacy).overlays).toEqual([]);
   });
 
-  it("migrates version 6 documents to version 7", () => {
+  it("migrates version 6 documents to the current version", () => {
     const legacy = { ...createStoryDocument(), version: 6 };
-    expect(parseStoryDocument(legacy).version).toBe(7);
+    expect(parseStoryDocument(legacy)).toMatchObject({ version: 8, characters: [] });
+  });
+
+  it("migrates version 7 documents with an empty character list", () => {
+    const legacy = { ...createStoryDocument(), version: 7 };
+    delete (legacy as { characters?: unknown }).characters;
+    expect(parseStoryDocument(legacy)).toMatchObject({ version: 8, characters: [] });
   });
 
   it("migrates version 3 choice effects into the current document", () => {
@@ -319,7 +348,7 @@ describe("story documents", () => {
       }],
     });
 
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     const choice = migrated.chapters[0]!.nodes.find((node) => node.type === "choice");
     expect(choice?.type === "choice" ? choice.data.options[0]?.actions : undefined).toEqual([
       { type: "set-variable", variableId: "trusted", value: true },
@@ -335,7 +364,7 @@ describe("story documents", () => {
 
     const migrated = parseStoryDocument(legacy);
     const scene = migrated.chapters[0]!.nodes.find((node) => node.type === "scene");
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(scene?.type === "scene" ? scene.data.events : undefined).toEqual([]);
   });
 

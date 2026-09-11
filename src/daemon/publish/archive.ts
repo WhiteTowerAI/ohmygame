@@ -113,6 +113,9 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
   if (story.player?.backgroundAssetId && assets.get(story.player.backgroundAssetId)?.mediaType !== "image") {
     throw new PublishError("The Player background is missing from Library or is not an image.");
   }
+  const missingAvatar = (story.characters ?? []).find((character) =>
+    character.avatarAssetId && assets.get(character.avatarAssetId)?.mediaType !== "image");
+  if (missingAvatar) throw new PublishError("A character avatar is missing from Library or is not an image.");
   const missingOverlay = (story.overlays ?? []).flatMap((overlay) => overlay.components)
     .find((component) => component.type === "image" && assets.get(component.assetId)?.mediaType !== "image");
   if (missingOverlay) throw new PublishError("An Overlay image is missing from Library or is not an image.");
@@ -121,6 +124,7 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
 function referencedAssetIds(story: StoryDocument): Set<string> {
   const ids = new Set<string>();
   if (story.player?.backgroundAssetId) ids.add(story.player.backgroundAssetId);
+  for (const character of story.characters ?? []) if (character.avatarAssetId) ids.add(character.avatarAssetId);
   for (const overlay of story.overlays ?? []) {
     for (const component of overlay.components) if (component.type === "image") ids.add(component.assetId);
   }

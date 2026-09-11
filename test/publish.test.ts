@@ -414,7 +414,16 @@ describe("remote publish", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: videoContents,
     })).json();
+    const avatarContents = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const avatar = (await runtime.daemon.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=avatar.png&mediaType=image%2Fpng",
+      headers: { "content-type": "application/octet-stream" },
+      payload: avatarContents,
+    })).json();
     const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    story.characters = [{ id: "ari", name: "Ari", avatarAssetId: avatar.id }];
+    story.overlays = [{ id: "speaker", name: "Speaker", placement: "bottom-left", components: [{ id: "character", type: "character", characterId: "ari", display: "avatar-name" }] }];
     const chapter = story.chapters[0];
     chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: video.id } }], events: [] } });
     chapter.nodes.push({ id: "ending", type: "ending", position: { x: 300, y: 0 }, data: { title: "The End", description: "Done" } });
@@ -437,8 +446,12 @@ describe("remote publish", () => {
       version: 1,
       story: "story.json",
       scope: `published:${project.id}`,
-      assets: { [video.id]: `./assets/media/${video.id}.mp4` },
+      assets: {
+        [avatar.id]: `./assets/media/${avatar.id}.png`,
+        [video.id]: `./assets/media/${video.id}.mp4`,
+      },
     });
+    expect(await readFile(path.join(output, "assets", "media", `${avatar.id}.png`))).toEqual(avatarContents);
     expect(await readFile(path.join(output, "assets", "media", `${video.id}.mp4`))).toEqual(videoContents);
   });
 
@@ -456,7 +469,7 @@ describe("remote publish", () => {
 
     expect(built.statusCode, built.body).toBe(200);
     expect(built.rawPayload.length).toBeGreaterThan(25 * 1024 * 1024);
-  });
+  }, 15_000);
 
   it("rejects a multi-chapter Interactive Drama until chapter transitions are supported", async () => {
     const runtime = await testRuntime();

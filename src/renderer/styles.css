@@ -4633,6 +4633,10 @@ button {
 
 .story-player-overlay p { margin: 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .story-player-overlay img { display: block; width: 100%; max-height: 140px; object-fit: contain; }
+.story-player-overlay-character { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.story-player-overlay-character > img,
+.story-player-overlay-character > span { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; overflow: hidden; border-radius: 50%; background: rgb(255 255 255 / 12%); object-fit: cover; }
+.story-player-overlay-character > strong { overflow-wrap: anywhere; font-size: 12px; }
 .story-player-overlay-value,
 .story-player-overlay-meter > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; }
 .story-player-overlay-value strong,
@@ -5833,6 +5837,11 @@ button {
 .story-overlay-add-components button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
 .story-overlay-add-components button:disabled { cursor: default; opacity: 0.35; }
 .story-overlay-delete { color: var(--danger); }
+.story-character-avatar { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); }
+.story-character-avatar > img,
+.story-character-avatar > svg { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%; object-fit: cover; }
+.story-character-avatar > span { min-width: 0; flex: 1; overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.story-character-avatar > button { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; padding: 0; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
 
 .story-inspector-events {
   display: grid;
