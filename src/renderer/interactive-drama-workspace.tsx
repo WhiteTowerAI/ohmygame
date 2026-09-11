@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   Maximize,
   Minus,
+  Monitor,
   Music2,
   MousePointer2,
   Pause,
@@ -69,6 +70,7 @@ import {
   type StoryAssetReference,
   type StoryNode,
   type StoryNodeType,
+  type StoryPlayerConfig,
   type StoryTextReference,
   type StoryVariable,
   type StoryVariableCondition,
@@ -79,7 +81,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, countStoryVariableReferences, normalizeStoryVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, countStoryVariableReferences, DEFAULT_STORY_PLAYER_CONFIG, normalizeStoryVariableReferences, removeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -97,6 +99,7 @@ const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
 const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
+const PLAYER_UI_NODE_ID = "player-ui";
 type InteractionMode = "pointer" | "pan";
 type StoryFlowData = {
   title?: string;
@@ -128,6 +131,7 @@ type StoryFlowData = {
   textRuntime?: TextNodeRuntime;
 };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
+type StoryCanvasNode = Node<StoryFlowData, StoryNodeType | "player-ui">;
 
 interface MediaNodeRuntime {
   generating: boolean;
@@ -177,6 +181,7 @@ interface MediaReferenceView {
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
+  "player-ui": PlayerUiNode,
   start: StartNode,
   scene: SceneNode,
   choice: ChoiceNode,
@@ -192,6 +197,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   const [notice, setNotice] = useState<string>();
   const [chapter, setChapter] = useState<{ id: string; title: string }>();
   const [variables, setVariables] = useState<StoryVariable[]>([]);
+  const [player, setPlayer] = useState<StoryPlayerConfig>();
   const [nodes, setNodes] = useState<StoryFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -223,6 +229,7 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       if (!firstChapter) throw new Error("Story has no chapters");
       setChapter({ id: firstChapter.id, title: firstChapter.title });
       setVariables(story.variables ?? []);
+      setPlayer(story.player);
       setNodes(firstChapter.nodes.map((node) => toFlowNode(node, models)));
       setEdges(firstChapter.edges);
       remainingChapters.current = story.chapters.slice(1);
@@ -239,10 +246,11 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   }, [projectId]);
 
   const document = useMemo(
-    () => chapter ? storyDocument(variables, chapter, nodes, edges, remainingChapters.current) : undefined,
-    [chapter, edges, nodes, variables],
+    () => chapter ? storyDocument(player, variables, chapter, nodes, edges, remainingChapters.current) : undefined,
+    [chapter, edges, nodes, player, variables],
   );
   latestStory.current = document;
+  const playerUiNodeId = useMemo(() => uniquePlayerUiNodeId(nodes), [nodes]);
 
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
@@ -314,9 +322,10 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     if (story) void save(story).catch(() => {});
   }, [save]);
 
-  const onNodesChange = useCallback((changes: NodeChange<StoryFlowNode>[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
-  }, []);
+  const onNodesChange = useCallback((changes: NodeChange<StoryCanvasNode>[]) => {
+    const storyChanges = changes.filter((change) => (change.type === "add" ? change.item.id : change.id) !== playerUiNodeId);
+    setNodes((current) => applyNodeChanges(storyChanges, current).filter(isStoryFlowNode));
+  }, [playerUiNodeId]);
   function onEdgesChange(changes: EdgeChange[]): void {
     const assetEdgeIds = new Set(assetEdges.map((edge) => edge.id));
     for (const change of changes) {
@@ -396,7 +405,8 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
   }
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
-  const inspectorOpen = variablesOpen || Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
+  const playerSelected = selectedId === playerUiNodeId;
+  const inspectorOpen = variablesOpen || playerSelected || Boolean(selectedNode && !isInlineNodeType(selectedNode.type));
   const activeChapter = document?.chapters[0];
 
   function addNode(type: Exclude<StoryNodeType, "start" | "asset">, position: { x: number; y: number }): void {
@@ -448,6 +458,10 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     if (removedHandle) {
       setEdges((current) => current.filter((edge) => edge.source !== selectedId || edge.sourceHandle !== removedHandle));
     }
+  }
+
+  function updatePlayer(update: (current: StoryPlayerConfig) => StoryPlayerConfig): void {
+    setPlayer((current) => update(current ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: chapter?.title ?? DEFAULT_STORY_PLAYER_CONFIG.title }));
   }
 
   function deleteSelected(): void {
@@ -740,7 +754,12 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
     clearSelection();
     setPlayIssue(undefined);
     try {
-      const assetIssue = validatePlayableChapter(activeChapter, new Set(libraryAssets.map((asset) => asset.id)));
+      if (player?.backgroundAssetId && !libraryAssets.some((asset) => asset.id === player.backgroundAssetId && asset.mediaType === "image")) {
+        setSelectedId(playerUiNodeId);
+        setPlayIssue({ nodeId: playerUiNodeId, message: "The Player background is missing from Library or is not an image." });
+        return;
+      }
+      const assetIssue = validatePlayableChapter(activeChapter, new Set(libraryAssets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)));
       if (assetIssue) {
         setPlayIssue(assetIssue);
         if (assetIssue.nodeId) {
@@ -791,9 +810,19 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
           {phase === "loading" ? <div className="story-canvas-state">Loading story...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
-            <ReactFlow
+            <ReactFlow<StoryCanvasNode>
               className={`story-canvas story-canvas-${interactionMode}`}
-              nodes={renderedNodes}
+              nodes={[...renderedNodes, {
+                id: playerUiNodeId,
+                type: "player-ui",
+                position: { x: 80, y: 48 },
+                measured: { width: 210, height: 64 },
+                draggable: false,
+                deletable: false,
+                selectable: true,
+                selected: playerSelected,
+                data: { title: player?.title || chapter?.title || DEFAULT_STORY_PLAYER_CONFIG.title },
+              }]}
               edges={[...edges, ...assetEdges]}
               nodeTypes={STORY_NODE_TYPES}
               minZoom={MIN_ZOOM}
@@ -852,6 +881,13 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
         </div>
         {variablesOpen ? (
           <StoryVariablesPanel variables={variables} onChange={updateVariables} onRemove={removeVariable} onClose={() => setVariablesOpen(false)} />
+        ) : playerSelected ? (
+          <PlayerInspector
+            config={player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: chapter?.title ?? DEFAULT_STORY_PLAYER_CONFIG.title }}
+            libraryAssets={libraryAssets}
+            onChange={updatePlayer}
+            onClose={clearSelection}
+          />
         ) : selectedNode && !isInlineNodeType(selectedNode.type) ? (
           <StoryInspector
             libraryAssets={libraryAssets}
@@ -866,6 +902,13 @@ export function InteractiveDramaWorkspace({ projectId }: { projectId: string }) 
       </div>
     </section>
   );
+}
+
+function PlayerUiNode({ data, selected }: NodeProps<StoryFlowNode>) {
+  return <div className={`story-node story-node-player-ui${selected ? " is-selected" : ""}`}>
+    <Monitor size={16} />
+    <div><span>Player UI</span><strong>{data.title || "Untitled Story"}</strong></div>
+  </div>;
 }
 
 function StartNode({ selected }: NodeProps<StoryFlowNode>) {
@@ -1447,6 +1490,57 @@ function VariableValueInput({ variable, value, label, onChange }: { variable: St
   return <input aria-label={label} type={variable.type === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(variable.type === "number" ? Number(event.target.value) : event.target.value)} />;
 }
 
+function PlayerInspector({ config, libraryAssets, onChange, onClose }: {
+  config: StoryPlayerConfig;
+  libraryAssets: LibraryAsset[];
+  onChange: (update: (current: StoryPlayerConfig) => StoryPlayerConfig) => void;
+  onClose: () => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const background = libraryAssets.find((asset) => asset.id === config.backgroundAssetId);
+  return <aside className="story-inspector" aria-label="Player UI inspector">
+    <header>
+      <div><span>Player UI</span><strong>{config.title || "Untitled Story"}</strong></div>
+      <button type="button" title="Close inspector" aria-label="Close inspector" onClick={onClose}><X size={15} /></button>
+    </header>
+    <div className="story-inspector-content">
+      <InspectorField label="Game title">
+        <input maxLength={120} value={config.title} onChange={(event) => onChange((current) => ({ ...current, title: event.target.value.slice(0, 120) }))} />
+      </InspectorField>
+      <div className="story-inspector-field">
+        <span>Menu background</span>
+        {background ? <div className="story-player-background-value"><span>{background.name}</span><button type="button" title="Remove background" aria-label="Remove background" onClick={() => onChange((current) => ({ ...current, backgroundAssetId: undefined }))}><X size={14} /></button></div> : null}
+        <button className="story-clip-add" type="button" onClick={() => setPickerOpen(true)}><ImageIcon size={14} />{background ? "Replace image" : "Choose image"}</button>
+      </div>
+      <InspectorField label="Accent color">
+        <input type="color" value={config.theme.accentColor} onChange={(event) => onChange((current) => ({ ...current, theme: { ...current.theme, accentColor: event.target.value } }))} />
+      </InspectorField>
+      <InspectorField label="Text color">
+        <input type="color" value={config.theme.textColor} onChange={(event) => onChange((current) => ({ ...current, theme: { ...current.theme, textColor: event.target.value } }))} />
+      </InspectorField>
+      <InspectorField label="Font">
+        <select value={config.theme.font} onChange={(event) => onChange((current) => ({ ...current, theme: { ...current.theme, font: event.target.value as StoryPlayerConfig["theme"]["font"] } }))}>
+          <option value="sans">Sans serif</option><option value="serif">Serif</option>
+        </select>
+      </InspectorField>
+      <InspectorField label="Video fit">
+        <select value={config.videoFit} onChange={(event) => onChange((current) => ({ ...current, videoFit: event.target.value as StoryPlayerConfig["videoFit"] }))}>
+          <option value="contain">Fit</option><option value="cover">Fill</option>
+        </select>
+      </InspectorField>
+      <InspectorField label="Choice position">
+        <select value={config.choicePosition} onChange={(event) => onChange((current) => ({ ...current, choicePosition: event.target.value as StoryPlayerConfig["choicePosition"] }))}>
+          <option value="bottom">Bottom</option><option value="center">Center</option>
+        </select>
+      </InspectorField>
+    </div>
+    {pickerOpen ? <StoryAssetPicker title="Choose menu background" assets={libraryAssets.filter((asset) => asset.mediaType === "image")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
+      onChange((current) => ({ ...current, backgroundAssetId: asset.id }));
+      setPickerOpen(false);
+    }} /> : null}
+  </aside>;
+}
+
 function StoryInspector({
   libraryAssets,
   nodes,
@@ -1894,6 +1988,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "start" | "asset">, positio
 }
 
 function storyDocument(
+  player: StoryPlayerConfig | undefined,
   variables: StoryVariable[],
   chapter: { id: string; title: string },
   nodes: StoryFlowNode[],
@@ -1902,6 +1997,7 @@ function storyDocument(
 ): StoryDocument {
   return {
     version: 4,
+    ...(player ? { player } : {}),
     variables,
     chapters: [{
       ...chapter,
@@ -2133,6 +2229,18 @@ function preferredImageOption(model?: ImageModel): ImageModel["generationOptions
 
 function isMediaNodeType(type: StoryNodeType): type is "image" | "video" {
   return type === "image" || type === "video";
+}
+
+function isStoryFlowNode(node: StoryCanvasNode): node is StoryFlowNode {
+  return node.type !== "player-ui";
+}
+
+function uniquePlayerUiNodeId(nodes: readonly StoryFlowNode[]): string {
+  const ids = new Set(nodes.map((node) => node.id));
+  let id = PLAYER_UI_NODE_ID;
+  let suffix = 2;
+  while (ids.has(id)) id = `${PLAYER_UI_NODE_ID}-${suffix++}`;
+  return id;
 }
 
 function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "asset" {

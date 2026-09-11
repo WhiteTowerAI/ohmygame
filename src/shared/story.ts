@@ -1,6 +1,13 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryNode, type StoryPlayerConfig, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "scene", "choice", "ending", "text", "image", "video", "asset"]);
+
+export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
+  title: "Untitled Story",
+  theme: { accentColor: "#ffffff", textColor: "#ffffff", font: "sans" },
+  videoFit: "contain",
+  choicePosition: "bottom",
+};
 
 export function createStoryDocument(): StoryDocument {
   return {
@@ -17,6 +24,7 @@ export function createStoryDocument(): StoryDocument {
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
   if (!isRecord(value) || value.version !== 4 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (value.player !== undefined && !isPlayerConfig(value.player)) return false;
   if (value.variables !== undefined && !isVariables(value.variables)) return false;
   const variables = new Map((value.variables ?? []).map((variable) => [variable.id, variable]));
   const chapterIds = new Set<string>();
@@ -124,6 +132,47 @@ export interface StoryRuntimeState {
   chapterId: string;
   nodeId: string;
   variables: Record<string, StoryVariableValue>;
+}
+
+interface PlayerRuntimeStateBase {
+  chapterId: string;
+  variables: Record<string, StoryVariableValue>;
+}
+
+export type PlayerRuntimeState =
+  | PlayerRuntimeStateBase & { mode: "menu"; nodeId?: never }
+  | PlayerRuntimeStateBase & { mode: "playing"; nodeId: string };
+
+type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" }>;
+
+export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
+  return { mode: "menu", chapterId, variables: initialStoryVariables(variables) };
+}
+
+export function startGame(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
+  if (state.chapterId !== chapter.id) throw new Error("Runtime state belongs to a different chapter");
+  const start = getStartNode(chapter);
+  const first = start ? getNextNode(chapter, start.id) : undefined;
+  if (!first) throw new Error("The chapter has no opening node");
+  return { ...state, mode: "playing", nodeId: first.id };
+}
+
+export function completeScene(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
+  if (node?.type !== "scene") throw new Error("The current story node is not a scene");
+  const next = getNextNode(chapter, node.id);
+  if (!next) throw new Error("The scene is not connected");
+  return { ...state, nodeId: next.id };
+}
+
+export function chooseOption(chapter: StoryChapter, state: PlayerRuntimeState, optionId: string): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  return { ...resolveStoryChoice(chapter, { chapterId: state.chapterId, nodeId: state.nodeId, variables: state.variables }, optionId), mode: "playing" };
+}
+
+export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[]): PlayingRuntimeState {
+  return startGame(chapter, createPlayerState(chapter.id, variables));
 }
 
 export function matchesStoryCondition(condition: StoryVariableCondition | undefined, values: Readonly<Record<string, StoryVariableValue>>): boolean {
@@ -342,6 +391,16 @@ function isVariables(value: unknown): value is StoryVariable[] {
     ids.add(candidate.id);
     return true;
   });
+}
+
+function isPlayerConfig(value: unknown): value is StoryPlayerConfig {
+  if (!isRecord(value) || typeof value.title !== "string" || value.title.length > 120 ||
+    (value.backgroundAssetId !== undefined && !nonEmptyString(value.backgroundAssetId)) ||
+    (value.videoFit !== "contain" && value.videoFit !== "cover") ||
+    (value.choicePosition !== "center" && value.choicePosition !== "bottom") || !isRecord(value.theme)) return false;
+  return /^#[0-9a-f]{6}$/i.test(String(value.theme.accentColor)) &&
+    /^#[0-9a-f]{6}$/i.test(String(value.theme.textColor)) &&
+    (value.theme.font === "sans" || value.theme.font === "serif");
 }
 
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {

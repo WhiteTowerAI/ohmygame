@@ -232,8 +232,21 @@ export interface StoryChapter {
   edges: StoryEdge[];
 }
 
+export interface StoryPlayerConfig {
+  title: string;
+  backgroundAssetId?: string;
+  theme: {
+    accentColor: string;
+    textColor: string;
+    font: "sans" | "serif";
+  };
+  videoFit: "contain" | "cover";
+  choicePosition: "center" | "bottom";
+}
+
 export interface StoryDocument {
   version: 4;
+  player?: StoryPlayerConfig;
   variables?: StoryVariable[];
   chapters: StoryChapter[];
 }

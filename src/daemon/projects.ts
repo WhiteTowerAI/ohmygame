@@ -445,7 +445,7 @@ export class ProjectManager {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw error;
       }
-      if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
+      if (story.player?.backgroundAssetId === assetId || story.chapters.some((chapter) => chapter.nodes.some((node) => (
         (node.type === "scene" && node.data.clips.some((clip) => clip.source.type === "library" && clip.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
@@ -475,6 +475,9 @@ export class ProjectManager {
         try { current = parseStoryDocument(parsed); } catch { continue; }
         const story: StoryDocument = {
           ...current,
+          ...(current.player?.backgroundAssetId === assetId
+            ? { player: { ...current.player, backgroundAssetId: undefined } }
+            : {}),
           chapters: current.chapters.map((chapter) => {
             const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
             return {

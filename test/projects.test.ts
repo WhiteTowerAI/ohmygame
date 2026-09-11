@@ -81,6 +81,25 @@ describe("ProjectManager", () => {
     expect((await manager.story(project.id)).chapters[0]?.title).toBe("The Stopover");
   });
 
+  it("tracks and clears a Player menu background Library reference", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
+    const manager = new ProjectManager(dataDirectory);
+    const project = await manager.create("Story", "interactive-drama");
+    const story = await manager.story(project.id);
+    story.player = {
+      title: "Night Train",
+      backgroundAssetId: "menu-image",
+      theme: { accentColor: "#ffffff", textColor: "#ffffff", font: "sans" },
+      videoFit: "contain",
+      choicePosition: "bottom",
+    };
+    await manager.setStory(project.id, story);
+
+    expect((await manager.referencesLibraryAsset("menu-image")).map(({ id }) => id)).toEqual([project.id]);
+    await manager.removeLibraryAssetReferences("menu-image");
+    expect((await manager.story(project.id)).player?.backgroundAssetId).toBeUndefined();
+  });
+
   it("loads version 3 Interactive Drama stories through the version 4 migration", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-projects-"));
     const manager = new ProjectManager(dataDirectory);

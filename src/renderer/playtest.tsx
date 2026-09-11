@@ -1,15 +1,17 @@
-import { RotateCcw } from "./icons.js";
-import { useEffect, useRef, useState } from "react";
-import type { StoryChapter, StoryNode, StoryVariableValue } from "../shared/contracts.js";
-import { getNextNode, getStartNode, initialStoryVariables, matchesStoryCondition, resolveStoryChoice, resolveStoryVideoClipAssetId, validatePlayableChapter, type StoryRuntimeState } from "../shared/story.js";
+import { Pause, Play, RotateCcw } from "./icons.js";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import type { StoryChapter, StoryNode, StoryPlayerConfig, StoryVariable, StoryVariableValue } from "../shared/contracts.js";
+import { chooseOption, completeScene, createPlayerState, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, resolveStoryVideoClipAssetId, restartGame, startGame, validatePlayableChapter, type PlayerRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
-  const [runtime, setRuntime] = useState<StoryRuntimeState>();
+  const [variables, setVariables] = useState<StoryVariable[]>([]);
+  const [config, setConfig] = useState<StoryPlayerConfig>(DEFAULT_STORY_PLAYER_CONFIG);
+  const [runtime, setRuntime] = useState<PlayerRuntimeState>();
+  const [paused, setPaused] = useState(false);
   const [playbackStep, setPlaybackStep] = useState(0);
-  const initialVariables = useRef<Record<string, StoryVariableValue>>({});
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -20,117 +22,176 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       if (!selected) throw new Error("Chapter not found");
       const issue = validatePlayableChapter(selected, new Set(assets.filter((asset) => asset.mediaType === "video").map((asset) => asset.id)));
       if (issue) throw new Error(issue.message);
-      const start = getStartNode(selected);
-      const first = start ? getNextNode(selected, start.id) : undefined;
-      if (!first) throw new Error("The chapter has no opening scene");
+      if (story.player?.backgroundAssetId && !assets.some((asset) => asset.id === story.player?.backgroundAssetId && asset.mediaType === "image")) {
+        throw new Error("The Player background is missing from Library or is not an image.");
+      }
+      const definitions = story.variables ?? [];
       setChapter(selected);
-      initialVariables.current = initialStoryVariables(story.variables ?? []);
-      setRuntime({ chapterId: selected.id, nodeId: first.id, variables: initialVariables.current });
-      document.title = `${selected.title} - Playtest`;
+      setVariables(definitions);
+      setConfig(story.player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: selected.title });
+      setRuntime(createPlayerState(selected.id, definitions));
+      document.title = `${story.player?.title || selected.title} - Playtest`;
     }).catch((cause) => {
       if (!disposed) setError(errorMessage(cause));
     });
     return () => { disposed = true; };
   }, [chapterId, projectId]);
 
-  const node = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
-
-  function restart(): void {
+  const start = useCallback(() => {
     if (!chapter) return;
-    const start = getStartNode(chapter);
-    const first = start ? getNextNode(chapter, start.id) : undefined;
-    if (first) {
-      setRuntime({ chapterId: chapter.id, nodeId: first.id, variables: initialVariables.current });
-      setPlaybackStep((step) => step + 1);
-    }
-  }
+    setRuntime((current) => startGame(chapter, current ?? createPlayerState(chapter.id, variables)));
+    setPaused(false);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter, variables]);
 
-  function advance(sourceHandle = "out"): void {
-    if (!chapter || !node || !runtime) return;
-    if (node.type === "choice") {
-      setRuntime((current) => current ? resolveStoryChoice(chapter, current, sourceHandle) : current);
-      setPlaybackStep((step) => step + 1);
-      return;
-    }
-    const next = getNextNode(chapter, node.id, sourceHandle);
-    if (next) {
-      setRuntime((current) => current ? { ...current, nodeId: next.id } : current);
-      setPlaybackStep((step) => step + 1);
-    }
-  }
+  const restart = useCallback(() => {
+    if (!chapter) return;
+    setRuntime(restartGame(chapter, variables));
+    setPaused(false);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter, variables]);
 
-  return (
-    <main className="story-playtest-page">
-      <header className="story-playtest-header window-drag-handle">
-        <strong>{chapter?.title ?? "Playtest"}</strong>
-        {chapter ? <button type="button" onClick={restart}><RotateCcw size={14} />Restart</button> : null}
-      </header>
-      {error ? <div className="story-playtest-state" role="alert">{error}</div> : null}
-      {!error && !node ? <div className="story-playtest-state">Loading playtest...</div> : null}
-      {node && chapter && runtime ? <StoryPlayer key={`${node.id}:${playbackStep}`} chapter={chapter} node={node} variables={runtime.variables} onAdvance={advance} onRestart={restart} /> : null}
-    </main>
-  );
+  const returnToMenu = useCallback(() => {
+    if (!chapter) return;
+    setRuntime(createPlayerState(chapter.id, variables));
+    setPaused(false);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter, variables]);
+
+  const completeCurrentScene = useCallback(() => {
+    if (!chapter) return;
+    setRuntime((current) => current ? completeScene(chapter, current) : current);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter]);
+
+  const selectChoice = useCallback((optionId: string) => {
+    if (!chapter) return;
+    setRuntime((current) => current ? chooseOption(chapter, current, optionId) : current);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter]);
+
+  const node = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
+  const style = {
+    "--story-player-accent": config.theme.accentColor,
+    "--story-player-text": config.theme.textColor,
+    "--story-player-font": config.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif",
+  } as CSSProperties;
+
+  return <main className="story-playtest-page" style={style}>
+    {error ? <div className="story-playtest-state" role="alert">{error}</div> : null}
+    {!error && (!chapter || !runtime) ? <div className="story-playtest-state">Loading playtest...</div> : null}
+    {chapter && runtime ? (
+      <InteractiveDramaPlayer
+        key={playbackStep}
+        chapter={chapter}
+        config={config}
+        node={node}
+        runtime={runtime}
+        paused={paused}
+        onStart={start}
+        onPause={() => setPaused(true)}
+        onResume={() => setPaused(false)}
+        onRestart={restart}
+        onMenu={returnToMenu}
+        onSceneComplete={completeCurrentScene}
+        onChoice={selectChoice}
+      />
+    ) : null}
+  </main>;
 }
 
-function StoryPlayer({
-  chapter,
-  node,
-  variables,
-  onAdvance,
-  onRestart,
-}: {
+function InteractiveDramaPlayer({ chapter, config, node, runtime, paused, onStart, onPause, onResume, onRestart, onMenu, onSceneComplete, onChoice }: {
   chapter: StoryChapter;
-  node: StoryNode;
-  variables: Readonly<Record<string, StoryVariableValue>>;
-  onAdvance: (sourceHandle?: string) => void;
+  config: StoryPlayerConfig;
+  node?: StoryNode;
+  runtime: PlayerRuntimeState;
+  paused: boolean;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
   onRestart: () => void;
+  onMenu: () => void;
+  onSceneComplete: () => void;
+  onChoice: (optionId: string) => void;
 }) {
-  const visibleOptions = node.type === "choice"
-    ? node.data.options.filter((option) => matchesStoryCondition(option.condition, variables))
-    : [];
-  return (
-    <section className="story-player" aria-label="Story playtest">
-      <div className="story-player-stage">
-        {node.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} onComplete={() => onAdvance()} /> : null}
-        {node.type === "choice" ? <StoryChoicePlayer node={node} visibleOptions={visibleOptions} onSelect={onAdvance} /> : null}
-        {node.type === "ending" ? (
-          <article className="story-player-content story-player-ending">
-            <span>Ending</span>
-            <h2>{node.data.title || "Untitled ending"}</h2>
-            {node.data.description ? <p>{node.data.description}</p> : null}
-            <button className="story-player-continue" type="button" onClick={onRestart}><RotateCcw size={14} />Play again</button>
-          </article>
-        ) : null}
+  const background = useWorkspaceAssetUrl(undefined, "", 0, config.backgroundAssetId);
+  const backgroundStyle = background.url ? { backgroundImage: `linear-gradient(rgb(0 0 0 / 38%), rgb(0 0 0 / 62%)), url("${background.url}")` } : undefined;
+  if (runtime.mode === "menu") return (
+    <section className="story-player story-player-menu" aria-label="Game menu" style={backgroundStyle}>
+      <div className="story-player-menu-content">
+        <span>Interactive Drama</span>
+        <h1>{config.title || chapter.title}</h1>
+        <button type="button" onClick={onStart}><Play size={16} fill="currentColor" />Start game</button>
       </div>
     </section>
   );
+
+  return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
+    <div className="story-player-stage">
+      {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} node={node} fit={config.videoFit} paused={paused} onComplete={onSceneComplete} /> : null}
+      {node?.type === "choice" ? <StoryChoicePlayer node={node} variables={runtime.variables} paused={paused} onSelect={onChoice} /> : null}
+      {node?.type === "ending" ? <StoryEnding node={node} onRestart={onRestart} onMenu={onMenu} /> : null}
+      {!node ? <div className="story-playtest-state" role="alert">The current story node is missing.</div> : null}
+      {node?.type !== "ending" ? <button className="story-player-pause" type="button" title="Pause" aria-label="Pause" onClick={onPause}><Pause size={16} fill="currentColor" /></button> : null}
+      {paused ? <PauseMenu onResume={onResume} onRestart={onRestart} onMenu={onMenu} /> : null}
+    </div>
+  </section>;
 }
 
-function StoryChoicePlayer({ node, visibleOptions, onSelect }: {
+function PauseMenu({ onResume, onRestart, onMenu }: { onResume: () => void; onRestart: () => void; onMenu: () => void }) {
+  return <div className="story-player-pause-layer" role="dialog" aria-modal="true" aria-label="Game paused">
+    <div>
+      <span>Paused</span>
+      <button type="button" onClick={onResume}><Play size={15} fill="currentColor" />Resume</button>
+      <button type="button" onClick={onRestart}><RotateCcw size={15} />Restart</button>
+      <button type="button" onClick={onMenu}>Main menu</button>
+    </div>
+  </div>;
+}
+
+function StoryEnding({ node, onRestart, onMenu }: { node: Extract<StoryNode, { type: "ending" }>; onRestart: () => void; onMenu: () => void }) {
+  return <article className="story-player-content story-player-ending">
+    <span>Ending</span>
+    <h2>{node.data.title || "Untitled ending"}</h2>
+    {node.data.description ? <p>{node.data.description}</p> : null}
+    <div className="story-player-ending-actions">
+      <button type="button" onClick={onRestart}><RotateCcw size={14} />Play again</button>
+      <button type="button" onClick={onMenu}>Main menu</button>
+    </div>
+  </article>;
+}
+
+function StoryChoicePlayer({ node, variables, paused, onSelect }: {
   node: Extract<StoryNode, { type: "choice" }>;
-  visibleOptions: Extract<StoryNode, { type: "choice" }>["data"]["options"];
+  variables: Readonly<Record<string, StoryVariableValue>>;
+  paused: boolean;
   onSelect: (optionId: string) => void;
 }) {
+  const visibleOptions = node.data.options.filter((option) => matchesStoryCondition(option.condition, variables));
   const [remainingMs, setRemainingMs] = useState(node.data.timeout?.durationMs ?? 0);
+  const remaining = useRef(remainingMs);
   const resolved = useRef(false);
 
   useEffect(() => {
     const timeout = node.data.timeout;
-    if (!timeout || !visibleOptions.length) return;
-    const deadline = performance.now() + timeout.durationMs;
-    const tick = () => setRemainingMs(Math.max(0, deadline - performance.now()));
+    if (!timeout || !visibleOptions.length || paused) return;
+    const deadline = performance.now() + remaining.current;
+    const tick = () => {
+      remaining.current = Math.max(0, deadline - performance.now());
+      setRemainingMs(remaining.current);
+    };
     const interval = window.setInterval(tick, 100);
     const timer = window.setTimeout(() => {
       if (resolved.current) return;
       resolved.current = true;
       const selected = visibleOptions.find((option) => option.id === timeout.defaultOptionId) ?? visibleOptions[0];
       if (selected) onSelect(selected.id);
-    }, timeout.durationMs);
-    return () => { window.clearInterval(interval); window.clearTimeout(timer); };
-  }, [node.data.timeout, onSelect, visibleOptions]);
+    }, remaining.current);
+    return () => { tick(); window.clearInterval(interval); window.clearTimeout(timer); };
+  }, [node.data.timeout, onSelect, paused, visibleOptions.length]);
 
   function select(optionId: string): void {
-    if (resolved.current) return;
+    if (resolved.current || paused) return;
     resolved.current = true;
     onSelect(optionId);
   }
@@ -143,56 +204,42 @@ function StoryChoicePlayer({ node, visibleOptions, onSelect }: {
       <span className="story-choice-countdown-bar" aria-hidden="true" style={{ transform: `scaleX(${Math.max(0, remainingMs / node.data.timeout.durationMs)})` }} />
     </div> : null}
     <div className="story-player-choice-options">
-      {visibleOptions.map((option, index) => (
-        <button type="button" key={option.id} onClick={() => select(option.id)}>
-          <span>{index + 1}</span>{option.label || `Option ${index + 1}`}
-        </button>
-      ))}
+      {visibleOptions.map((option, index) => <button type="button" key={option.id} onClick={() => select(option.id)}><span>{index + 1}</span>{option.label || `Option ${index + 1}`}</button>)}
       {!visibleOptions.length ? <p>No choices are available for the current story state.</p> : null}
     </div>
   </article>;
 }
 
-function StoryScenePlayer({ chapter, node, onComplete }: {
+function StoryScenePlayer({ chapter, node, fit, paused, onComplete }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "scene" }>;
+  fit: StoryPlayerConfig["videoFit"];
+  paused: boolean;
   onComplete: () => void;
 }) {
   const [clipIndex, setClipIndex] = useState(0);
   const clip = node.data.clips[clipIndex];
-
   if (!clip) return <div className="story-player-content"><p>This scene has no video clips.</p></div>;
-  return <StoryVideoPlayer
-    key={clip.id}
-    assetId={resolveStoryVideoClipAssetId(chapter, clip)}
-    index={clipIndex}
-    count={node.data.clips.length}
-    title={node.data.title}
-    onEnded={() => {
-      if (clipIndex + 1 < node.data.clips.length) setClipIndex(clipIndex + 1);
-      else onComplete();
-    }}
-  />;
+  return <StoryVideoPlayer key={clip.id} assetId={resolveStoryVideoClipAssetId(chapter, clip)} index={clipIndex} count={node.data.clips.length} title={node.data.title} fit={fit} paused={paused} onEnded={() => {
+    if (clipIndex + 1 < node.data.clips.length) setClipIndex(clipIndex + 1);
+    else onComplete();
+  }} />;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, onEnded }: {
-  assetId?: string;
-  index: number;
-  count: number;
-  title: string;
-  onEnded: () => void;
+function StoryVideoPlayer({ assetId, index, count, title, fit, paused, onEnded }: {
+  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; onEnded: () => void;
 }) {
   const media = useWorkspaceAssetUrl(undefined, "", 0, assetId);
+  const video = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState(false);
+  useEffect(() => { if (paused) video.current?.pause(); else void video.current?.play().catch(() => {}); }, [paused]);
   const error = media.error ?? (playbackError ? "The video could not be played." : undefined);
-  return (
-    <article className="story-player-video">
-      {media.url && !playbackError ? <video src={media.url} autoPlay controls playsInline onError={() => setPlaybackError(true)} onEnded={onEnded} /> : null}
-      {!media.url && !error ? <span>Loading video...</span> : null}
-      {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={onEnded}>Skip clip</button></div> : null}
-      <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
-    </article>
-  );
+  return <article className="story-player-video">
+    {media.url && !playbackError ? <video ref={video} src={media.url} autoPlay playsInline style={{ objectFit: fit }} onError={() => setPlaybackError(true)} onEnded={onEnded} /> : null}
+    {!media.url && !error ? <span>Loading video...</span> : null}
+    {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={onEnded}>Skip clip</button></div> : null}
+    <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
+  </article>;
 }
 
 function errorMessage(error: unknown): string {

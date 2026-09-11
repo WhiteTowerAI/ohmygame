@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   createStoryDocument,
   combineStoryPrompt,
+  chooseOption,
+  completeScene,
+  createPlayerState,
   applyStoryActions,
   countStoryVariableReferences,
   getNextNode,
@@ -18,6 +21,8 @@ import {
   resolveStoryImageAssetId,
   resolveStoryVideoClipAssetId,
   resolveStoryChoice,
+  restartGame,
+  startGame,
   validatePlayableChapter,
 } from "../src/shared/story.js";
 import { VIDEO_MODEL } from "../src/shared/contracts.js";
@@ -35,6 +40,48 @@ describe("story documents", () => {
     expect(isStoryDocument({ ...story, version: 2 })).toBe(false);
     expect(story.chapters).toHaveLength(1);
     expect(story.chapters[0]?.nodes).toEqual([expect.objectContaining({ type: "start" })]);
+  });
+
+  it("accepts an optional Player configuration and rejects invalid values", () => {
+    const story = createStoryDocument();
+    story.player = {
+      title: "Night Train",
+      backgroundAssetId: "menu-image",
+      theme: { accentColor: "#e8bd68", textColor: "#ffffff", font: "serif" },
+      videoFit: "cover",
+      choicePosition: "bottom",
+    };
+    expect(isStoryDocument(story)).toBe(true);
+    story.player.theme.accentColor = "gold";
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("runs menu, scene, choice, and restart through the shared Player runtime", () => {
+    const story = createStoryDocument();
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 1 }];
+    const chapter = story.chapters[0]!;
+    const start = chapter.nodes[0]!;
+    chapter.nodes.push(
+      { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: "video" } }] } },
+      { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }] } },
+      { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } },
+    );
+    chapter.edges.push(
+      { id: "start-scene", source: start.id, target: "scene" },
+      { id: "scene-choice", source: "scene", target: "choice" },
+      { id: "choice-ending", source: "choice", sourceHandle: "go", target: "ending" },
+    );
+
+    const menu = createPlayerState(chapter.id, story.variables);
+    expect(menu).toEqual({ mode: "menu", chapterId: chapter.id, variables: { score: 1 } });
+    expect(() => completeScene(chapter, menu)).toThrow("The game is not playing");
+    expect(() => chooseOption(chapter, menu, "go")).toThrow("The game is not playing");
+    const scene = startGame(chapter, menu);
+    expect(scene.nodeId).toBe("scene");
+    const choice = completeScene(chapter, scene);
+    expect(choice.nodeId).toBe("choice");
+    expect(chooseOption(chapter, choice, "go")).toMatchObject({ nodeId: "ending", variables: { score: 3 } });
+    expect(restartGame(chapter, story.variables)).toMatchObject({ mode: "playing", nodeId: "scene", variables: { score: 1 } });
   });
 
   it("evaluates story variables and applies actions in order", () => {
