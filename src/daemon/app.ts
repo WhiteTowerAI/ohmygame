@@ -8,6 +8,7 @@ import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -24,7 +25,7 @@ import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
 import { isRunnableWorkspace, ProjectAssetError, ProjectManager, ProjectStoryReferenceError } from "./projects.js";
 import { ImageSettingsStore } from "./image-settings.js";
-import { InteractiveDramaStarter } from "./interactive-drama-starter.js";
+import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
@@ -82,7 +83,7 @@ const createProjectSchema = {
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
-      template: { type: "string", enum: ["starter"] },
+      templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
     },
   },
 } as const;
@@ -486,7 +487,6 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
-  const interactiveDramaStarter = new InteractiveDramaStarter(dataDirectory, interactiveDramaExamplesDirectory, projects, library);
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -1133,17 +1133,15 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
-    if (request.body?.type === "interactive-drama" && request.body.template === "starter") {
-      const project = await interactiveDramaStarter.createProject(request.body.name);
+    if (request.body?.templateId && request.body.type !== "interactive-drama") {
+      return reply.code(400).send({ error: "Project templates require a matching project type" });
+    }
+    if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
+      const project = await createInteractiveDramaStarterProject(interactiveDramaExamplesDirectory, projects, library, request.body.name);
       return reply.code(201).send(project);
     }
     const project = await projects.create(request.body?.name, request.body?.type);
     return reply.code(201).send(project);
-  });
-
-  app.post("/interactive-drama/starter-project/ensure", async (_request, reply) => {
-    await interactiveDramaStarter.ensure();
-    return reply.code(204).send();
   });
 
   app.get("/projects", async () => projects.list());

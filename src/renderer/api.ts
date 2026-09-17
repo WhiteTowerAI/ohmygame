@@ -89,12 +89,7 @@ declare global {
 }
 
 export async function createProject(input: CreateProjectRequest = {}): Promise<ProjectState> {
-  const payload = input.type === "interactive-drama" && input.template === undefined ? { ...input, template: "starter" as const } : input;
-  return request("/projects", { method: "POST", body: JSON.stringify(payload) });
-}
-
-export async function ensureInteractiveDramaStarterProject(): Promise<void> {
-  await request("/interactive-drama/starter-project/ensure", { method: "POST" });
+  return request("/projects", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function listProjects(): Promise<ProjectState[]> {

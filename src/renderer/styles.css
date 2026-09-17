@@ -2895,6 +2895,60 @@ button.home-nav-item-active:hover {
   background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
   color: var(--text);
 }
+.project-create-templates {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-create-templates legend {
+  margin-bottom: 1px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-create-templates button {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #1b1c21;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.project-create-templates button > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.project-create-templates button strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.project-create-templates button small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.project-create-templates button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.project-create-templates button.is-active {
+  border-color: color-mix(
+    in srgb,
+    var(--composer-accent) 45%,
+    var(--border-strong)
+  );
+  background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+}
 .project-create-error {
   margin: -6px 0 0;
   color: var(--danger);
@@ -15056,11 +15110,15 @@ button {
   background: var(--surface);
 }
 
-:root[data-appearance="light"] .project-create-types button {
+:root[data-appearance="light"]
+  :is(.project-create-types, .project-create-templates)
+  button {
   background: var(--surface);
 }
 
-:root[data-appearance="light"] .project-create-types button.is-active {
+:root[data-appearance="light"]
+  :is(.project-create-types, .project-create-templates)
+  button.is-active {
   background: color-mix(in srgb, var(--composer-accent) 9%, #fff);
 }
 

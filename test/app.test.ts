@@ -35,39 +35,27 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+    const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
+    expect(story.chapters[0].nodes.map((node: { type: string }) => node.type)).toEqual(["start", "open-ui", "project-state", "ending"]);
   });
 
-  it("creates an Interactive Drama starter when requested", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-starter-create-")) });
-    apps.push(app);
-    const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama", template: "starter" } });
-    expect(response.statusCode).toBe(201);
-    const story = await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` });
-    expect(story.statusCode).toBe(200);
-    expect(story.json().interactions).toBeUndefined();
-    expect(story.json().chapters[0].nodes.filter((node: { type: string }) => node.type === "interaction")).toHaveLength(2);
-    expect(story.json().chapters[0].nodes.some((node: { type: string }) => node.type === "choice")).toBe(true);
-  });
-
-  it("provides a playable Interactive Drama starter project once", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-starter-"));
+  it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
-      dataDirectory,
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-starter-create-")),
       interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
     });
     apps.push(app);
-
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-    const ensured = await Promise.all([
-      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
-      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
+    const created = await Promise.all([
+      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
+      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
     ]);
-    expect(ensured.map((response) => response.statusCode)).toEqual([204, 204]);
+    expect(created.map((response) => response.statusCode)).toEqual([201, 201]);
     const projects = (await app.inject({ method: "GET", url: "/projects" })).json();
-    expect(projects).toHaveLength(1);
-    expect(projects[0]).toMatchObject({ name: "Last Train Home", type: "interactive-drama" });
+    expect(projects).toHaveLength(2);
+    expect(new Set(projects.map((project: { id: string }) => project.id)).size).toBe(2);
+    expect(projects.every((project: { name: string; type: string }) => project.name === "Last Train Home" && project.type === "interactive-drama")).toBe(true);
 
-    const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${projects[0].id}/story` })).json();
+    const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/story` })).json();
     const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
@@ -75,32 +63,45 @@ describe("daemon", () => {
     expect(validatePlayableChapter(story.chapters[0], { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
     const scene = story.chapters[0].nodes.find((node) => node.type === "scene");
     expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapters[0], item.source)!))).toBe(true);
-
-    story.chapters[0].title = "Edited starter";
-    expect((await app.inject({ method: "PUT", url: `/projects/${projects[0].id}/story`, payload: story })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${projects[0].id}/cover` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "DELETE", url: `/projects/${projects[0].id}` })).statusCode).toBe(204);
-    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-
-    await app.close();
-    apps.splice(apps.indexOf(app), 1);
-    const restored = createApp({ dataDirectory, interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama") });
-    apps.push(restored);
-    expect((await restored.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await restored.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
-  it("does not add a starter when an Interactive Drama project already exists", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-existing-drama-")),
-      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
-    });
+  it("uses updated sample media only for newly created projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-sample-media-"));
+    const examplesDirectory = await mkdtemp(path.join(tmpdir(), "open-game-samples-"));
+    const sampleDirectory = path.join(examplesDirectory, "night-train");
+    await mkdir(sampleDirectory);
+    await writeFile(path.join(sampleDirectory, "mara.jpg"), "cover");
+    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "first video");
+    const app = createApp({ dataDirectory, interactiveDramaExamplesDirectory: examplesDirectory });
     apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama" } })).json();
 
-    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([project]);
+    const firstProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "updated video");
+    const secondProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+
+    const assetId = async (projectId: string) => {
+      const story = (await app.inject({ method: "GET", url: `/projects/${projectId}/story` })).json() as StoryDocument;
+      const scene = story.chapters[0]!.nodes.find((node) => node.type === "scene");
+      if (scene?.type !== "scene") throw new Error("Sample scene not found");
+      const media = scene.data.presentation.media;
+      if (media.mode !== "own" || !media.items[0]) throw new Error("Sample video not found");
+      return resolveStoryAssetId(story.chapters[0]!, media.items[0].source)!;
+    };
+    const firstAssetId = await assetId(firstProject.id);
+    const secondAssetId = await assetId(secondProject.id);
+
+    expect(secondAssetId).not.toBe(firstAssetId);
+    expect((await app.inject({ method: "GET", url: `/library/assets/${firstAssetId}/content` })).rawPayload.toString()).toBe("first video");
+    expect((await app.inject({ method: "GET", url: `/library/assets/${secondAssetId}/content` })).rawPayload.toString()).toBe("updated video");
+  });
+
+  it("rejects an Interactive Drama template for another project type", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-template-type-")) });
+    apps.push(app);
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", templateId: "night-train" } });
+    expect(response.statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
   });
 
   it("creates a Godot project and rejects the removed general type", async () => {

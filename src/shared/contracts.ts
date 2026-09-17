@@ -564,7 +564,7 @@ export interface AnswerQuestionnaireRequest {
   cancelled?: boolean;
 }
 
-export interface CreateProjectRequest { name?: string; type?: ProjectType; template?: "starter" }
+export interface CreateProjectRequest { name?: string; type?: ProjectType; templateId?: "night-train" }
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;

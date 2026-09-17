@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, ensureInteractiveDramaStarterProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -8,16 +8,16 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
-  it("ensures the Interactive Drama starter project", async () => {
+  it("sends Interactive Drama template selection only when requested", async () => {
     installWindow();
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const project = { id: "project", name: "Story", type: "interactive-drama", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
+    const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(ensureInteractiveDramaStarterProject()).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/interactive-drama/starter-project/ensure",
-      expect.objectContaining({ method: "POST" }),
-    );
+    await createProject({ type: "interactive-drama" });
+    await createProject({ type: "interactive-drama", templateId: "night-train" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama", templateId: "night-train" }) }));
   });
 
   it("uploads a Library asset as binary data", async () => {
