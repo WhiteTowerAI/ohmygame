@@ -79,6 +79,13 @@ serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
 service. The included `vercel.json` configures the production build, API proxy,
 and shareable game routes.
 
+The same web app owns the public `/pricing` page and signed-in `/account/usage`
+and `/account/billing` pages. The desktop renderer exposes the same account
+features under Settings. Both use the OpenGame account service; its private New
+API administration credentials never enter either client.
+Add the production website account routes to the Supabase redirect allow list
+alongside the renderer and desktop callback URLs.
+
 It listens on `http://127.0.0.1:43130` by default. Creator routes verify the
 signed-in user's Supabase access token and use its `sub` as the publisher ID;
 Community routes and published games are public. Data is stored under

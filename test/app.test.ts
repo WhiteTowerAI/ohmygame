@@ -1178,6 +1178,22 @@ describe("daemon", () => {
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
   });
 
+  it("proxies account requests through the local daemon", async () => {
+    const portalFetch = vi.fn(async () => Response.json({ data: [{ id: 1, name: "Plus" }] }));
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-account-")),
+      portalFetch,
+    });
+    apps.push(app);
+
+    const plans = await app.inject({ method: "GET", url: "/account/plans" });
+    const usage = await app.inject({ method: "POST", url: "/account/usage?page=1", payload: {} });
+
+    expect(plans.json()).toEqual([{ id: 1, name: "Plus" }]);
+    expect(portalFetch).toHaveBeenCalledWith(new URL("https://portal.open-game.ai/api/plans"), expect.any(Object));
+    expect(usage.statusCode).toBe(400);
+  });
+
   it("uses the connected Portal credential for Meshy 7 generation", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),

@@ -30,6 +30,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/v1": "http://127.0.0.1:43130",
+      "/account-api": {
+        target: process.env.OPEN_GAME_PORTAL_URL ?? "http://127.0.0.1:43150",
+        rewrite: (path) => path.replace(/^\/account-api/, "/api"),
+      },
     },
   },
 });

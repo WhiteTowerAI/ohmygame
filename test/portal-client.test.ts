@@ -30,6 +30,15 @@ describe("PortalClient", () => {
     await expect(client.credential("supabase-token")).rejects.toThrow("must use HTTPS");
   });
 
+  it("forwards authenticated account requests without exposing the admin API", async () => {
+    const fetch = vi.fn(async () => Response.json({ data: { current: null } }));
+    const client = new PortalClient("https://portal.open-game.ai", fetch);
+    await expect(client.subscription("supabase-token")).resolves.toEqual({ current: null });
+    expect(fetch).toHaveBeenCalledWith(new URL("https://portal.open-game.ai/api/subscription"), expect.objectContaining({
+      headers: expect.objectContaining({ authorization: "Bearer supabase-token" }),
+    }));
+  });
+
   it("stages and removes reference media with the signed-in Portal token", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "open-game-portal-media-"));
     const file = path.join(directory, "reference.mp4");

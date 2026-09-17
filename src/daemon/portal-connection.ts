@@ -55,7 +55,7 @@ export class PortalConnection {
         this.portalModelIds = ids;
         if (models.length > 0) {
           runtime.registerProvider(PROVIDER_ID, {
-            name: "OpenGame Portal",
+            name: "OpenGame",
             baseUrl: credential.baseUrl,
             api: "openai-responses",
             authHeader: true,

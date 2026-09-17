@@ -9,9 +9,17 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
+import { ChartSquareIcon } from "@solar-icons/react/linear/chart-square";
+import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
+import { LibraryIcon } from "@solar-icons/react/linear/library";
+import { AccountPage, type AccountSection } from "../account-ui/account-page.js";
+import { accountApi } from "./api.js";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
+  { section: "usage", label: "Usage", icon: ChartSquareIcon },
+  { section: "plans", label: "Plans", icon: LibraryIcon },
+  { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "providers", label: "Providers", icon: Server },
   { section: "connections", label: "Connections", icon: Plug },
@@ -61,6 +69,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
         <WindowDragRegion />
         <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
+          {section === "usage" || section === "plans" || section === "billing" ? <AccountSettingsPage section={section} /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
@@ -68,6 +77,27 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
         </div>
       </section>
     </main>
+  );
+}
+
+async function openPayment(url: string): Promise<void> {
+  if (window.openGameDesktop) await window.openGameDesktop.openExternal(url);
+  else window.location.assign(url);
+}
+
+function AccountSettingsPage({ section }: { section: AccountSection }) {
+  const auth = useAuth();
+  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
+  return (
+    <AccountPage
+      section={section}
+      api={accountApi}
+      userId={userId}
+      loadingAuth={auth.state.status === "loading"}
+      requestToken={auth.requestAccessToken}
+      onSignIn={auth.openSignIn}
+      openPayment={openPayment}
+    />
   );
 }
 

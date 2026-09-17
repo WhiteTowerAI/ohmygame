@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -74,6 +74,17 @@ export interface AppOptions {
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
+}
+
+async function accountReply<T>(
+  reply: FastifyReply,
+  operation: () => Promise<T>,
+): Promise<T | FastifyReply> {
+  try {
+    return await operation();
+  } catch {
+    return reply.code(502).send({ error: "OpenGame account service is temporarily unavailable" });
+  }
 }
 
 const createProjectSchema = {
@@ -535,9 +546,10 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
+  const portalClient = new PortalClient(options.portalUrl ?? process.env.OPEN_GAME_PORTAL_URL ?? "https://portal.open-game.ai", options.portalFetch);
   const portal = new PortalConnection(
     getModelRuntime,
-    new PortalClient(options.portalUrl ?? process.env.OPEN_GAME_PORTAL_URL ?? "https://portal.open-game.ai", options.portalFetch),
+    portalClient,
   );
   const providerImages = new ProviderImages(getModelRuntime, portal, () => imageSettings.get().model, options.imageFetch);
   const tools = new ToolRunner(
@@ -1873,6 +1885,61 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/portal/connection", async () => portal.get());
 
+  app.get("/account/plans", async (_request, reply) =>
+    accountReply(reply, () => portalClient.plans()),
+  );
+  app.post<{ Body: { accessToken: string } }>(
+    "/account/subscription",
+    { schema: portalConnectionSchema },
+    async (request, reply) =>
+      accountReply(reply, () => portalClient.subscription(request.body.accessToken)),
+  );
+  app.post<{ Querystring: { page?: number }; Body: { accessToken: string } }>(
+    "/account/usage",
+    {
+      schema: {
+        ...portalConnectionSchema,
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            page: { type: "integer", minimum: 1, maximum: 10_000, default: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      accountReply(reply, () =>
+        portalClient.usage(request.body.accessToken, request.query.page ?? 1),
+      ),
+  );
+  app.post<{ Body: { accessToken: string; planId: number } }>(
+    "/account/checkout",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accessToken", "planId"],
+          properties: {
+            accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+            planId: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      accountReply(reply, () =>
+        portalClient.checkout(request.body.accessToken, request.body.planId),
+      ),
+  );
+  app.post<{ Body: { accessToken: string } }>(
+    "/account/manage",
+    { schema: portalConnectionSchema },
+    async (request, reply) =>
+      accountReply(reply, () => portalClient.manageSubscription(request.body.accessToken)),
+  );
+
   app.put<{ Body: { accessToken: string } }>(
     "/portal/connection",
     { schema: portalConnectionSchema },
@@ -1907,7 +1974,7 @@ export function createApp(options: AppOptions = {}) {
         })),
       {
         id: "opengame",
-        name: "OpenGame Portal",
+        name: "OpenGame",
         configured: portalStatus === "connected",
         kind: "portal" as const,
         status: portalStatus,

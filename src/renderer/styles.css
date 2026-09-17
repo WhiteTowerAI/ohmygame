@@ -14483,15 +14483,17 @@ button {
 
   .home-sidebar .settings-page-nav {
     display: flex;
+    overflow-x: auto;
     grid-column: 1 / -1;
     grid-row: 2;
     flex-direction: row;
     gap: 4px;
+    scrollbar-width: thin;
   }
 
   .settings-page-nav-item {
     width: auto;
-    flex: 1;
+    flex: 0 0 auto;
     justify-content: center;
     padding: 0 8px;
   }

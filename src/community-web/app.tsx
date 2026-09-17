@@ -7,6 +7,8 @@ import {
 } from "../shared/game-mosaic.js";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
 import { getCommunityGame, listCommunityGames } from "./api.js";
+import { WebAccountPage } from "./account.js";
+import type { AccountSection } from "../account-ui/account-page.js";
 import appleIcon from "./assets/apple.svg";
 import fullscreenIcon from "./assets/fullscreen.svg";
 import githubIcon from "./assets/github.svg";
@@ -31,10 +33,15 @@ export function getGameMosaicSlots(count: number): readonly GameMosaicSlot[] {
 export type CommunityRoute =
   | { page: "home" }
   | { page: "game"; gameId: string }
+  | { page: "account"; section: AccountSection }
   | { page: "not-found" };
 
 export function parseCommunityRoute(pathname: string): CommunityRoute {
   if (pathname === "/" || pathname === "") return { page: "home" };
+  const path = pathname.replace(/\/$/, "");
+  if (["/pricing", "/plans"].includes(path)) return { page: "account", section: "plans" };
+  if (["/account", "/account/billing", "/billing"].includes(path)) return { page: "account", section: "billing" };
+  if (["/account/usage", "/usage"].includes(path)) return { page: "account", section: "usage" };
   const match = /^\/games\/([^/]+)\/?$/.exec(pathname);
   if (!match?.[1]) return { page: "not-found" };
   try {
@@ -50,6 +57,7 @@ export function App() {
     <SiteShell>
       {route.page === "home" ? <HomePage /> : null}
       {route.page === "game" ? <GamePage gameId={route.gameId} /> : null}
+      {route.page === "account" ? <WebAccountPage section={route.section} /> : null}
       {route.page === "not-found" ? <NotFound /> : null}
     </SiteShell>
   );
@@ -70,12 +78,14 @@ function SiteShell({ children }: { children: ReactNode }) {
 }
 
 function SiteHeader() {
+  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
   return (
     <header className="site-header">
       <a className="brand-link" href="/" aria-label="OpenGame home"><Brand /></a>
       <nav className="site-nav" aria-label="OpenGame">
-        <a className="is-active" href="/#games">Games</a>
-        <a className="api-link" href="https://portal.open-game.ai">API</a>
+        <a className={pathname === "/" || pathname.startsWith("/games/") ? "is-active" : undefined} href="/#games">Games</a>
+        <a className={pathname === "/pricing" || pathname === "/plans" ? "is-active" : undefined} href="/pricing">Pricing</a>
+        <a className={pathname.startsWith("/account") || pathname === "/usage" || pathname === "/billing" ? "is-active" : undefined} href="/account/usage">Account</a>
       </nav>
       <div className="header-actions">
         <a className="github-link" href={GITHUB_URL} aria-label="OpenGame on GitHub" title="GitHub"><img src={githubIcon} alt="" /></a>

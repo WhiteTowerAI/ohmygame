@@ -51,8 +51,29 @@ import type { Connection, SaveConnectionRequest } from "../shared/connections.js
 import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
+import type { AccountApi } from "../shared/account.js";
 
 const API_BASE = "/api";
+
+export const accountApi: AccountApi = {
+  plans: () => request("/account/plans"),
+  subscription: (accessToken) => request("/account/subscription", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+  usage: (accessToken, page) => request(`/account/usage?page=${page}`, {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+  checkout: (accessToken, planId) => request("/account/checkout", {
+    method: "POST",
+    body: JSON.stringify({ accessToken, planId }),
+  }),
+  manage: (accessToken) => request("/account/manage", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+};
 
 interface DesktopRuntime {
   daemonUrl: string;

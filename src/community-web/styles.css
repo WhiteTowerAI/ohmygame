@@ -30,6 +30,18 @@ button, a { font: inherit; }
 a { color: inherit; text-decoration: none; }
 img { display: block; max-width: 100%; }
 .site-shell { min-height: 100dvh; }
+.web-account { padding-block: 36px 80px; min-height: calc(100dvh - 160px); }
+.web-account-nav { display: flex; gap: 24px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+.web-account-nav a { color: var(--muted); font-size: 14px; }
+.web-account-nav a[aria-current="page"] { color: var(--accent); }
+.web-account-profile { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 16px; padding-block: 20px; color: var(--muted); font-size: 13px; }
+.web-account-profile span { overflow-wrap: anywhere; min-width: 0; }
+.web-account button { border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.web-account button:focus-visible, .web-account a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.web-account-sign-in { padding-block: 16px 28px; }
+.web-account-sign-in h2 { font-size: 18px; }
+.web-account-sign-in button { margin: 0 12px 12px 0; }
+@media (max-width: 767px) { .web-account { padding-block: 24px 48px; } .site-header { gap: 16px; } .site-nav { gap: 14px; } }
 .content-width,
 .site-header,
 .site-footer {
@@ -56,7 +68,6 @@ img { display: block; max-width: 100%; }
 .site-nav a { position: relative; color: var(--muted); font-size: 13px; font-weight: 600; line-height: 68px; white-space: nowrap; }
 .site-nav a:hover, .site-nav a.is-active { color: var(--text); }
 .site-nav a.is-active::after { position: absolute; right: 0; bottom: 16px; left: 0; height: 2px; border-radius: 1px; background: var(--accent); content: ""; }
-.site-nav .api-link { margin-left: 0; padding-left: 0; }
 .header-actions { display: flex; align-items: center; gap: 22px; }
 .github-link { display: grid; width: 24px; height: 40px; place-items: center; opacity: .9; }
 .github-link:hover { opacity: 1; }

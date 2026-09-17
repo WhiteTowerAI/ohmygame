@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { AccountPlan, AccountSubscription, AccountUsage } from "../shared/account.js";
 import type { StagedVideoReference, VideoReferenceAsset } from "./seedance-video.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -29,6 +30,37 @@ export class PortalClient {
     return { baseUrl: normalizeApiUrl(baseUrl), apiKey };
   }
 
+  plans(): Promise<AccountPlan[]> {
+    return this.accountRequest("/api/plans");
+  }
+
+  subscription(accessToken: string): Promise<AccountSubscription> {
+    return this.accountRequest("/api/subscription", accessToken);
+  }
+
+  usage(accessToken: string, page: number): Promise<AccountUsage> {
+    return this.accountRequest(`/api/usage?page=${page}`, accessToken);
+  }
+
+  checkout(accessToken: string, planId: number): Promise<{ url: string }> {
+    return this.accountRequest("/api/subscription/checkout", accessToken, {
+      method: "POST",
+      body: JSON.stringify({ plan_id: planId }),
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  manageSubscription(accessToken: string): Promise<{ url: string }> {
+    return this.accountRequest("/api/subscription/manage", accessToken, { method: "POST" });
+  }
+
+  private async accountRequest<T>(path: string, accessToken?: string, init: RequestInit = {}): Promise<T> {
+    const response = await this.request(path, accessToken, undefined, init);
+    const body = await json(response);
+    if (body.data === undefined) throw new Error("Invalid account response");
+    return body.data as T;
+  }
+
   async modelIds(credential: PortalCredential, signal?: AbortSignal): Promise<string[]> {
     const response = await this.request(`${credential.baseUrl}/models`, credential.apiKey, signal);
     const body = await json(response);
@@ -54,11 +86,11 @@ export class PortalClient {
     await this.request(`/api/media/${encodeURIComponent(id)}`, accessToken, undefined, { method: "DELETE" });
   }
 
-  private async request(pathOrUrl: string, token: string, signal?: AbortSignal, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  private async request(pathOrUrl: string, token: string | undefined, signal?: AbortSignal, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     const response = await this.fetch(new URL(pathOrUrl, this.origin), {
       ...init,
-      headers: { authorization: `Bearer ${token}`, ...init.headers },
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     if (!response.ok) throw new Error(`Portal request failed (${response.status})`);
