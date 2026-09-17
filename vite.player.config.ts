@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "player",
   base: "./",
-  publicDir: false,
+  publicDir: "../public",
   plugins: [react()],
   build: {
     outDir: "../dist/player",

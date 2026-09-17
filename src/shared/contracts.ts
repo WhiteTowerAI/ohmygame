@@ -121,7 +121,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "scene" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "project-state" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -153,23 +153,36 @@ export interface StoryVariableCondition {
 
 export type StoryAction =
   | { type: "set-variable"; variableId: string; value: StoryVariableValue }
-  | { type: "increment-variable"; variableId: string; amount: number }
-  | { type: "show-overlay"; overlayId: string }
-  | { type: "hide-overlay"; overlayId: string };
+  | { type: "increment-variable"; variableId: string; amount: number };
 
 export interface StoryChoiceTimeout {
   durationMs: number;
   defaultOptionId: string;
 }
 
-export interface StoryVideoClip {
-  id: string;
-  source: StoryAssetReference;
+export type StorySceneMedia =
+  | { id: string; type: "image"; source: StoryAssetReference }
+  | { id: string; type: "video"; source: StoryAssetReference };
+
+/** Code owned by a Scene. Source paths are authoritative on disk; files are hydrated for the editor/runtime. */
+export interface StorySceneSurface {
+  source?: StorySourceFiles;
+  files: StorySurfaceFiles;
+}
+
+export type StoryPresentationMedia =
+  | { mode: "own"; items: StorySceneMedia[] }
+  | { mode: "inherit" }
+  | { mode: "none" };
+
+/** Shared player-facing presentation owned by every visible Story node. */
+export interface StoryNodePresentation {
+  media: StoryPresentationMedia;
+  surface: StorySceneSurface;
 }
 
 export interface StoryInteractionOutcome {
   actions: StoryAction[];
-  transition: "continue" | "branch";
 }
 
 export interface StoryHotspotRegion {
@@ -179,11 +192,37 @@ export interface StoryHotspotRegion {
   height: number;
 }
 
-export type StorySceneEvent =
-  | { id: string; clipId: string; timeMs: number; type: "actions"; actions: StoryAction[] }
-  | { id: string; clipId: string; timeMs: number; type: "continue"; label: string }
-  | { id: string; clipId: string; timeMs: number; type: "hotspot"; durationMs: number; label: string; region: StoryHotspotRegion; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome }
-  | { id: string; clipId: string; timeMs: number; type: "qte"; durationMs: number; prompt: string; key: string; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome };
+export interface StorySurfaceFiles {
+  html: string;
+  css: string;
+  javascript: string;
+}
+
+/** Stable workspace paths for code authored outside of story.json. */
+export interface StorySourceFiles {
+  html: string;
+  css: string;
+  javascript: string;
+}
+
+export type StoryInteractionCommand =
+  | { type: "set-variable"; variable: string; value: StoryVariableValue }
+  | { type: "increment-variable"; variable: string; amount: number };
+
+export type StoryInteractionBehavior =
+  | { type: "actions"; actions: StoryAction[] }
+  | { type: "continue"; label: string }
+  | { type: "hotspot"; durationMs: number; label: string; region: StoryHotspotRegion; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome }
+  | { type: "qte"; durationMs: number; prompt: string; key: string; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome };
+
+export interface StoryEditorLayout {
+  version: 1;
+  nodes: Record<string, StoryPosition>;
+  viewport: { x: number; y: number; zoom: number };
+  view: "canvas" | "code";
+  /** Project editor state, isolated from runtime story data. */
+  extensions?: Record<string, unknown>;
+}
 
 export type StoryAssetReference =
   | { type: "library"; assetId: string }
@@ -204,11 +243,21 @@ export interface StoryTextGenerationResponse {
   model: AgentModelRef;
 }
 
-export type StoryNode =
+export interface StoryNodeEditorMetadata {
+  /** Project-defined editor identity layered on top of a stable runtime node type. */
+  editor?: { kind: string; properties?: Record<string, unknown> };
+}
+
+export type StoryNode = (
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "scene"; position: StoryPosition; data: { title: string; clips: StoryVideoClip[]; events: StorySceneEvent[] } }
-  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout } }
-  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string } }
+  | { id: string; type: "project-state"; position: StoryPosition; data: Record<string, never> }
+  | { id: string; type: "scene"; position: StoryPosition; data: {
+    title: string;
+    presentation: StoryNodePresentation;
+  } }
+  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; behavior: StoryInteractionBehavior; presentation: StoryNodePresentation } }
+  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout; presentation: StoryNodePresentation } }
+  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio";
@@ -236,7 +285,8 @@ export type StoryNode =
     duration: number;
     references: StoryAssetReference[];
     assetId?: string;
-  } };
+  } }
+) & StoryNodeEditorMetadata;
 
 export interface StoryEdge {
   id: string;
@@ -254,7 +304,19 @@ export interface StoryChapter {
 
 export interface StoryPlayerConfig {
   title: string;
+  /** Logical pixel dimensions shared by every runtime player surface. */
+  viewport: {
+    width: number;
+    height: number;
+  };
+  /** Content and action bindings for this story's opening screen. */
+  openUiContent: StoryOpenUiContent;
+  /** Authoritative source files for this project's one-to-one Open UI. */
+  openUiSource: StorySourceFiles;
+  /** Hydrated HTML, CSS, and JavaScript loaded from `openUiSource`. */
+  openUiCode: StorySurfaceFiles;
   backgroundAssetId?: string;
+  openUiVideoAssetId?: string;
   theme: {
     accentColor: string;
     textColor: string;
@@ -264,41 +326,26 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
-export interface StoryCharacter {
+export type StoryOpenUiAction = "enter-game";
+
+export interface StoryOpenUiButton {
   id: string;
-  name: string;
-  avatarAssetId?: string;
+  label: string;
+  action: StoryOpenUiAction;
 }
 
-export type StoryOverlayPlacement =
-  | "top-left"
-  | "top-center"
-  | "top-right"
-  | "bottom-left"
-  | "bottom-center"
-  | "bottom-right";
-
-export type StoryOverlayComponent =
-  | { id: string; type: "text"; text: string }
-  | { id: string; type: "image"; assetId: string; alt: string }
-  | { id: string; type: "character"; characterId: string; display: "name" | "avatar" | "avatar-name" }
-  | { id: string; type: "value"; label: string; variableId: string }
-  | { id: string; type: "meter"; label: string; variableId: string; min: number; max: number };
-
-export interface StoryOverlay {
-  id: string;
-  name: string;
-  placement: StoryOverlayPlacement;
-  condition?: StoryVariableCondition;
-  components: StoryOverlayComponent[];
+export interface StoryOpenUiContent {
+  title: string;
+  buttons: StoryOpenUiButton[];
 }
 
 export interface StoryDocument {
-  version: 8;
-  player?: StoryPlayerConfig;
-  variables?: StoryVariable[];
-  characters?: StoryCharacter[];
-  overlays?: StoryOverlay[];
+  version: 9;
+  codebase: { version: 2 };
+  /** Hydrated editor-only state. Persisted in editor-layout.json, not story.json. */
+  editorLayout: StoryEditorLayout;
+  player: StoryPlayerConfig;
+  variables: StoryVariable[];
   chapters: StoryChapter[];
 }
 
@@ -520,7 +567,7 @@ export interface AnswerQuestionnaireRequest {
   cancelled?: boolean;
 }
 
-export interface CreateProjectRequest { name?: string; type?: ProjectType }
+export interface CreateProjectRequest { name?: string; type?: ProjectType; template?: "starter" }
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;

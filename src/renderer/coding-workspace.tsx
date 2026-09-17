@@ -648,6 +648,59 @@ function CodeView({
   );
 }
 
+export function WorkspaceCodeView({ projectId, revision }: { projectId: string; revision: number }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string>();
+  const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+  const request = useRef(0);
+
+  useEffect(() => {
+    let disposed = false;
+    setLoading(true);
+    setError(undefined);
+    void listWorkspaceFiles(projectId).then(async (result) => {
+      if (disposed) return;
+      const codeFiles = result.filter((file) => !file.mediaType);
+      setFiles(codeFiles);
+      const nextPath = selectedPath && codeFiles.some((file) => file.path === selectedPath)
+        ? selectedPath
+        : codeFiles.find((file) => file.path === "story.json")?.path ?? codeFiles[0]?.path;
+      setSelectedPath(nextPath);
+      if (!nextPath) {
+        setSelectedFile(undefined);
+        return;
+      }
+      const content = await getWorkspaceFile(projectId, nextPath);
+      if (!disposed) setSelectedFile(content);
+    }).catch((cause) => {
+      if (!disposed) setError(errorMessage(cause));
+    }).finally(() => {
+      if (!disposed) setLoading(false);
+    });
+    return () => { disposed = true; };
+  }, [projectId, revision]);
+
+  async function selectFile(path: string): Promise<void> {
+    const currentRequest = ++request.current;
+    setSelectedPath(path);
+    setSelectedFile(undefined);
+    setLoading(true);
+    setError(undefined);
+    try {
+      const content = await getWorkspaceFile(projectId, path);
+      if (request.current === currentRequest) setSelectedFile(content);
+    } catch (cause) {
+      if (request.current === currentRequest) setError(errorMessage(cause));
+    } finally {
+      if (request.current === currentRequest) setLoading(false);
+    }
+  }
+
+  return <CodeView files={files} selectedPath={selectedPath} selectedFile={selectedFile} loading={loading} error={error} onSelect={(path) => void selectFile(path)} />;
+}
+
 export interface WorkspaceFileNode {
   id: string;
   name: string;

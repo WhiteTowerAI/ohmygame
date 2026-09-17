@@ -24,17 +24,19 @@ describe("story progress storage", () => {
     };
     const story = createStoryDocument();
     const chapter = story.chapters[0]!;
-    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "" } });
-    chapter.edges.push({ id: "start-ending", source: chapter.nodes[0]!.id, target: "ending" });
-    const state = { mode: "playing" as const, chapterId: chapter.id, nodeId: "ending", variables: {}, visibleOverlayIds: [] };
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    const state = { mode: "playing" as const, chapterId: chapter.id, nodeId: ending.id, variables: {} };
     const key = storyProgressKey("project:test", chapter.id);
 
     saveStoryProgress(storage, key, createStoryCheckpoint("signature", state));
-    expect(loadStoryProgress(storage, key, "signature", chapter, [], [])).toMatchObject(state);
-    expect(loadStoryProgress(storage, key, "changed", chapter, [], [])).toBeUndefined();
+    expect(loadStoryProgress(storage, key, "signature", chapter, [])).toMatchObject(state);
+    const oldCheckpoint = { ...createStoryCheckpoint("signature", state), checkpoint: { ...state, visibleOverlayIds: [] } };
+    values.set(key, JSON.stringify(oldCheckpoint));
+    expect(loadStoryProgress(storage, key, "signature", chapter, [])).toBeUndefined();
+    expect(loadStoryProgress(storage, key, "changed", chapter, [])).toBeUndefined();
     expect(values.has(key)).toBe(false);
     values.set(key, "not json");
-    expect(loadStoryProgress(storage, key, "signature", chapter, [], [])).toBeUndefined();
+    expect(loadStoryProgress(storage, key, "signature", chapter, [])).toBeUndefined();
     expect(values.has(key)).toBe(false);
     saveStoryProgress(storage, key, createStoryCheckpoint("signature", state));
     clearStoryProgress(storage, key);

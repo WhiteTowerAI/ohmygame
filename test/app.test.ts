@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
-import { isStoryDocument, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../src/shared/story.js";
+import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, resolveStoryAssetId, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -37,44 +37,70 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
   });
 
-  it("creates independent, playable projects from the Interactive Drama example", async () => {
+  it("creates an Interactive Drama starter when requested", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-starter-create-")) });
+    apps.push(app);
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama", template: "starter" } });
+    expect(response.statusCode).toBe(201);
+    const story = await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` });
+    expect(story.statusCode).toBe(200);
+    expect(story.json().interactions).toBeUndefined();
+    expect(story.json().chapters[0].nodes.filter((node: { type: string }) => node.type === "interaction")).toHaveLength(2);
+    expect(story.json().chapters[0].nodes.some((node: { type: string }) => node.type === "choice")).toBe(true);
+  });
+
+  it("provides a playable Interactive Drama starter project once", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-starter-"));
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-example-")),
+      dataDirectory,
       interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
     });
     apps.push(app);
 
     expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-    expect((await app.inject({ method: "POST", url: "/interactive-drama/examples/unknown/projects" })).statusCode).toBe(404);
-    const first = await app.inject({ method: "POST", url: "/interactive-drama/examples/night-train/projects" });
-    const second = await app.inject({ method: "POST", url: "/interactive-drama/examples/night-train/projects" });
+    const ensured = await Promise.all([
+      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
+      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
+    ]);
+    expect(ensured.map((response) => response.statusCode)).toEqual([204, 204]);
+    const projects = (await app.inject({ method: "GET", url: "/projects" })).json();
+    expect(projects).toHaveLength(1);
+    expect(projects[0]).toMatchObject({ name: "Last Train Home", type: "interactive-drama" });
 
-    expect(first.statusCode).toBe(201);
-    expect(second.statusCode).toBe(201);
-    expect(first.json()).toMatchObject({ name: "Last Train Home", type: "interactive-drama" });
-    expect(second.json().id).not.toBe(first.json().id);
-
-    const firstStoryJson: unknown = (await app.inject({ method: "GET", url: `/projects/${first.json().id}/story` })).json();
-    const secondStoryJson: unknown = (await app.inject({ method: "GET", url: `/projects/${second.json().id}/story` })).json();
+    const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${projects[0].id}/story` })).json();
     const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
-    const durations = new Map<string, number>(assets.flatMap((asset: { id: string; duration?: number }) =>
-      asset.duration === undefined ? [] : [[asset.id, asset.duration * 1_000] as const]));
+    expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
+    const story = storyJson as StoryDocument;
+    expect(validatePlayableChapter(story.chapters[0], { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
+    const scene = story.chapters[0].nodes.find((node) => node.type === "scene");
+    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapters[0], item.source)!))).toBe(true);
 
-    expect(isStoryDocument(firstStoryJson)).toBe(true);
-    expect(isStoryDocument(secondStoryJson)).toBe(true);
-    const firstStory = firstStoryJson as StoryDocument;
-    const secondStory = secondStoryJson as StoryDocument;
-    expect(firstStory.chapters[0].nodes[0].id).not.toBe(secondStory.chapters[0].nodes[0].id);
-    expect(firstStory.characters?.every((character) => character.avatarAssetId && assetIds.has(character.avatarAssetId))).toBe(true);
-    expect(validatePlayableChapter(firstStory.chapters[0], { availableAssetIds: assetIds, assetDurationsMs: durations })).toBeUndefined();
-    const scene = firstStory.chapters[0].nodes.find((node) => node.type === "scene");
-    expect(scene?.type === "scene" && scene.data.clips.every((clip) => assetIds.has(resolveStoryVideoClipAssetId(firstStory.chapters[0], clip)!))).toBe(true);
+    story.chapters[0].title = "Edited starter";
+    expect((await app.inject({ method: "PUT", url: `/projects/${projects[0].id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: `/projects/${projects[0].id}/cover` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${projects[0].id}` })).statusCode).toBe(204);
+    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
 
-    firstStory.chapters[0].title = "Edited example";
-    expect((await app.inject({ method: "PUT", url: `/projects/${first.json().id}/story`, payload: firstStory })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${first.json().id}/cover` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toHaveLength(2);
+    await app.close();
+    apps.splice(apps.indexOf(app), 1);
+    const restored = createApp({ dataDirectory, interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama") });
+    apps.push(restored);
+    expect((await restored.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
+    expect((await restored.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+  });
+
+  it("does not add a starter when an Interactive Drama project already exists", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-existing-drama-")),
+      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama" } })).json();
+
+    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([project]);
   });
 
   it("creates a Godot project and rejects the removed general type", async () => {
@@ -104,7 +130,11 @@ describe("daemon", () => {
     const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapters[0].nodes).toEqual([expect.objectContaining({ type: "start" })]);
+    expect(story.chapters[0].nodes).toEqual([
+      expect.objectContaining({ type: "start" }),
+      expect.objectContaining({ type: "project-state" }),
+      expect.objectContaining({ type: "ending" }),
+    ]);
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
       .toMatchObject({ chapters: [{ title: "The Stopover" }] });
@@ -294,13 +324,16 @@ describe("daemon", () => {
       position: { x: 100, y: 0 },
       data: {
         title: "Opening",
-        clips: [
-          { id: "library-clip", source: { type: "library", assetId: first[0].id } },
-          { id: "node-clip", source: { type: "node", nodeId: "video" } },
-        ],
-        events: [],
+        presentation: {
+          media: { mode: "own", items: [
+            { id: "library-clip", type: "video", source: { type: "library", assetId: first[0].id } },
+            { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
+          ] },
+          surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) },
+        },
       },
     });
+    syncStoryLayout(story);
     await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}` });
     expect(blocked.statusCode).toBe(409);
@@ -313,8 +346,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
     const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([
-      { id: "node-clip", source: { type: "node", nodeId: "video" } },
+    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
+      { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
     ]);
   });
 
@@ -345,7 +378,7 @@ describe("daemon", () => {
     await expect(readFile(path.join(story.workspacePath, "story.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("does not let an older Story document block Library deletion", async () => {
+  it("blocks Library deletion when an Interactive Drama document cannot be verified", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-old-story-")) });
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
@@ -357,7 +390,25 @@ describe("daemon", () => {
 
     const response = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
 
-    expect(response.statusCode).toBe(204);
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("Cannot verify Library references");
+  });
+
+  it("blocks Library deletion when a canonical Interactive Drama project is incomplete", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-incomplete-story-")) });
+    apps.push(app);
+    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    await app.inject({ method: "GET", url: `/projects/${storyProject.id}/story` });
+    await rm(path.join(storyProject.workspacePath, "editor-layout.json"));
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=image.png` });
+
+    const response = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("Cannot verify Library references");
   });
 
   it("renames and deletes an unreferenced Library asset", async () => {
@@ -414,6 +465,7 @@ describe("daemon", () => {
         references: [{ type: "library", assetId: response.json().id }],
       },
     });
+    syncStoryLayout(story);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/references` })).json()).toHaveLength(1);
 
@@ -461,14 +513,14 @@ describe("daemon", () => {
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     story.chapters[0].nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
-      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "node", nodeId: "uploaded-video" } }], events: [{ id: "continue", clipId: "clip", timeMs: 1_000, type: "continue", label: "Continue" }] } },
+      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
+    syncStoryLayout(story);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.clips).toEqual([]);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.events).toEqual([]);
+    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
   });
 
   it("removes deleted Library assets from image references", async () => {
@@ -485,6 +537,7 @@ describe("daemon", () => {
       { id: "library-image", type: "asset", position: { x: 100, y: 0 }, data: { assetId: image.id, mediaType: "image" } },
       { id: "generated-image", type: "image", position: { x: 400, y: 0 }, data: { prompt: "Compose", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: image.id }, { type: "node", nodeId: "library-image" }] } },
     );
+    syncStoryLayout(story);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(409);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}?force=true` })).statusCode).toBe(204);
@@ -1346,6 +1399,13 @@ describe("daemon", () => {
     finishPrompt();
   });
 });
+
+function syncStoryLayout(story: StoryDocument): void {
+  story.editorLayout.nodes = Object.fromEntries([
+    ["open-ui", story.editorLayout.nodes["open-ui"] ?? { x: 240, y: 240 }],
+    ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
+  ]);
+}
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
   return JSON.stringify({ type: "message", id, parentId, timestamp, message });

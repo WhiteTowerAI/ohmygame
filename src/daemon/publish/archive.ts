@@ -7,8 +7,9 @@ import { ZipFile } from "yazl";
 import type { LibraryAsset, ProjectState, StoryDocument } from "../../shared/contracts.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
-import { parseStoryDocument, resolveStoryVideoClipAssetId, validatePlayableChapter } from "../../shared/story.js";
+import { resolveStoryAssetId, validatePlayableChapter } from "../../shared/story.js";
 import type { AssetLibrary } from "../asset-library.js";
+import { readStoryCodebase } from "../story-codebase.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -65,7 +66,7 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   }
   let story: StoryDocument;
   try {
-    story = parseStoryDocument(JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8")));
+    story = await readStoryCodebase(project.workspacePath);
   } catch {
     throw new PublishError("Interactive Drama story.json is missing or invalid");
   }
@@ -87,7 +88,8 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
       await copyFile(absolutePath, path.join(output, ...relative.split("/")));
       assetPaths[asset.id] = `./${relative}`;
     }
-    await writeFile(path.join(output, "story.json"), `${JSON.stringify(story, null, 2)}\n`);
+    const { editorLayout: _editorLayout, ...runtimeStory } = story;
+    await writeFile(path.join(output, "story.json"), `${JSON.stringify(runtimeStory, null, 2)}\n`);
     await writeFile(path.join(output, "manifest.json"), `${JSON.stringify({
       version: 1,
       story: "story.json",
@@ -102,37 +104,37 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
 }
 
 function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string, LibraryAsset>): void {
-  const videoIds = new Set([...assets.values()].filter((asset) => asset.mediaType === "video").map((asset) => asset.id));
-  const durations = new Map([...assets.values()].flatMap((asset) => asset.mediaType === "video" && asset.duration !== undefined
-    ? [[asset.id, asset.duration * 1_000] as const]
-    : []));
+  const availableAssets = new Map([...assets.values()].flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const]));
   for (const chapter of story.chapters) {
-    const issue = validatePlayableChapter(chapter, { availableAssetIds: videoIds, assetDurationsMs: durations });
+    const issue = validatePlayableChapter(chapter, { availableAssets });
     if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
   }
-  if (story.player?.backgroundAssetId && assets.get(story.player.backgroundAssetId)?.mediaType !== "image") {
+  if (story.player.backgroundAssetId && assets.get(story.player.backgroundAssetId)?.mediaType !== "image") {
     throw new PublishError("The Player background is missing from Library or is not an image.");
   }
-  const missingAvatar = (story.characters ?? []).find((character) =>
-    character.avatarAssetId && assets.get(character.avatarAssetId)?.mediaType !== "image");
-  if (missingAvatar) throw new PublishError("A character avatar is missing from Library or is not an image.");
-  const missingOverlay = (story.overlays ?? []).flatMap((overlay) => overlay.components)
-    .find((component) => component.type === "image" && assets.get(component.assetId)?.mediaType !== "image");
-  if (missingOverlay) throw new PublishError("An Overlay image is missing from Library or is not an image.");
+  if (story.player.openUiVideoAssetId && assets.get(story.player.openUiVideoAssetId)?.mediaType !== "video") {
+    throw new PublishError("The Open UI video is missing from Library or is not a video.");
+  }
+  for (const chapter of story.chapters) for (const node of chapter.nodes) {
+    if ((node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+    for (const item of node.data.presentation.media.items) {
+      const assetId = resolveStoryAssetId(chapter, item.source);
+      if (!assetId || assets.get(assetId)?.mediaType !== item.type) {
+        throw new PublishError(`${node.data.title || "Untitled node"} references a missing or incompatible ${item.type} asset.`);
+      }
+    }
+  }
 }
 
 function referencedAssetIds(story: StoryDocument): Set<string> {
   const ids = new Set<string>();
-  if (story.player?.backgroundAssetId) ids.add(story.player.backgroundAssetId);
-  for (const character of story.characters ?? []) if (character.avatarAssetId) ids.add(character.avatarAssetId);
-  for (const overlay of story.overlays ?? []) {
-    for (const component of overlay.components) if (component.type === "image") ids.add(component.assetId);
-  }
+  if (story.player.backgroundAssetId) ids.add(story.player.backgroundAssetId);
+  if (story.player.openUiVideoAssetId) ids.add(story.player.openUiVideoAssetId);
   for (const chapter of story.chapters) {
     for (const node of chapter.nodes) {
-      if (node.type !== "scene") continue;
-      for (const clip of node.data.clips) {
-        const assetId = resolveStoryVideoClipAssetId(chapter, clip);
+      if ((node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+      for (const item of node.data.presentation.media.items) {
+        const assetId = resolveStoryAssetId(chapter, item.source);
         if (assetId) ids.add(assetId);
       }
     }

@@ -8,6 +8,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { createPublishApp } from "../src/publish-server/app.js";
 import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
+import { createStoryDocument, DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -414,23 +415,16 @@ describe("remote publish", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: videoContents,
     })).json();
-    const avatarContents = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const avatar = (await runtime.daemon.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=avatar.png&mediaType=image%2Fpng",
-      headers: { "content-type": "application/octet-stream" },
-      payload: avatarContents,
-    })).json();
     const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.characters = [{ id: "ari", name: "Ari", avatarAssetId: avatar.id }];
-    story.overlays = [{ id: "speaker", name: "Speaker", placement: "bottom-left", components: [{ id: "character", type: "character", characterId: "ari", display: "avatar-name" }] }];
     const chapter = story.chapters[0];
-    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", clips: [{ id: "clip", source: { type: "library", assetId: video.id } }], events: [] } });
-    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 300, y: 0 }, data: { title: "The End", description: "Done" } });
-    chapter.edges.push(
-      { id: "start-scene", source: chapter.nodes[0].id, target: "scene" },
-      { id: "scene-ending", source: "scene", target: "ending" },
-    );
+    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
+    const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
+    expect(initialState).toBeDefined();
+    expect(ending).toBeDefined();
+    chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== initialState.id);
+    chapter.edges.push({ id: "state-scene", source: initialState.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
+    syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
@@ -441,17 +435,20 @@ describe("remote publish", () => {
     expect(published.statusCode, published.body).toBe(201);
     const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
     expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
-    expect(JSON.parse(await readFile(path.join(output, "story.json"), "utf8"))).toEqual(story);
+    expect(await readFile(path.join(output, "scene-surface.html"), "utf8")).toContain("open-game:scene-surface");
+    const publishedStory = JSON.parse(await readFile(path.join(output, "story.json"), "utf8"));
+    const persistedStory = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    const { editorLayout: _editorLayout, ...runtimeStory } = persistedStory;
+    expect(publishedStory).toEqual(runtimeStory);
+    expect(publishedStory.editorLayout).toBeUndefined();
     expect(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"))).toMatchObject({
       version: 1,
       story: "story.json",
       scope: `published:${project.id}`,
       assets: {
-        [avatar.id]: `./assets/media/${avatar.id}.png`,
         [video.id]: `./assets/media/${video.id}.mp4`,
       },
     });
-    expect(await readFile(path.join(output, "assets", "media", `${avatar.id}.png`))).toEqual(avatarContents);
     expect(await readFile(path.join(output, "assets", "media", `${video.id}.mp4`))).toEqual(videoContents);
   });
 
@@ -460,8 +457,8 @@ describe("remote publish", () => {
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
     const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     const chapter = story.chapters[0];
-    chapter.nodes.push({ id: "ending", type: "ending", position: { x: 200, y: 0 }, data: { title: "The End", description: "Done" } });
-    chapter.edges.push({ id: "start-ending", source: chapter.nodes[0].id, target: "ending" });
+    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
+    expect(initialState).toBeDefined();
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
@@ -475,7 +472,9 @@ describe("remote publish", () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Chapters", "interactive-drama");
     const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters.push({ ...story.chapters[0], id: "chapter-2", title: "Chapter 2" });
+    const second = createStoryDocument().chapters[0]!;
+    story.chapters.push({ ...second, title: "Chapter 2" });
+    syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
@@ -787,6 +786,13 @@ describe("remote publish", () => {
   });
 });
 
+function syncStoryLayout(story: ReturnType<typeof createStoryDocument>): void {
+  story.editorLayout.nodes = Object.fromEntries([
+    ["open-ui", story.editorLayout.nodes["open-ui"] ?? { x: 240, y: 240 }],
+    ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
+  ]);
+}
+
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("open-game-publish-server-");
   const publishServer = createPublishApp({
@@ -799,6 +805,7 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   const playerDirectory = await temporary("open-game-player-");
   await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
   await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
+  await writeFile(path.join(playerDirectory, "scene-surface.html"), "open-game:scene-surface");
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("open-game-daemon-"),
     publishApiUrl: apiUrl,

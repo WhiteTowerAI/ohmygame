@@ -63,10 +63,14 @@ import {
   TabletIcon,
   TrashBinTrashIcon,
   UploadIcon,
+  UndoLeftIcon,
+  UndoRightIcon,
   UserRoundedIcon,
   VerifiedCheckIcon,
   VideoFrameIcon,
   VideocameraIcon,
+  VolumeCrossIcon,
+  VolumeLoudIcon,
   WiFiIcon,
   WiFiOffIcon,
 } from "@solar-icons/react/linear";
@@ -96,6 +100,14 @@ export const MoreHorizontal = forwardRef<SVGSVGElement, IconProps>(function More
     "svg",
     { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props },
     [6, 12, 18].map((cx) => createElement("circle", { key: cx, cx, cy: 12, r: 1.8, fill: "currentColor" })),
+  );
+});
+
+export const GripVertical = forwardRef<SVGSVGElement, IconProps>(function GripVertical({ size = 24, ...props }, ref) {
+  return createElement(
+    "svg",
+    { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props },
+    [7, 12, 17].map((cy) => createElement("circle", { key: cy, cx: 12, cy, r: 1.35, fill: "currentColor" })),
   );
 });
 
@@ -165,9 +177,13 @@ export {
   StarsIcon as Sparkles,
   StopCircleIcon as CircleStop,
   TabletIcon as Tablet,
+  VolumeCrossIcon as VolumeX,
+  VolumeLoudIcon as Volume2,
   ProgrammingIcon as Terminal,
   TrashBinTrashIcon as Trash2,
   UploadIcon as Upload,
+  UndoLeftIcon as Undo2,
+  UndoRightIcon as Redo2,
   UserRoundedIcon as UserRound,
   VerifiedCheckIcon as VerifiedCheck,
   VideocameraIcon as Video,

@@ -1,4 +1,4 @@
-import type { StoryChapter, StoryDocument, StoryOverlay, StoryVariable } from "../shared/contracts.js";
+import type { StoryChapter, StoryDocument, StoryVariable } from "../shared/contracts.js";
 import { restoreStoryCheckpoint, type PlayingRuntimeState, type StorySaveDataV1 } from "../shared/story.js";
 
 export interface StoryProgressStorage {
@@ -23,7 +23,6 @@ export function loadStoryProgress(
   signature: string,
   chapter: StoryChapter,
   variables: readonly StoryVariable[],
-  overlays: readonly StoryOverlay[],
 ): PlayingRuntimeState | undefined {
   let serialized: string | null;
   try {
@@ -33,7 +32,7 @@ export function loadStoryProgress(
   }
   if (serialized === null) return undefined;
   try {
-    const checkpoint = restoreStoryCheckpoint(JSON.parse(serialized), signature, chapter, variables, overlays);
+    const checkpoint = restoreStoryCheckpoint(JSON.parse(serialized), signature, chapter, variables);
     if (checkpoint) return checkpoint;
   } catch {
     // Invalid local progress is discarded below.

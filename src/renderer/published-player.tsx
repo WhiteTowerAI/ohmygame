@@ -1,15 +1,13 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
-import type { StoryDocument } from "../shared/contracts.js";
+import type { StoryDocument, StoryInteractionCommand } from "../shared/contracts.js";
 import {
   advanceSceneTime,
   chooseOption,
-  completeSceneClip,
-  continueSceneEvent,
+  completeSceneMedia,
   createPlayerState,
   createStoryCheckpoint,
-  DEFAULT_STORY_PLAYER_CONFIG,
-  resolveSceneInteraction,
+  resolveInteractionNode,
   restartGame,
   shouldCreateStoryCheckpoint,
   type PlayerRuntimeState,
@@ -51,14 +49,14 @@ function PublishedPlayer() {
       if (disposed) return;
       const chapter = loadedStory.chapters[0];
       const key = storyProgressKey(loadedManifest.scope, chapter.id);
-      const saved = loadStoryProgress(localStorage, key, signature, chapter, loadedStory.variables ?? [], loadedStory.overlays ?? []);
+      const saved = loadStoryProgress(localStorage, key, signature, chapter, loadedStory.variables ?? []);
       progress.current = { key, signature };
       checkpoint.current = saved;
       setManifest(loadedManifest);
       setStory(loadedStory);
       setHasCheckpoint(Boolean(saved));
       setRuntime(createPlayerState(chapter.id, loadedStory.variables ?? []));
-      document.title = loadedStory.player?.title || chapter.title;
+      document.title = loadedStory.player.title || chapter.title;
     }).catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
     return () => { disposed = true; };
   }, []);
@@ -108,41 +106,26 @@ function PublishedPlayer() {
     setPaused(false);
     resetPlayer();
   }, [chapter, resetPlayer, variables]);
-  const onSceneTime = useCallback((clipId: string, timeMs: number) => {
-    if (chapter) setRuntime((current) => current ? advanceSceneTime(chapter, current, clipId, timeMs) : current);
+  const onSceneTime = useCallback((mediaId: string, timeMs: number) => {
+    if (chapter) setRuntime((current) => current ? advanceSceneTime(chapter, current, mediaId, timeMs) : current);
   }, [chapter]);
-  const onClipComplete = useCallback((clipId: string, durationMs: number) => {
-    if (chapter) setRuntime((current) => current ? completeSceneClip(chapter, current, clipId, durationMs) : current);
-  }, [chapter]);
-  const onContinue = useCallback((ended: boolean, durationMs: number) => {
-    if (!chapter) return;
-    setRuntime((current) => {
-      if (!current || current.mode !== "playing") return current;
-      const resolved = continueSceneEvent(chapter, current);
-      return ended && resolved.scenePlayback ? completeSceneClip(chapter, resolved, resolved.scenePlayback.clipId, durationMs) : resolved;
-    });
-  }, [chapter]);
-  const onInteraction = useCallback((eventId: string, result: "success" | "timeout", ended: boolean, durationMs: number) => {
-    if (!chapter) return;
-    setRuntime((current) => {
-      if (!current || current.mode !== "playing") return current;
-      const nodeId = current.nodeId;
-      const clipId = current.scenePlayback?.clipId;
-      const resolved = resolveSceneInteraction(chapter, current, eventId, result);
-      return ended && clipId && resolved.nodeId === nodeId && resolved.scenePlayback?.clipId === clipId
-        ? completeSceneClip(chapter, resolved, clipId, durationMs)
-        : resolved;
-    });
+  const onMediaComplete = useCallback((mediaId: string, durationMs: number) => {
+    if (chapter) setRuntime((current) => current ? completeSceneMedia(chapter, current, mediaId, durationMs) : current);
   }, [chapter]);
   const onChoice = useCallback((optionId: string) => {
     if (!chapter) return;
     setRuntime((current) => current ? chooseOption(chapter, current, optionId) : current);
     resetPlayer();
   }, [chapter, resetPlayer]);
+  const onInteraction = useCallback((result: string, commands: StoryInteractionCommand[]) => {
+    if (!chapter) return;
+    setRuntime((current) => current ? resolveInteractionNode(chapter, current, result, commands, variables) : current);
+    resetPlayer();
+  }, [chapter, resetPlayer, variables]);
 
   if (error) return <main className="story-playtest-page"><div className="story-playtest-state" role="alert">{error}</div></main>;
   if (!story || !chapter || !runtime || !manifest) return <main className="story-playtest-page"><div className="story-playtest-state">Loading game...</div></main>;
-  const config = story.player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: chapter.title };
+  const config = story.player;
   const style = {
     "--story-player-accent": config.theme.accentColor,
     "--story-player-text": config.theme.textColor,
@@ -152,11 +135,11 @@ function PublishedPlayer() {
   return <main className="story-playtest-page" style={style}><InteractiveDramaPlayer
     key={playerKey}
     chapter={chapter}
+    variables={variables}
     config={config}
-    characters={story.characters ?? []}
-    overlays={story.overlays ?? []}
     node={node}
     runtime={runtime}
+    progressFacts={checkpoint.current?.progress}
     paused={paused}
     hasCheckpoint={hasCheckpoint}
     saveStatus={saveStatus}
@@ -169,8 +152,7 @@ function PublishedPlayer() {
     onRestartGame={startNewGame}
     onMenu={menu}
     onSceneTime={onSceneTime}
-    onClipComplete={onClipComplete}
-    onContinue={onContinue}
+    onMediaComplete={onMediaComplete}
     onInteraction={onInteraction}
     onChoice={onChoice}
   /></main>;

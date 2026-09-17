@@ -51,7 +51,6 @@ import type { Connection, SaveConnectionRequest } from "../shared/connections.js
 import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
-import { INTERACTIVE_DRAMA_EXAMPLE_ID } from "../shared/interactive-drama-examples.js";
 
 const API_BASE = "/api";
 
@@ -90,11 +89,12 @@ declare global {
 }
 
 export async function createProject(input: CreateProjectRequest = {}): Promise<ProjectState> {
-  return request("/projects", { method: "POST", body: JSON.stringify(input) });
+  const payload = input.type === "interactive-drama" && input.template === undefined ? { ...input, template: "starter" as const } : input;
+  return request("/projects", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export async function createInteractiveDramaExample(): Promise<ProjectState> {
-  return request(`/interactive-drama/examples/${INTERACTIVE_DRAMA_EXAMPLE_ID}/projects`, { method: "POST" });
+export async function ensureInteractiveDramaStarterProject(): Promise<void> {
+  await request("/interactive-drama/starter-project/ensure", { method: "POST" });
 }
 
 export async function listProjects(): Promise<ProjectState[]> {

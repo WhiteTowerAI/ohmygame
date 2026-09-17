@@ -755,6 +755,7 @@ export function ProjectShell({
         project={project}
         agentBusy={agentBusy}
         publishing={publishing}
+        workspaceRevision={workspaceRevision}
         onPublish={publish}
       />}
     </main>

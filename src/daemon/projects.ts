@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectState, ProjectType, PublicationState, StoryDocument } from "../shared/contracts.js";
+import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
-import { createStoryDocument, isStoryDocument, parseStoryDocument } from "../shared/story.js";
+import { createStoryDocument, isStoryDocument } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
+import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -16,6 +17,8 @@ interface ProjectMetadata {
   updatedAt: string;
   publication?: PublicationState;
 }
+
+export class ProjectStoryReferenceError extends Error {}
 
 export class ProjectAssetError extends Error {
   constructor(message: string, readonly statusCode: number) {
@@ -79,7 +82,10 @@ export class ProjectManager {
   }
 
   list(): ProjectState[] {
-    return [...this.#projects.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return [...this.#projects.values()]
+      .map((project, index) => ({ project, index }))
+      .sort((left, right) => right.project.updatedAt.localeCompare(left.project.updatedAt) || right.index - left.index)
+      .map(({ project }) => project);
   }
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
@@ -405,16 +411,16 @@ export class ProjectManager {
     if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
     const destination = path.join(project.workspacePath, STORY_FILE);
     try {
-      const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-      try {
-        return parseStoryDocument(parsed);
-      } catch {
-        throw new Error(`Invalid story document: ${destination}`);
-      }
+      const story = await readStoryCodebase(project.workspacePath);
+      await ensureStoryCodebaseInstructions(project.workspacePath);
+      return story;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const fileError = error as NodeJS.ErrnoException;
+      if (fileError.code !== "ENOENT" || path.resolve(String(fileError.path)) !== path.resolve(destination)) {
+        throw new Error(`Invalid story document: ${destination}`, { cause: error });
+      }
       const story = createStoryDocument();
-      await writeStory(destination, story);
+      await writeStoryCodebase(project.workspacePath, story);
       return story;
     }
   }
@@ -424,7 +430,7 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
     if (!isStoryDocument(story)) throw new Error("Invalid story document");
-    await writeStory(path.join(project.workspacePath, STORY_FILE), story);
+    await writeStoryCodebase(project.workspacePath, story, { preserveExistingSources: true });
     await this.touch(id);
   }
 
@@ -437,16 +443,15 @@ export class ProjectManager {
         continue;
       }
       if (project.type !== "interactive-drama") continue;
+      if (!await exists(path.join(project.workspacePath, STORY_FILE))) continue;
       let story: StoryDocument;
       try {
-        const parsed: unknown = JSON.parse(await readFile(path.join(project.workspacePath, STORY_FILE), "utf8"));
-        try { story = parseStoryDocument(parsed); } catch { continue; }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
+        story = await readStoryCodebase(project.workspacePath);
+      } catch (cause) {
+        throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
-      if (story.player?.backgroundAssetId === assetId || story.characters?.some((character) => character.avatarAssetId === assetId) || story.overlays?.some((overlay) => overlay.components.some((component) => component.type === "image" && component.assetId === assetId)) || story.chapters.some((chapter) => chapter.nodes.some((node) => (
-        (node.type === "scene" && node.data.clips.some((clip) => clip.source.type === "library" && clip.source.assetId === assetId)) ||
+      if (story.player.backgroundAssetId === assetId || story.player.openUiVideoAssetId === assetId || story.chapters.some((chapter) => chapter.nodes.some((node) => (
+        ((node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
         ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
@@ -468,38 +473,20 @@ export class ProjectManager {
         }
       }
       if (project.type !== "interactive-drama") continue;
-      const destination = path.join(project.workspacePath, STORY_FILE);
-      try {
-        const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-        let current: StoryDocument;
-        try { current = parseStoryDocument(parsed); } catch { continue; }
-        const story: StoryDocument = {
+      const current = await readStoryCodebase(project.workspacePath);
+      const story: StoryDocument = {
           ...current,
-          characters: current.characters?.map((character) => character.avatarAssetId === assetId
-            ? { ...character, avatarAssetId: undefined }
-            : character),
-          overlays: current.overlays?.map((overlay) => ({
-            ...overlay,
-            components: overlay.components.filter((component) => component.type !== "image" || component.assetId !== assetId),
-          })),
-          ...(current.player?.backgroundAssetId === assetId
-            ? { player: { ...current.player, backgroundAssetId: undefined } }
-            : {}),
+          player: {
+            ...current.player,
+            ...(current.player.backgroundAssetId === assetId ? { backgroundAssetId: undefined } : {}),
+            ...(current.player.openUiVideoAssetId === assetId ? { openUiVideoAssetId: undefined } : {}),
+          },
           chapters: current.chapters.map((chapter) => {
             const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
             return {
               ...chapter,
               nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
-                if (node.type === "scene") return {
-                  ...node,
-                  data: (() => {
-                    const clips = node.data.clips.filter((clip) =>
-                      (clip.source.type !== "library" || clip.source.assetId !== assetId) &&
-                      (clip.source.type !== "node" || !removedNodeIds.has(clip.source.nodeId)));
-                    const clipIds = new Set(clips.map((clip) => clip.id));
-                    return { ...node.data, clips, events: node.data.events.filter((event) => clipIds.has(event.clipId)) };
-                  })(),
-                };
+                if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
                 if (node.type === "image") {
                   const images = node.data.images.filter((image) =>
                     (image.type !== "library" || image.assetId !== assetId) &&
@@ -525,16 +512,16 @@ export class ProjectManager {
                     data: { ...node.data, references },
                   };
                 }
+                if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+                if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+                if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
                 return node;
               }),
             };
           }),
-        };
-        await writeStory(destination, story);
-        await this.touch(project.id);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+      };
+      await writeStoryCodebase(project.workspacePath, story);
+      await this.touch(project.id);
     }
   }
 
@@ -555,6 +542,20 @@ export class ProjectManager {
     if (metadata.publication) project.publication = metadata.publication;
     else delete project.publication;
   }
+
+}
+
+function removePresentationAssetReferences(presentation: StoryNodePresentation, assetId: string, removedNodeIds: ReadonlySet<string>): StoryNodePresentation {
+  if (presentation.media.mode !== "own") return presentation;
+  return {
+    ...presentation,
+    media: {
+      mode: "own",
+      items: presentation.media.items.filter((item) =>
+        (item.source.type !== "library" || item.source.assetId !== assetId) &&
+        (item.source.type !== "node" || !removedNodeIds.has(item.source.nodeId))),
+    },
+  };
 }
 
 function projectCoverPath(workspacePath: string): string {
@@ -635,16 +636,6 @@ async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
-    await rename(temporary, destination);
-  } finally {
-    await rm(temporary, { force: true });
-  }
-}
-
-async function writeStory(destination: string, story: StoryDocument): Promise<void> {
-  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, `${JSON.stringify(story, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });
