@@ -46,6 +46,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  ViewportPortal,
   applyEdgeChanges,
   applyNodeChanges,
   useReactFlow,
@@ -58,6 +59,7 @@ import {
   type NodeProps,
   type NodeTypes,
 } from "@xyflow/react";
+import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./story-canvas-alignment.js";
 import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODEL,
@@ -130,6 +132,7 @@ const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
 const OPEN_UI_ENTRY_EDGE_ID = "open-ui-entry";
 const OPEN_UI_STORY_EDGE_ID = "open-ui-story";
+const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
@@ -293,6 +296,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [useDefaultEditor, setUseDefaultEditor] = useState(false);
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
+  const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -1292,6 +1296,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               connectionLineStyle={STORY_EDGE_OPTIONS.style}
               minZoom={MIN_ZOOM}
               maxZoom={MAX_ZOOM}
+              snapToGrid
+              snapGrid={STORY_CANVAS_SNAP_GRID}
               nodesDraggable={interactionMode === "pointer"}
               elementsSelectable={interactionMode === "pointer"}
               selectionOnDrag={interactionMode === "pointer"}
@@ -1302,8 +1308,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               zoomOnDoubleClick={false}
               deleteKeyCode={openedNodeId || stateEditorOpen ? null : ["Backspace", "Delete"]}
               onNodesChange={onNodesChange}
-              onNodeDragStart={beginHistoryGesture}
-              onNodeDragStop={finishHistoryGesture}
+              onNodeDragStart={() => { setAlignmentGuides(undefined); beginHistoryGesture(); }}
+              onNodeDrag={(_event, node) => {
+                const [active, ...candidates] = alignmentNodesFromDom([
+                  node,
+                  ...renderedNodes,
+                  { id: playerUiNodeId, position: openUiPosition },
+                ]);
+                setAlignmentGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
+              }}
+              onNodeDragStop={() => { setAlignmentGuides(undefined); finishHistoryGesture(); }}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
@@ -1349,6 +1363,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               defaultViewport={editorLayout.viewport}
             >
               <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
+              <StoryCanvasAlignmentGuides guides={alignmentGuides} />
               <ZoomControls />
               <CanvasToolbar
                 mode={interactionMode}
@@ -1581,7 +1596,7 @@ function PlayerUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
       <span><b>Open UI</b><strong>{data.title || "Untitled Story"}</strong></span>
       {assetId && preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
     </div>
-    <div className="story-media-stage story-open-ui-node-preview">
+    <div data-alignment-frame className="story-media-stage story-open-ui-node-preview">
       {asset.url && mediaType === "image" ? <img src={asset.url} alt="" /> : null}
       {asset.url && mediaType === "video" ? <video ref={video} src={asset.url} muted={muted} playsInline onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={() => { setCurrentMs(totalMs); setPlaying(false); }} /> : null}
       <OpenUiCanvasSurface config={config} transparent={Boolean(asset.url)} />
@@ -1615,7 +1630,7 @@ function OpenUiCanvasSurface({ config, transparent, runtime = false, onAction }:
 
 function ProjectStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const variables = data.variables ?? [];
-  return <div className={`story-node story-node-initial-state${selected ? " is-selected" : ""}`}>
+  return <div data-alignment-frame className={`story-node story-node-initial-state${selected ? " is-selected" : ""}`}>
     <Handle type="target" position={Position.Left} />
     <header><span><Wrench size={14} />Initial State</span><small>{variables.length} {variables.length === 1 ? "var" : "vars"}</small></header>
     <div className="story-state-resource-list">{variables.slice(0, 3).map((variable) => <span key={variable.id}><b>{variable.name || "Unnamed"}</b><small>= {variable.type === "text" ? JSON.stringify(variable.initialValue) : String(variable.initialValue)}</small></span>)}{variables.length > 3 ? <em>+{variables.length - 3} more</em> : null}{!variables.length ? <em>No variables</em> : null}</div>
@@ -1625,7 +1640,7 @@ function ProjectStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "da
 
 function StartNode({ selected }: NodeProps<StoryFlowNode>) {
   return (
-    <div className={`story-node story-node-start${selected ? " is-selected" : ""}`}>
+    <div data-alignment-frame className={`story-node story-node-start${selected ? " is-selected" : ""}`}>
       <Flag size={15} />
       <span>Start</span>
       <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
@@ -1731,7 +1746,7 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, title, emp
     if (currentMs >= totalMs) seek(0);
     setPlaying((current) => !current);
   }
-  return <div ref={container} className={`story-media-stage story-scene-node-poster${poster ? " has-poster" : ""}`}>
+  return <div ref={container} data-alignment-frame className={`story-media-stage story-scene-node-poster${poster ? " has-poster" : ""}`}>
     {poster ? <img src={poster} alt="" /> : <div className="story-scene-node-empty"><Film size={22} /><span>{empty ? "Add video" : preview?.assetId ? "Loading preview" : title}</span></div>}
     {activeAsset.url && (playing || currentMs > 0) ? <video
       ref={video}
@@ -1867,7 +1882,7 @@ function InheritedScenePoster({ preview, children, className = "" }: { preview?:
     return () => { disposed = true; };
   }, [asset.url, preview?.mediaType]);
   const image = preview?.mediaType === "image" ? asset.url : poster;
-  return <div ref={container} className={`story-media-stage story-inherited-scene-poster${image ? " has-poster" : ""}${className ? ` ${className}` : ""}`}>
+  return <div ref={container} data-alignment-frame className={`story-media-stage story-inherited-scene-poster${image ? " has-poster" : ""}${className ? ` ${className}` : ""}`}>
     {image ? <img src={image} alt="" /> : null}
     <div className="story-inherited-scene-scrim" />
     {children}
@@ -1883,7 +1898,7 @@ function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNo
     : "No language model";
   return (
     <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
-      <div className="story-text-output">
+      <div data-alignment-frame className="story-text-output">
         <div className="story-media-node-label"><FileText size={14} /><span>Text</span></div>
         <textarea
           className="nodrag nowheel"
@@ -2025,7 +2040,7 @@ function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
   return (
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{data.name || titleCase(kind)}</span><small>Library</small></div>
-      <div className="story-media-stage">
+      <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || "Library image"} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{preview.error ? "Asset unavailable" : "Audio"}</strong>{data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
@@ -2147,7 +2162,7 @@ function MediaNodeShell({ kind, selected, editable = true, assetId, aspectRatio,
   return (
     <div className={`story-node story-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
-      <div className="story-media-stage">
+      <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {!preview.url ? (
@@ -3436,6 +3451,60 @@ function CanvasToolbar({
       }} /> : null}
     </Panel>
   );
+}
+
+function StoryCanvasAlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
+  const { zoom } = useViewport();
+  if (!guides) return null;
+  const lineWidth = 1 / zoom;
+  return <ViewportPortal>
+    {guides.vertical.map((guide) => <div
+      key={`vertical:${guide.x}`}
+      className="story-canvas-alignment-guide is-vertical"
+      data-axis="vertical"
+      style={{ left: guide.x - lineWidth / 2, top: guide.from, width: lineWidth, height: guide.to - guide.from }}
+    />)}
+    {guides.horizontal.map((guide) => <div
+      key={`horizontal:${guide.y}`}
+      className="story-canvas-alignment-guide is-horizontal"
+      data-axis="horizontal"
+      style={{ left: guide.from, top: guide.y - lineWidth / 2, width: guide.to - guide.from, height: lineWidth }}
+    />)}
+  </ViewportPortal>;
+}
+
+function alignmentNodesFromDom<T extends { id: string; position: { x: number; y: number } }>(nodes: readonly T[]): CanvasAlignmentNode[] {
+  const zoom = canvasViewportZoom();
+  const roots = new Map([...document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")]
+    .map((element) => [element.dataset.id!, element] as const));
+  return nodes.map((node) => {
+    const root = roots.get(node.id);
+    const frame = root?.querySelector<HTMLElement>("[data-alignment-frame]");
+    if (!root || !frame) return node;
+    const rootRect = root.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    return {
+      ...node,
+      alignmentFrame: {
+        x: node.position.x + (frameRect.left - rootRect.left) / zoom,
+        y: node.position.y + (frameRect.top - rootRect.top) / zoom,
+        width: frameRect.width / zoom,
+        height: frameRect.height / zoom,
+      },
+    };
+  });
+}
+
+function canvasViewportZoom(): number {
+  const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
+  const transform = viewport ? getComputedStyle(viewport).transform : "none";
+  if (transform === "none") return 1;
+  try {
+    const zoom = new DOMMatrixReadOnly(transform).a;
+    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  } catch {
+    return 1;
+  }
 }
 
 function ZoomControls() {

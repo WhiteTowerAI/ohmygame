@@ -4410,6 +4410,21 @@ button {
   background: var(--canvas);
 }
 
+.story-canvas-alignment-guide {
+  position: absolute;
+  z-index: 20;
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.story-canvas-alignment-guide.is-vertical {
+  background-image: repeating-linear-gradient(to bottom, var(--accent) 0 4px, transparent 4px 8px);
+}
+
+.story-canvas-alignment-guide.is-horizontal {
+  background-image: repeating-linear-gradient(to right, var(--accent) 0 4px, transparent 4px 8px);
+}
+
 .story-interaction-workbench { grid-template-rows: minmax(0, 1fr); }
 .story-interaction-preview { display: grid; min-width: 0; min-height: 0; grid-template-rows: 42px minmax(0, 1fr); padding: 0 16px 16px; }
 .story-interaction-preview > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

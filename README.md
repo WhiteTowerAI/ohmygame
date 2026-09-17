@@ -114,3 +114,8 @@ The renderer defaults to `http://127.0.0.1:43120` and the daemon to
 `http://127.0.0.1:43110`. Pi uses the user's existing Pi credentials. See the
 runtime flow, API, and trusted-local security boundary in
 [docs/runtime.md](docs/runtime.md).
+
+Tagged desktop releases are signed and published to an independent update
+feed, so the source repository can remain private. See
+[docs/desktop-releases.md](docs/desktop-releases.md) for the required signing,
+Cloudflare R2, and GitHub Actions configuration.

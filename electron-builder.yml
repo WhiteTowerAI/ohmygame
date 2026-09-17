@@ -40,11 +40,9 @@ win:
   artifactName: OpenGame-${version}-${arch}.${ext}
 
 publish:
-  provider: github
-  owner: WhiteTowerAI
-  repo: open-game
+  provider: generic
+  url: ${env.DESKTOP_UPDATE_URL}
   channel: alpha
-  releaseType: prerelease
 
 dmg:
   artifactName: OpenGame-${version}-${arch}.${ext}
