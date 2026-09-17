@@ -1110,6 +1110,31 @@ body {
   margin-left: -8px;
 }
 
+:is(
+  .settings-provider-search,
+  .projects-search,
+  .library-search,
+  .plugins-search
+) {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-faint);
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+:is(
+  .settings-provider-search,
+  .projects-search,
+  .library-search,
+  .plugins-search
+):focus-within {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
 .settings-provider-search {
   display: flex;
   width: 164px;
@@ -1118,15 +1143,7 @@ body {
   align-items: center;
   gap: 7px;
   padding: 0 9px;
-  border: 1px solid var(--menu-border);
   border-radius: 6px;
-  color: var(--text-faint);
-  background: #242424;
-}
-
-.settings-provider-search:focus-within {
-  border-color: var(--border-strong);
-  color: var(--text-muted);
 }
 
 .settings-provider-search input {
@@ -2655,10 +2672,7 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 9px;
   padding: 0 11px;
-  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #17181d;
-  color: var(--text-faint);
 }
 .projects-search input {
   width: 100%;
@@ -2684,12 +2698,17 @@ button.home-nav-item-active:hover {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #17181d;
+  background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
 }
 .projects-icon-button:hover {
   border-color: var(--border-strong);
+  background: var(--surface-raised);
   color: var(--text);
 }
 .projects-sort-menu {
@@ -3147,10 +3166,7 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 10px;
   padding: 0 13px;
-  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #15161b;
-  color: var(--text-faint);
 }
 
 .library-search input {
@@ -3775,10 +3791,7 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border: 0;
   border-radius: 7px;
-  background: var(--surface);
-  color: var(--text-faint);
 }
 
 .plugins-search input {
@@ -4084,7 +4097,7 @@ button.home-nav-item-active:hover {
   padding: 0;
   border: 0;
   border-radius: 9px;
-  background: #303739;
+  background: var(--border-strong);
   cursor: pointer;
 }
 
@@ -4920,8 +4933,8 @@ button {
   min-height: 0;
   overflow: hidden;
   padding: 30px 36px;
-  background: #090b0c;
-  color: #ebf0eb;
+  background: var(--canvas);
+  color: var(--text);
 }
 
 .asset-studio-workspace {
@@ -4951,10 +4964,10 @@ button {
 }
 
 .asset-config-panel {
-  --asset-label: #d2d8d9;
-  --asset-control-text: #c2c9ca;
-  --asset-secondary: #b8c0c1;
-  --asset-muted: #929c9e;
+  --asset-label: color-mix(in srgb, var(--text) 82%, transparent);
+  --asset-control-text: color-mix(in srgb, var(--text) 76%, transparent);
+  --asset-secondary: var(--text-secondary);
+  --asset-muted: var(--text-muted);
   display: flex;
   flex-direction: column;
   padding: 18px;
@@ -4966,9 +4979,9 @@ button {
   flex: 0 0 auto;
   gap: 2px;
   padding: 4px;
-  border: 1px solid #252c2e;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #1c2224;
+  background: var(--surface);
 }
 
 .asset-panel-switcher {
@@ -4989,12 +5002,12 @@ button {
 }
 
 .asset-panel-switcher button:hover:not(:disabled) {
-  color: #ebf0eb;
+  background: var(--surface-raised);
+  color: var(--text);
 }
 .asset-panel-switcher button.is-active {
-  border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345);
-  background: #252b2d;
-  color: #ebf0eb;
+  background: var(--surface-hover);
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -5005,9 +5018,9 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 4px;
-  border: 1px solid #252c2e;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #171c1e;
+  background: var(--surface);
 }
 
 .asset-mode-switcher button {
@@ -5028,11 +5041,12 @@ button {
 }
 
 .asset-mode-switcher button:hover:not(:disabled) {
-  color: #ebf0eb;
+  background: var(--surface-raised);
+  color: var(--text);
 }
 .asset-mode-switcher button.is-active {
-  background: #293033;
-  color: #ebf0eb;
+  background: var(--surface-hover);
+  color: var(--text);
   font-weight: 600;
 }
 .asset-mode-switcher button:disabled {
@@ -5056,7 +5070,7 @@ button {
   .asset-result-canvas.asset-template-gallery,
   .asset-result-canvas.asset-history-grid
 ) {
-  scrollbar-color: #2a3133 transparent;
+  scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
 }
 
@@ -5075,7 +5089,7 @@ button {
 )::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background: #2a3133;
+  background: var(--border);
   background-clip: padding-box;
 }
 
@@ -5084,7 +5098,7 @@ button {
     .asset-result-canvas.asset-template-gallery,
     .asset-result-canvas.asset-history-grid
   )::-webkit-scrollbar-thumb:hover {
-  background-color: #41494b;
+  background-color: var(--border-strong);
 }
 
 .asset-config-state {
@@ -5109,10 +5123,10 @@ button {
   align-items: center;
   gap: 5px;
   padding: 0 9px;
-  border: 1px solid #2a3133;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #1c2224;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -5156,16 +5170,16 @@ button {
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: #202627;
+  background: var(--surface-hover);
 }
 .asset-3d-reference-slot {
   position: relative;
   min-width: 0;
   height: 72px;
   overflow: hidden;
-  border: 1px dashed #343c3e;
+  border: 1px dashed var(--border-strong);
   border-radius: 7px;
-  background: #181d1f;
+  background: var(--surface);
 }
 .asset-3d-reference-slot.is-primary {
   height: 142px;
@@ -5187,8 +5201,8 @@ button {
   font: inherit;
 }
 .asset-3d-reference-slot > button:first-child:hover:not(:disabled) {
-  background: rgb(255 255 255 / 2.5%);
-  color: #c8d0d1;
+  background: var(--menu-hover);
+  color: var(--text);
 }
 .asset-3d-reference-slot > button:first-child:focus-visible {
   outline: 1px solid var(--focus-ring);
@@ -5293,7 +5307,7 @@ button {
   font-weight: 500;
 }
 .asset-source-switch label:has(input:checked) {
-  color: #ebf0eb;
+  color: var(--text);
 }
 .asset-source-switch input {
   position: absolute;
@@ -5332,11 +5346,11 @@ button {
   height: 40px;
   appearance: none;
   padding: 0 34px 0 10px;
-  border: 1px solid #252c2e;
+  border: 1px solid var(--border);
   border-radius: 7px;
   outline: 0;
-  background: #1c2224;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
 }
@@ -5376,10 +5390,10 @@ button {
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  border: 1px solid #2a3133;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #1c2224;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
   font: inherit;
 }
@@ -5399,11 +5413,11 @@ button {
   height: 120px;
   resize: none;
   padding: 10px 11px 25px;
-  border: 1px solid #252c2e;
+  border: 1px solid var(--border);
   border-radius: 8px;
   outline: 0;
-  background: #1c2224;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
   line-height: 1.45;
@@ -5422,16 +5436,16 @@ button {
 }
 .asset-prompt-wrap textarea:focus,
 .asset-select-wrap select:focus {
-  border-color: #4b5456;
+  border-color: var(--border-strong);
 }
 
 .asset-reference {
   position: relative;
   height: 66px;
   overflow: hidden;
-  border: 1px dashed #293032;
+  border: 1px dashed var(--border-strong);
   border-radius: 8px;
-  background: #1c2224;
+  background: var(--surface);
 }
 .asset-reference > button:first-child {
   display: flex;
@@ -5442,12 +5456,12 @@ button {
   padding: 0 10px;
   border: 0;
   background: transparent;
-  color: #ebf0eb;
+  color: var(--text);
   cursor: pointer;
   text-align: left;
 }
 .asset-reference > button:first-child:hover:not(:disabled) {
-  background: rgb(255 255 255 / 2.5%);
+  background: var(--menu-hover);
 }
 .asset-reference > button:first-child:disabled {
   cursor: default;
@@ -5460,7 +5474,7 @@ button {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 7px;
-  background: #22282a;
+  background: var(--surface-hover);
   color: var(--asset-control-text);
 }
 .asset-reference-copy {
@@ -5501,12 +5515,12 @@ button {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: #2a3133;
-  color: #8f9c9e;
+  background: var(--surface-hover);
+  color: var(--text-muted);
   cursor: pointer;
 }
 .asset-reference-clear:hover:not(:disabled) {
-  color: #ebf0eb;
+  color: var(--text);
 }
 
 .asset-reference-list {
@@ -5521,10 +5535,10 @@ button {
   align-items: center;
   gap: 10px;
   padding: 6px 10px;
-  border: 1px solid #293032;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #1c2224;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
 }
 .asset-reference-item img {
   width: 38px;
@@ -5547,7 +5561,7 @@ button {
 .asset-reference-media {
   display: grid;
   place-items: center;
-  background: #22282a;
+  background: var(--surface-hover);
   color: var(--asset-control-text);
 }
 .asset-reference-item .asset-reference-copy {
@@ -5588,12 +5602,12 @@ button {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: #2a3133;
-  color: #8f9c9e;
+  background: var(--surface-hover);
+  color: var(--text-muted);
   cursor: pointer;
 }
 .asset-reference-item button:hover:not(:disabled) {
-  color: #ebf0eb;
+  color: var(--text);
 }
 .asset-reference-add {
   width: 100%;
@@ -5604,8 +5618,8 @@ button {
   text-align: left;
 }
 .asset-reference-add:hover:not(:disabled) {
-  border-color: #4b5456;
-  background: rgb(255 255 255 / 2.5%);
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
 }
 .asset-reference-add > span {
   flex: 1;
@@ -5639,22 +5653,23 @@ button {
   min-width: 48px;
   height: 30px;
   padding: 0 13px;
-  border: 1px solid #252c2e;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #1c2224;
+  background: var(--surface);
   color: var(--asset-control-text);
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;
 }
 .asset-option-group button:hover:not(:disabled) {
-  border-color: #4b5456;
-  color: #ebf0eb;
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
 }
 .asset-option-group button.is-active {
-  border-color: color-mix(in srgb, var(--home-accent) 28%, #3a4345);
-  background: #252b2d;
-  color: #ebf0eb;
+  border-color: color-mix(in srgb, var(--home-accent) 38%, var(--border));
+  background: var(--surface-hover);
+  color: var(--text);
   font-weight: 600;
 }
 .asset-option-group button:disabled {
@@ -5691,7 +5706,7 @@ button {
   font-weight: 500;
 }
 .asset-range-field output {
-  color: #ebf0eb;
+  color: var(--text);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
@@ -5707,7 +5722,7 @@ button {
   background: linear-gradient(
       to right,
       var(--home-accent) 0 var(--asset-range-progress),
-      #303739 var(--asset-range-progress) 100%
+      var(--border-strong) var(--asset-range-progress) 100%
     )
     center / 100% 4px no-repeat;
   cursor: pointer;
@@ -5755,11 +5770,11 @@ button {
   width: 88px;
   height: 30px;
   padding: 0 9px;
-  border: 1px solid #303739;
+  border: 1px solid var(--border);
   border-radius: 7px;
   outline: 0;
-  background: #171c1e;
-  color: #ebf0eb;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -5778,7 +5793,7 @@ button {
   background: linear-gradient(
       to right,
       var(--home-accent) 0 var(--asset-range-progress),
-      #303739 var(--asset-range-progress) 100%
+      var(--border-strong) var(--asset-range-progress) 100%
     )
     center / 100% 4px no-repeat;
 }
@@ -5824,15 +5839,16 @@ button {
   align-self: center;
   padding: 0;
   place-items: center;
-  border: 1px solid #303739;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #1c2224;
+  background: var(--surface);
   color: var(--asset-control-text);
   cursor: pointer;
 }
 .asset-save-template-button:hover:not(:disabled) {
-  border-color: #4b5456;
-  color: #ebf0eb;
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
 }
 .asset-save-template-button:disabled {
   cursor: default;
@@ -5871,7 +5887,7 @@ button {
   align-items: center;
   justify-content: center;
   padding: 0 14px;
-  border-bottom: 1px solid #252c2e;
+  border-bottom: 1px solid var(--border);
 }
 .asset-result-panel h1 {
   margin: 0;
@@ -6338,9 +6354,9 @@ button {
   height: 96px;
   overflow: hidden;
   place-items: center;
-  border: 1px dashed #394143;
+  border: 1px dashed var(--border-strong);
   border-radius: 7px;
-  background: #1b2021;
+  background: var(--surface);
   color: var(--asset-muted);
 }
 .asset-template-cover-preview > span {
@@ -6359,10 +6375,10 @@ button {
 .asset-template-dialog textarea {
   width: 100%;
   padding: 0 9px;
-  border: 1px solid #394143;
+  border: 1px solid var(--border);
   border-radius: 6px;
   outline: 0;
-  background: #1b2021;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 12px;
@@ -6377,7 +6393,7 @@ button {
   line-height: 1.4;
 }
 .asset-template-dialog :is(input, textarea):focus {
-  border-color: #596365;
+  border-color: var(--border-strong);
 }
 .asset-template-dialog-error {
   margin: 0;
@@ -6396,7 +6412,7 @@ button {
   padding: 0 11px;
   border: 0;
   border-radius: 6px;
-  background: #292f31;
+  background: var(--surface-hover);
   color: var(--text);
   cursor: pointer;
   font: inherit;
@@ -14906,8 +14922,7 @@ button {
     .settings-methods button,
     .settings-waiting-card,
     .settings-auth-status,
-    .settings-device-code,
-    .settings-provider-search
+    .settings-device-code
   ) {
   border-color: var(--border-strong);
   background: var(--surface);
@@ -15019,11 +15034,6 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(.projects-search, .projects-icon-button, .library-search) {
-  background: var(--surface);
-}
-
-:root[data-appearance="light"]
   :is(
     .project-create-backdrop,
     .library-delete-backdrop,
@@ -15102,7 +15112,6 @@ button {
 
 :root[data-appearance="light"] :is(.plugin-switch, .asset-toggle-field button) {
   border: 1px solid var(--border-strong);
-  background: var(--border-strong);
 }
 
 :root[data-appearance="light"]
@@ -15118,21 +15127,6 @@ button {
     .asset-toggle-field button[aria-checked="true"]
   ) {
   border-color: var(--home-accent);
-  background: var(--home-accent);
-}
-
-:root[data-appearance="light"]
-  :is(
-    .plugin-switch[aria-checked="true"] span,
-    .asset-toggle-field button[aria-checked="true"] > span
-  ) {
-  background: #fff;
-}
-
-:root[data-appearance="light"]
-  :is(.plugin-switch, .asset-toggle-field button):focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 :root[data-appearance="light"] .plugin-row-icon-media {
@@ -15152,47 +15146,9 @@ button {
   background: var(--surface);
 }
 
-:root[data-appearance="light"] .asset-studio-content {
-  background: var(--canvas);
-  color: var(--text);
-}
-
 :root[data-appearance="light"] .asset-config-panel {
   --asset-label: var(--text);
   --asset-control-text: var(--text-secondary);
-  --asset-secondary: var(--text-secondary);
-  --asset-muted: var(--text-muted);
-}
-
-:root[data-appearance="light"]
-  :is(
-    .asset-config-fields,
-    .asset-result-canvas.asset-template-gallery,
-    .asset-result-canvas.asset-history-grid
-  ) {
-  scrollbar-color: var(--border-strong) transparent;
-}
-
-:root[data-appearance="light"]
-  :is(
-    .asset-config-fields,
-    .asset-result-canvas.asset-template-gallery,
-    .asset-result-canvas.asset-history-grid
-  )::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-}
-
-:root[data-appearance="light"]
-  :is(
-    .asset-config-fields,
-    .asset-result-canvas.asset-template-gallery,
-    .asset-result-canvas.asset-history-grid
-  )::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
-}
-
-:root[data-appearance="light"] .asset-result-panel > header {
-  border-bottom-color: var(--border);
 }
 
 :root[data-appearance="light"] .workspace-tabs {
@@ -15284,8 +15240,7 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(.asset-panel-switcher, .asset-mode-switcher, .asset-3d-references) {
-  border-color: var(--border);
+  :is(.asset-panel-switcher, .asset-mode-switcher) {
   background: var(--surface-hover);
 }
 
@@ -15301,29 +15256,14 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(
-    .asset-config-state button,
-    .asset-select-wrap select,
-    .asset-prompt-wrap textarea,
-    .asset-reference,
-    .asset-reference-item,
-    .asset-reference-add,
-    .asset-option-group button,
-    .asset-save-template-button,
-    .asset-number-range-field input[type="number"],
-    .asset-template-cover-preview,
-    .asset-template-dialog input,
-    .asset-template-dialog textarea,
-    .asset-template-dialog button
-  ) {
-  border-color: var(--border);
-  background: var(--surface);
+  :is(.asset-option-group button, .asset-save-template-button) {
   color: var(--text);
 }
 
-:root[data-appearance="light"] .asset-prompt-wrap textarea::placeholder,
-:root[data-appearance="light"] .asset-prompt-wrap > span {
-  color: var(--text-muted);
+:root[data-appearance="light"]
+  .asset-template-dialog
+  button:not([type="submit"]) {
+  background: var(--surface);
 }
 
 :root[data-appearance="light"] .asset-prompt-wrap textarea:focus,
@@ -15331,33 +15271,8 @@ button {
   border-color: var(--theme-accent);
 }
 
-:root[data-appearance="light"] .asset-source-switch label {
-  color: var(--text-muted);
-}
-
 :root[data-appearance="light"] .asset-source-switch label:hover {
   color: var(--text-secondary);
-}
-
-:root[data-appearance="light"] .asset-source-switch label:has(input:checked) {
-  color: var(--text);
-}
-
-:root[data-appearance="light"] .asset-range-field output {
-  color: var(--text);
-}
-
-:root[data-appearance="light"]
-  :is(
-    .asset-range-field input,
-    .asset-number-range-field > input[type="range"]
-  ) {
-  background: linear-gradient(
-      to right,
-      var(--home-accent) 0 var(--asset-range-progress),
-      var(--border-strong) var(--asset-range-progress) 100%
-    )
-    center / 100% 4px no-repeat;
 }
 
 :root[data-appearance="light"]
@@ -15370,22 +15285,7 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(
-    .asset-range-field input,
-    .asset-number-range-field > input[type="range"]
-  ):focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-:root[data-appearance="light"]
-  :is(
-    .asset-3d-reference-slot,
-    .asset-reference-icon,
-    .asset-reference-media,
-    .asset-job-icon,
-    .asset-result-empty-icon
-  ) {
+  :is(.asset-3d-reference-slot, .asset-job-icon, .asset-result-empty-icon) {
   border-color: var(--border);
   background: var(--surface-hover);
 }
