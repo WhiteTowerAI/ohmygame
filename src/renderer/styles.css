@@ -28,11 +28,75 @@
   --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, white);
   --menu-border: var(--composer-border);
   --menu-hover: rgb(255 255 255 / 5%);
-  --menu-shadow: 0 10px 28px rgb(0 0 0 / 32%);
+  --menu-shadow: 0 10px 14px rgb(0 0 0 / 8%);
   --menu-surface: var(--surface-raised);
   --settings-row-surface: rgb(255 255 255 / 2%);
   --settings-row-surface-emphasis: rgb(255 255 255 / 4%);
   --content-column-width: 820px;
+}
+
+:root[data-appearance="light"] {
+  color: #202523;
+  color-scheme: light;
+  --canvas: #f7f7f4;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-hover: #f0f1ed;
+  --border: #dedfd9;
+  --border-strong: #c8cac3;
+  --text: #202523;
+  --text-secondary: #626a66;
+  --text-muted: #747c77;
+  --text-faint: #919791;
+  --accent: #278565;
+  --accent-ink: #ffffff;
+  --danger: #c9413d;
+  --warning: #9b6a20;
+  --theme-accent: #86b414;
+  --theme-accent-hover: #759d0d;
+  --composer-border: #d7d9d2;
+  --composer-surface: #ffffff;
+  --focus-ring: color-mix(in srgb, var(--theme-accent) 64%, #506070);
+  --menu-hover: rgb(22 29 26 / 6%);
+  --menu-surface: #ffffff;
+  --settings-row-surface: rgb(28 35 31 / 3%);
+  --settings-row-surface-emphasis: rgb(28 35 31 / 5%);
+}
+
+:root[data-appearance="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-appearance="light"] .home-shell {
+  --home-sidebar: rgb(255 255 255 / 82%);
+  --home-sidebar-hover: rgb(22 29 26 / 5%);
+  --home-surface: #ffffff;
+}
+
+:where(
+  .home-sidebar-account-popover,
+  .home-project-type-menu,
+  .project-card-actions-menu,
+  .projects-sort-menu,
+  .library-asset-actions-menu,
+  .library-dialog-actions-menu,
+  .plugins-add-menu,
+  .plugin-install-dialog,
+  .asset-result-menu,
+  .asset-result-submenu,
+  .asset-template-actions > div,
+  .asset-template-dialog form,
+  .story-add-node-menu,
+  .project-switcher-popover,
+  .conversation-popover,
+  .selected-text-menu,
+  .composer-command-menu,
+  .model-selector-menu,
+  .model-selector-submenu,
+  .viewport-menu-popover,
+  .preview-location-popover
+) {
+  box-shadow: var(--menu-shadow);
 }
 
 @font-face {
@@ -125,7 +189,6 @@ body {
   padding: 24px 13px 11px;
   border-right: 1px solid rgb(255 255 255 / 6%);
   background: var(--home-sidebar);
-  box-shadow: 6px 0 16px rgb(0 0 0 / 6%);
   color: #fff;
   font-family:
     Inter,
@@ -366,7 +429,6 @@ body {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
   app-region: no-drag;
 }
 
@@ -550,6 +612,162 @@ body {
   height: 32px;
 }
 
+.settings-appearance-group {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: none;
+  gap: 12px;
+}
+
+.settings-theme-option {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.settings-theme-option:hover {
+  background: var(--settings-row-surface-emphasis);
+}
+
+.settings-theme-option:focus-visible {
+  background: var(--settings-row-surface-emphasis);
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settings-theme-option.is-selected {
+  background: var(--settings-row-surface-emphasis);
+}
+
+.settings-theme-preview {
+  display: grid;
+  height: 122px;
+  grid-template-columns: 30% minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 5px;
+}
+
+.settings-theme-preview-sidebar {
+  background: #ededed;
+}
+
+.settings-theme-preview-content {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 16px 13px;
+  background: #fafafa;
+}
+
+.settings-theme-preview-content i {
+  display: block;
+  height: 7px;
+  border-radius: 99px;
+  background: #d5d8dd;
+}
+
+.settings-theme-preview-content i:first-child {
+  width: 62%;
+  background: #afb4bd;
+}
+
+.settings-theme-preview-content i:last-child {
+  width: 45%;
+}
+
+.settings-theme-option.is-dark .settings-theme-preview {
+  border-color: rgb(255 255 255 / 10%);
+}
+
+.settings-theme-option.is-dark .settings-theme-preview-sidebar {
+  background: #242424;
+}
+
+.settings-theme-option.is-dark .settings-theme-preview-content {
+  background: #181818;
+}
+
+.settings-theme-option.is-dark .settings-theme-preview-content i {
+  background: #454545;
+}
+
+.settings-theme-option.is-dark .settings-theme-preview-content i:first-child {
+  background: #747474;
+}
+
+.settings-theme-option.is-selected .settings-theme-preview {
+  border-color: var(--theme-accent);
+}
+
+.settings-theme-preview.is-system {
+  position: relative;
+  display: block;
+}
+
+.settings-theme-system-layer {
+  display: grid;
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  grid-template-columns: 30% minmax(0, 1fr);
+}
+
+.settings-theme-system-layer.is-dark {
+  clip-path: inset(0 0 0 50%);
+}
+
+.settings-theme-system-layer.is-dark .settings-theme-preview-sidebar {
+  background: #242424;
+}
+
+.settings-theme-system-layer.is-dark .settings-theme-preview-content {
+  background: #181818;
+}
+
+.settings-theme-system-layer.is-dark .settings-theme-preview-content i {
+  background: #454545;
+}
+
+.settings-theme-system-layer.is-dark
+  .settings-theme-preview-content
+  i:first-child {
+  background: #747474;
+}
+
+.settings-theme-option-label {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-theme-option-label svg {
+  flex: 0 0 auto;
+  color: var(--theme-accent);
+}
+
 .settings-connection-list {
   display: grid;
   gap: 8px;
@@ -636,7 +854,6 @@ body {
   border: 1px solid #3a4446;
   border-radius: 16px;
   background: #282c2d;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
 }
 .settings-connection-editor header {
   display: flex;
@@ -929,6 +1146,7 @@ body {
   opacity: 1;
 }
 
+.settings-section-heading,
 .settings-provider-group > h4 {
   margin: 0;
   padding: 0 4px 7px;
@@ -1467,7 +1685,6 @@ body {
   border-radius: 14px;
   outline: 0;
   background: #131417;
-  box-shadow: 0 18px 48px rgb(0 0 0 / 38%);
 }
 
 .sign-in-dialog h2 {
@@ -1943,7 +2160,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .home-project-type-menu button {
@@ -2292,7 +2508,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .project-card-actions-menu button {
@@ -2488,7 +2703,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .projects-sort-menu button {
   height: 32px;
@@ -2555,7 +2769,6 @@ button.home-nav-item-active:hover {
   border-radius: 8px;
   outline: 0;
   background: #17181d;
-  box-shadow: 0 20px 54px rgb(0 0 0 / 48%);
 }
 .project-create-dialog > header {
   display: flex;
@@ -2714,7 +2927,6 @@ button.home-nav-item-active:hover {
   border-radius: 8px;
   outline: 0;
   background: #17181d;
-  box-shadow: 0 20px 54px rgb(0 0 0 / 48%);
 }
 .publish-dialog > header {
   display: flex;
@@ -3072,7 +3284,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .library-asset-actions-menu {
   top: 33px;
@@ -3196,7 +3407,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-raised);
-  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
   color: var(--text);
 }
 .library-delete-dialog h2 {
@@ -3285,7 +3495,6 @@ button.home-nav-item-active:hover {
   border-radius: 8px;
   outline: 0;
   background: #111216;
-  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
 }
 
 .library-dialog-header {
@@ -3623,7 +3832,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .plugins-add-menu button {
@@ -3679,7 +3887,6 @@ button.home-nav-item-active:hover {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .plugin-install-dialog header {
@@ -3744,7 +3951,6 @@ button.home-nav-item-active:hover {
 }
 .plugin-install-candidates > button.is-selected {
   background: rgb(185 255 24 / 8%);
-  box-shadow: inset 0 0 0 1px rgb(185 255 24 / 62%);
   color: var(--text);
 }
 .plugin-install-candidates > button > span {
@@ -3870,46 +4076,47 @@ button.home-nav-item-active:hover {
   white-space: nowrap;
 }
 
-.plugin-switch {
+.plugin-switch,
+.asset-toggle-field button {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 32px;
+  height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 10px;
-  background: #343740;
+  border-radius: 9px;
+  background: #303739;
   cursor: pointer;
 }
 
-.plugin-switch span {
+.plugin-switch span,
+.asset-toggle-field button > span {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: #bec2ca;
+  background: #a0aaac;
   transition:
     transform 120ms ease,
     background 120ms ease;
 }
 
-.plugin-switch[aria-checked="true"] {
-  background: color-mix(
-    in srgb,
-    var(--theme-accent) 72%,
-    var(--surface-raised)
-  );
+.plugin-switch[aria-checked="true"],
+.asset-toggle-field button[aria-checked="true"] {
+  background: var(--home-accent);
 }
 
-.plugin-switch[aria-checked="true"] span {
-  background: var(--canvas);
-  transform: translateX(16px);
+.plugin-switch[aria-checked="true"] span,
+.asset-toggle-field button[aria-checked="true"] > span {
+  background: #fff;
+  transform: translateX(14px);
 }
 
-.plugin-switch:disabled {
+.plugin-switch:disabled,
+.asset-toggle-field button:disabled {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.4;
 }
 
 .plugins-state {
@@ -4757,7 +4964,7 @@ button {
   display: grid;
   height: 34px;
   flex: 0 0 auto;
-  gap: 0;
+  gap: 2px;
   padding: 4px;
   border: 1px solid #252c2e;
   border-radius: 9px;
@@ -4841,9 +5048,43 @@ button {
   gap: 18px;
   overflow-y: auto;
   margin: 0 -5px 12px 0;
-  padding-right: 5px;
+  padding-right: 12px;
+}
+
+:is(
+  .asset-config-fields,
+  .asset-result-canvas.asset-template-gallery,
+  .asset-result-canvas.asset-history-grid
+) {
   scrollbar-color: #2a3133 transparent;
   scrollbar-width: thin;
+}
+
+:is(
+  .asset-config-fields,
+  .asset-result-canvas.asset-template-gallery,
+  .asset-result-canvas.asset-history-grid
+)::-webkit-scrollbar {
+  width: 8px;
+}
+
+:is(
+  .asset-config-fields,
+  .asset-result-canvas.asset-template-gallery,
+  .asset-result-canvas.asset-history-grid
+)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #2a3133;
+  background-clip: padding-box;
+}
+
+:is(
+    .asset-config-fields,
+    .asset-result-canvas.asset-template-gallery,
+    .asset-result-canvas.asset-history-grid
+  )::-webkit-scrollbar-thumb:hover {
+  background-color: #41494b;
 }
 
 .asset-config-state {
@@ -5478,12 +5719,11 @@ button {
   border: 3px solid #182000;
   border-radius: 50%;
   background: var(--home-accent);
-  box-shadow: 0 0 0 1px var(--home-accent);
 }
-.asset-range-field input:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 1px var(--home-accent),
-    0 0 0 3px var(--focus-ring);
+.asset-range-field input:focus-visible,
+.asset-number-range-field > input[type="range"]:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .asset-range-field input:disabled {
   cursor: default;
@@ -5527,7 +5767,6 @@ button {
 }
 .asset-number-range-field input[type="number"]:focus-visible {
   border-color: var(--focus-ring);
-  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 .asset-number-range-field > input[type="range"] {
   --asset-range-progress: 0%;
@@ -5550,13 +5789,6 @@ button {
   border: 3px solid #182000;
   border-radius: 50%;
   background: var(--home-accent);
-  box-shadow: 0 0 0 1px var(--home-accent);
-}
-.asset-number-range-field
-  > input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 1px var(--home-accent),
-    0 0 0 3px var(--focus-ring);
 }
 .asset-number-range-field input:disabled {
   cursor: default;
@@ -5577,37 +5809,6 @@ button {
   color: var(--asset-control-text);
   font-size: 11px;
   font-weight: 500;
-}
-.asset-toggle-field button {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: #303739;
-  cursor: pointer;
-}
-.asset-toggle-field button > span {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #a0aaac;
-  transition: transform 120ms ease;
-}
-.asset-toggle-field button[aria-checked="true"] {
-  background: var(--home-accent);
-}
-.asset-toggle-field button[aria-checked="true"] > span {
-  background: #182000;
-  transform: translateX(14px);
-}
-.asset-toggle-field button:disabled {
-  cursor: default;
-  opacity: 0.4;
 }
 
 .asset-config-actions {
@@ -5688,7 +5889,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .asset-result-menu a,
 .asset-result-menu button {
@@ -5735,7 +5935,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .asset-result-projects:hover > .asset-result-submenu,
 .asset-result-projects:focus-within > .asset-result-submenu {
@@ -5855,14 +6054,15 @@ button {
 .asset-result-canvas.asset-template-gallery {
   display: block;
   overflow-y: auto;
-  margin-top: -6px;
-  padding: 2px 0 0;
+  margin: 0;
+  padding: 18px;
   border-radius: 0;
   background: transparent;
 }
 
 .asset-result-canvas.asset-history-view {
-  margin-top: -6px;
+  margin: 0;
+  padding: 18px;
   border-radius: 0;
   background: transparent;
 }
@@ -6063,7 +6263,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .asset-template-actions > div button {
   display: flex;
@@ -6109,7 +6308,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .asset-template-dialog strong {
   color: var(--text);
@@ -6254,9 +6452,6 @@ button {
   border-radius: 8px;
   background: #202628;
 }
-.asset-job-card.is-running .asset-job-icon {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--home-accent) 18%, transparent);
-}
 .asset-job-status {
   color: var(--home-accent) !important;
 }
@@ -6323,7 +6518,7 @@ button {
   display: grid;
   grid-template-columns:
     clamp(320px, var(--agent-width, 430px), 65vw)
-    5px minmax(0, 1fr);
+    1px minmax(0, 1fr);
   min-height: 100dvh;
   height: 100dvh;
   background: var(--canvas);
@@ -6609,7 +6804,6 @@ button {
 .story-node-editor-mode button.is-active {
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
 }
 .story-node-editor-mode button:focus-visible {
   outline: 1px solid var(--accent);
@@ -6840,7 +7034,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-raised);
-  box-shadow: var(--shadow-sm);
 }
 .story-custom-node-host.is-replaced:is(
     .is-player-ui,
@@ -6995,7 +7188,6 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   background: #090b0d;
-  box-shadow: 0 12px 36px rgb(0 0 0 / 24%);
 }
 .story-workbench-preview-stage > :is(img, video) {
   position: absolute;
@@ -7070,7 +7262,6 @@ button {
   max-height: 100%;
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
   border-color: var(--border-strong);
-  box-shadow: 0 12px 36px rgb(0 0 0 / 24%);
 }
 .story-interaction-workbench-surface {
   position: absolute;
@@ -7132,7 +7323,6 @@ button {
 .story-choice-workbench-screen > div button.is-selected {
   border-color: #fff;
   background: rgb(255 255 255 / 20%);
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 25%);
 }
 .story-choice-workbench-screen > small {
   margin-top: 11px;
@@ -7383,7 +7573,6 @@ button {
 .interactive-drama-workspace-switch button.is-active {
   background: var(--surface-hover);
   color: var(--text);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
 }
 .interactive-drama-workspace-switch button > svg {
   flex: 0 0 auto;
@@ -7591,7 +7780,6 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   background: linear-gradient(#14202a 0 38%, #090c0f 38%);
-  box-shadow: 0 12px 36px rgb(0 0 0 / 24%);
 }
 .story-interaction-preview > div > * {
   width: 100%;
@@ -7679,7 +7867,6 @@ button {
   border: 1px solid color-mix(in srgb, #e6a66d 50%, var(--border));
   border-radius: 7px;
   background: #1b1c20;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
   transform: translateX(-50%);
 }
 
@@ -7918,7 +8105,6 @@ button {
   border-radius: 7px;
   background: #090a0c;
   color: color-mix(in srgb, var(--story-player-text) 65%, transparent);
-  box-shadow: 0 14px 40px rgb(0 0 0 / 28%);
 }
 
 .story-player-scene {
@@ -8331,14 +8517,10 @@ button {
   border-radius: 7px;
   background: #1b1c20;
   color: var(--text);
-  box-shadow: 0 5px 16px rgb(0 0 0 / 22%);
 }
 
 .story-node.is-selected {
   border-color: #8fa8ff;
-  box-shadow:
-    0 0 0 1px #8fa8ff,
-    0 7px 20px rgb(0 0 0 / 28%);
 }
 
 .story-node-player-ui {
@@ -8388,7 +8570,7 @@ button {
   overflow: hidden;
   color: var(--text);
   font:
-    500 9px/1.3 ui-monospace,
+    500 9px / 1.3 ui-monospace,
     SFMono-Regular,
     Menlo,
     Monaco,
@@ -8401,7 +8583,7 @@ button {
   overflow: hidden;
   color: var(--text-faint);
   font:
-    8px/1.3 ui-monospace,
+    8px / 1.3 ui-monospace,
     SFMono-Regular,
     Menlo,
     Monaco,
@@ -8514,9 +8696,6 @@ button {
 }
 .story-node-initial-state.is-selected {
   border-color: var(--accent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
-    var(--shadow-sm);
 }
 
 .story-node-scene {
@@ -8692,7 +8871,6 @@ button {
 .story-presentation-media-mode button.is-active {
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: 0 0 0 1px var(--border);
 }
 .story-scene-node-label > span {
   display: flex;
@@ -8829,13 +9007,10 @@ button {
   border: 0;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 50%);
 }
 .story-inline-video-scrubber input:focus-visible {
-  outline: 0;
-}
-.story-inline-video-scrubber input:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 2px rgb(255 255 255 / 36%);
+  outline: 1px solid rgb(255 255 255 / 55%);
+  outline-offset: 2px;
 }
 .story-inline-video-scrubber input:disabled {
   cursor: default;
@@ -9091,12 +9266,10 @@ button {
   overflow: visible;
   border: 0;
   background: transparent;
-  box-shadow: none;
 }
 
 .story-media-node.is-selected {
   border-color: transparent;
-  box-shadow: none;
 }
 
 .story-text-node {
@@ -9104,12 +9277,10 @@ button {
   overflow: visible;
   border: 0;
   background: transparent;
-  box-shadow: none;
 }
 
 .story-text-node.is-selected {
   border-color: transparent;
-  box-shadow: none;
 }
 
 .story-text-output {
@@ -9850,16 +10021,9 @@ button {
 
 .story-inspector-options > .story-choice-option-editor.is-selected {
   border-color: var(--border-strong);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 .story-inspector-options > .story-choice-option-editor.is-dragging {
   opacity: 0.45;
-}
-.story-inspector-options > .story-choice-option-editor.is-drop-before {
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-.story-inspector-options > .story-choice-option-editor.is-drop-after {
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .story-choice-option-label {
@@ -10113,7 +10277,6 @@ button {
   outline: 0;
   background: #111216;
   color: var(--text);
-  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
 }
 
 .story-video-picker > header {
@@ -10300,7 +10463,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
 }
 
 .story-canvas-zoom button {
@@ -10338,7 +10500,6 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   background: #1b1c20;
-  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
 }
 
 .story-canvas-toolbar button {
@@ -10361,7 +10522,6 @@ button {
 
 .story-canvas-toolbar button.is-active {
   background: var(--surface-hover);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text);
 }
 
@@ -10385,7 +10545,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .story-canvas-toolbar .story-add-node-menu button {
@@ -10454,7 +10613,9 @@ button {
 .workspace-resizer {
   position: relative;
   z-index: 3;
-  min-width: 0;
+  width: 9px;
+  min-width: 9px;
+  justify-self: center;
   cursor: col-resize;
   touch-action: none;
 }
@@ -10463,7 +10624,7 @@ button {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 2px;
+  left: 4px;
   width: 1px;
   background: var(--border);
   content: "";
@@ -10539,7 +10700,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 .project-switcher-search {
   display: flex;
@@ -10780,7 +10940,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .conversation-list {
@@ -10967,7 +11126,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
   transform: translateX(-50%);
 }
 
@@ -11326,7 +11484,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-raised);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 28%);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
@@ -11563,7 +11720,7 @@ button {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font:
-    10px/1.5 ui-monospace,
+    10px / 1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     Monaco,
@@ -11744,7 +11901,7 @@ button {
   background: #282a30;
   color: #e7e9ed;
   font:
-    0.92em/1.5 ui-monospace,
+    0.92em / 1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     Consolas,
@@ -11866,7 +12023,6 @@ button {
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 12px;
   background: var(--surface-raised);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
 }
 
 .questionnaire-card > header,
@@ -12105,7 +12261,6 @@ button {
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 12px;
   background: var(--surface-raised);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
 }
 
 .plan-approval-card > header,
@@ -12286,7 +12441,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .composer-mention-menu {
@@ -12294,7 +12448,6 @@ button {
   max-height: 360px;
   overflow-y: auto;
   background: color-mix(in srgb, var(--menu-surface) 94%, #fff);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
@@ -12407,7 +12560,6 @@ button {
   border: 0.5px solid var(--composer-border);
   background: var(--composer-surface);
   backdrop-filter: blur(20px);
-  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
 }
 
 .prompt-box-project {
@@ -12417,13 +12569,11 @@ button {
 
 .prompt-box:focus-within {
   border-color: var(--border-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .prompt-box-home:focus-within,
 .prompt-box-project:focus-within {
   border-color: var(--composer-border);
-  box-shadow: 0 10px 26px rgb(0 0 0 / 38%);
 }
 
 .prompt-box-input {
@@ -12785,7 +12935,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .model-selector-submenu {
@@ -12978,7 +13127,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
 }
 
 .viewport-option {
@@ -13097,7 +13245,6 @@ button {
   border: 1px solid var(--menu-border);
   border-radius: 8px;
   background: var(--menu-surface);
-  box-shadow: var(--menu-shadow);
   transform: translateX(-50%);
 }
 
@@ -13297,9 +13444,6 @@ button {
   border: 0;
   border-radius: 12px;
   background: var(--surface-raised);
-  box-shadow:
-    0 8px 22px rgb(0 0 0 / 38%),
-    0 2px 7px rgb(0 0 0 / 24%);
   transition: transform 600ms cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
@@ -14671,4 +14815,694 @@ button {
   content: "·";
   margin-right: 9px;
   color: var(--text-faint);
+}
+
+@media (max-width: 560px) {
+  .settings-theme-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Light appearance */
+:root[data-appearance="light"] :is(body, #root) {
+  background: var(--canvas);
+}
+
+:root[data-appearance="light"] .home-sidebar {
+  border-right-color: rgb(22 29 26 / 9%);
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  :is(.settings-page-back, .settings-page-nav-item) {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .home-sidebar-signed-out-icon {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .home-sidebar-avatar {
+  color: var(--accent-ink);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .home-sidebar-account-menu:hover,
+    .home-project-type-trigger:hover:not(:disabled),
+    .home-project-type-trigger[aria-expanded="true"]
+  ) {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .home-project-type-trigger {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .settings-connection-icon,
+    .settings-connection-copy strong,
+    .settings-connection-editor header h3,
+    .settings-connection-editor label
+  ) {
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .settings-connection-copy small,
+    .settings-connection-transport,
+    .settings-connection-editor header p,
+    .settings-connection-editor label small,
+    .settings-connection-types button,
+    .plugin-connection-status
+  ) {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .settings-connection-action {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .settings-connection-action:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .settings-connection-editor {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .settings-connection-editor input,
+    .settings-connection-editor textarea,
+    .settings-provider-access,
+    .settings-image-form input,
+    .settings-auth-form input,
+    .settings-auth-form select,
+    .settings-methods button,
+    .settings-waiting-card,
+    .settings-auth-status,
+    .settings-device-code,
+    .settings-provider-search
+  ) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .settings-connection-types button {
+  border-color: var(--border);
+}
+
+:root[data-appearance="light"] .settings-connection-types button.is-active {
+  color: var(--text);
+  border-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 14%, transparent);
+}
+
+:root[data-appearance="light"] .settings-secondary-button,
+:root[data-appearance="light"]
+  .settings-about-actions
+  .settings-secondary-button {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .settings-provider-row.is-featured:focus-within {
+  background: rgb(28 35 31 / 7%);
+}
+
+:root[data-appearance="light"] .settings-provider-mark {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"]
+  .settings-provider-row
+  > button:hover:not(:disabled),
+:root[data-appearance="light"] .settings-provider-row > button:focus-visible {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .settings-account-avatar {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .sign-in-backdrop {
+  background: rgb(28 35 31 / 38%);
+}
+
+:root[data-appearance="light"] .sign-in-dialog {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+:root[data-appearance="light"] .sign-in-dialog h2 {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .sign-in-dialog > p {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .sign-in-provider {
+  background: var(--text);
+  color: var(--surface);
+}
+
+:root[data-appearance="light"] .sign-in-provider:hover:not(:disabled) {
+  background: #36413c;
+}
+
+:root[data-appearance="light"] .home-category-control label {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"]
+  .home-category-control
+  label:hover:not(.is-active) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .home-category-control label.is-active {
+  border-color: var(--home-accent);
+  background: var(--home-accent);
+  color: #131610;
+}
+
+:root[data-appearance="light"] .home-category-control label.is-active:hover {
+  border-color: var(--home-accent-hover);
+  background: var(--home-accent-hover);
+}
+
+:root[data-appearance="light"] .home-whats-new-icon {
+  background: #dfece6;
+  color: var(--accent);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .project-card-new-art,
+    .project-card-new:hover .project-card-new-art,
+    .project-card-new:focus-visible .project-card-new-art
+  ) {
+  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--theme-accent) 11%, #fff);
+  color: #587600;
+}
+
+:root[data-appearance="light"]
+  :is(.projects-search, .projects-icon-button, .library-search) {
+  background: var(--surface);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .project-create-backdrop,
+    .library-delete-backdrop,
+    .library-dialog-backdrop
+  ) {
+  background: rgb(28 35 31 / 38%);
+}
+
+:root[data-appearance="light"]
+  :is(.project-create-dialog, .publish-dialog, .library-dialog) {
+  background: var(--surface-raised);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .project-create-name input,
+    .publish-dialog input:not([type="file"]),
+    .publish-dialog textarea
+  ) {
+  background: var(--surface);
+}
+
+:root[data-appearance="light"] .project-create-types button {
+  background: var(--surface);
+}
+
+:root[data-appearance="light"] .project-create-types button.is-active {
+  background: color-mix(in srgb, var(--composer-accent) 9%, #fff);
+}
+
+:root[data-appearance="light"] .publish-cover-preview {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .publish-cover-action {
+  background: rgb(255 255 255 / 88%);
+}
+
+:root[data-appearance="light"] .library-asset-card {
+  background: var(--surface-raised);
+}
+
+:root[data-appearance="light"] .library-asset-thumbnail {
+  background: var(--surface-hover);
+  color: var(--text-faint);
+}
+
+:root[data-appearance="light"] .library-asset-info strong {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .library-asset-type,
+:root[data-appearance="light"] .library-asset-menu,
+:root[data-appearance="light"] .library-asset-menu:hover,
+:root[data-appearance="light"] .library-asset-menu[aria-expanded="true"] {
+  border-color: rgb(22 29 26 / 11%);
+  background: rgb(255 255 255 / 78%);
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .library-dialog-preview {
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .plugins-add-menu button {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .plugins-add-menu small {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .plugin-install-backdrop {
+  background: rgb(28 35 31 / 38%);
+}
+
+:root[data-appearance="light"] :is(.plugin-switch, .asset-toggle-field button) {
+  border: 1px solid var(--border-strong);
+  background: var(--border-strong);
+}
+
+:root[data-appearance="light"]
+  :is(.plugin-switch span, .asset-toggle-field button > span) {
+  top: 2px;
+  left: 2px;
+  background: var(--surface);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .plugin-switch[aria-checked="true"],
+    .asset-toggle-field button[aria-checked="true"]
+  ) {
+  border-color: var(--home-accent);
+  background: var(--home-accent);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .plugin-switch[aria-checked="true"] span,
+    .asset-toggle-field button[aria-checked="true"] > span
+  ) {
+  background: #fff;
+}
+
+:root[data-appearance="light"]
+  :is(.plugin-switch, .asset-toggle-field button):focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:root[data-appearance="light"] .plugin-row-icon-media {
+  background: #dfece6;
+}
+
+:root[data-appearance="light"] .plugin-row-icon-godot {
+  background: #eaedf5;
+  color: #5970aa;
+}
+
+:root[data-appearance="light"]
+  .plugin-detail-hero-actions
+  .community-like-button,
+:root[data-appearance="light"] .plugin-detail-secondary {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+:root[data-appearance="light"] .asset-studio-content {
+  background: var(--canvas);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .asset-config-panel {
+  --asset-label: var(--text);
+  --asset-control-text: var(--text-secondary);
+  --asset-secondary: var(--text-secondary);
+  --asset-muted: var(--text-muted);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-config-fields,
+    .asset-result-canvas.asset-template-gallery,
+    .asset-result-canvas.asset-history-grid
+  ) {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-config-fields,
+    .asset-result-canvas.asset-template-gallery,
+    .asset-result-canvas.asset-history-grid
+  )::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-config-fields,
+    .asset-result-canvas.asset-template-gallery,
+    .asset-result-canvas.asset-history-grid
+  )::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .asset-result-panel > header {
+  border-bottom-color: var(--border);
+}
+
+:root[data-appearance="light"] .workspace-tabs {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+:root[data-appearance="light"] .workspace-tab {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .workspace-tab:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .workspace-tab-active {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--theme-accent) 14%, var(--surface));
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .workspace-tab-active:hover {
+  border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--border));
+  background: color-mix(in srgb, var(--theme-accent) 18%, var(--surface));
+}
+
+:root[data-appearance="light"] .workspace-tab:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:root[data-appearance="light"] .workspace-tab-divider {
+  background: var(--border);
+}
+
+:root[data-appearance="light"] .pane-header-action {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .pane-header-action:hover:not(:disabled),
+:root[data-appearance="light"] .pane-header-action[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .pane-header-action:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:root[data-appearance="light"]
+  .workspace-navigation-actions
+  .workspace-home-button,
+:root[data-appearance="light"]
+  .workspace-navigation-actions
+  .workspace-home-button:hover {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"]
+  .workspace-navigation-actions
+  .workspace-home-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  .workspace-navigation-actions
+  .workspace-home-button:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:root[data-appearance="light"] .conversation-popover {
+  border-color: var(--border);
+}
+
+:root[data-appearance="light"] .conversation-popover .project-switcher-search {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"]
+  .conversation-popover
+  .project-switcher-search:focus-within {
+  border-color: var(--theme-accent);
+}
+
+:root[data-appearance="light"]
+  :is(.asset-panel-switcher, .asset-mode-switcher, .asset-3d-references) {
+  border-color: var(--border);
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-panel-switcher button:hover:not(:disabled),
+    .asset-mode-switcher button:hover:not(:disabled),
+    .asset-panel-switcher button.is-active,
+    .asset-mode-switcher button.is-active
+  ) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-config-state button,
+    .asset-select-wrap select,
+    .asset-prompt-wrap textarea,
+    .asset-reference,
+    .asset-reference-item,
+    .asset-reference-add,
+    .asset-option-group button,
+    .asset-save-template-button,
+    .asset-number-range-field input[type="number"],
+    .asset-template-cover-preview,
+    .asset-template-dialog input,
+    .asset-template-dialog textarea,
+    .asset-template-dialog button
+  ) {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .asset-prompt-wrap textarea::placeholder,
+:root[data-appearance="light"] .asset-prompt-wrap > span {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .asset-prompt-wrap textarea:focus,
+:root[data-appearance="light"] .asset-select-wrap select:focus {
+  border-color: var(--theme-accent);
+}
+
+:root[data-appearance="light"] .asset-source-switch label {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"] .asset-source-switch label:hover {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .asset-source-switch label:has(input:checked) {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .asset-range-field output {
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-range-field input,
+    .asset-number-range-field > input[type="range"]
+  ) {
+  background: linear-gradient(
+      to right,
+      var(--home-accent) 0 var(--asset-range-progress),
+      var(--border-strong) var(--asset-range-progress) 100%
+    )
+    center / 100% 4px no-repeat;
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-range-field input,
+    .asset-number-range-field > input[type="range"]
+  )::-webkit-slider-thumb {
+  border: 2px solid var(--home-accent);
+  background: var(--surface);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-range-field input,
+    .asset-number-range-field > input[type="range"]
+  ):focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-3d-reference-slot,
+    .asset-reference-icon,
+    .asset-reference-media,
+    .asset-job-icon,
+    .asset-result-empty-icon
+  ) {
+  border-color: var(--border);
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-reference-clear,
+    .asset-reference-item button,
+    .asset-3d-reference-remove
+  ) {
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"]
+  .asset-reference-item
+  .asset-reference-copy
+  strong,
+:root[data-appearance="light"] .asset-result-empty strong {
+  color: var(--text);
+}
+
+:root[data-appearance="light"]
+  .asset-reference-item
+  .asset-reference-copy
+  small,
+:root[data-appearance="light"] .asset-result-empty {
+  color: var(--text-muted);
+}
+
+:root[data-appearance="light"]
+  .asset-reference-item
+  button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .asset-result-error strong {
+  color: var(--danger);
+}
+
+:root[data-appearance="light"]
+  :is(
+    .asset-result-canvas:not(.asset-template-gallery):not(.asset-history-view),
+    .asset-result-preview
+  ) {
+  background: #eef0eb;
+}
+
+:root[data-appearance="light"] .asset-template-dialog {
+  background: rgb(28 35 31 / 24%);
+}
+
+:root[data-appearance="light"] .asset-template-preview .asset-template-type,
+:root[data-appearance="light"] .asset-template-actions-trigger,
+:root[data-appearance="light"] .asset-job-action {
+  background: rgb(255 255 255 / 82%);
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] :is(.user-message, .user-message-editor) {
+  background: #e8f1ed;
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .user-message-editor textarea,
+:root[data-appearance="light"] .assistant-message,
+:root[data-appearance="light"] .markdown-content :is(h1, h2, h3, h4) {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .markdown-content a {
+  color: #2869b5;
+}
+
+:root[data-appearance="light"] .markdown-content code {
+  background: #edf0ed;
+  color: #28312d;
+}
+
+:root[data-appearance="light"] .markdown-code-block {
+  background: #f0f2ef;
+}
+
+:root[data-appearance="light"] .markdown-code-block pre code,
+:root[data-appearance="light"] .workspace-code {
+  color: #29312e;
+}
+
+:root[data-appearance="light"]
+  :is(
+    .composer-mention-menu button > span,
+    .prompt-box-home .model-selector-trigger,
+    .model-selector-setting-value,
+    .quiet-button,
+    .viewport-trigger,
+    .preview-location-refresh,
+    .preview-location-trigger,
+    .preview-location-option,
+    .file-tree-node
+  ) {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] :is(.composer-image button, .message-queue) {
+  border-color: var(--border);
+  background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .preview-empty-title {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .preview-empty-description {
+  color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .viewer-stage {
+  border-color: var(--border);
 }
