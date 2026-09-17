@@ -1,5 +1,5 @@
 import type { StoryDocument, StoryInteractionBehavior, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_OPEN_UI_SOURCE } from "./story.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT } from "./story.js";
 import { createStoryInteractionFiles } from "./story-interaction-code.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
@@ -48,7 +48,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
 
   return {
     version: 10,
-    codebase: { version: 2 },
+    codebase: { version: 3 },
     editorLayout: {
       version: 1,
       nodes: {
@@ -81,7 +81,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       title: "Platform 13",
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
-        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { source: structuredClone(DEFAULT_OPEN_UI_SOURCE), files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
         { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
         {
           id: sceneId,

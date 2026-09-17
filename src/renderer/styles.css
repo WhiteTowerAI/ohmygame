@@ -4233,35 +4233,6 @@ button {
   padding-right: calc(var(--story-inspector-width, 420px) + 12px);
 }
 
-.interactive-drama-project-context {
-  display: flex;
-  grid-column: 1;
-  grid-row: 1;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  justify-self: start;
-  app-region: no-drag;
-}
-
-.interactive-drama-chapter {
-  display: flex;
-  width: min(238px, calc(100% - 38px));
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 10px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
 .interactive-drama-workspace-switch {
   display: inline-flex;
   grid-column: 2;
@@ -4301,12 +4272,6 @@ button {
 .story-code-view { min-width: 0; min-height: 0; overflow: hidden; }
 .story-code-view > .code-view { width: 100%; height: 100%; }
 
-.interactive-drama-chapter span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .interactive-drama-header-actions {
   display: flex;
   grid-column: 3;
@@ -4314,33 +4279,6 @@ button {
   justify-self: end;
   gap: 8px;
 }
-
-.interactive-drama-history-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  app-region: no-drag;
-}
-
-.interactive-drama-history-actions button {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.interactive-drama-history-actions button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
-.interactive-drama-history-actions button:disabled { color: var(--text-faint); cursor: default; opacity: .4; }
 
 .interactive-drama-action {
   display: flex;
@@ -4358,8 +4296,7 @@ button {
   cursor: pointer;
 }
 
-.interactive-drama-action:hover,
-.interactive-drama-chapter:hover {
+.interactive-drama-action:hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
 }
@@ -4439,7 +4376,6 @@ button {
 .story-interaction-inspector .story-interaction-files-editor textarea { min-height: 260px; resize: none; }
 
  @container (max-width: 860px) {
-  .interactive-drama-chapter { width: 150px; }
   .interactive-drama-header-actions .interactive-drama-action span { display: none; }
   .interactive-drama-action { width: 32px; padding: 0; }
 }
@@ -6414,6 +6350,19 @@ button {
 .story-canvas-context-menu button.is-danger:hover:not(:disabled),
 .story-canvas-context-menu button.is-danger:focus-visible { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
+.story-canvas-context-menu-label {
+  display: block;
+  margin: 4px 4px 2px;
+  padding: 7px 4px 3px;
+  border-top: 1px solid var(--menu-border);
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.story-canvas-context-submenu > .story-canvas-context-menu-label:first-child { margin-top: 0; border-top: 0; }
+
 .story-canvas-context-submenu-root { position: relative; }
 .story-canvas-context-submenu {
   position: absolute;
@@ -6435,6 +6384,8 @@ button {
   bottom: 46px;
   left: 0;
   width: 220px;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--menu-border);
   border-radius: 8px;
@@ -6460,9 +6411,12 @@ button {
 .story-add-node-menu button > span {
   display: flex;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
 }
+
+.story-add-node-menu button > .story-add-node-submenu-arrow { flex: 0 0 auto; margin: 9px 0 0 auto; color: var(--text-faint); }
 
 .story-add-node-menu strong {
   color: var(--text);
@@ -6486,11 +6440,9 @@ button {
   text-transform: uppercase;
 }
 
-@container (max-width: 620px) {
-  .interactive-drama-chapter {
-    width: min(210px, calc(100cqw - 112px));
-  }
+.story-add-node-menu > .story-add-node-menu-label:first-child { margin-top: 0; border-top: 0; }
 
+@container (max-width: 620px) {
   .interactive-drama-action {
     width: 32px;
     padding: 0;

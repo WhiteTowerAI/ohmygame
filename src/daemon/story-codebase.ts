@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StoryDocument, StoryEditorLayout, StorySurfaceFiles, StoryNode, StoryNodePresentation, StorySourceFiles } from "../shared/contracts.js";
-import { parseStoryDocument, storyNodePresentation } from "../shared/story.js";
+import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } from "../shared/story.js";
 
 const STORY_FILE = "story.json";
 const PROJECT_FILE = "project.json";
@@ -84,9 +84,7 @@ This workspace is the source of truth for an OpenGame Interactive Drama.
 - \`editor-layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
 - \`editor/presentation.js\` optionally customizes node-card and Inspector content without replacing the editor shell.
 - \`editor/style.css\` styles project editor surfaces inside their sandbox.
-- Open UI nodes own their HTML, CSS, and JavaScript through \`data.presentation.surface.source\`.
-- \`scenes/**\` contains the HTML, CSS, and JavaScript owned by individual Scenes.
-- \`nodes/**\` contains the HTML, CSS, and JavaScript owned by Choice, Interaction, and Ending presentations.
+- Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
 - Every player-visible Story node owns \`data.presentation\`: a media strategy (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
@@ -111,7 +109,7 @@ type UnknownRecord = Record<string, unknown>;
 /**
  * Disk contract for Interactive Drama projects:
  * - story.json owns graph structure, content, metadata, and source references.
- * - ui/, scenes/, and nodes/ own executable HTML, CSS, and JavaScript.
+ * - nodes/ is the default location for executable HTML, CSS, and JavaScript owned by presentation nodes.
  * The API hydrates these files into the StoryDocument runtime model.
  */
 export async function readStoryCodebase(workspacePath: string): Promise<StoryDocument> {
@@ -205,7 +203,7 @@ async function ensureEditorPresentation(workspacePath: string): Promise<void> {
 }
 
 export function isCanonicalStoryCodebase(value: unknown): boolean {
-  if (!isRecord(value) || value.version !== 10 || !isRecord(value.codebase) || value.codebase.version !== 2) return false;
+  if (!isRecord(value) || value.version !== 10 || !isRecord(value.codebase) || value.codebase.version !== 3) return false;
   if (records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => isRecord(node.position)))) return false;
   if (["characters", "overlays", "interactions", "playerViews", "screens"].some((key) => key in value)) return false;
   if (!isRecord(value.player)) return false;
@@ -225,10 +223,10 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
 function withStableSources(story: StoryDocument): StoryDocument {
   return {
     ...story,
-    codebase: { version: 2 },
+    codebase: { version: 3 },
     chapters: story.chapters.map((chapter) => ({
       ...chapter,
-      nodes: chapter.nodes.map((node) => withNodePresentationSource(chapter.id, node)),
+      nodes: chapter.nodes.map(withNodePresentationSource),
     })),
   };
 }
@@ -237,14 +235,14 @@ function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type:
   return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
-function withNodePresentationSource(chapterId: string, node: StoryNode): StoryNode {
+function withNodePresentationSource(node: StoryNode): StoryNode {
   if (!isPresentationNode(node)) return node;
   const current = storyNodePresentation(node);
   const presentation: StoryNodePresentation = {
     ...current,
     surface: {
       ...current.surface,
-      source: validSource(current.surface.source) ?? sourceFor(node.type === "scene" ? "scene" : node.type === "open-ui" ? "open-ui" : "presentation", `${chapterId}:${node.type}:${node.id}`),
+      source: validSource(current.surface.source) ?? defaultStoryNodeSource(node.id),
     },
   };
   if (node.type === "scene") return { ...node, data: { ...node.data, presentation } };
@@ -304,7 +302,7 @@ function hydrateLayout(input: unknown, layout: StoryEditorLayout): unknown {
   }
   return {
     ...input,
-    codebase: { version: 2 },
+    codebase: { version: 3 },
     editorLayout: layout,
     chapters: records(input.chapters).map((chapter) => ({
       ...chapter,
@@ -408,7 +406,7 @@ function sourcePaths(value: unknown): Set<string> {
 }
 
 function isManagedStorySource(value: string): boolean {
-  return ["scenes/", "nodes/", "ui/"].some((prefix) => value.startsWith(prefix));
+  return value.startsWith("nodes/");
 }
 
 async function pruneManagedSourceDirectories(workspacePath: string, sources: readonly string[]): Promise<void> {
@@ -429,25 +427,6 @@ function resolveWorkspaceSource(workspacePath: string, relativePath: string): st
   const relative = path.relative(path.resolve(workspacePath), destination);
   if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error(`Story source leaves the workspace: ${relativePath}`);
   return destination;
-}
-
-function sourceFor(kind: "scene" | "open-ui" | "presentation", id: string): StorySourceFiles {
-  const base = kind === "scene" ? `scenes/${sourceSegment(id)}` : kind === "open-ui" ? `ui/${sourceSegment(id)}` : `nodes/${sourceSegment(id)}`;
-  return {
-    html: `${base}/index.html`,
-    css: `${base}/style.css`,
-    javascript: `${base}/${kind === "scene" ? "scene.js" : kind === "open-ui" ? "screen.js" : "surface.js"}`,
-  };
-}
-
-function sourceSegment(id: string): string {
-  const readable = id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42) || "definition";
-  let hash = 2166136261;
-  for (const character of id) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${readable}-${(hash >>> 0).toString(36)}`;
 }
 
 function validSource(value: StorySourceFiles | undefined): StorySourceFiles | undefined {

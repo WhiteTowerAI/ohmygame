@@ -338,7 +338,7 @@ export interface StoryOpenUiContent {
 
 export interface StoryDocument {
   version: 10;
-  codebase: { version: 2 };
+  codebase: { version: 3 };
   /** Hydrated editor-only state. Persisted in editor-layout.json, not story.json. */
   editorLayout: StoryEditorLayout;
   player: StoryPlayerConfig;

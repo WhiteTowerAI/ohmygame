@@ -2,13 +2,23 @@ import { describe, expect, it } from "vitest";
 import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
-  advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, getNextNode,
+  advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
   getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
 } from "../src/shared/story.js";
 
 describe("canonical Interactive Drama story", () => {
+  it("derives stable source paths for presentation nodes", () => {
+    expect(defaultStoryNodeSource("Scene One")).toEqual({
+      html: "nodes/scene-one-4ott8j/index.html",
+      css: "nodes/scene-one-4ott8j/style.css",
+      javascript: "nodes/scene-one-4ott8j/script.js",
+    });
+    expect(defaultStoryNodeSource("Scene One")).toEqual(defaultStoryNodeSource("Scene One"));
+    expect(defaultStoryNodeSource("!!!").html).toMatch(/^nodes\/definition-[a-z0-9]+\/index\.html$/);
+  });
+
   it("creates a complete Start -> Open UI -> Project State -> Ending graph", () => {
     const story = createStoryDocument();
     const chapter = story.chapters[0]!;
@@ -52,6 +62,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("rejects old document versions instead of migrating them", () => {
     expect(() => parseStoryDocument({ ...createStoryDocument(), version: 8 })).toThrow("Invalid story document");
+    expect(() => parseStoryDocument({ ...createStoryDocument(), codebase: { version: 2 } })).toThrow("Invalid story document");
   });
 
   it("rejects legacy and unknown fields instead of normalizing them", () => {

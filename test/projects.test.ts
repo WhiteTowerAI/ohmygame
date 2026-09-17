@@ -18,6 +18,10 @@ describe("Interactive Drama project codebase", () => {
     expect(stored.overlays).toBeUndefined();
     expect(stored.interactions).toBeUndefined();
     expect(stored.playerViews).toBeUndefined();
+    const presentationNodes = stored.chapters[0].nodes.filter((node: { type: string }) => ["open-ui", "scene", "interaction", "choice", "ending"].includes(node.type));
+    expect(presentationNodes.every((node: { data: { presentation: { surface: { source: Record<string, string> } } } }) =>
+      Object.values(node.data.presentation.surface.source).every((source) => source.startsWith("nodes/")) &&
+      node.data.presentation.surface.source.javascript.endsWith("/script.js"))).toBe(true);
   });
 
   it("stores node code outside story.json without overwriting authored source", async () => {

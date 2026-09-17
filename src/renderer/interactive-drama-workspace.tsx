@@ -1,6 +1,6 @@
 import {
   ArrowUp,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleStop,
   Clapperboard,
@@ -109,7 +109,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, getWorkspaceFile, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -149,14 +149,21 @@ type InteractionTemplate = "blank" | StoryInteractionBehavior["type"];
 type CanvasNodeCreationAction =
   | { kind: "node"; type: Exclude<StoryNodeType, "asset"> }
   | { kind: "interaction"; template: InteractionTemplate };
-interface CanvasNodeCreationItem {
+interface CanvasNodeCreationLeaf {
   label: string;
   description: string;
   icon: IconComponent;
   action: CanvasNodeCreationAction;
 }
+interface CanvasNodeCreationBranch {
+  label: string;
+  description: string;
+  icon: IconComponent;
+  children: CanvasNodeCreationLeaf[];
+}
+type CanvasNodeCreationItem = CanvasNodeCreationLeaf | CanvasNodeCreationBranch;
 interface CanvasNodeCreationGroup {
-  label?: string;
+  label: string;
   items: CanvasNodeCreationItem[];
 }
 type CanvasContextMenuState = {
@@ -168,28 +175,36 @@ type CanvasContextMenuState = {
 
 const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
   {
+    label: "Story Flow",
     items: [
       { label: "Start", description: "Set the story entry point", icon: Flag, action: { kind: "node", type: "start" } },
-      { label: "Project State", description: "Apply state changes in the flow", icon: Wrench, action: { kind: "node", type: "project-state" } },
       { label: "Open UI", description: "Add a coded player interface", icon: PanelToggle, action: { kind: "node", type: "open-ui" } },
       { label: "Scene", description: "Ordered image or video media", icon: Clapperboard, action: { kind: "node", type: "scene" } },
-      { label: "Text", description: "Write a reusable prompt", icon: FileText, action: { kind: "node", type: "text" } },
-      { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
-      { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
+      { label: "Interaction", description: "Wait for player input", icon: MousePointer2, children: [
+        { label: "Continue", description: "Wait for the player to continue", icon: Play, action: { kind: "interaction", template: "continue" } },
+        { label: "QTE", description: "Timed button or keyboard input", icon: Code2, action: { kind: "interaction", template: "qte" } },
+        { label: "Hotspot", description: "Timed clickable area", icon: MousePointer2, action: { kind: "interaction", template: "hotspot" } },
+        { label: "Custom", description: "Start from HTML, CSS, and JavaScript", icon: Code2, action: { kind: "interaction", template: "blank" } },
+      ] },
       { label: "Choice", description: "Branch into player options", icon: GitBranch, action: { kind: "node", type: "choice" } },
+      { label: "Project State", description: "Apply state changes in the flow", icon: Wrench, action: { kind: "node", type: "project-state" } },
       { label: "Ending", description: "Finish this story path", icon: CircleStop, action: { kind: "node", type: "ending" } },
     ],
   },
   {
-    label: "Add UI & logic",
+    label: "Assets",
     items: [
-      { label: "QTE", description: "Timed button or keyboard input", icon: Code2, action: { kind: "interaction", template: "qte" } },
-      { label: "Hotspot", description: "Timed clickable area", icon: MousePointer2, action: { kind: "interaction", template: "hotspot" } },
-      { label: "Continue", description: "Wait for the player to continue", icon: Play, action: { kind: "interaction", template: "continue" } },
-      { label: "Custom Interaction", description: "Start from HTML, CSS, and JavaScript", icon: Code2, action: { kind: "interaction", template: "blank" } },
+      { label: "Text", description: "Write a reusable prompt", icon: FileText, action: { kind: "node", type: "text" } },
+      { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
+      { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
     ],
   },
 ];
+
+function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasNodeCreationLeaf {
+  return "action" in item;
+}
+
 interface SceneCanvasPreviewData {
   assetId?: string;
   totalDurationMs: number;
@@ -792,7 +807,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setSelectedId(node.id);
   }
 
-  function addCanvasNode(item: CanvasNodeCreationItem, position: { x: number; y: number }): void {
+  function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
     if (item.action.kind === "interaction") addInteraction(position, item.action.template);
     else addNode(item.action.type, position);
   }
@@ -1276,21 +1291,11 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-drama-project-context window-drag-exclusion">
-          <button className="interactive-drama-chapter" type="button">
-            <span>Chapter 1 / {chapter?.title ?? "Untitled"}</span>
-            <ChevronDown size={14} />
-          </button>
-        </div>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
           <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
         </nav>
         <CustomizableEditorRegion region="toolbar" node={{ id: "workspace-toolbar", type: "toolbar", data: {} }} fallback={<div className="interactive-drama-header-actions">
-          <div className="interactive-drama-history-actions" aria-label="Edit history">
-            <button type="button" title="Undo (Cmd/Ctrl+Z)" aria-label="Undo" disabled={!canUndo} onClick={undoEditorChange}><Undo2 size={14} /></button>
-            <button type="button" title="Redo (Cmd/Ctrl+Shift+Z)" aria-label="Redo" disabled={!canRedo} onClick={redoEditorChange}><Redo2 size={14} /></button>
-          </div>
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
@@ -2742,7 +2747,7 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlayte
     setPlaying(nextPlaying);
   }
 
-  if (mode === "code") return <OpenUiCodeWorkbench data={node.data} />;
+  if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
   const preview = <StoryWorkbenchPreview ariaLabel="Open UI live preview" viewport={config.viewport} hasMedia={Boolean(selectedBackground)} stageClassName="story-open-ui-stage">
           {previewAsset.url && selectedImage ? <img src={previewAsset.url} alt="" /> : null}
@@ -2782,39 +2787,6 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlayte
     timeline={null}
     presentation={presentationNode(node.id, "open-ui", node.data, node.editor)}
   />;
-}
-
-interface OpenUiCodeFile {
-  id: string;
-  group: string;
-  path: string;
-  content: string;
-}
-
-function OpenUiCodeWorkbench({ data }: { data: StoryFlowData }) {
-  const presentation = data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
-  const openUiFiles = openUiSurfaceFiles(presentation, false);
-  const source = presentation.surface.source;
-  const files: OpenUiCodeFile[] = [
-    { id: "open-ui:html", group: "Open UI", path: source?.html ?? "ui/open-ui/index.html", content: openUiFiles.html },
-    { id: "open-ui:css", group: "Open UI", path: source?.css ?? "ui/open-ui/style.css", content: openUiFiles.css },
-    { id: "open-ui:javascript", group: "Open UI", path: source?.javascript ?? "ui/open-ui/screen.js", content: openUiFiles.javascript },
-  ];
-  const [fileId, setFileId] = useState(files[0]!.id);
-  const selected = files.find((file) => file.id === fileId) ?? files[0]!;
-  const groups = [...new Set(files.map((file) => file.group))];
-
-  return <div className="story-scene-code-workbench story-open-ui-code-workbench code-view">
-    <aside className="file-explorer" aria-label="Open UI files">
-      <nav className="story-scene-file-tree">
-        {groups.map((group) => <section key={group}><h3>{group}</h3>{files.filter((file) => file.group === group).map((file) => <button key={file.id} type="button" className={selected.id === file.id ? "is-active" : ""} aria-pressed={selected.id === file.id} title={file.path} onClick={() => setFileId(file.id)}><FileText size={13} aria-hidden="true" /><span>{file.path.split("/").at(-1)}</span></button>)}</section>)}
-      </nav>
-    </aside>
-    <section className="file-content" aria-label="Open UI code">
-      <div className="file-content-header">{selected.path}</div>
-      <HighlightedCode path={selected.path} content={selected.content} />
-    </section>
-  </div>;
 }
 
 interface SceneTimelineSegment {
@@ -2935,14 +2907,13 @@ function StoryPresentationCodeWorkbench({ node }: {
   node: StoryFlowNode;
 }) {
   const [file, setFile] = useState<keyof StorySurfaceFiles>("html");
-  const fallback = node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
+  const fallback = node.type === "open-ui" ? DEFAULT_OPEN_UI_CODE : node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
   const files = node.data.presentation?.surface.files ?? fallback;
-  const source = node.data.presentation?.surface.source;
-  const scriptName = node.type === "scene" ? "scene.js" : node.type === "interaction" ? "interaction.js" : node.type === "choice" ? "choice.js" : node.type === "ending" ? "ending.js" : "surface.js";
+  const source = node.data.presentation?.surface.source ?? defaultStoryNodeSource(node.id);
   const paths: Record<keyof StorySurfaceFiles, string> = {
-    html: source?.html ?? "index.html",
-    css: source?.css ?? "style.css",
-    javascript: source?.javascript ?? scriptName,
+    html: source.html,
+    css: source.css,
+    javascript: source.javascript,
   };
 
   return <div className="story-scene-code-workbench code-view">
@@ -3397,6 +3368,7 @@ function CanvasToolbar({
   onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -3435,7 +3407,7 @@ function CanvasToolbar({
     return screenToFlowPosition({ x: bounds.left + availableWidth / 2, y: bounds.top + bounds.height / 2 });
   }
 
-  function addItem(item: CanvasNodeCreationItem): void {
+  function addItem(item: CanvasNodeCreationLeaf): void {
     const position = placementPosition();
     if (!position) return;
     if (item.action.kind === "interaction") onAddInteraction(position, item.action.template);
@@ -3447,18 +3419,24 @@ function CanvasToolbar({
     <Panel className="story-canvas-toolbar" position="bottom-center">
       <div ref={addMenu} className="story-add-node">
         {addOpen ? (
-          <div className="story-add-node-menu">
-            {CANVAS_NODE_CREATION_GROUPS.map((group, index) => <Fragment key={group.label ?? "story"}>
-              {index > 0 && group.label ? <span className="story-add-node-menu-label">{group.label}</span> : null}
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
-                return <button type="button" key={item.label} disabled={disabled} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span></button>;
-              })}
-            </Fragment>)}
-            <span className="story-add-node-menu-label">Add media</span>
-            <button type="button" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
-            <button type="button" onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
+          <div className="story-add-node-menu" role="menu" aria-label="Add node">
+            {creationBranch ? <>
+              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span><strong>{creationBranch.label}</strong><small>All node types</small></span></button>
+              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
+            </> : <>
+              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+                <span className="story-add-node-menu-label">{group.label}</span>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
+                  const description = disabled ? "Only one Start node is allowed" : item.description;
+                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
+                })}
+              </Fragment>)}
+              <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
+            </>}
           </div>
         ) : null}
         <input
@@ -3474,7 +3452,7 @@ function CanvasToolbar({
             setAddOpen(false);
           }}
         />
-        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => setAddOpen((open) => !open)}>
+        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => { setCreationBranch(undefined); setAddOpen((open) => !open); }}>
           <Plus size={18} />
         </button>
       </div>
@@ -3525,7 +3503,7 @@ function StoryCanvasContextMenu({
   onUndo: () => unknown;
   onRedo: () => unknown;
   onPaste: () => void;
-  onAdd: (item: CanvasNodeCreationItem) => void;
+  onAdd: (item: CanvasNodeCreationLeaf) => void;
   onUpload: (file: File) => void;
   onCopy: () => void;
   onDuplicate: () => void;
@@ -3534,6 +3512,7 @@ function StoryCanvasContextMenu({
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
   const [position, setPosition] = useState(menu.screenPosition);
   const opensLeft = menu.screenPosition.x > window.innerWidth - 430;
   const opensUp = menu.screenPosition.y > window.innerHeight / 2;
@@ -3584,13 +3563,20 @@ function StoryCanvasContextMenu({
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
         <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>Paste</span></button>
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen((open) => !open)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
           {addOpen ? <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
-            {CANVAS_NODE_CREATION_GROUPS.flatMap((group) => group.items).map((item) => {
-              const Icon = item.icon;
-              const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
-              return <button type="button" role="menuitem" key={item.label} disabled={disabled} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
-            })}
+            {creationBranch ? <>
+              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span>{creationBranch.label}</span></button>
+              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
+            </> : CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              <span className="story-canvas-context-menu-label">{group.label}</span>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
+                const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
+                return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? "Only one Start node is allowed" : undefined} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
+              })}
+            </Fragment>)}
           </div> : null}
         </div>
         <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? "Uploading..." : "Upload"}</span></button>
@@ -3797,7 +3783,7 @@ function storyDocument(
 ): StoryDocument {
   return {
     version: 10,
-    codebase: { version: 2 },
+    codebase: { version: 3 },
     editorLayout,
     player,
     variables,

@@ -2,12 +2,6 @@ import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODE
 
 const STORY_NODE_TYPES = new Set(["start", "project-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 
-export const DEFAULT_OPEN_UI_SOURCE: StorySourceFiles = {
-  html: "ui/open-ui/index.html",
-  css: "ui/open-ui/style.css",
-  javascript: "ui/open-ui/screen.js",
-};
-
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
   <h1 data-content="title"></h1>
@@ -47,6 +41,21 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
   videoFit: "contain",
   choicePosition: "bottom",
 };
+
+export function defaultStoryNodeSource(nodeId: string): StorySourceFiles {
+  const readable = nodeId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 42) || "definition";
+  let hash = 2166136261;
+  for (const character of nodeId) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  const base = `nodes/${readable}-${(hash >>> 0).toString(36)}`;
+  return {
+    html: `${base}/index.html`,
+    css: `${base}/style.css`,
+    javascript: `${base}/script.js`,
+  };
+}
 
 export function openUiRuntimeContent(content: StoryOpenUiContent, hasCheckpoint: boolean): StoryOpenUiContent {
   return {
@@ -133,7 +142,7 @@ export function createStoryDocument(): StoryDocument {
   const chapterId = crypto.randomUUID();
   return {
     version: 10,
-    codebase: { version: 2 },
+    codebase: { version: 3 },
     editorLayout: {
       version: 1,
       nodes: {
@@ -168,7 +177,7 @@ export function createStoryDocument(): StoryDocument {
 export function isStoryDocument(value: unknown): value is StoryDocument {
   if (!isRecord(value) || value.version !== 10 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (!hasOnlyKeys(value, ["version", "codebase", "editorLayout", "player", "variables", "chapters"])) return false;
-  if (!isRecord(value.codebase) || value.codebase.version !== 2 || !hasOnlyKeys(value.codebase, ["version"])) return false;
+  if (!isRecord(value.codebase) || value.codebase.version !== 3 || !hasOnlyKeys(value.codebase, ["version"])) return false;
   if (!isEditorLayout(value.editorLayout) || !isPlayerConfig(value.player) || !isVariables(value.variables)) return false;
   const variables = new Map(value.variables.map((variable) => [variable.id, variable]));
   const sourcePaths = [
