@@ -2218,7 +2218,9 @@ export function createApp(options: AppOptions = {}) {
         throw cause;
       }
       try {
-        await Promise.all((request.body.images ?? []).map((image, index) => addConversationImageToLibrary(library, image, index)));
+        await Promise.all((request.body.images ?? []).map((image, index) => (
+          addConversationImageToProject(library, projects, project.id, image, index)
+        )));
       } catch (cause) {
         const statusCode = cause instanceof AssetLibraryError ? cause.statusCode : 400;
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -2638,7 +2640,13 @@ function validBase64(value: string): boolean {
   return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
 }
 
-async function addConversationImageToLibrary(library: AssetLibrary, image: PromptImage, index: number): Promise<void> {
+async function addConversationImageToProject(
+  library: AssetLibrary,
+  projects: ProjectManager,
+  projectId: string,
+  image: PromptImage,
+  index: number,
+): Promise<void> {
   const contents = Buffer.from(image.data, "base64");
   const extension = {
     "image/png": ".png",
@@ -2649,7 +2657,8 @@ async function addConversationImageToLibrary(library: AssetLibrary, image: Promp
   const originalName = path.basename(image.name ?? `Image ${index + 1}`);
   const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
   const digest = createHash("sha256").update(contents).digest("hex");
-  await library.add(`${stem}${extension}`, contents, { sourceKey: `conversation-image:${image.mediaType}:${digest}` });
+  const asset = await library.add(`${stem}${extension}`, contents, { sourceKey: `conversation-image:${image.mediaType}:${digest}` });
+  await projects.materializeLibraryAsset(projectId, asset.id);
 }
 
 function publishMediaType(contentType: string): PublishAssetMediaType | undefined {

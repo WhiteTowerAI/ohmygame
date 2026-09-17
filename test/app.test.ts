@@ -728,6 +728,9 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
       expect.objectContaining({ name: "reference.png", mediaType: "image" }),
     ]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+      expect.objectContaining({ path: "assets/imported/reference.png", mediaType: "image" }),
+    ]);
   });
 
   it("restores an active image prompt without replaying its base64 event", async () => {
