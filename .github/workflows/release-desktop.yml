@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -15,6 +15,8 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +31,20 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      - run: npx electron-builder --win nsis --x64 --publish never
+      - name: Validate desktop release configuration
+        shell: pwsh
+        env:
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          if (-not $env:DESKTOP_UPDATE_URL) { throw "DESKTOP_UPDATE_URL repository variable is not configured" }
+          if (-not $env:WINDOWS_CSC_LINK) { throw "WINDOWS_CSC_LINK repository secret is not configured" }
+          if (-not $env:WINDOWS_CSC_KEY_PASSWORD) { throw "WINDOWS_CSC_KEY_PASSWORD repository secret is not configured" }
+      - name: Build signed Windows package
+        run: npx electron-builder --win nsis --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
           name: OpenGame-Windows-x64
@@ -41,6 +56,8 @@ jobs:
 
   macos:
     runs-on: macos-14
+    env:
+      DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,6 +80,10 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if [ -z "$DESKTOP_UPDATE_URL" ]; then
+            echo "::error::DESKTOP_UPDATE_URL repository variable is not configured"
+            exit 1
+          fi
           for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is not configured"
@@ -98,13 +119,63 @@ jobs:
           pattern: OpenGame-*
           path: release-assets
           merge-multiple: true
-      - name: Create GitHub Release
+      - name: Validate update publishing configuration
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_DESKTOP_UPDATE_PREFIX: ${{ vars.R2_DESKTOP_UPDATE_PREFIX }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "OpenGame $GITHUB_REF_NAME" --prerelease
-          else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "OpenGame $GITHUB_REF_NAME" --notes "OpenGame $GITHUB_REF_NAME" --prerelease
-          fi
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          for name in DESKTOP_UPDATE_URL R2_ACCOUNT_ID R2_BUCKET R2_DESKTOP_UPDATE_PREFIX R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+          case "$R2_DESKTOP_UPDATE_PREFIX" in
+            /*|*/)
+              echo "::error::R2_DESKTOP_UPDATE_PREFIX must not start or end with a slash"
+              exit 1
+              ;;
+          esac
+          test -f release-assets/alpha.yml
+          test -f release-assets/alpha-mac.yml
+      - name: Upload immutable update packages to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_DESKTOP_UPDATE_PREFIX: ${{ vars.R2_DESKTOP_UPDATE_PREFIX }}
+        run: |
+          aws s3 cp release-assets "s3://$R2_BUCKET/$R2_DESKTOP_UPDATE_PREFIX/" \
+            --recursive \
+            --exclude "*.yml" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+            --no-progress
+      - name: Publish update manifests to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_DESKTOP_UPDATE_PREFIX: ${{ vars.R2_DESKTOP_UPDATE_PREFIX }}
+        run: |
+          for manifest in release-assets/alpha.yml release-assets/alpha-mac.yml; do
+            aws s3 cp "$manifest" "s3://$R2_BUCKET/$R2_DESKTOP_UPDATE_PREFIX/$(basename "$manifest")" \
+              --content-type "application/x-yaml" \
+              --cache-control "no-cache, no-store, must-revalidate" \
+              --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+              --no-progress
+          done
+      - name: Verify public update feed
+        env:
+          DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
+        run: |
+          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/alpha.yml" >/dev/null
+          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/alpha-mac.yml" >/dev/null
