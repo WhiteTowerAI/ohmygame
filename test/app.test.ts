@@ -36,7 +36,7 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
     const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
-    expect(story.chapters[0].nodes.map((node: { type: string }) => node.type)).toEqual(["start", "open-ui", "project-state", "ending"]);
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
   });
 
   it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
@@ -131,12 +131,7 @@ describe("daemon", () => {
     const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapters[0].nodes).toEqual([
-      expect.objectContaining({ type: "start" }),
-      expect.objectContaining({ type: "open-ui" }),
-      expect.objectContaining({ type: "project-state" }),
-      expect.objectContaining({ type: "ending" }),
-    ]);
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
       .toMatchObject({ chapters: [{ title: "The Stopover" }] });

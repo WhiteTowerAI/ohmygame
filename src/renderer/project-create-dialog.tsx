@@ -96,12 +96,12 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
             <fieldset className="project-create-templates">
               <legend>Start from</legend>
               <button className={templateId === undefined ? "is-active" : undefined} type="button" aria-pressed={templateId === undefined} disabled={creating} onClick={() => setTemplateId(undefined)}>
-                <Plus size={17} />
-                <span><strong>Blank project</strong><small>Basic story flow</small></span>
+                <span className="project-create-template-icon"><Plus size={17} /></span>
+                <span><strong>Blank project</strong><small>Empty canvas</small></span>
               </button>
               <button className={templateId === INTERACTIVE_DRAMA_STARTER.id ? "is-active" : undefined} type="button" aria-pressed={templateId === INTERACTIVE_DRAMA_STARTER.id} disabled={creating} onClick={() => setTemplateId(INTERACTIVE_DRAMA_STARTER.id)}>
-                <Clapperboard size={17} />
-                <span><strong>{INTERACTIVE_DRAMA_STARTER.name}</strong><small>Sample interactive drama</small></span>
+                <span className="project-create-template-icon"><Clapperboard size={17} /></span>
+                <span><strong>Sample project</strong><small>Complete interactive drama</small></span>
               </button>
             </fieldset>
           ) : null}

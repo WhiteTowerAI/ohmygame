@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createStoryCheckpoint, createStoryDocument } from "../src/shared/story.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature, type StoryProgressStorage } from "../src/renderer/story-progress.js";
+import { createPlayableStoryDocument } from "./story-fixture.js";
 
 describe("story progress storage", () => {
   it("isolates keys by scope and chapter", () => {
@@ -22,7 +23,7 @@ describe("story progress storage", () => {
       setItem: (key, value) => { values.set(key, value); },
       removeItem: (key) => { values.delete(key); },
     };
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0]!;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const state = { mode: "playing" as const, chapterId: chapter.id, nodeId: ending.id, variables: {} };

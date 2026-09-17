@@ -5,23 +5,20 @@ import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { readStoryCodebase } from "../src/daemon/story-codebase.js";
 import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { createPlayableStoryDocument } from "./story-fixture.js";
 
 describe("Interactive Drama project codebase", () => {
-  it("creates a canonical playable project", async () => {
+  it("creates an empty Interactive Drama project", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    expect(story.chapters[0]?.nodes.map((node) => node.type)).toEqual(["start", "open-ui", "project-state", "ending"]);
-    expect(story.chapters[0]?.edges).toHaveLength(3);
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(stored.characters).toBeUndefined();
     expect(stored.overlays).toBeUndefined();
     expect(stored.interactions).toBeUndefined();
     expect(stored.playerViews).toBeUndefined();
-    const presentationNodes = stored.chapters[0].nodes.filter((node: { type: string }) => ["open-ui", "scene", "interaction", "choice", "ending"].includes(node.type));
-    expect(presentationNodes.every((node: { data: { presentation: { surface: { source: Record<string, string> } } } }) =>
-      Object.values(node.data.presentation.surface.source).every((source) => source.startsWith("nodes/")) &&
-      node.data.presentation.surface.source.javascript.endsWith("/script.js"))).toBe(true);
+    expect(stored.chapters[0]).toMatchObject({ nodes: [], edges: [] });
   });
 
   it("stores node code outside story.json without overwriting authored source", async () => {
@@ -89,10 +86,10 @@ describe("Interactive Drama project codebase", () => {
   it("rejects an editor layout with missing node positions", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
     const project = await manager.create("Story", "interactive-drama");
-    await manager.story(project.id);
+    await manager.setStory(project.id, createPlayableStoryDocument());
     const layoutPath = path.join(project.workspacePath, "editor-layout.json");
     const layout = JSON.parse(await readFile(layoutPath, "utf8"));
-    delete layout.nodes[Object.keys(layout.nodes).find((id) => id !== "open-ui")!];
+    delete layout.nodes[Object.keys(layout.nodes)[0]!];
     await writeFile(layoutPath, JSON.stringify(layout));
     await expect(readStoryCodebase(project.workspacePath)).rejects.toThrow("node positions do not match story.json");
   });
@@ -100,6 +97,7 @@ describe("Interactive Drama project codebase", () => {
   it("removes every Open UI reference to a deleted Library asset", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
     const project = await manager.create("Story", "interactive-drama");
+    await manager.setStory(project.id, createPlayableStoryDocument());
     const story = await manager.story(project.id);
     const openUi = story.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
     if (openUi.type !== "open-ui") throw new Error("Open UI is missing");

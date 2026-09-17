@@ -2821,12 +2821,12 @@ button.home-nav-item-active:hover {
 }
 .project-create-dialog form {
   display: grid;
-  gap: 18px;
-  padding: 18px;
+  gap: 20px;
+  padding: 20px;
 }
 .project-create-name {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
@@ -2897,13 +2897,13 @@ button.home-nav-item-active:hover {
 }
 .project-create-templates {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   border: 0;
 }
 .project-create-templates legend {
-  margin-bottom: 1px;
+  margin: 0 0 8px;
   padding: 0;
   color: var(--text-muted);
   font-size: 11px;
@@ -2911,11 +2911,11 @@ button.home-nav-item-active:hover {
 }
 .project-create-templates button {
   display: grid;
-  min-height: 54px;
-  grid-template-columns: 20px minmax(0, 1fr);
+  height: 62px;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 12px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: #1b1c21;
@@ -2924,19 +2924,28 @@ button.home-nav-item-active:hover {
   font: inherit;
   text-align: left;
 }
+.project-create-template-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--text-muted);
+}
 .project-create-templates button > span {
   display: grid;
   min-width: 0;
-  gap: 3px;
+  gap: 4px;
 }
 .project-create-templates button strong {
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.2;
 }
 .project-create-templates button small {
   color: var(--text-muted);
   font-size: 10px;
+  line-height: 1.2;
 }
 .project-create-templates button:hover:not(:disabled) {
   border-color: var(--border-strong);
@@ -2957,8 +2966,7 @@ button.home-nav-item-active:hover {
 .project-create-dialog footer {
   display: flex;
   justify-content: flex-end;
-  gap: 7px;
-  padding-top: 2px;
+  gap: 8px;
 }
 .project-create-dialog footer button {
   display: inline-flex;
@@ -6648,11 +6656,20 @@ button {
 .viewer-pane.interactive-drama-workspace {
   --interactive-drama-grid: #34373d;
   --story-edge-color: #91a89b;
+  --story-editor-surface: #1b1c20;
+  --story-editor-stage: #141519;
   container-type: inline-size;
   display: grid;
   grid-template-rows: 50px minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--surface);
+}
+
+:root[data-appearance="light"] .viewer-pane.interactive-drama-workspace {
+  --interactive-drama-grid: #d5d8d2;
+  --story-edge-color: #789084;
+  --story-editor-surface: #fff;
+  --story-editor-stage: #f3f4f0;
 }
 
 .story-node-board {
@@ -7858,7 +7875,7 @@ button {
   padding: 10px 10px 10px 12px;
   border: 1px solid color-mix(in srgb, #e6a66d 50%, var(--border));
   border-radius: 7px;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
   transform: translateX(-50%);
 }
 
@@ -8507,7 +8524,7 @@ button {
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
   color: var(--text);
 }
 
@@ -9202,7 +9219,7 @@ button {
 .story-node .react-flow__handle {
   width: 9px;
   height: 9px;
-  border: 2px solid #1b1c20;
+  border: 2px solid var(--story-editor-surface);
   background: #8fa8ff;
 }
 
@@ -9246,7 +9263,7 @@ button {
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #141519;
+  background: var(--story-editor-stage);
 }
 
 .story-text-node.is-selected .story-text-output,
@@ -9268,7 +9285,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   outline: 0;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
   color: var(--text);
   font: inherit;
   font-size: 12px;
@@ -9294,7 +9311,7 @@ button {
   padding: 10px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
 }
 
 .story-text-composer textarea {
@@ -9457,7 +9474,7 @@ button {
   padding: 10px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
 }
 
 .story-media-references {
@@ -10458,7 +10475,7 @@ button {
   padding: 3px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #1b1c20;
+  background: var(--story-editor-surface);
 }
 
 .story-canvas-toolbar button {

@@ -8,7 +8,8 @@ import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { createPublishApp } from "../src/publish-server/app.js";
 import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
-import { createStoryDocument, DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { createPlayableStoryDocument } from "./story-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -415,13 +416,12 @@ describe("remote publish", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: videoContents,
     })).json();
-    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0];
     chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
-    expect(initialState).toBeDefined();
-    expect(ending).toBeDefined();
+    if (!initialState || !ending) throw new Error("Playable story fixture is incomplete");
     chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== initialState.id);
     chapter.edges.push({ id: "state-scene", source: initialState.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
     syncStoryLayout(story);
@@ -455,7 +455,7 @@ describe("remote publish", () => {
   it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
-    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0];
     const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
     expect(initialState).toBeDefined();
@@ -472,7 +472,7 @@ describe("remote publish", () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Chapters", "interactive-drama");
     const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    const second = createStoryDocument().chapters[0]!;
+    const second = createPlayableStoryDocument().chapters[0]!;
     story.chapters.push({ ...second, title: "Chapter 2" });
     syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
@@ -786,7 +786,7 @@ describe("remote publish", () => {
   });
 });
 
-function syncStoryLayout(story: ReturnType<typeof createStoryDocument>): void {
+function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>): void {
   story.editorLayout.nodes = Object.fromEntries([
     ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
   ]);

@@ -135,42 +135,13 @@ function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type:
 }
 
 export function createStoryDocument(): StoryDocument {
-  const startId = crypto.randomUUID();
-  const openUiId = crypto.randomUUID();
-  const stateId = crypto.randomUUID();
-  const endingId = crypto.randomUUID();
-  const chapterId = crypto.randomUUID();
   return {
     version: 10,
     codebase: { version: 3 },
-    editorLayout: {
-      version: 1,
-      nodes: {
-        [startId]: { x: 80, y: 180 },
-        [openUiId]: { x: 240, y: 210 },
-        [stateId]: { x: 760, y: 210 },
-        [endingId]: { x: 1_120, y: 210 },
-      },
-      viewport: { x: 64, y: 32, zoom: 1 },
-      view: "canvas",
-    },
+    editorLayout: { version: 1, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" },
     variables: [],
     player: structuredClone(DEFAULT_STORY_PLAYER_CONFIG),
-    chapters: [{
-      id: chapterId,
-      title: "Untitled",
-      nodes: [
-        { id: startId, type: "start", position: { x: 80, y: 180 }, data: {} },
-        { id: openUiId, type: "open-ui", position: { x: 240, y: 210 }, data: { title: "Untitled Story", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
-        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
-        { id: endingId, type: "ending", position: { x: 1_120, y: 210 }, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } },
-      ],
-      edges: [
-        { id: crypto.randomUUID(), source: startId, target: openUiId },
-        { id: crypto.randomUUID(), source: openUiId, target: stateId },
-        { id: crypto.randomUUID(), source: stateId, target: endingId },
-      ],
-    }],
+    chapters: [{ id: crypto.randomUUID(), title: "Untitled", nodes: [], edges: [] }],
   };
 }
 
