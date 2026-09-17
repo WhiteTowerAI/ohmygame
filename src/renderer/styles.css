@@ -9406,7 +9406,7 @@ button {
   place-items: center;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #141519;
+  background: var(--story-editor-stage);
 }
 
 :is(.story-node-scene, .story-node-choice-player, .story-node-ending-player)
@@ -9464,7 +9464,7 @@ button {
   padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: rgb(20 21 25 / 90%);
+  background: color-mix(in srgb, var(--story-editor-stage) 90%, transparent);
   color: var(--text);
   font-size: 10px;
 }
@@ -9578,10 +9578,6 @@ button {
 .story-media-reference > button:disabled {
   cursor: default;
   opacity: 0.5;
-}
-
-.story-library-audio-node .story-media-stage {
-  background: #181a20;
 }
 
 .story-audio-asset {
