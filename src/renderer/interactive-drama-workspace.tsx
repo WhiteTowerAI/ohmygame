@@ -1258,8 +1258,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     if (command.type === "open-node") {
       const nodeId = payload?.nodeId;
       if (typeof nodeId !== "string") throw new Error("editor.openNode requires a node ID");
-      if (nodes.some((node) => node.id === nodeId)) setOpenedNodeId(nodeId);
-      else throw new Error(`Node ${nodeId} was not found`);
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) throw new Error(`Node ${nodeId} was not found`);
+      if (!hasNodeEditor(node)) throw new Error(`${titleCase(node.type)} nodes are edited on the canvas`);
+      setOpenedNodeId(nodeId);
       return { nodeId };
     }
     if (command.type === "close-node") {
@@ -1367,7 +1369,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 window.clearTimeout(nodeClickTimer.current);
                 setSelectedAssetEdgeId(undefined);
                 setSelectedId(node.id);
-                setOpenedNodeId(node.id);
+                if (hasNodeEditor(node)) setOpenedNodeId(node.id);
               }}
               onPaneClick={() => { setCanvasContextMenu(undefined); window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
               onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
@@ -1548,15 +1550,15 @@ function CustomEndingNode(props: NodeProps<StoryCanvasNode>) {
 }
 
 function CustomTextNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<TextNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<TextNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomImageNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<ImageNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<ImageNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomVideoNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<VideoNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<VideoNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomAssetNode(props: NodeProps<StoryCanvasNode>) {
@@ -1936,7 +1938,7 @@ function InheritedScenePoster({ preview, children, className = "" }: { preview?:
   </div>;
 }
 
-function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function TextNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
   const effectiveModel = data.textModel ?? runtime?.defaultModel;
   const selectedModel = runtime?.models.find((model) => sameAgentModel(model, effectiveModel));
@@ -1952,13 +1954,13 @@ function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNo
           aria-label="Text output"
           rows={5}
           value={data.text ?? ""}
-          disabled={!canvas && runtime?.busy}
-          readOnly={canvas}
+          disabled={runtime?.busy}
+          readOnly={!selected}
           placeholder="Generated or manually written text"
           onChange={(event) => runtime?.onChange({ ...data, textRuntime: undefined, text: event.target.value })}
         />
       </div>
-      {selected && !canvas ? (
+      {selected ? (
         <div className="story-text-composer nodrag nowheel">
           <textarea
             aria-label="Text generation instruction"
@@ -1993,7 +1995,7 @@ function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNo
   );
 }
 
-function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function ImageNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.imageRuntime;
   const selectedModel = runtime?.models.find((model) => sameImageModel(model, data.model));
   const modelOptions = selectedModel?.generationOptions ?? [];
@@ -2017,7 +2019,7 @@ function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowN
   }
 
   return (
-    <MediaNodeShell kind="image" selected={selected} editable={!canvas} assetId={data.assetId} aspectRatio={data.aspectRatio} inputCount={data.images?.length} runtime={runtime}>
+    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} inputCount={data.images?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -2044,13 +2046,13 @@ function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowN
   );
 }
 
-function VideoNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
   const referenceError = runtime?.references.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(runtime.references)
     ? "Add an image or video to use an audio reference."
     : undefined;
   return (
-    <MediaNodeShell kind="video" selected={selected} editable={!canvas} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
+    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="video"
@@ -2192,10 +2194,9 @@ function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
   );
 }
 
-function MediaNodeShell({ kind, selected, editable = true, assetId, aspectRatio, inputCount = 0, runtime, children }: {
+function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, runtime, children }: {
   kind: "image" | "video";
   selected: boolean;
-  editable?: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   inputCount?: number;
@@ -2223,7 +2224,7 @@ function MediaNodeShell({ kind, selected, editable = true, assetId, aspectRatio,
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {selected && editable ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
+      {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
     </div>
   );
 }
@@ -2475,20 +2476,8 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
       : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
       : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
       : node?.type === "ending" ? <EndingWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} onPlaytest={onPlaytest} />
-      : node && (node.type === "text" || node.type === "image" || node.type === "video" || node.type === "asset") ? <UtilityNodeWorkbench node={node} />
       : <div className="story-node-editor-content"><div className="story-node-editor-main"><div className="story-node-editor-preview"><span>{node?.type ?? "Node"}</span><h1>{title}</h1><p>Node editor preview</p></div></div></div>}
   </section>;
-}
-
-function UtilityNodeWorkbench({ node }: { node: StoryFlowNode }) {
-  return <main className={`story-utility-node-editor story-utility-node-editor-${node.type}`}>
-    <div className="story-utility-node-editor-content">
-      {node.type === "text" ? <TextNode data={node.data} selected />
-        : node.type === "image" ? <ImageNode data={node.data} selected />
-        : node.type === "video" ? <VideoNode data={node.data} selected />
-        : <AssetNode data={node.data} selected />}
-    </div>
-  </main>;
 }
 
 function StoryEditorBreadcrumb({ label, onClose }: { label: string; onClose: () => void }) {
@@ -4083,6 +4072,15 @@ function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   const [item] = next.splice(from, 1);
   if (item !== undefined) next.splice(to, 0, item);
   return next;
+}
+
+function hasNodeEditor(node: StoryFlowNode): boolean {
+  return node.type === "open-ui"
+    || node.type === "project-state"
+    || node.type === "scene"
+    || node.type === "interaction"
+    || node.type === "choice"
+    || node.type === "ending";
 }
 
 function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "asset" {

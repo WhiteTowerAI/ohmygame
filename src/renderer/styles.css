@@ -9775,32 +9775,6 @@ button {
   overflow: visible;
   padding: 20px;
 }
-.story-utility-node-editor {
-  display: grid;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  place-items: center;
-  overflow: auto;
-  padding: 32px;
-  background: var(--canvas);
-}
-.story-utility-node-editor-content {
-  width: min(100%, 720px);
-}
-.story-utility-node-editor-text .story-utility-node-editor-content {
-  width: min(100%, 560px);
-}
-.story-utility-node-editor-content > .story-node {
-  width: 100%;
-}
-.story-utility-node-editor-content .react-flow__handle {
-  display: none;
-}
-.story-utility-node-editor-content .story-text-output > textarea {
-  min-height: 180px;
-  resize: vertical;
-}
 .story-state-fields {
   display: grid;
   gap: 8px;
