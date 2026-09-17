@@ -708,7 +708,7 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const image = { name: "reference.PNG", mediaType: "image/png", data: "aW1hZ2U=" };
+    const image = { name: "狗大王.PNG", mediaType: "image/png", data: "aW1hZ2U=" };
 
     const response = await app.inject({
       method: "POST",
@@ -726,10 +726,10 @@ describe("daemon", () => {
     });
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Again", images: [image] } })).statusCode).toBe(202);
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
-      expect.objectContaining({ name: "reference.png", mediaType: "image" }),
+      expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
     ]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
-      expect.objectContaining({ path: "assets/imported/reference.png", mediaType: "image" }),
+      expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
     ]);
   });
 
