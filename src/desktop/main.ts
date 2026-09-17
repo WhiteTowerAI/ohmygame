@@ -116,7 +116,7 @@ app.on("before-quit", (event) => {
 
 try {
   await app.whenReady();
-  nativeTheme.themeSource = "dark";
+  nativeTheme.themeSource = "system";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   daemon = await startDaemon({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),

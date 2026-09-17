@@ -3,10 +3,12 @@ import { App } from "./app.js";
 import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
 import { parseAppRoute } from "./routes.js";
+import { applyAppearance, readAppearance } from "./appearance.js";
 import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
+applyAppearance(readAppearance());
 if (window.openGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, InfoCircle, Plug, Server, UserRound } from "./icons.js";
+import { ArrowLeft, Check, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -8,9 +8,11 @@ import { UserAvatar } from "./user-avatar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
+import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
+  { section: "appearance", label: "Appearance", icon: Palette },
   { section: "providers", label: "Providers", icon: Server },
   { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
@@ -59,6 +61,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
         <WindowDragRegion />
         <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
+          {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "about" ? <AboutSettings /> : null}
@@ -66,6 +69,78 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
       </section>
     </main>
   );
+}
+
+function AppearanceSettings() {
+  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+
+  function chooseAppearance(next: Appearance): void {
+    setAppearance(next);
+    persistAppearance(next);
+  }
+
+  return (
+    <section className="settings-panel settings-overview-panel settings-appearance-panel">
+      <header className="settings-panel-header"><h3>Appearance</h3></header>
+      <div className="settings-appearance-group">
+        <h4 className="settings-section-heading">Theme</h4>
+        <fieldset className="settings-theme-options" aria-label="Theme">
+          <ThemeOption appearance="system" selected={appearance === "system"} onSelect={chooseAppearance} />
+          <ThemeOption appearance="light" selected={appearance === "light"} onSelect={chooseAppearance} />
+          <ThemeOption appearance="dark" selected={appearance === "dark"} onSelect={chooseAppearance} />
+        </fieldset>
+      </div>
+    </section>
+  );
+}
+
+function ThemeOption({ appearance, selected, onSelect }: {
+  appearance: Appearance;
+  selected: boolean;
+  onSelect: (appearance: Appearance) => void;
+}) {
+  const label = appearance === "system" ? "System" : appearance === "light" ? "Light" : "Dark";
+  return (
+    <button
+      className={`settings-theme-option is-${appearance}${selected ? " is-selected" : ""}`}
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(appearance)}
+    >
+      <ThemePreview appearance={appearance} />
+      <span className="settings-theme-option-label">
+        <span>{label}</span>
+        {selected ? <Check size={16} aria-hidden="true" /> : null}
+      </span>
+    </button>
+  );
+}
+
+function ThemePreview({ appearance }: { appearance: Appearance }) {
+  if (appearance === "system") {
+    return <span className="settings-theme-preview is-system" aria-hidden="true">
+      <span className="settings-theme-system-layer">
+        <span className="settings-theme-preview-sidebar" />
+        <ThemePreviewContent />
+      </span>
+      <span className="settings-theme-system-layer is-dark">
+        <span className="settings-theme-preview-sidebar" />
+        <ThemePreviewContent />
+      </span>
+    </span>;
+  }
+  return <span className="settings-theme-preview" aria-hidden="true">
+    <span className="settings-theme-preview-sidebar" />
+    <ThemePreviewContent />
+  </span>;
+}
+
+function ThemePreviewContent() {
+  return <span className="settings-theme-preview-content">
+    <i />
+    <i />
+    <i />
+  </span>;
 }
 
 function AccountSettings() {
