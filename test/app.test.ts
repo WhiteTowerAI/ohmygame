@@ -132,6 +132,7 @@ describe("daemon", () => {
     expect(loaded.statusCode).toBe(200);
     expect(story.chapters[0].nodes).toEqual([
       expect.objectContaining({ type: "start" }),
+      expect.objectContaining({ type: "open-ui" }),
       expect.objectContaining({ type: "project-state" }),
       expect.objectContaining({ type: "ending" }),
     ]);
@@ -1402,7 +1403,6 @@ describe("daemon", () => {
 
 function syncStoryLayout(story: StoryDocument): void {
   story.editorLayout.nodes = Object.fromEntries([
-    ["open-ui", story.editorLayout.nodes["open-ui"] ?? { x: 240, y: 240 }],
     ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
   ]);
 }

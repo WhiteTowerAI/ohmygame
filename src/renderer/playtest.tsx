@@ -1,7 +1,7 @@
 import { Pause, Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StoryVariable } from "../shared/contracts.js";
-import { advanceSceneTime, chooseOption, completeSceneMedia, createPlayerState, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, openUiRuntimeContent, openUiSurfaceFiles, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId, restartGame, shouldCreateStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState, type StoryProgressFacts } from "../shared/story.js";
+import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, openUiSurfaceFiles, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId, restartGame, shouldCreateStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState, type StoryProgressFacts } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -38,12 +38,6 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         availableAssets: new Map(assets.flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const])),
       });
       if (issue) throw new Error(issue.message);
-      if (story.player.backgroundAssetId && !assets.some((asset) => asset.id === story.player.backgroundAssetId && asset.mediaType === "image")) {
-        throw new Error("The Player background is missing from Library or is not an image.");
-      }
-      if (story.player.openUiVideoAssetId && !assets.some((asset) => asset.id === story.player.openUiVideoAssetId && asset.mediaType === "video")) {
-        throw new Error("The Open UI video is missing from Library or is not a video.");
-      }
       const definitions = story.variables;
       const storyHash = await storySignature(story);
       if (disposed) return;
@@ -55,7 +49,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       setVariables(definitions);
       setConfig(story.player);
       setHasCheckpoint(Boolean(saved));
-      setRuntime(createPlayerState(selected.id, definitions));
+      setRuntime(restartGame(selected, definitions));
       document.title = `${story.player.title || selected.title} - Playtest`;
     }).catch((cause) => {
       if (!disposed) setError(errorMessage(cause));
@@ -65,7 +59,8 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   useEffect(() => {
     const storage = progress.current;
-    if (!storage || !runtime || !shouldCreateStoryCheckpoint(checkpointRef.current, runtime)) return;
+    const runtimeNode = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
+    if (!storage || !runtime || runtimeNode?.type === "open-ui" || !shouldCreateStoryCheckpoint(checkpointRef.current, runtime)) return;
     const save = createStoryCheckpoint(storage.signature, runtime);
     checkpointRef.current = save.checkpoint;
     setHasCheckpoint(true);
@@ -75,7 +70,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     } catch {
       setSaveStatus("error");
     }
-  }, [runtime]);
+  }, [chapter, runtime]);
 
   useEffect(() => {
     if (saveStatus !== "saved") return;
@@ -113,10 +108,16 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   const returnToMenu = useCallback(() => {
     if (!chapter) return;
-    setRuntime(createPlayerState(chapter.id, variables));
+    setRuntime(restartGame(chapter, variables));
     setPaused(false);
     setPlaybackStep((step) => step + 1);
   }, [chapter, variables]);
+
+  const enterOpenUi = useCallback(() => {
+    if (!chapter) return;
+    setRuntime((current) => current ? advanceOpenUi(chapter, current) : current);
+    setPlaybackStep((step) => step + 1);
+  }, [chapter]);
 
   const updateSceneTime = useCallback((mediaId: string, timeMs: number) => {
     if (!chapter) return;
@@ -161,7 +162,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         paused={paused}
         hasCheckpoint={hasCheckpoint}
         saveStatus={saveStatus}
-        onStart={startNewGame}
+        onAdvanceOpenUi={enterOpenUi}
         onContinueGame={continueGame}
         onPause={() => setPaused(true)}
         onResume={() => setPaused(false)}
@@ -177,7 +178,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   </main>;
 }
 
-export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, paused, hasCheckpoint, saveStatus, assetUrls, onStart, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
+export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, paused, hasCheckpoint, saveStatus, assetUrls, onAdvanceOpenUi, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
@@ -188,7 +189,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   hasCheckpoint: boolean;
   saveStatus?: "saved" | "error";
   assetUrls?: Readonly<Record<string, string>>;
-  onStart: () => void;
+  onAdvanceOpenUi: () => void;
   onContinueGame: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -200,28 +201,19 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   onInteraction: (result: string, commands: StoryInteractionCommand[]) => void;
   onChoice: (optionId: string) => void;
 }) {
-  const background = useStoryAssetUrl(config.backgroundAssetId, assetUrls);
-  const openingVideo = useStoryAssetUrl(config.openUiVideoAssetId, assetUrls);
-  const backgroundStyle = background.url ? { backgroundImage: `linear-gradient(rgb(0 0 0 / 38%), rgb(0 0 0 / 62%)), url("${background.url}")` } : undefined;
   const viewportStyle = {
     "--story-viewport-ratio": `${config.viewport.width} / ${config.viewport.height}`,
     "--story-viewport-aspect": config.viewport.width / config.viewport.height,
     "--story-viewport-max-width": `${(config.viewport.width / config.viewport.height) * 100}dvh`,
   } as CSSProperties;
   const handlePlayerUiAction = (action: StoryOpenUiAction) => {
-    if (action === "enter-game") (hasCheckpoint ? onContinueGame : onStart)();
+    if (action === "enter-game") (node && isEntryOpenUiNode(chapter, node.id) && hasCheckpoint ? onContinueGame : onAdvanceOpenUi)();
   };
-  if (runtime.mode === "menu") return (
-    <section className="story-player story-player-menu" aria-label="Game menu" style={viewportStyle}>
-      <div className="story-player-menu-stage" style={backgroundStyle}>
-        {openingVideo.url ? <video className="story-player-menu-video" src={openingVideo.url} autoPlay muted loop playsInline /> : null}
-        <StoryScreenSurface files={openUiSurfaceFiles(config, Boolean(openingVideo.url))} content={openUiRuntimeContent(config, hasCheckpoint)} mode="runtime" title="Opening screen" className="story-player-menu-screen" designViewport={config.viewport} onAction={handlePlayerUiAction} />
-      </div>
-    </section>
-  );
+  if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player" style={viewportStyle}>
     <div className="story-player-stage">
+      {node?.type === "open-ui" ? <StoryOpenUiPlayer chapter={chapter} node={node} config={config} hasCheckpoint={hasCheckpoint} assetUrls={assetUrls} onAction={handlePlayerUiAction} /> : null}
       {node?.type === "scene" ? <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={paused} assetUrls={assetUrls} onTime={onSceneTime} onComplete={onMediaComplete} /> : null}
       {node?.type === "interaction" ? <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={paused} assetUrls={assetUrls} onComplete={onInteraction} /> : null}
       {node?.type === "choice" ? <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={paused} assetUrls={assetUrls} onSelect={onChoice} /> : null}
@@ -232,6 +224,17 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
       {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
     </div>
   </section>;
+}
+
+function StoryOpenUiPlayer({ chapter, node, config, hasCheckpoint, assetUrls, onAction }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "open-ui" }>; config: StoryPlayerConfig; hasCheckpoint: boolean; assetUrls?: Readonly<Record<string, string>>; onAction: (action: StoryOpenUiAction) => void }) {
+  const item = node.data.presentation.media.mode === "own" ? node.data.presentation.media.items[0] : undefined;
+  const assetId = item ? resolveStoryAssetId(chapter, item.source) : undefined;
+  const media = useStoryAssetUrl(assetId, assetUrls);
+  return <div className="story-player-menu-stage">
+    {media.url && item?.type === "image" ? <img src={media.url} alt="" /> : null}
+    {media.url && item?.type === "video" ? <video className="story-player-menu-video" src={media.url} autoPlay muted loop playsInline /> : null}
+    <StoryScreenSurface files={openUiSurfaceFiles(node.data.presentation, Boolean(media.url))} content={openUiRuntimeContent(node.data.content, hasCheckpoint)} mode="runtime" title={node.data.title || "Open UI"} className="story-player-menu-screen" designViewport={config.viewport} onAction={onAction} />
+  </div>;
 }
 
 function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, paused, assetUrls, onComplete }: {

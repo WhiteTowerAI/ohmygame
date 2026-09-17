@@ -11,8 +11,8 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    expect(story.chapters[0]?.nodes.map((node) => node.type)).toEqual(["start", "project-state", "ending"]);
-    expect(story.chapters[0]?.edges).toHaveLength(2);
+    expect(story.chapters[0]?.nodes.map((node) => node.type)).toEqual(["start", "open-ui", "project-state", "ending"]);
+    expect(story.chapters[0]?.edges).toHaveLength(3);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(stored.characters).toBeUndefined();
     expect(stored.overlays).toBeUndefined();
@@ -97,14 +97,15 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    story.player.backgroundAssetId = "shared-media";
-    story.player.openUiVideoAssetId = "shared-media";
+    const openUi = story.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    if (openUi.type !== "open-ui") throw new Error("Open UI is missing");
+    openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "video", source: { type: "library", assetId: "shared-media" } }] };
     await manager.setStory(project.id, story);
 
     await manager.removeLibraryAssetReferences("shared-media");
 
     const updated = await manager.story(project.id);
-    expect(updated.player.backgroundAssetId).toBeUndefined();
-    expect(updated.player.openUiVideoAssetId).toBeUndefined();
+    const updatedOpenUi = updated.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    expect(updatedOpenUi.type === "open-ui" && updatedOpenUi.data.presentation.media).toEqual({ mode: "own", items: [] });
   });
 });

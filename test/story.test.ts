@@ -2,35 +2,51 @@ import { describe, expect, it } from "vitest";
 import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
-  applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, getNextNode,
-  getProjectStateNode, getStartNode, isStoryDocument, normalizeStoryVariableReferences,
+  advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, getNextNode,
+  getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
 } from "../src/shared/story.js";
 
 describe("canonical Interactive Drama story", () => {
-  it("creates a complete Start -> Initial State -> Ending graph", () => {
+  it("creates a complete Start -> Open UI -> Project State -> Ending graph", () => {
     const story = createStoryDocument();
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     const state = getProjectStateNode(chapter)!;
-    expect(getNextNode(chapter, start.id)?.id).toBe(state.id);
+    const openUi = getNextNode(chapter, start.id)!;
+    expect(openUi.type).toBe("open-ui");
+    expect(getNextNode(chapter, openUi.id)?.id).toBe(state.id);
     expect(getNextNode(chapter, state.id)?.type).toBe("ending");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
   });
 
-  it("requires exactly one Initial State connected directly after Start", () => {
+  it("recognizes only the Open UI connected directly after Start as the entry UI", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const entry = chapter.nodes.find((node) => node.type === "open-ui")!;
+    const midFlow = structuredClone(entry);
+    midFlow.id = "mid-flow-ui";
+    chapter.nodes.push(midFlow);
+
+    expect(isEntryOpenUiNode(chapter, entry.id)).toBe(true);
+    expect(isEntryOpenUiNode(chapter, midFlow.id)).toBe(false);
+  });
+
+  it("allows incomplete editing state but rejects more than one Start", () => {
     const story = createStoryDocument();
     const chapter = story.chapters[0]!;
     const state = getProjectStateNode(chapter)!;
     chapter.nodes = chapter.nodes.filter((node) => node.id !== state.id);
     chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id && edge.target !== state.id);
-    expect(isStoryDocument(story)).toBe(false);
+    delete story.editorLayout.nodes[state.id];
+    expect(isStoryDocument(story)).toBe(true);
 
     const second = createStoryDocument();
     const secondChapter = second.chapters[0]!;
-    secondChapter.edges.find((edge) => edge.source === getStartNode(secondChapter)!.id)!.target = secondChapter.nodes.find((node) => node.type === "ending")!.id;
+    secondChapter.nodes.push({ id: "second-start", type: "start", position: { x: 0, y: 0 }, data: {} });
+    second.editorLayout.nodes["second-start"] = { x: 0, y: 0 };
     expect(isStoryDocument(second)).toBe(false);
   });
 
@@ -70,7 +86,7 @@ describe("canonical Interactive Drama story", () => {
     expect("overlays" in story).toBe(false);
     expect("playerViews" in story).toBe(false);
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
-    expect(story.player.openUiContent.title).toBe("Midnight Run");
+    expect(story.chapters[0]!.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
     expect(isStoryDocument(story)).toBe(true);
   });
 
@@ -78,6 +94,7 @@ describe("canonical Interactive Drama story", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" });
     const chapter = story.chapters[0]!;
     let state = restartGame(chapter, story.variables);
+    state = advanceOpenUi(chapter, state);
     const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
     state = { ...state, nodeId: getNextNode(chapter, scene.id)!.id, scenePlayback: undefined };
     const interaction = chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.id === state.nodeId && node.type === "interaction")!;
@@ -87,10 +104,25 @@ describe("canonical Interactive Drama story", () => {
     expect(state.variables[story.variables.find((variable) => variable.name === "Courage")!.id]).toBe(3);
   });
 
+  it("applies Project State actions while advancing through the flow", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const stateNode = getProjectStateNode(chapter)!;
+    const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
+    story.variables = [variable];
+    stateNode.data.actions = [{ type: "increment-variable", variableId: variable.id, amount: 2 }];
+
+    let runtime = restartGame(chapter, story.variables);
+    runtime = advanceOpenUi(chapter, runtime);
+
+    expect(runtime.variables[variable.id]).toBe(3);
+    expect(runtime.nodeId).toBe(chapter.nodes.find((node) => node.type === "ending")?.id);
+  });
+
   it("carries presentation media along the path actually played", () => {
     const variables: StoryDocument["variables"] = [];
     const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
-    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: {} };
+    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "own", items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: inheritedPresentation().surface } } };
     const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", behavior: { type: "continue", label: "Continue" }, presentation: inheritedPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
@@ -180,8 +212,8 @@ describe("canonical Interactive Drama story", () => {
   });
 });
 
-function isVisibleNode(node: StoryNode): node is Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isVisibleNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function inheritedPresentation() {

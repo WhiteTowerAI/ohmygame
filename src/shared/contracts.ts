@@ -121,7 +121,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "project-state" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "project-state" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -250,7 +250,12 @@ export interface StoryNodeEditorMetadata {
 
 export type StoryNode = (
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "project-state"; position: StoryPosition; data: Record<string, never> }
+  | { id: string; type: "project-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
+  | { id: string; type: "open-ui"; position: StoryPosition; data: {
+    title: string;
+    content: StoryOpenUiContent;
+    presentation: StoryNodePresentation;
+  } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;
     presentation: StoryNodePresentation;
@@ -309,14 +314,6 @@ export interface StoryPlayerConfig {
     width: number;
     height: number;
   };
-  /** Content and action bindings for this story's opening screen. */
-  openUiContent: StoryOpenUiContent;
-  /** Authoritative source files for this project's one-to-one Open UI. */
-  openUiSource: StorySourceFiles;
-  /** Hydrated HTML, CSS, and JavaScript loaded from `openUiSource`. */
-  openUiCode: StorySurfaceFiles;
-  backgroundAssetId?: string;
-  openUiVideoAssetId?: string;
   theme: {
     accentColor: string;
     textColor: string;
@@ -340,7 +337,7 @@ export interface StoryOpenUiContent {
 }
 
 export interface StoryDocument {
-  version: 9;
+  version: 10;
   codebase: { version: 2 };
   /** Hydrated editor-only state. Persisted in editor-layout.json, not story.json. */
   editorLayout: StoryEditorLayout;

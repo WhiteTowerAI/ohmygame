@@ -84,7 +84,7 @@ This workspace is the source of truth for an OpenGame Interactive Drama.
 - \`editor-layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
 - \`editor/presentation.js\` optionally customizes node-card and Inspector content without replacing the editor shell.
 - \`editor/style.css\` styles project editor surfaces inside their sandbox.
-- \`player.openUiSource\` points to the standard HTML, CSS, and JavaScript owned by Open UI.
+- Open UI nodes own their HTML, CSS, and JavaScript through \`data.presentation.surface.source\`.
 - \`scenes/**\` contains the HTML, CSS, and JavaScript owned by individual Scenes.
 - \`nodes/**\` contains the HTML, CSS, and JavaScript owned by Choice, Interaction, and Ending presentations.
 - Every player-visible Story node owns \`data.presentation\`: a media strategy (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
@@ -92,7 +92,7 @@ This workspace is the source of truth for an OpenGame Interactive Drama.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
 - An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
-- Open UI owns its media, content, and code through \`player\`; Story Tree and Settings are not separate resources.
+- Open UI is an ordinary Story node that owns its media, content, and code.
 - \`node.editor.kind\` and optional \`node.editor.properties\` identify project-specific editor nodes while \`node.type\` retains stable runtime semantics.
 - Keep \`story.json\` valid JSON and preserve \`codebase.version\`.
 
@@ -127,7 +127,6 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
   const previousSources = await persistedSourcePaths(workspacePath);
   const preserve = options.preserveExistingSources ?? false;
   await Promise.all([
-    writeSourceFiles(workspacePath, normalized.player.openUiSource, normalized.player.openUiCode, preserve),
     ...normalized.chapters.flatMap((chapter) => chapter.nodes.flatMap((node) => isPresentationNode(node) && node.data.presentation?.surface.source
       ? [writeSourceFiles(workspacePath, node.data.presentation.surface.source, node.data.presentation.surface.files, preserve)]
       : [])),
@@ -206,14 +205,13 @@ async function ensureEditorPresentation(workspacePath: string): Promise<void> {
 }
 
 export function isCanonicalStoryCodebase(value: unknown): boolean {
-  if (!isRecord(value) || value.version !== 9 || !isRecord(value.codebase) || value.codebase.version !== 2) return false;
+  if (!isRecord(value) || value.version !== 10 || !isRecord(value.codebase) || value.codebase.version !== 2) return false;
   if (records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => isRecord(node.position)))) return false;
   if (["characters", "overlays", "interactions", "playerViews", "screens"].some((key) => key in value)) return false;
-  if (!isRecord(value.player) || !isSourceReference(value.player.openUiSource) || isRecord(value.player.openUiCode)) return false;
+  if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
-  if (!isRecord(value.player.openUiContent) || !records(value.player.openUiContent.buttons).some((button) => button.action === "enter-game")) return false;
   return !records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => {
-    if (!["scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
+    if (!["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
     if (!isSourceReference(data.presentation.surface.source) || isRecord(data.presentation.surface.files)) return true;
@@ -228,11 +226,6 @@ function withStableSources(story: StoryDocument): StoryDocument {
   return {
     ...story,
     codebase: { version: 2 },
-    player: {
-      ...story.player,
-      openUiSource: story.player.openUiSource,
-      openUiCode: story.player.openUiCode,
-    },
     chapters: story.chapters.map((chapter) => ({
       ...chapter,
       nodes: chapter.nodes.map((node) => withNodePresentationSource(chapter.id, node)),
@@ -240,8 +233,8 @@ function withStableSources(story: StoryDocument): StoryDocument {
   };
 }
 
-function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function withNodePresentationSource(chapterId: string, node: StoryNode): StoryNode {
@@ -251,10 +244,11 @@ function withNodePresentationSource(chapterId: string, node: StoryNode): StoryNo
     ...current,
     surface: {
       ...current.surface,
-      source: validSource(current.surface.source) ?? sourceFor(node.type === "scene" ? "scene" : "presentation", `${chapterId}:${node.type}:${node.id}`),
+      source: validSource(current.surface.source) ?? sourceFor(node.type === "scene" ? "scene" : node.type === "open-ui" ? "open-ui" : "presentation", `${chapterId}:${node.type}:${node.id}`),
     },
   };
   if (node.type === "scene") return { ...node, data: { ...node.data, presentation } };
+  if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "interaction") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "choice") return { ...node, data: { ...node.data, presentation } };
   return { ...node, data: { ...node.data, presentation } };
@@ -263,10 +257,6 @@ function withNodePresentationSource(chapterId: string, node: StoryNode): StoryNo
 function dehydrateStory(story: StoryDocument): unknown {
   const value = structuredClone(story) as unknown as UnknownRecord;
   delete value.editorLayout;
-  if (isRecord(value.player)) {
-    const { openUiCode: _openUiCode, ...player } = value.player;
-    value.player = player;
-  }
   value.chapters = records(value.chapters).map((chapter) => ({
     ...chapter,
     nodes: records(chapter.nodes).map(({ position: _position, ...node }) => {
@@ -286,9 +276,6 @@ function dehydrateStory(story: StoryDocument): unknown {
 async function hydrateSourceFiles(workspacePath: string, input: unknown): Promise<unknown> {
   if (!isRecord(input)) return input;
   const value = structuredClone(input) as UnknownRecord;
-  if (isRecord(value.player) && isSourceReference(value.player.openUiSource)) {
-    value.player = { ...value.player, openUiCode: await readSourceFiles(workspacePath, value.player.openUiSource) };
-  }
   value.chapters = await Promise.all(records(value.chapters).map(async (chapter) => ({
     ...chapter,
     nodes: await Promise.all(records(chapter.nodes).map(async (node) => {
@@ -310,7 +297,7 @@ async function readEditorLayout(workspacePath: string): Promise<StoryEditorLayou
 
 function hydrateLayout(input: unknown, layout: StoryEditorLayout): unknown {
   if (!isRecord(input)) return input;
-  const expectedIds = new Set(["open-ui", ...records(input.chapters).flatMap((chapter) => records(chapter.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : []))]);
+  const expectedIds = new Set(records(input.chapters).flatMap((chapter) => records(chapter.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : [])));
   const layoutIds = Object.keys(layout.nodes);
   if (layoutIds.length !== expectedIds.size || layoutIds.some((id) => !expectedIds.has(id))) {
     throw new Error(`Invalid ${EDITOR_LAYOUT_FILE}: node positions do not match story.json`);
@@ -331,7 +318,7 @@ function hydrateLayout(input: unknown, layout: StoryEditorLayout): unknown {
 
 function editorLayoutFromStory(story: StoryDocument): StoryEditorLayout {
   const prior = story.editorLayout;
-  const currentIds = new Set(["open-ui", ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => node.id))]);
+  const currentIds = new Set(story.chapters.flatMap((chapter) => chapter.nodes.map((node) => node.id)));
   const nodes = Object.fromEntries(Object.entries(prior.nodes).filter(([id]) => currentIds.has(id)));
   for (const chapter of story.chapters) for (const node of chapter.nodes) nodes[node.id] = node.position;
   return {
@@ -414,7 +401,6 @@ function sourcePaths(value: unknown): Set<string> {
     if (!isSourceReference(source)) return;
     paths.add(source.html); paths.add(source.css); paths.add(source.javascript);
   };
-  if (isRecord(value.player)) add(value.player.openUiSource);
   for (const chapter of records(value.chapters)) for (const node of records(chapter.nodes)) {
     if (isRecord(node.data) && isRecord(node.data.presentation) && isRecord(node.data.presentation.surface)) add(node.data.presentation.surface.source);
   }
@@ -445,12 +431,12 @@ function resolveWorkspaceSource(workspacePath: string, relativePath: string): st
   return destination;
 }
 
-function sourceFor(kind: "scene" | "presentation", id: string): StorySourceFiles {
-  const base = kind === "scene" ? `scenes/${sourceSegment(id)}` : `nodes/${sourceSegment(id)}`;
+function sourceFor(kind: "scene" | "open-ui" | "presentation", id: string): StorySourceFiles {
+  const base = kind === "scene" ? `scenes/${sourceSegment(id)}` : kind === "open-ui" ? `ui/${sourceSegment(id)}` : `nodes/${sourceSegment(id)}`;
   return {
     html: `${base}/index.html`,
     css: `${base}/style.css`,
-    javascript: `${base}/${kind === "scene" ? "scene.js" : "surface.js"}`,
+    javascript: `${base}/${kind === "scene" ? "scene.js" : kind === "open-ui" ? "screen.js" : "surface.js"}`,
   };
 }
 

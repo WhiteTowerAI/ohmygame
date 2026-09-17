@@ -788,7 +788,6 @@ describe("remote publish", () => {
 
 function syncStoryLayout(story: ReturnType<typeof createStoryDocument>): void {
   story.editorLayout.nodes = Object.fromEntries([
-    ["open-ui", story.editorLayout.nodes["open-ui"] ?? { x: 240, y: 240 }],
     ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
   ]);
 }

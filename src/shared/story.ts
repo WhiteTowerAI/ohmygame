@@ -1,6 +1,6 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionBehavior, type StoryInteractionCommand, type StorySurfaceFiles, type StoryInteractionOutcome, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "project-state", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "project-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 
 export const DEFAULT_OPEN_UI_SOURCE: StorySourceFiles = {
   html: "ui/open-ui/index.html",
@@ -43,16 +43,12 @@ export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
 export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
   title: "Untitled Story",
   viewport: { width: 1280, height: 720 },
-  openUiContent: DEFAULT_OPEN_UI_CONTENT,
-  openUiSource: DEFAULT_OPEN_UI_SOURCE,
-  openUiCode: DEFAULT_OPEN_UI_CODE,
   theme: { accentColor: "#ffffff", textColor: "#ffffff", font: "sans" },
   videoFit: "contain",
   choicePosition: "bottom",
 };
 
-export function openUiRuntimeContent(config: StoryPlayerConfig, hasCheckpoint: boolean): StoryOpenUiContent {
-  const content = config.openUiContent;
+export function openUiRuntimeContent(content: StoryOpenUiContent, hasCheckpoint: boolean): StoryOpenUiContent {
   return {
     ...content,
     buttons: content.buttons.map((button) => button.action === "enter-game"
@@ -61,8 +57,8 @@ export function openUiRuntimeContent(config: StoryPlayerConfig, hasCheckpoint: b
   };
 }
 
-export function openUiSurfaceFiles(config: StoryPlayerConfig, transparent: boolean): StorySurfaceFiles {
-  const files = config.openUiCode;
+export function openUiSurfaceFiles(presentation: StoryNodePresentation, transparent: boolean): StorySurfaceFiles {
+  const files = presentation.surface.files;
   return transparent ? { ...files, css: `${files.css}\nhtml,body,body>*{background:transparent!important}` } : files;
 }
 
@@ -121,27 +117,28 @@ button:hover { border-color: #fff; background: rgb(255 255 255 / 18%); }`,
 }`,
 };
 
-export function storyNodePresentation(node: Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
+export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
   return node.data.presentation;
 }
 
-function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 export function createStoryDocument(): StoryDocument {
   const startId = crypto.randomUUID();
+  const openUiId = crypto.randomUUID();
   const stateId = crypto.randomUUID();
   const endingId = crypto.randomUUID();
   const chapterId = crypto.randomUUID();
   return {
-    version: 9,
+    version: 10,
     codebase: { version: 2 },
     editorLayout: {
       version: 1,
       nodes: {
         [startId]: { x: 80, y: 180 },
-        "open-ui": { x: 240, y: 240 },
+        [openUiId]: { x: 240, y: 210 },
         [stateId]: { x: 760, y: 210 },
         [endingId]: { x: 1_120, y: 210 },
       },
@@ -155,11 +152,13 @@ export function createStoryDocument(): StoryDocument {
       title: "Untitled",
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 180 }, data: {} },
-        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: {} },
+        { id: openUiId, type: "open-ui", position: { x: 240, y: 210 }, data: { title: "Untitled Story", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
         { id: endingId, type: "ending", position: { x: 1_120, y: 210 }, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } },
       ],
       edges: [
-        { id: crypto.randomUUID(), source: startId, target: stateId },
+        { id: crypto.randomUUID(), source: startId, target: openUiId },
+        { id: crypto.randomUUID(), source: openUiId, target: stateId },
         { id: crypto.randomUUID(), source: stateId, target: endingId },
       ],
     }],
@@ -167,26 +166,25 @@ export function createStoryDocument(): StoryDocument {
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 9 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
+  if (!isRecord(value) || value.version !== 10 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
   if (!hasOnlyKeys(value, ["version", "codebase", "editorLayout", "player", "variables", "chapters"])) return false;
   if (!isRecord(value.codebase) || value.codebase.version !== 2 || !hasOnlyKeys(value.codebase, ["version"])) return false;
   if (!isEditorLayout(value.editorLayout) || !isPlayerConfig(value.player) || !isVariables(value.variables)) return false;
   const variables = new Map(value.variables.map((variable) => [variable.id, variable]));
   const sourcePaths = [
-    ...(value.player.openUiSource ? [value.player.openUiSource.html, value.player.openUiSource.css, value.player.openUiSource.javascript] : []),
     ...storyRecords(value.chapters).flatMap((chapter) => storyRecords(chapter.nodes).flatMap((node) => {
       const data = isRecord(node.data) ? node.data : undefined;
       const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
       const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
       const source = surface && isRecord(surface.source) ? surface.source : undefined;
-      return ["scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
+      return ["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
         ? [source.html, source.css, source.javascript]
         : [];
     })),
   ];
   if (new Set(sourcePaths).size !== sourcePaths.length) return false;
   const chapterIds = new Set<string>();
-  const documentNodeIds = new Set<string>(["open-ui"]);
+  const documentNodeIds = new Set<string>();
   const validChapters = value.chapters.every((chapter) => {
     if (!isRecord(chapter) || !hasOnlyKeys(chapter, ["id", "title", "nodes", "edges"]) || !nonEmptyString(chapter.id) || chapterIds.has(chapter.id) || typeof chapter.title !== "string" ||
       !Array.isArray(chapter.nodes) || !Array.isArray(chapter.edges)) return false;
@@ -200,10 +198,8 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       documentNodeIds.add(node.id);
       nodeById.set(node.id, node);
     }
-    const initialStates = nodes.filter((node): node is Extract<StoryNode, { type: "project-state" }> => isRecord(node) && node.type === "project-state") as Extract<StoryNode, { type: "project-state" }>[];
-    if (initialStates.length !== 1) return false;
     for (const node of nodeById.values()) {
-      if (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
+      if (node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
         const presentation = node.data.presentation;
         if (presentation?.media.mode === "own") {
           for (const item of presentation.media.items) {
@@ -225,7 +221,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
         nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
     }
-    if (nodes.filter((node) => isRecord(node) && node.type === "start").length !== 1) return false;
+    if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1) return false;
     const edgeIds = new Set<string>();
     const outputs = new Set<string>();
     const validEdges = (chapter.edges as unknown[]).every((edge) => {
@@ -239,8 +235,6 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       const source = nodeById.get(edge.source);
       const target = nodeById.get(edge.target);
       if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
-      if (target.type === "project-state" && source.type !== "start") return false;
-      if (source.type === "project-state" && target.type === "project-state") return false;
       const handle = edge.sourceHandle ?? "out";
       if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
         : source.type === "interaction" ? !storyInteractionNodeOutcomes(source.data.behavior).includes(handle)
@@ -250,11 +244,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       return true;
     });
     if (!validEdges) return false;
-    const start = [...nodeById.values()].find((node) => node.type === "start");
-    const initialState = initialStates[0];
-    const startEdge = chapter.edges.find((edge) => edge.source === start?.id && (edge.sourceHandle ?? "out") === "out");
-    const stateEdge = chapter.edges.find((edge) => edge.source === initialState?.id && (edge.sourceHandle ?? "out") === "out");
-    return startEdge?.target === initialState?.id && Boolean(stateEdge && stateEdge.target !== start?.id);
+    return true;
   });
   if (!validChapters) return false;
   const layoutIds = Object.keys((value.editorLayout as StoryEditorLayout).nodes);
@@ -276,6 +266,11 @@ export function getStartNode(chapter: StoryChapter): StoryNode | undefined {
 
 export function getProjectStateNode(chapter: StoryChapter): Extract<StoryNode, { type: "project-state" }> | undefined {
   return chapter.nodes.find((node): node is Extract<StoryNode, { type: "project-state" }> => node.type === "project-state");
+}
+
+export function isEntryOpenUiNode(chapter: StoryChapter, nodeId: string): boolean {
+  const start = getStartNode(chapter);
+  return Boolean(start && getNextNode(chapter, start.id)?.id === nodeId);
 }
 
 export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryEdge | undefined {
@@ -351,7 +346,7 @@ export type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" 
 
 export interface StorySaveDataV1 {
   version: 1;
-  storyVersion: 9;
+  storyVersion: 10;
   storySignature: string;
   savedAt: string;
   checkpoint: PlayingRuntimeState;
@@ -360,7 +355,7 @@ export interface StorySaveDataV1 {
 export function createStoryCheckpoint(storySignature: string, state: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
   if (!storySignature) throw new Error("Story signature is required");
   if (state.mode !== "playing") throw new Error("Only a playing state can be saved");
-  return { version: 1, storyVersion: 9, storySignature, savedAt, checkpoint: clonePlayingState(state) };
+  return { version: 1, storyVersion: 10, storySignature, savedAt, checkpoint: clonePlayingState(state) };
 }
 
 export function restoreStoryCheckpoint(
@@ -369,7 +364,7 @@ export function restoreStoryCheckpoint(
   chapter: StoryChapter,
   variables: readonly StoryVariable[],
 ): PlayingRuntimeState | undefined {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 9 || value.storySignature !== storySignature ||
+  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 10 || value.storySignature !== storySignature ||
     typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)) || !isRecord(value.checkpoint)) return undefined;
   const checkpoint = value.checkpoint;
   if (checkpoint.mode !== "playing" || checkpoint.chapterId !== chapter.id || !nonEmptyString(checkpoint.nodeId) ||
@@ -378,7 +373,7 @@ export function restoreStoryCheckpoint(
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "project-state" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "project-state" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else {
@@ -520,8 +515,8 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
   };
   if (node.type === "project-state") {
     const next = getNextNode(chapter, node.id);
-    if (!next) throw new Error("Initial State is not connected");
-    return enterStoryNode(chapter, entered, next);
+    if (!next) throw new Error("Project State is not connected");
+    return enterStoryNode(chapter, { ...entered, variables: applyRuntimeActions(entered.variables, node.data.actions) }, next);
   }
   const media = node.type === "scene" ? node.data.presentation.media : undefined;
   const firstMedia = media?.mode === "own" ? media.items[0] : undefined;
@@ -536,6 +531,15 @@ export function resolvePresentationMedia(chapter: StoryChapter, state: { present
   const owner = chapter.nodes.find((node) => node.id === reference.nodeId);
   if (!owner || !isPresentationNode(owner) || owner.data.presentation.media.mode !== "own") return undefined;
   return owner.data.presentation.media.items.find((item) => item.id === reference.mediaId);
+}
+
+export function advanceOpenUi(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
+  if (state.mode !== "playing") throw new Error("The game is not playing");
+  const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
+  if (node?.type !== "open-ui") throw new Error("The current story node is not Open UI");
+  const next = getNextNode(chapter, node.id);
+  if (!next) throw new Error("Open UI is not connected");
+  return enterStoryNode(chapter, state, next);
 }
 
 function currentScenePlayback(chapter: StoryChapter, state: PlayingRuntimeState, mediaId?: string): { node: Extract<StoryNode, { type: "scene" }>; playback: ScenePlaybackState } {
@@ -687,7 +691,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
           : node.type === "interaction" && handle !== "out"
               ? `Connect the ${handle} outcome in "${node.data.title || "Untitled interaction"}".`
             : node.type === "project-state"
-              ? "Connect Initial State to the first story node."
+              ? `Connect ${node.data.title || "Project State"} to the next story node.`
               : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
       };
       const target = chapter.nodes.find((candidate) => candidate.id === edge.target);
@@ -704,8 +708,16 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     !hasOnlyKeys(value, ["id", "type", "position", "data", "editor"])) return false;
   if (value.editor !== undefined && (!isRecord(value.editor) || !nonEmptyString(value.editor.kind) || value.editor.kind.length > 80 ||
     (value.editor.properties !== undefined && !isRecord(value.editor.properties)) || !hasOnlyKeys(value.editor, ["kind", "properties"]))) return false;
-  if (value.type === "start" || value.type === "project-state") return Object.keys(value.data).length === 0;
-  if (["scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
+  if (value.type === "start") return Object.keys(value.data).length === 0;
+  if (value.type === "project-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
+    value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
+  if (["open-ui", "scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
+  if (value.type === "open-ui") {
+    const presentation = value.data.presentation as StoryNodePresentation;
+    return typeof value.data.title === "string" && isOpenUiContent(value.data.content) &&
+      (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
+      hasOnlyKeys(value.data, ["title", "content", "presentation"]);
+  }
   if (value.type === "scene") {
     return typeof value.data.title === "string" && Object.keys(value.data).every((key) => key === "title" || key === "presentation");
   }
@@ -842,14 +854,12 @@ function isVariables(value: unknown): value is StoryVariable[] {
 
 function isPlayerConfig(value: unknown): value is StoryPlayerConfig {
   if (!isRecord(value) || typeof value.title !== "string" || value.title.length > 120 ||
-    !hasOnlyKeys(value, ["title", "viewport", "openUiContent", "openUiSource", "openUiCode", "backgroundAssetId", "openUiVideoAssetId", "theme", "videoFit", "choicePosition"]) ||
+    !hasOnlyKeys(value, ["title", "viewport", "theme", "videoFit", "choicePosition"]) ||
     !isRecord(value.viewport) || !isViewportDimension(value.viewport.width) || !isViewportDimension(value.viewport.height) ||
     !hasOnlyKeys(value.viewport, ["width", "height"]) ||
-    (value.backgroundAssetId !== undefined && !nonEmptyString(value.backgroundAssetId)) ||
-    (value.openUiVideoAssetId !== undefined && !nonEmptyString(value.openUiVideoAssetId)) ||
     (value.videoFit !== "contain" && value.videoFit !== "cover") ||
-    (value.choicePosition !== "center" && value.choicePosition !== "bottom") || !isRecord(value.theme) || !hasOnlyKeys(value.theme, ["accentColor", "textColor", "font"]) ||
-    !isSourceFiles(value.openUiSource) || !isSurfaceFiles(value.openUiCode) || !isOpenUiContent(value.openUiContent)) return false;
+    (value.choicePosition !== "center" && value.choicePosition !== "bottom") || !isRecord(value.theme) ||
+    !hasOnlyKeys(value.theme, ["accentColor", "textColor", "font"])) return false;
   return /^#[0-9a-f]{6}$/i.test(String(value.theme.accentColor)) &&
     /^#[0-9a-f]{6}$/i.test(String(value.theme.textColor)) &&
     (value.theme.font === "sans" || value.theme.font === "serif");
