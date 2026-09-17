@@ -786,7 +786,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 async function responseError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
-  return new ApiError(body.error ?? body.message ?? `Request failed with ${response.status}`, response.status);
+  return new ApiError(body.message ?? body.error ?? `Request failed with ${response.status}`, response.status);
 }
 
 async function streamProjectEvents(

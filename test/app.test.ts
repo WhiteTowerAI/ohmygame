@@ -1187,11 +1187,27 @@ describe("daemon", () => {
     apps.push(app);
 
     const plans = await app.inject({ method: "GET", url: "/account/plans" });
-    const usage = await app.inject({ method: "POST", url: "/account/usage?page=1", payload: {} });
+    const usage = await app.inject({
+      method: "POST",
+      url: "/account/usage?page=1",
+      payload: { accessToken: "supabase-token" },
+    });
 
     expect(plans.json()).toEqual([{ id: 1, name: "Plus" }]);
     expect(portalFetch).toHaveBeenCalledWith(new URL("https://portal.open-game.ai/api/plans"), expect.any(Object));
-    expect(usage.statusCode).toBe(400);
+    expect(usage.statusCode).toBe(200);
+    expect(portalFetch).toHaveBeenCalledWith(
+      new URL("https://portal.open-game.ai/api/usage?page=1"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer supabase-token" }),
+      }),
+    );
+    const invalidPage = await app.inject({
+      method: "POST",
+      url: "/account/usage?page=0",
+      payload: { accessToken: "supabase-token" },
+    });
+    expect(invalidPage.statusCode).toBe(400);
   });
 
   it("uses the connected Portal credential for Meshy 7 generation", async () => {

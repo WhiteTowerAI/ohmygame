@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -8,6 +8,18 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("shows the specific API error message", async () => {
+    installWindow();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      error: "Bad Request",
+      message: "querystring/page must be valid",
+    }, { status: 400 })));
+
+    await expect(accountApi.usage("token", 1)).rejects.toThrow(
+      "querystring/page must be valid",
+    );
+  });
+
   it("sends Interactive Drama template selection only when requested", async () => {
     installWindow();
     const project = { id: "project", name: "Story", type: "interactive-drama", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };

@@ -1894,7 +1894,7 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) =>
       accountReply(reply, () => portalClient.subscription(request.body.accessToken)),
   );
-  app.post<{ Querystring: { page?: number }; Body: { accessToken: string } }>(
+  app.post<{ Querystring: { page?: string }; Body: { accessToken: string } }>(
     "/account/usage",
     {
       schema: {
@@ -1903,14 +1903,18 @@ export function createApp(options: AppOptions = {}) {
           type: "object",
           additionalProperties: false,
           properties: {
-            page: { type: "integer", minimum: 1, maximum: 10_000, default: 1 },
+            page: {
+              type: "string",
+              pattern: "^(?:[1-9][0-9]{0,3}|10000)$",
+              default: "1",
+            },
           },
         },
       },
     },
     async (request, reply) =>
       accountReply(reply, () =>
-        portalClient.usage(request.body.accessToken, request.query.page ?? 1),
+        portalClient.usage(request.body.accessToken, Number(request.query.page ?? "1")),
       ),
   );
   app.post<{ Body: { accessToken: string; planId: number } }>(
