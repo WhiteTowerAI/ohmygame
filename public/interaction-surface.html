@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-open-game-interaction-surface' blob:; font-src data:"
+    />
+    <style>html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }</style>
+  </head>
+  <body>
+    <script nonce="open-game-interaction-surface">
+      (() => {
+        const CHANNEL = "open-game:interaction-surface";
+        let controller;
+        let moduleUrl;
+
+        function post(instanceId, type, payload = {}) {
+          parent.postMessage({ channel: CHANNEL, instanceId, type, ...payload }, "*");
+        }
+
+        window.addEventListener("message", async (message) => {
+          const data = message.data;
+          if (message.source !== parent || !data || data.channel !== CHANNEL || data.type !== "init" || typeof data.instanceId !== "string") return;
+          controller?.abort();
+          if (moduleUrl) URL.revokeObjectURL(moduleUrl);
+          controller = new AbortController();
+          document.body.innerHTML = data.files.html;
+          document.getElementById("interaction-surface-style")?.remove();
+          const style = document.createElement("style");
+          style.id = "interaction-surface-style";
+          style.textContent = data.files.css;
+          document.head.append(style);
+          try {
+            moduleUrl = URL.createObjectURL(new Blob([data.files.javascript], { type: "text/javascript" }));
+            const interactionModule = await import(moduleUrl);
+            if (typeof interactionModule.run !== "function") throw new Error('interaction.js must export an async function named "run"');
+            document.documentElement.dataset.interactionSurfaceReady = "ready";
+            const signal = controller.signal;
+            const commands = [];
+            const variables = { ...(data.context?.variables || {}) };
+            const ui = createUi(document, signal);
+            const game = createGame(data.mode, variables, commands);
+            const result = await interactionModule.run({ ui, game, signal });
+            post(data.instanceId, "complete", { result: typeof result === "string" ? result : "continue", commands: data.mode === "runtime" ? commands : [] });
+          } catch (error) {
+            if (!(error instanceof DOMException && error.name === "AbortError")) post(data.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
+          }
+        });
+
+        function createUi(root, signal) {
+          return Object.freeze({
+              root,
+              querySelector: (selector) => root.querySelector(selector),
+              waitForClick: (target, options = {}) => new Promise((resolve, reject) => {
+                const element = typeof target === "string" ? root.querySelector(target) : target;
+                if (!(element instanceof Element)) { reject(new Error("ui.waitForClick target was not found")); return; }
+                const activeSignal = options.signal || signal;
+                const abort = () => reject(new DOMException("Interaction stopped", "AbortError"));
+                if (activeSignal.aborted) { abort(); return; }
+                element.addEventListener("click", () => resolve(element), { once: true, signal: activeSignal });
+                activeSignal.addEventListener("abort", abort, { once: true });
+              }),
+              waitForKey: (code, options = {}) => new Promise((resolve, reject) => {
+                if (typeof code !== "string" || !code) { reject(new Error("ui.waitForKey requires a key code")); return; }
+                const activeSignal = options.signal || signal;
+                const abort = () => reject(new DOMException("Interaction stopped", "AbortError"));
+                if (activeSignal.aborted) { abort(); return; }
+                const keydown = (event) => {
+                  if (event.code !== code || event.repeat) return;
+                  event.preventDefault();
+                  window.removeEventListener("keydown", keydown);
+                  resolve(event.code);
+                };
+                window.addEventListener("keydown", keydown, { signal: activeSignal });
+                activeSignal.addEventListener("abort", abort, { once: true });
+              }),
+              waitForTimeout: (duration, options = {}) => new Promise((resolve, reject) => {
+                if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) { reject(new Error("ui.waitForTimeout requires a non-negative duration")); return; }
+                const activeSignal = options.signal || signal;
+                const timer = setTimeout(resolve, duration);
+                activeSignal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Interaction stopped", "AbortError")); }, { once: true });
+              }),
+            });
+        }
+
+        function createGame(mode, variables, commands) {
+          const record = (command) => { commands.push(command); };
+          return Object.freeze({
+              mode,
+              variables: Object.freeze({
+                get: (variable) => variables[variable],
+                set: (variable, value) => { record({ type: "set-variable", variable, value }); variables[variable] = value; },
+                increment: (variable, amount) => {
+                  const current = variables[variable];
+                  if (typeof current !== "number" || typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("game.variables.increment requires a number variable and finite amount");
+                  record({ type: "increment-variable", variable, amount });
+                  variables[variable] = current + amount;
+                },
+              }),
+            });
+        }
+      })();
+    </script>
+  </body>
+</html>

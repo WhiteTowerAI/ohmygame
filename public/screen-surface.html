@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-open-game-screen-surface' blob:; font-src data:" />
+    <style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}body>*{width:100%;height:100%}</style>
+  </head>
+  <body>
+    <script nonce="open-game-screen-surface">
+      (() => {
+        const CHANNEL = "open-game:screen-surface";
+        let moduleUrl;
+        function post(instanceId, type, payload = {}) {
+          parent.postMessage({ channel: CHANNEL, instanceId, type, ...payload }, "*");
+        }
+        window.addEventListener("message", async (message) => {
+          const data = message.data;
+          if (message.source !== parent || !data || data.channel !== CHANNEL || data.type !== "init" || typeof data.instanceId !== "string") return;
+          if (moduleUrl) URL.revokeObjectURL(moduleUrl);
+          document.body.innerHTML = data.files.html;
+          document.getElementById("screen-surface-style")?.remove();
+          const style = document.createElement("style");
+          style.id = "screen-surface-style";
+          style.textContent = data.files.css;
+          document.head.append(style);
+          try {
+            moduleUrl = URL.createObjectURL(new Blob([data.files.javascript], { type: "text/javascript" }));
+            const screenModule = await import(moduleUrl);
+            if (typeof screenModule.render !== "function") throw new Error('screen.js must export a function named "render"');
+            const actions = Object.freeze({
+              run: (action) => {
+                const valid = action === "enter-game";
+                if (!valid) throw new Error(`Unknown Player UI action: ${String(action)}`);
+                if (data.mode === "runtime") post(data.instanceId, "action", { action });
+              },
+            });
+            await screenModule.render({ content: Object.freeze(data.content), actions, root: document });
+            document.documentElement.dataset.screenSurfaceReady = "ready";
+          } catch (error) {
+            post(data.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

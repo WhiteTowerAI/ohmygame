@@ -1,0 +1,189 @@
+import { describe, expect, it } from "vitest";
+import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
+import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
+import {
+  applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, getNextNode,
+  getProjectStateNode, getStartNode, isStoryDocument, normalizeStoryVariableReferences,
+  parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
+  restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
+} from "../src/shared/story.js";
+
+describe("canonical Interactive Drama story", () => {
+  it("creates a complete Start -> Initial State -> Ending graph", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const start = getStartNode(chapter)!;
+    const state = getProjectStateNode(chapter)!;
+    expect(getNextNode(chapter, start.id)?.id).toBe(state.id);
+    expect(getNextNode(chapter, state.id)?.type).toBe("ending");
+    expect(isStoryDocument(story)).toBe(true);
+    expect(validatePlayableChapter(chapter)).toBeUndefined();
+  });
+
+  it("requires exactly one Initial State connected directly after Start", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const state = getProjectStateNode(chapter)!;
+    chapter.nodes = chapter.nodes.filter((node) => node.id !== state.id);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id && edge.target !== state.id);
+    expect(isStoryDocument(story)).toBe(false);
+
+    const second = createStoryDocument();
+    const secondChapter = second.chapters[0]!;
+    secondChapter.edges.find((edge) => edge.source === getStartNode(secondChapter)!.id)!.target = secondChapter.nodes.find((node) => node.type === "ending")!.id;
+    expect(isStoryDocument(second)).toBe(false);
+  });
+
+  it("rejects old document versions instead of migrating them", () => {
+    expect(() => parseStoryDocument({ ...createStoryDocument(), version: 8 })).toThrow("Invalid story document");
+  });
+
+  it("rejects legacy and unknown fields instead of normalizing them", () => {
+    expect(isStoryDocument({ ...createStoryDocument(), overlays: [] })).toBe(false);
+    const { player: _player, ...withoutPlayer } = createStoryDocument();
+    expect(isStoryDocument(withoutPlayer)).toBe(false);
+    const story = createStoryDocument();
+    const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
+    ending.data = { ...ending.data, overlayIds: [] } as typeof ending.data;
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("requires non-empty unique variable names", () => {
+    const story = createStoryDocument();
+    story.variables = [
+      { id: "one", name: "score", type: "number", initialValue: 0 },
+      { id: "two", name: "score", type: "number", initialValue: 1 },
+    ];
+    expect(isStoryDocument(story)).toBe(false);
+    story.variables[1]!.name = "";
+    expect(isStoryDocument(story)).toBe(false);
+    story.variables[1]!.name = "   ";
+    expect(isStoryDocument(story)).toBe(false);
+    story.variables[1]!.name = "courage";
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("ships a starter whose visible nodes own media and code", () => {
+    const story = createInteractiveDramaStarterStory({ videoId: "video" }, "Midnight Run");
+    const visible = story.chapters[0]!.nodes.filter(isVisibleNode);
+    expect("interactions" in story).toBe(false);
+    expect("overlays" in story).toBe(false);
+    expect("playerViews" in story).toBe(false);
+    expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
+    expect(story.player.openUiContent.title).toBe("Midnight Run");
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("runs standalone Interaction behavior and graph outcomes", () => {
+    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const chapter = story.chapters[0]!;
+    let state = restartGame(chapter, story.variables);
+    const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
+    state = { ...state, nodeId: getNextNode(chapter, scene.id)!.id, scenePlayback: undefined };
+    const interaction = chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.id === state.nodeId && node.type === "interaction")!;
+    expect(storyInteractionNodeOutcomes(interaction.data.behavior)).toEqual(["success", "timeout"]);
+    state = resolveInteractionNode(chapter, state, "success", [{ type: "set-variable", variable: "Found ticket", value: true }], story.variables);
+    expect(Object.values(state.variables)).toContain(true);
+    expect(state.variables[story.variables.find((variable) => variable.name === "Courage")!.id]).toBe(3);
+  });
+
+  it("carries presentation media along the path actually played", () => {
+    const variables: StoryDocument["variables"] = [];
+    const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
+    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: {} };
+    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "own", items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: inheritedPresentation().surface } } };
+    const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", behavior: { type: "continue", label: "Continue" }, presentation: inheritedPresentation() } };
+    const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
+    const chapter: StoryChapter = {
+      id: "chapter", title: "Chapter", nodes: [start, initial, scene, interaction, ending],
+      edges: [
+        { id: "a", source: start.id, target: initial.id },
+        { id: "b", source: initial.id, target: scene.id },
+        { id: "c", source: scene.id, target: interaction.id },
+        { id: "d", source: interaction.id, sourceHandle: "continue", target: ending.id },
+      ],
+    };
+    let state = restartGame(chapter, variables);
+    state = completeSceneMedia(chapter, state, "image", 0);
+    expect(state.nodeId).toBe(interaction.id);
+    expect(resolvePresentationMedia(chapter, state)).toEqual(scene.data.presentation.media.mode === "own" ? scene.data.presentation.media.items[0] : undefined);
+    state = resolveInteractionNode(chapter, state, "continue", [], variables);
+    expect(resolvePresentationMedia(chapter, state)?.id).toBe("image");
+  });
+
+  it("validates image and video presentation media by their actual type", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    const state = getProjectStateNode(chapter)!;
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    const image: StoryNode = { id: "image", type: "asset", position: { x: 200, y: 0 }, data: { assetId: "poster", mediaType: "image" } };
+    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 300, y: 0 }, data: { title: "Poster", presentation: { media: { mode: "own", items: [{ id: "poster-item", type: "image", source: { type: "node", nodeId: image.id } }] }, surface: inheritedPresentation().surface } } };
+    chapter.nodes.push(image, scene);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id);
+    chapter.edges.push({ id: "state-scene", source: state.id, target: scene.id }, { id: "scene-ending", source: scene.id, target: ending.id });
+    expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "image"]]) })).toBeUndefined();
+    expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "video"]]) })?.nodeId).toBe(scene.id);
+  });
+
+  it("requires globally unique node IDs and complete exact editor layout", () => {
+    const missingLayout = createStoryDocument();
+    delete missingLayout.editorLayout.nodes[missingLayout.chapters[0]!.nodes[0]!.id];
+    expect(isStoryDocument(missingLayout)).toBe(false);
+
+    const duplicate = createStoryDocument();
+    duplicate.chapters.push({ ...duplicate.chapters[0]!, id: "second", title: "Second" });
+    expect(isStoryDocument(duplicate)).toBe(false);
+  });
+
+  it("rejects multiple owned media items outside Scene nodes", () => {
+    const story = createStoryDocument();
+    const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
+    if (ending.type !== "ending") throw new Error("Ending is missing");
+    ending.data.presentation.media = { mode: "own", items: [
+      { id: "one", type: "image", source: { type: "library", assetId: "one" } },
+      { id: "two", type: "image", source: { type: "library", assetId: "two" } },
+    ] };
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("resolves canonical presentation media through Library and media nodes", () => {
+    const story = createStoryDocument();
+    const chapter = story.chapters[0]!;
+    chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
+    expect(resolveStoryAssetId(chapter, { type: "library", assetId: "library" })).toBe("library");
+    expect(resolveStoryAssetId(chapter, { type: "node", nodeId: "video" })).toBe("generated");
+  });
+
+  it("normalizes Choice references when variables are removed or retyped", () => {
+    const options = [{ id: "go", label: "Go", condition: { variableId: "score", operator: "greater-than" as const, value: 1 }, actions: [{ type: "increment-variable" as const, variableId: "score", amount: 2 }] }];
+    expect(normalizeStoryVariableReferences(options, new Map())).toEqual([{ id: "go", label: "Go" }]);
+    const normalized = normalizeStoryVariableReferences(options, new Map([["score", { id: "score", name: "score", type: "text", initialValue: "" }]]));
+    expect(normalized[0]).toMatchObject({ condition: { operator: "equals", value: "" } });
+    expect(normalized[0]!.actions).toBeUndefined();
+  });
+
+  it("applies choice actions and follows the selected output", () => {
+    const variables = [{ id: "score", name: "score", type: "number" as const, initialValue: 0 }];
+    const choice: StoryNode = { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }], presentation: inheritedPresentation() } };
+    const ending: StoryNode = { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
+    const chapter: StoryChapter = { id: "chapter", title: "Chapter", nodes: [choice, ending], edges: [{ id: "edge", source: "choice", sourceHandle: "go", target: "ending" }] };
+    const state = { ...createPlayerState(chapter.id, variables), mode: "playing" as const, nodeId: choice.id };
+    expect(chooseOption(chapter, state, "go")).toMatchObject({ nodeId: "ending", variables: { score: 2 } });
+    expect(applyStoryActions(choice.data.options[0]!.actions, { score: 1 })).toEqual({ score: 3 });
+  });
+
+  it("replaces only the matching output edge", () => {
+    const edges = [{ id: "a", source: "choice", sourceHandle: "left", target: "one" }, { id: "b", source: "choice", sourceHandle: "right", target: "two" }];
+    expect(replaceOutgoingEdge(edges, { id: "c", source: "choice", sourceHandle: "left", target: "three" })).toEqual([
+      edges[1], { id: "c", source: "choice", sourceHandle: "left", target: "three" },
+    ]);
+  });
+});
+
+function isVisibleNode(node: StoryNode): node is Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+}
+
+function inheritedPresentation() {
+  return { media: { mode: "inherit" as const }, surface: { files: { html: "<main></main>", css: "", javascript: "export function render() {}" } } };
+}

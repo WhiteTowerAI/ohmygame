@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "pluginId": "98d626d2-8e51-42a9-adfe-a3a1e19372c9",
+      "releaseId": "708cee03-c52d-4c75-b2ec-3294db8991c7",
+      "repository": "img2threejs/img2threejs",
+      "commit": "dede5909be4e494b228c801a55dda47439143932",
+      "release": "v1.5.1",
+      "version": "1.5.1",
+      "artifactSha256": "fc3f5e8c35009395c3c8bca0b97124b0f62571e1800fba4bea40836885b64356",
+      "candidate": "agent-skills:root",
+      "publisher": {
+        "id": "github:img2threejs",
+        "displayName": "img2threejs"
+      },
+      "curation": "featured",
+      "interface": {
+        "displayName": "Image to Three.js",
+        "shortDescription": "Create procedural Three.js models from reference images.",
+        "longDescription": "Reconstruct reference images as procedural, animation-ready Three.js models through a structured modeling and visual review workflow."
+      }
+    }
+  ]
+}

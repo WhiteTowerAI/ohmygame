@@ -1,0 +1,50 @@
+appId: ai.opengame.desktop
+productName: OpenGame
+asar: true
+
+directories:
+  output: release
+
+files:
+  - dist/desktop/**/*.js
+  - dist/desktop/**/*.cjs
+  - dist/daemon/**/*.js
+  - dist/shared/**/*.js
+  - dist/renderer/**/*
+  - dist/player/**/*
+  - examples/interactive-drama/**/*
+
+extraResources:
+  - from: plugins
+    to: plugins
+  - from: .runtime/preinstalled-plugins
+    to: preinstalled-plugins
+  - from: .runtime/node
+    to: runtime/node
+  - from: .runtime/desktop-config.json
+    to: desktop-config.json
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  notarize: true
+  target:
+    - dmg
+    - zip
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+  artifactName: OpenGame-${version}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: WhiteTowerAI
+  repo: open-game
+  channel: alpha
+  releaseType: prerelease
+
+dmg:
+  artifactName: OpenGame-${version}-${arch}.${ext}

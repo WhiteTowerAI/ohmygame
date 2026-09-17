@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-open-game-editor-presentation' blob:; font-src data:"
+    />
+    <style>
+      html, body { width: 100%; min-height: 1px; margin: 0; overflow: hidden; background: transparent; color: #f4f5f6; font: 13px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; }
+      #root { box-sizing: border-box; width: 100%; min-height: 1px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script nonce="open-game-editor-presentation">
+      (() => {
+        const CHANNEL = "open-game:editor-presentation";
+        let moduleUrl;
+        let observer;
+        let commandSequence = 0;
+        const pendingCommands = new Map();
+
+        function post(instanceId, type, payload = {}) {
+          parent.postMessage({ channel: CHANNEL, instanceId, type, ...payload }, "*");
+        }
+
+        window.addEventListener("message", async (message) => {
+          const data = message.data;
+          if (message.source !== parent || !data || data.channel !== CHANNEL) return;
+          if (data.type === "command-result" && typeof data.commandId === "string") {
+            const pending = pendingCommands.get(data.commandId);
+            if (!pending) return;
+            pendingCommands.delete(data.commandId);
+            if (data.ok) pending.resolve(data.result);
+            else pending.reject(new Error(data.message || "Editor command failed"));
+            return;
+          }
+          if (data.type !== "render" || typeof data.instanceId !== "string") return;
+          const root = document.getElementById("root");
+          root.replaceChildren();
+          observer?.disconnect();
+          if (moduleUrl) URL.revokeObjectURL(moduleUrl);
+          moduleUrl = undefined;
+          try {
+            moduleUrl = URL.createObjectURL(new Blob([data.source], { type: "text/javascript" }));
+            const presentation = await import(moduleUrl);
+            const knownRegions = ["workspace", "toolbar", "node", "inspector", "preview", "timeline"];
+            const regions = Array.isArray(presentation.regions)
+              ? presentation.regions.filter((region) => knownRegions.includes(region))
+              : ["node", "inspector"];
+            document.getElementById("project-editor-style")?.remove();
+            if (typeof data.styles === "string" && data.styles) {
+              const style = document.createElement("style");
+              style.id = "project-editor-style";
+              style.textContent = data.styles;
+              document.head.append(style);
+            }
+            const exportName = `render${data.region[0].toUpperCase()}${data.region.slice(1)}`;
+            const renderer = presentation[exportName];
+            if (!regions.includes(data.region)) { post(data.instanceId, "result", { rendered: false, replace: false, height: 0, regions }); return; }
+            if (typeof renderer !== "function") {
+              post(data.instanceId, "result", { rendered: false, replace: false, height: 0, regions });
+              return;
+            }
+            const editor = createEditor(data.instanceId, data.node, data.context || {});
+            const result = await renderer({ node: Object.freeze(data.node), context: Object.freeze(data.context || {}), editor, root });
+            const replace = Boolean(result && typeof result === "object" && result.replace === true);
+            const rendered = replace && (root.childNodes.length > 0 || root.textContent.trim().length > 0);
+            const report = () => post(data.instanceId, "result", { rendered, replace: rendered, height: Math.ceil(root.getBoundingClientRect().height), regions });
+            observer = new ResizeObserver(report);
+            observer.observe(root);
+            report();
+          } catch (error) {
+            post(data.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
+          }
+        });
+
+        function createEditor(instanceId, node, context) {
+          const dispatch = (type, payload) => new Promise((resolve, reject) => {
+            const id = `editor-command-${Date.now()}-${++commandSequence}`;
+            pendingCommands.set(id, { resolve, reject });
+            post(instanceId, "command", { command: { id, type, payload } });
+          });
+          const story = () => structuredClone(context.story || node.data?.story);
+          return Object.freeze({
+            story,
+            dispatch,
+            replaceStory: (next) => dispatch("replace-story", { story: next }),
+            transaction: (mutate) => {
+              const next = story();
+              mutate(next);
+              return dispatch("replace-story", { story: next });
+            },
+            updateNode: (nodeId, patch) => {
+              const next = story();
+              for (const chapter of next.chapters || []) {
+                const target = chapter.nodes?.find((candidate) => candidate.id === nodeId);
+                if (target) target.data = { ...target.data, ...structuredClone(patch) };
+              }
+              return dispatch("replace-story", { story: next });
+            },
+            updatePlayer: (patch) => {
+              const next = story();
+              next.player = { ...(next.player || {}), ...structuredClone(patch) };
+              return dispatch("replace-story", { story: next });
+            },
+            createNode: (chapterId, nextNode) => {
+              const next = story();
+              const chapter = next.chapters?.find((candidate) => candidate.id === chapterId);
+              if (!chapter) throw new Error(`Chapter ${chapterId} was not found`);
+              chapter.nodes.push(structuredClone(nextNode));
+              return dispatch("replace-story", { story: next });
+            },
+            deleteNode: (nodeId) => {
+              const next = story();
+              for (const chapter of next.chapters || []) {
+                chapter.nodes = chapter.nodes.filter((candidate) => candidate.id !== nodeId || candidate.type === "start" || candidate.type === "project-state");
+                chapter.edges = chapter.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+              }
+              return dispatch("replace-story", { story: next });
+            },
+            connect: (chapterId, edge) => {
+              const next = story();
+              const chapter = next.chapters?.find((candidate) => candidate.id === chapterId);
+              if (!chapter) throw new Error(`Chapter ${chapterId} was not found`);
+              const output = edge.sourceHandle || "out";
+              chapter.edges = chapter.edges.filter((candidate) => candidate.source !== edge.source || (candidate.sourceHandle || "out") !== output);
+              chapter.edges.push(structuredClone(edge));
+              return dispatch("replace-story", { story: next });
+            },
+            disconnect: (chapterId, edgeId) => {
+              const next = story();
+              const chapter = next.chapters?.find((candidate) => candidate.id === chapterId);
+              if (!chapter) throw new Error(`Chapter ${chapterId} was not found`);
+              chapter.edges = chapter.edges.filter((edge) => edge.id !== edgeId);
+              return dispatch("replace-story", { story: next });
+            },
+            setView: (view) => dispatch("set-view", { view }),
+            setLayoutState: (key, value) => dispatch("set-layout-state", { key, value }),
+            openNode: (nodeId) => dispatch("open-node", { nodeId }),
+            closeNode: () => dispatch("close-node"),
+            playtest: () => dispatch("playtest"),
+            undo: () => dispatch("undo"),
+            redo: () => dispatch("redo"),
+            useDefaultEditor: () => dispatch("use-default-editor"),
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,195 @@
+import {
+  AddFolderIcon,
+  AddIcon,
+  AltArrowDownIcon,
+  AltArrowLeftIcon,
+  AltArrowRightIcon,
+  ArrowToDownRightIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  BookmarkIcon,
+  BoxIcon,
+  BoxMinimalisticIcon,
+  BranchingPathsDownIcon,
+  ClapperboardIcon,
+  CloseCircleIcon,
+  CloseIcon,
+  Code2Icon,
+  CodeFileIcon,
+  CopyIcon,
+  CursorIcon,
+  DownloadIcon,
+  DownloadMinimalisticIcon,
+  FileTextIcon,
+  FlagIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  GamepadIcon,
+  GlobalIcon,
+  GalleryIcon,
+  HistoryIcon,
+  HeartIcon,
+  HomeIcon,
+  InfoCircleIcon,
+  LayersIcon,
+  LightbulbIcon,
+  Logout2Icon,
+  MagicWandIcon,
+  MagnifierIcon,
+  MaximizeIcon,
+  MinusIcon,
+  MonitorIcon,
+  MoveToFolderIcon,
+  MusicNoteIcon,
+  PenIcon,
+  PenNewSquareIcon,
+  PauseIcon,
+  PlayIcon,
+  PlugCircleIcon,
+  ProgrammingIcon,
+  RefreshIcon,
+  RestartIcon,
+  SettingsIcon,
+  ServerIcon,
+  ShareIcon,
+  SidebarMinimalisticIcon,
+  SliderHorizontalIcon,
+  SmartphoneIcon,
+  SortVerticalIcon,
+  SquareArrowRightUpIcon,
+  StarsIcon,
+  StopCircleIcon,
+  TabletIcon,
+  TrashBinTrashIcon,
+  UploadIcon,
+  UndoLeftIcon,
+  UndoRightIcon,
+  UserRoundedIcon,
+  VerifiedCheckIcon,
+  VideoFrameIcon,
+  VideocameraIcon,
+  VolumeCrossIcon,
+  VolumeLoudIcon,
+  WiFiIcon,
+  WiFiOffIcon,
+} from "@solar-icons/react/linear";
+import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types";
+import { createElement, forwardRef } from "react";
+
+export type IconComponent = SolarIcon;
+
+export const Check = forwardRef<SVGSVGElement, IconProps>(function Check({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M5 12.5L9.2 16.5L19 7", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+});
+
+export const Circle = forwardRef<SVGSVGElement, IconProps>(function Circle({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("circle", { cx: "12", cy: "12", r: "9", stroke: "currentColor", strokeWidth: "1.5" }));
+});
+
+export const CircleDot = forwardRef<SVGSVGElement, IconProps>(function CircleDot({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("circle", { cx: "12", cy: "12", r: "9", stroke: "currentColor", strokeWidth: "1.5" }), createElement("circle", { cx: "12", cy: "12", r: "3", fill: "currentColor" }));
+});
+
+export const Square = forwardRef<SVGSVGElement, IconProps>(function Square({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props }, createElement("rect", { x: "3.5", y: "3.5", width: "17", height: "17", rx: "1.5", fill: "currentColor" }));
+});
+
+export const MoreHorizontal = forwardRef<SVGSVGElement, IconProps>(function MoreHorizontal({ size = 24, ...props }, ref) {
+  return createElement(
+    "svg",
+    { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props },
+    [6, 12, 18].map((cx) => createElement("circle", { key: cx, cx, cy: 12, r: 1.8, fill: "currentColor" })),
+  );
+});
+
+export const GripVertical = forwardRef<SVGSVGElement, IconProps>(function GripVertical({ size = 24, ...props }, ref) {
+  return createElement(
+    "svg",
+    { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props },
+    [7, 12, 17].map((cy) => createElement("circle", { key: cy, cx: 12, cy, r: 1.35, fill: "currentColor" })),
+  );
+});
+
+export const Hand = forwardRef<SVGSVGElement, IconProps>(function Hand({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M18 11V7.5a1.5 1.5 0 0 0-3 0V10m0-2.5V6a1.5 1.5 0 0 0-3 0v4m0-3V5.5a1.5 1.5 0 0 0-3 0V11m0-3.5a1.5 1.5 0 0 0-3 0V13l-1.2-1.2a1.7 1.7 0 0 0-2.4 2.4l4 4A6 6 0 0 0 10.6 20H13a5 5 0 0 0 5-5v-4Z", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+});
+
+export {
+  AddFolderIcon as FolderPlus,
+  AddIcon as Plus,
+  AltArrowDownIcon as ChevronDown,
+  AltArrowLeftIcon as ChevronLeft,
+  AltArrowRightIcon as ChevronRight,
+  DownloadMinimalisticIcon as ArrowDownToLine,
+  SortVerticalIcon as ArrowDownUp,
+  ArrowToDownRightIcon as CornerDownRight,
+  ArrowLeftIcon as ArrowLeft,
+  ArrowRightIcon as ArrowRight,
+  SquareArrowRightUpIcon as ExternalLink,
+  ArrowUpIcon as ArrowUp,
+  BookmarkIcon as Bookmark,
+  BoxIcon as Box,
+  BoxMinimalisticIcon as Package,
+  BranchingPathsDownIcon as GitBranch,
+  PenNewSquareIcon as MessageSquarePlus,
+  ClapperboardIcon as Clapperboard,
+  CloseCircleIcon as CircleX,
+  CloseIcon as X,
+  Code2Icon as Code2,
+  CodeFileIcon as FileCode2,
+  CopyIcon as Copy,
+  CursorIcon as MousePointer2,
+  DownloadIcon as Download,
+  FileTextIcon as FileText,
+  FlagIcon as Flag,
+  FolderIcon as Folder,
+  FolderOpenIcon as FolderOpen,
+  GamepadIcon as Gamepad2,
+  GlobalIcon as Globe2,
+  GalleryIcon as Image,
+  VideoFrameIcon as Film,
+  HistoryIcon as History,
+  HeartIcon as Heart,
+  HomeIcon as House,
+  InfoCircleIcon as InfoCircle,
+  LayersIcon as Layers3,
+  LightbulbIcon as Lightbulb,
+  Logout2Icon as LogOut,
+  MaximizeIcon as Maximize,
+  MinusIcon as Minus,
+  MonitorIcon as Monitor,
+  MoveToFolderIcon as FolderInput,
+  MusicNoteIcon as Music2,
+  PenIcon as Pencil,
+  PenNewSquareIcon as FilePenLine,
+  PauseIcon as Pause,
+  PlayIcon as Play,
+  PlugCircleIcon as Plug,
+  RefreshIcon as LoaderCircle,
+  RefreshIcon as RefreshCw,
+  RestartIcon as RotateCcw,
+  MagnifierIcon as Search,
+  ShareIcon as Share2,
+  SidebarMinimalisticIcon as PanelToggle,
+  SliderHorizontalIcon as SlidersHorizontal,
+  SmartphoneIcon as Smartphone,
+  StarsIcon as Sparkles,
+  StopCircleIcon as CircleStop,
+  TabletIcon as Tablet,
+  VolumeCrossIcon as VolumeX,
+  VolumeLoudIcon as Volume2,
+  ProgrammingIcon as Terminal,
+  TrashBinTrashIcon as Trash2,
+  UploadIcon as Upload,
+  UndoLeftIcon as Undo2,
+  UndoRightIcon as Redo2,
+  UserRoundedIcon as UserRound,
+  VerifiedCheckIcon as VerifiedCheck,
+  VideocameraIcon as Video,
+  MagicWandIcon as WandSparkles,
+  WiFiIcon as Wifi,
+  WiFiOffIcon as WifiOff,
+  SettingsIcon as Wrench,
+  ServerIcon as Server,
+};

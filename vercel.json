@@ -1,0 +1,8 @@
+{
+  "buildCommand": "npm run build:community",
+  "outputDirectory": "dist/community-web",
+  "rewrites": [
+    { "source": "/v1/:path*", "destination": "https://publish.open-game.ai/v1/:path*" },
+    { "source": "/games/:path*", "destination": "/index.html" }
+  ]
+}
