@@ -4217,6 +4217,17 @@ button {
 .story-scene-empty strong { color: var(--text); font-size: 13px; }
 .story-scene-empty span { font-size: 10px; }
 
+.interactive-drama-header {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
 
 .interactive-drama-header.has-inspector {
   padding-right: calc(var(--story-inspector-width, 420px) + 12px);
