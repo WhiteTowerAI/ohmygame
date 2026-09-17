@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
@@ -263,6 +263,7 @@ const promptSchema = {
           properties: {
             mediaType: { enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] },
             data: { type: "string", minLength: 1 },
+            name: { type: "string", minLength: 1, maxLength: 255 },
           },
         },
       },
@@ -2126,6 +2127,18 @@ export function createApp(options: AppOptions = {}) {
         await agents.setModel(project.id, conversation.summary.id, model, () => {
           conversations.setModel(project, conversation, request.body);
         });
+        if (conversation.summary.messageCount > 0) {
+          const itemId = randomUUID();
+          events.publish(project.id, "conversation.model.changed", {
+            item: {
+              id: itemId,
+              turnId: itemId,
+              type: "modelChange",
+              model: request.body,
+              name: model.name,
+            },
+          }, { conversationId: conversation.summary.id, turnId: itemId });
+        }
         return {
           model: request.body,
           reasoningLevel: effectiveReasoningLevel(
@@ -2203,6 +2216,12 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
+      }
+      try {
+        await Promise.all((request.body.images ?? []).map((image, index) => addConversationImageToLibrary(library, image, index)));
+      } catch (cause) {
+        const statusCode = cause instanceof AssetLibraryError ? cause.statusCode : 400;
+        return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
       await projects.touch(project.id);
       let turn;
@@ -2617,6 +2636,20 @@ function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType):
 
 function validBase64(value: string): boolean {
   return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
+}
+
+async function addConversationImageToLibrary(library: AssetLibrary, image: PromptImage, index: number): Promise<void> {
+  const contents = Buffer.from(image.data, "base64");
+  const extension = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+  }[image.mediaType];
+  const originalName = path.basename(image.name ?? `Image ${index + 1}`);
+  const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
+  const digest = createHash("sha256").update(contents).digest("hex");
+  await library.add(`${stem}${extension}`, contents, { sourceKey: `conversation-image:${image.mediaType}:${digest}` });
 }
 
 function publishMediaType(contentType: string): PublishAssetMediaType | undefined {

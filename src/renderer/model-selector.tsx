@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight } from "./icons.js";
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
@@ -15,7 +15,7 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, onChange, onReasoningChange }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
-  const [submenu, setSubmenu] = useState<"model" | "reasoning">();
+  const [showReasoning, setShowReasoning] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -30,8 +30,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (submenu) {
-        setSubmenu(undefined);
+      if (showReasoning) {
+        setShowReasoning(false);
         return;
       }
       setOpen(false);
@@ -43,12 +43,12 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, submenu]);
+  }, [open, showReasoning]);
 
   useEffect(() => {
     if (disabled) {
       setOpen(false);
-      setSubmenu(undefined);
+      setShowReasoning(false);
     }
   }, [disabled]);
 
@@ -69,7 +69,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         disabled={disabled || status !== "ready" || !current}
         onClick={() => {
           setOpen((value) => !value);
-          setSubmenu(undefined);
+          setShowReasoning(false);
         }}
         title="Model"
       >
@@ -82,49 +82,44 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
 
       {open ? (
         <div className="model-selector-popover" id={menuId}>
-          <div className="model-selector-menu" role="menu" aria-label="Agent settings">
-            <button className={submenu === "model" ? "active" : ""} type="button" role="menuitem" onClick={() => setSubmenu("model")}>
-              <span>Model</span>
-              <span className="model-selector-setting-value">{current?.name ?? "Default"}<ChevronRight size={14} /></span>
-            </button>
-            <button className={submenu === "reasoning" ? "active" : ""} type="button" role="menuitem" onClick={() => setSubmenu("reasoning")}>
-              <span>Reasoning</span>
-              <span className="model-selector-setting-value">{reasoningLabel(reasoningLevel)}<ChevronRight size={14} /></span>
-            </button>
-          </div>
-
-          {submenu === "model" ? (
-            <div className="model-selector-submenu" role="menu" aria-label="Models">
-              {models.map((model) => {
-                const selected = modelKey(model) === currentKey;
-                return (
-                  <button
-                    className={selected ? "active" : ""}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    key={modelKey(model)}
-                    onClick={() => {
-                      if (!selected) onChange(model);
-                      setOpen(false);
-                      setSubmenu(undefined);
-                      trigger.current?.focus();
-                    }}
-                    title={`${model.provider}/${model.id}`}
-                  >
-                    <span className="model-selector-model-copy">
+          {!showReasoning ? (
+            <div className="model-selector-menu" role="menu" aria-label="Models">
+              <div className="model-selector-model-list">
+                {models.map((model) => {
+                  const selected = modelKey(model) === currentKey;
+                  return (
+                    <button
+                      className={selected ? "active" : ""}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      key={modelKey(model)}
+                      onClick={() => {
+                        if (!selected) onChange(model);
+                        setOpen(false);
+                        trigger.current?.focus();
+                      }}
+                      title={`${model.provider}/${model.id}`}
+                    >
                       <span className="model-selector-name">{model.name}</span>
-                      <small>{model.providerName}</small>
-                    </span>
-                    {selected ? <Check aria-hidden="true" size={13} /> : null}
-                  </button>
-                );
-              })}
+                      {selected ? <Check aria-hidden="true" size={12} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setShowReasoning(true)}>
+                <span>Reasoning</span>
+                <span className="model-selector-setting-value">{reasoningLabel(reasoningLevel)}<ChevronRight size={12} /></span>
+              </button>
             </div>
           ) : null}
 
-          {submenu === "reasoning" ? (
+          {showReasoning ? (
             <div className="model-selector-submenu" role="menu" aria-label="Reasoning levels">
+              <button className="model-selector-back" type="button" onClick={() => setShowReasoning(false)}>
+                <ChevronLeft size={12} />
+                <span>Reasoning</span>
+              </button>
               {(current?.reasoningLevels ?? []).map((level) => {
                 const selected = level === reasoningLevel;
                 return (
@@ -137,12 +132,12 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     onClick={() => {
                       if (!selected) onReasoningChange(level);
                       setOpen(false);
-                      setSubmenu(undefined);
+                      setShowReasoning(false);
                       trigger.current?.focus();
                     }}
                   >
                     <span>{reasoningLabel(level)}</span>
-                    {selected ? <Check aria-hidden="true" size={13} /> : null}
+                    {selected ? <Check aria-hidden="true" size={12} /> : null}
                   </button>
                 );
               })}

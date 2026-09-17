@@ -29,6 +29,78 @@ describe("skillInvocationPrompt", () => {
 });
 
 describe("conversationItems", () => {
+  it("restores image-reading activity from a persisted user message", () => {
+    const items = conversationItems([
+      sessionMessage("user", {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this" },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+        timestamp: 1,
+      }),
+    ] as never, false);
+
+    expect(items).toEqual([
+      expect.objectContaining({ type: "userMessage", text: "Describe this", images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] }),
+      expect.objectContaining({ type: "imageRead", count: 1, status: "completed" }),
+    ]);
+  });
+
+  it("restores completed context compaction entries", () => {
+    const items = conversationItems([{
+      type: "compaction",
+      id: "compaction-1",
+      parentId: "assistant-1",
+      timestamp: "2026-09-17T08:01:00.000Z",
+      summary: "Earlier context",
+      firstKeptEntryId: "user-2",
+      tokensBefore: 42_000,
+    }] as never, false);
+
+    expect(items).toEqual([expect.objectContaining({
+      id: "compaction-1",
+      turnId: "compaction-1",
+      type: "contextCompaction",
+      status: "completed",
+    })]);
+  });
+
+  it("projects model switches after the conversation starts", () => {
+    const items = conversationItems([
+      {
+        type: "model_change",
+        id: "initial-model",
+        parentId: null,
+        timestamp: "2026-09-17T08:00:00.000Z",
+        provider: "openai",
+        modelId: "gpt-initial",
+      },
+      sessionMessage("user", { role: "user", content: "Hello", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi" }],
+        stopReason: "stop",
+      }),
+      {
+        type: "model_change",
+        id: "next-model",
+        parentId: "assistant",
+        timestamp: "2026-09-17T08:01:00.000Z",
+        provider: "anthropic",
+        modelId: "claude-next",
+      },
+    ] as never, false);
+
+    expect(items).toContainEqual(expect.objectContaining({
+      id: "next-model",
+      turnId: "next-model",
+      type: "modelChange",
+      model: { provider: "anthropic", id: "claude-next" },
+    }));
+    expect(items).not.toContainEqual(expect.objectContaining({ id: "initial-model" }));
+  });
+
   it("restores Plugin references as natural Composer mentions", () => {
     const items = conversationItems([
       sessionMessage("user", {
@@ -230,14 +302,17 @@ describe("conversationItems", () => {
         content: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }],
         timestamp: 1,
       }),
-    ] as never, false)).toEqual([{
-      id: "user",
-      turnId: "user",
-      type: "userMessage",
-      text: "",
-      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
-      timestamp: 1,
-    }]);
+    ] as never, false)).toEqual([
+      {
+        id: "user",
+        turnId: "user",
+        type: "userMessage",
+        text: "",
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+        timestamp: 1,
+      },
+      { id: "user:images", turnId: "user", type: "imageRead", count: 1, status: "completed", timestamp: 1 },
+    ]);
   });
 
   it("marks a turn interrupted when its persisted session has no terminal assistant message", () => {

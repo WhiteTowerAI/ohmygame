@@ -41,7 +41,7 @@ export function ImagePickerButton({
         onChange={(event) => {
           const files = [...(event.target.files ?? [])];
           event.target.value = "";
-          void readImages(files).then(onImages).catch((error) => {
+          void readImageFiles(files).then(onImages).catch((error) => {
             onError(error instanceof Error ? error.message : String(error));
           });
         }}
@@ -67,18 +67,18 @@ export function ImageAttachmentStrip({ images, onRemove }: { images: ComposerIma
 }
 
 export function promptImages(images: ComposerImage[]): PromptImage[] {
-  return images.map(({ mediaType, data }) => ({ mediaType, data }));
+  return images.map(({ name, mediaType, data }) => ({ name, mediaType, data }));
 }
 
 export function composerImages(images: PromptImage[]): ComposerImage[] {
-  return images.map((image, index) => ({ ...image, id: crypto.randomUUID(), name: `Image ${index + 1}` }));
+  return images.map((image, index) => ({ ...image, id: crypto.randomUUID(), name: image.name ?? `Image ${index + 1}` }));
 }
 
 export function imageSource(image: PromptImage): string {
   return `data:${image.mediaType};base64,${image.data}`;
 }
 
-async function readImages(files: File[]): Promise<ComposerImage[]> {
+export async function readImageFiles(files: File[]): Promise<ComposerImage[]> {
   for (const file of files) {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type as PromptImageMediaType)) throw new Error("Use PNG, JPEG, WebP, or GIF images");
   }

@@ -144,6 +144,19 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([]);
   });
 
+  it("keeps completed context compaction as a visible timeline event", () => {
+    const compaction: ThreadItem = {
+      id: "compaction",
+      turnId: "turn-1",
+      type: "contextCompaction",
+      status: "completed",
+    };
+    const display = projectTurnDisplay(turn([compaction], false));
+
+    expect(display.work).toEqual([]);
+    expect(display.messages).toEqual([compaction]);
+  });
+
   it("projects generated images after work as artifacts", () => {
     const display = projectTurnDisplay(turn([
       tool("completed", { artifact: { type: "image", path: "assets/generated/image.png", mediaType: "image/png" } }),
