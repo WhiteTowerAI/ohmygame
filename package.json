@@ -66,6 +66,7 @@
     "concurrently": "10.0.4",
     "electron": "43.3.0",
     "electron-builder": "26.15.3",
+    "prettier": "3.9.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vite": "7.3.6",

@@ -8,7 +8,7 @@ export type SidebarPage =
   | "games"
   | "assets";
 
-export type SettingsSection = "account" | "providers" | "connections" | "about";
+export type SettingsSection = "account" | "appearance" | "providers" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 
 const SIDEBAR_PAGES = new Set<SidebarPage>([
@@ -24,7 +24,7 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
-  const settingsMatch = /^#\/settings(?:\/(account|providers|connections|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(account|appearance|providers|connections|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);
   if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarPage)) {
