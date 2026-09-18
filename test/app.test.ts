@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -817,6 +817,183 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
       expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
     ]);
+  });
+
+  it("stores dropped files outside the game workspace and gives the agent an attachment manifest", async () => {
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-agent-attachments-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const batchId = "dbd8b240-d5e1-4d0e-a741-5e9bd23f7571";
+
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/attachments?batchId=${batchId}&name=dialogue.json&relativePath=${encodeURIComponent("references/dialogue.json")}`,
+      headers: { "content-type": "application/vnd.ohmygame.attachment" },
+      payload: Buffer.from('{"opening":"Hello"}'),
+    });
+
+    expect(uploaded.statusCode, uploaded.body).toBe(201);
+    expect(uploaded.json()).toMatchObject({ batchId, relativePath: "references/dialogue.json", kind: "text" });
+    expect(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "files", "references", "dialogue.json"), "utf8")).toContain("Hello");
+    const metadata = JSON.parse(await readFile(path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`), "utf8"));
+    expect(metadata).not.toHaveProperty("absolutePath");
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "", attachments: [{ id: uploaded.json().id, batchId }] },
+    });
+
+    expect(sent.statusCode, sent.body).toBe(202);
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.stringContaining("references/dialogue.json")));
+    expect(prompt).toHaveBeenCalledWith(expect.stringContaining("untrusted reference material"));
+  });
+
+  it("passes a verified image attachment to a vision-capable agent", async () => {
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-agent-attachment-image-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const batchId = "ae4a9775-641e-4595-bbc8-1f1de5fb889b";
+    const image = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/attachments?batchId=${batchId}&name=hero.png`,
+      headers: { "content-type": "application/vnd.ohmygame.attachment" },
+      payload: image,
+    });
+
+    expect(uploaded.statusCode).toBe(201);
+    expect(uploaded.json()).toMatchObject({ kind: "image", mediaType: "image/png" });
+    const sent = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "", attachments: [{ id: uploaded.json().id, batchId }] },
+    });
+
+    expect(sent.statusCode, sent.body).toBe(202);
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.stringContaining("hero.png"), {
+      images: [{ type: "image", mimeType: "image/png", data: image.toString("base64") }],
+    }));
+    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
+      expect.objectContaining({ name: "hero.png", mediaType: "image" }),
+    ]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+      expect.objectContaining({ path: "assets/imported/hero.png", mediaType: "image" }),
+    ]);
+  });
+
+  it("rejects unsafe folder paths in agent attachments", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-agent-attachment-path-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const batchId = "f8b3c92d-5017-4d83-bf05-946208ee2b1a";
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/attachments?batchId=${batchId}&name=.env&relativePath=${encodeURIComponent("secrets/.env")}`,
+      headers: { "content-type": "application/vnd.ohmygame.attachment" },
+      payload: Buffer.from("SECRET=value"),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Invalid attachment path" });
+  });
+
+  it("rejects attachment metadata that no longer matches its file", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-agent-attachment-metadata-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const batchId = "d8ea3d7b-4665-4e7a-9d58-f1e246ac812d";
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/attachments?batchId=${batchId}&name=notes.txt`,
+      headers: { "content-type": "application/vnd.ohmygame.attachment" },
+      payload: Buffer.from("hello"),
+    });
+    const metadataPath = path.join(project.workspacePath, ".data", "agent-attachments", batchId, "metadata", `${uploaded.json().id}.json`);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+
+    await writeFile(metadataPath, JSON.stringify({ ...metadata, size: 1 }));
+    const wrongSize = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Read it", attachments: [{ id: uploaded.json().id, batchId }] },
+    });
+    expect(wrongSize.statusCode).toBe(500);
+
+    await writeFile(metadataPath, JSON.stringify({ ...metadata, kind: "image", mediaType: "image/png" }));
+    const fakeImage = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Read it", attachments: [{ id: uploaded.json().id, batchId }] },
+    });
+    expect(fakeImage.statusCode).toBe(500);
+  });
+
+  it("cleans expired draft batches but retains batches used by a conversation", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-agent-attachment-cleanup-")),
+      createSession: async () => ({
+        messages: [],
+        prompt: async () => {},
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const expiredBatch = "1e447592-12ac-4f8f-9da0-6027daf6a902";
+    const claimedBatch = "c14bbf1a-1534-4e2a-b850-cd9e076af289";
+    const upload = async (batchId: string, name: string) => app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/attachments?batchId=${batchId}&name=${name}`,
+      headers: { "content-type": "application/vnd.ohmygame.attachment" },
+      payload: Buffer.from(name),
+    });
+
+    const expired = await upload(expiredBatch, "expired.txt");
+    const claimed = await upload(claimedBatch, "claimed.txt");
+    const sent = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Read it", attachments: [{ id: claimed.json().id, batchId: claimedBatch }] },
+    });
+    expect(sent.statusCode).toBe(202);
+
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
+    const attachmentRoot = path.join(project.workspacePath, ".data", "agent-attachments");
+    await utimes(path.join(attachmentRoot, expiredBatch), old, old);
+    await utimes(path.join(attachmentRoot, claimedBatch), old, old);
+    expect((await upload("fd2de1f6-0acf-4d68-84cb-d8066f33ffeb", "fresh.txt")).statusCode).toBe(201);
+
+    await expect(readFile(path.join(attachmentRoot, expiredBatch, "files", "expired.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(attachmentRoot, claimedBatch, "files", "claimed.txt"), "utf8")).toBe("claimed.txt");
+    expect(expired.statusCode).toBe(201);
   });
 
   it("restores an active image prompt without replaying its base64 event", async () => {

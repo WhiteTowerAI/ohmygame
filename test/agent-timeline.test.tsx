@@ -685,6 +685,21 @@ describe("AgentTimeline", () => {
     expect(html).toContain('</div><div class="user-message">Build</div>');
   });
 
+  it("renders non-image attachments without duplicating image attachments", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[{
+      ...user(),
+      images: [{ name: "references/hero.png", mediaType: "image/png", data: "aW1hZ2U=" }],
+      attachments: [
+        { name: "hero.png", relativePath: "references/hero.png", size: 5, kind: "image" },
+        { name: "notes.md", relativePath: "references/notes.md", size: 1_024, kind: "text" },
+      ],
+    }]} />);
+
+    expect(html).toContain("references/notes.md");
+    expect(html).toContain("1 KB");
+    expect(html).not.toContain(">references/hero.png</span>");
+  });
+
   it("renders image-reading and completed compaction records", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),

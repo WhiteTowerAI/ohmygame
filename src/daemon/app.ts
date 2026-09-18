@@ -51,6 +51,7 @@ import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
+import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -280,6 +281,19 @@ const promptSchema = {
           },
         },
       },
+      attachments: {
+        type: "array",
+        maxItems: MAX_AGENT_ATTACHMENTS_PER_TURN,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "batchId"],
+          properties: {
+            id: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
+            batchId: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
+          },
+        },
+      },
     },
   },
 } as const;
@@ -495,6 +509,7 @@ export function createApp(options: AppOptions = {}) {
   const events = new RuntimeEventBus();
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
+  const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
   const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
@@ -653,6 +668,9 @@ export function createApp(options: AppOptions = {}) {
   });
   app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: MAX_LIBRARY_UPLOAD_BYTES }, (_request, body, done) => {
     done(null, body);
+  });
+  app.addContentTypeParser("application/vnd.ohmygame.attachment", { bodyLimit: MAX_AGENT_ATTACHMENT_BYTES }, (_request, payload, done) => {
+    done(null, payload);
   });
 
   app.addHook("onReady", async () => {
@@ -2272,6 +2290,39 @@ export function createApp(options: AppOptions = {}) {
     return { url: await previews.start(project) };
   });
 
+  app.post<{ Params: { projectId: string }; Querystring: { batchId: string; name: string; relativePath?: string }; Body: AsyncIterable<Buffer | string> }>(
+    "/projects/:projectId/attachments",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          required: ["batchId", "name"],
+          properties: {
+            batchId: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
+            name: { type: "string", minLength: 1, maxLength: 255 },
+            relativePath: { type: "string", minLength: 1, maxLength: 1_000 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return reply.code(201).send(await attachments.store(project, {
+          batchId: request.query.batchId,
+          name: request.query.name,
+          relativePath: request.query.relativePath,
+          contents: request.body,
+        }));
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof AgentAttachmentError ? cause.statusCode : 500).send({ error });
+      }
+    },
+  );
+
   app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/turns",
     { schema: promptSchema, bodyLimit: Number.MAX_SAFE_INTEGER },
@@ -2280,7 +2331,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (!request.body?.prompt?.trim() && !request.body?.images?.length) return reply.code(400).send({ error: "Prompt or image is required" });
+      if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
         mentions = await plugins.validateMentions(request.body.mentions ?? []);
@@ -2300,8 +2351,22 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
       }
+      let resolvedAttachments;
       try {
-        await Promise.all((request.body.images ?? []).map((image, index) => (
+        resolvedAttachments = await Promise.all((request.body.attachments ?? []).map((attachment) => attachments.resolve(project, attachment)));
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof AgentAttachmentError ? cause.statusCode : 400).send({ error });
+      }
+      let attachmentImages: PromptImage[];
+      try {
+        attachmentImages = (await Promise.all(resolvedAttachments.map((attachment) => attachments.promptImage(attachment))))
+          .flatMap((image) => image ? [image] : []);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      try {
+        await Promise.all([...(request.body.images ?? []), ...attachmentImages].map((image, index) => (
           addConversationImageToProject(library, projects, project.id, image, index)
         )));
       } catch (cause) {
@@ -2311,10 +2376,32 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
-        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? [], request.body.mode ?? "normal", mentions);
-        if (turn.queued) await turn.result;
+        turn = agents.prompt(
+          project,
+          conversation,
+          request.body.prompt,
+          references,
+          [...(request.body.images ?? []), ...attachmentImages],
+          request.body.mode ?? "normal",
+          mentions,
+          undefined,
+          attachments.promptContext(project, resolvedAttachments),
+          attachments.conversationAttachments(resolvedAttachments),
+        );
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      try {
+        await attachments.claim(project, resolvedAttachments);
+      } catch (cause) {
+        request.log.warn({ err: cause }, "failed to retain agent attachments");
+      }
+      if (turn.queued) {
+        try {
+          await turn.result;
+        } catch (cause) {
+          return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+        }
       }
       const provisional = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
       if (provisional) publishConversationRenamed(provisional);

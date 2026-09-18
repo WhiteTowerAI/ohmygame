@@ -393,12 +393,29 @@ export interface PromptImage {
   name?: string;
 }
 
+export type PromptAttachmentKind = "image" | "text" | "document" | "audio" | "video" | "model" | "archive" | "binary";
+
+/** A locally stored file made available to the agent for the current prompt. */
+export interface PromptAttachment {
+  id: string;
+  batchId: string;
+  name: string;
+  relativePath: string;
+  size: number;
+  kind: PromptAttachmentKind;
+  mediaType?: string;
+}
+
+/** Metadata displayed with a user message; it never exposes the local attachment ID. */
+export type ConversationAttachment = Omit<PromptAttachment, "id" | "batchId">;
+
 export interface PendingPrompt {
   turnId: string;
   prompt: string;
   mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
+  attachments: ConversationAttachment[];
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -437,7 +454,7 @@ export interface PlanState {
 }
 
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[] }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[] }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -596,6 +613,7 @@ export interface PromptRequest {
   mentions?: PluginMention[];
   references?: PromptReference[];
   images?: PromptImage[];
+  attachments?: Array<Pick<PromptAttachment, "id" | "batchId">>;
   mode?: PromptMode;
 }
 
@@ -842,7 +860,7 @@ export interface RuntimeEventData {
   "preview.ready": { url: string };
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
-  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; revision?: "last-turn" };
   "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
@@ -852,7 +870,7 @@ export interface RuntimeEventData {
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
-  "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[] };
+  "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };

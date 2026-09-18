@@ -17,11 +17,12 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
+import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
@@ -200,6 +201,8 @@ function formatResponseTime(timestamp: number): string {
 
 function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
   if (!item) return null;
+  const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
+  const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -212,6 +215,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
           {item.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
         </div>
       ) : null}
+      {attachments.length ? <UserAttachments attachments={attachments} /> : null}
       {controls.editing ? (
         <div className="user-message-editor">
           <textarea
@@ -248,6 +252,16 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
       ) : null}
     </div>
   );
+}
+
+function UserAttachments({ attachments }: { attachments: ConversationAttachment[] }) {
+  return <div className="user-message-attachments" aria-label="Attached files">
+    {attachments.map((attachment, index) => <div className="user-message-attachment" key={`${attachment.relativePath}:${index}`} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
+      <FileText size={13} />
+      <span>{attachment.relativePath}</span>
+      <small>{attachment.kind}</small>
+    </div>)}
+  </div>;
 }
 
 function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {

@@ -171,7 +171,10 @@ export class ProjectManager {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
         recursive: true,
         errorOnExist: true,
-        filter: (sourcePath) => path.basename(sourcePath) !== "node_modules",
+        filter: (sourcePath) => {
+          const relative = path.relative(source.workspacePath, sourcePath).replaceAll(path.sep, "/");
+          return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
+        },
       });
       await copyFile(projectCoverPath(this.#projectDirectory(source.id)), path.join(duplicateDirectory, PROJECT_COVER_FILE)).catch((error) => {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -190,6 +193,9 @@ export class ProjectManager {
   async delete(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
+    if (project.workspaceLocation === "external") {
+      await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+    }
     await rm(this.#projectDirectory(id), { recursive: true, force: false });
     this.#projects.delete(id);
     return project;

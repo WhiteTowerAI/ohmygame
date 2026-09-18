@@ -15,7 +15,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -358,13 +358,13 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions);
-      if (images.length) setWorkspaceRevision((value) => value + 1);
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions, attachments);
+      if (images.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
       return true;
     } catch (error) {
@@ -686,6 +686,7 @@ export function ProjectShell({
 
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
+            projectId={project?.id}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
             stopping={state.agent.status === "cancelling" || sendingInitialPrompt}

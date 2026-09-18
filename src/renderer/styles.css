@@ -11432,6 +11432,41 @@ button {
   object-fit: cover;
 }
 
+.user-message-attachments {
+  display: flex;
+  max-width: min(86%, 520px);
+  align-self: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.user-message-attachment {
+  display: grid;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.user-message-attachment > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-message-attachment small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
 .assistant-message {
   margin: 0;
   color: #e6e8eb;
@@ -12911,6 +12946,53 @@ button {
   min-width: 0;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.composer-attachments {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-attachment {
+  display: flex;
+  max-width: 260px;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 5px 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.composer-attachment > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment button {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.composer-attachment button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .composer-image {

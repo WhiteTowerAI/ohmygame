@@ -112,6 +112,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           text: event.data.prompt,
           ...(event.data.mentions?.length ? { mentions: event.data.mentions } : {}),
           ...(event.data.images?.length ? { images: event.data.images } : {}),
+          ...(event.data.attachments?.length ? { attachments: event.data.attachments } : {}),
           timestamp: eventTime(event),
         }, ...(event.data.images?.length ? [{
           id: `${event.turnId}:images`,
@@ -131,7 +132,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
     }
     case "prompt.queued":
       if (!event.turnId) return next;
-      return { ...next, pendingPrompts: [...state.pendingPrompts, { turnId: event.turnId, prompt: event.data.prompt, mentions: event.data.mentions ?? [], references: event.data.references, images: event.data.images ?? [] }] };
+      return { ...next, pendingPrompts: [...state.pendingPrompts, { turnId: event.turnId, prompt: event.data.prompt, mentions: event.data.mentions ?? [], references: event.data.references, images: event.data.images ?? [], attachments: event.data.attachments ?? [] }] };
     case "prompt.removed":
       return { ...next, pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId) };
     case "item.started":

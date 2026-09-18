@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { promptHistoryDirection } from "./prompt-history.js";
 
+export interface DroppedFile {
+  file: File;
+  relativePath?: string;
+}
+
 interface PromptBoxProps {
   value: string;
   onChange: (value: string) => void;
@@ -18,7 +23,8 @@ interface PromptBoxProps {
   actions: ReactNode;
   onCommandKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
   onSelectionChange?: (cursor: number) => void;
-  onDropFiles?: (files: File[]) => void;
+  onDropFiles?: (files: DroppedFile[]) => void;
+  onDropError?: (error: Error) => void;
 }
 
 export function PromptBox({
@@ -39,6 +45,7 @@ export function PromptBox({
   onCommandKeyDown,
   onSelectionChange,
   onDropFiles,
+  onDropError,
 }: PromptBoxProps) {
   const [dropActive, setDropActive] = useState(false);
   const dragDepth = useRef(0);
@@ -77,11 +84,13 @@ export function PromptBox({
         event.preventDefault();
         dragDepth.current = 0;
         setDropActive(false);
-        const files = [...event.dataTransfer.files];
-        if (files.length) onDropFiles(files);
+        const dataTransfer = event.dataTransfer;
+        void droppedFiles(dataTransfer).then((files) => {
+          if (files.length) onDropFiles(files);
+        }).catch((cause) => onDropError?.(cause instanceof Error ? cause : new Error(String(cause))));
       }}
     >
-      {dropActive ? <div className="prompt-box-drop-overlay">Drop images to attach</div> : null}
+      {dropActive ? <div className="prompt-box-drop-overlay">Drop files to attach</div> : null}
       {overlay}
       {content}
       <div className="prompt-box-input">
@@ -135,6 +144,42 @@ export function PromptBox({
 
 function hasFiles(event: DragEvent<HTMLElement>): boolean {
   return event.dataTransfer.types.includes("Files");
+}
+
+async function droppedFiles(dataTransfer: DataTransfer): Promise<DroppedFile[]> {
+  const entries = [...dataTransfer.items]
+    .map((item) => item.webkitGetAsEntry?.())
+    .filter((entry): entry is FileSystemEntry => Boolean(entry));
+  if (!entries.length) return [...dataTransfer.files].map((file) => ({ file }));
+  return (await Promise.all(entries.map((entry) => filesFromEntry(entry)))).flat();
+}
+
+function filesFromEntry(entry: FileSystemEntry, prefix = ""): Promise<DroppedFile[]> {
+  if (entry.isFile) {
+    return new Promise((resolve, reject) => {
+      (entry as FileSystemFileEntry).file(
+        (file) => resolve([{ file, relativePath: `${prefix}${file.name}` }]),
+        () => reject(new Error(`Could not read ${prefix}${entry.name}`)),
+      );
+    });
+  }
+  if (!entry.isDirectory) return Promise.resolve([]);
+  const directory = entry as FileSystemDirectoryEntry;
+  return readDirectoryEntries(directory.createReader()).then(async (children) => (
+    (await Promise.all(children.map((child) => filesFromEntry(child, `${prefix}${entry.name}/`)))).flat()
+  ));
+}
+
+function readDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const entries: FileSystemEntry[] = [];
+  return new Promise((resolve, reject) => {
+    const next = () => reader.readEntries((batch) => {
+      if (!batch.length) return resolve(entries);
+      entries.push(...batch);
+      next();
+    }, reject);
+    next();
+  });
 }
 
 function resizeTextarea(element: HTMLTextAreaElement | null): void {
