@@ -131,22 +131,22 @@ export class AccountConnection {
 }
 
 export function accountModels(catalog: readonly RuntimeModel[], ids: readonly string[]) {
-  return ids.flatMap((id) => {
+  const matchedModels = ids.flatMap((id) => {
     if (/-image(?:-preview)?$/i.test(id)) return [];
     const matches = catalog.filter((model) => model.provider !== PROVIDER_ID && model.id === id);
     const model = matches.find((candidate) => candidate.provider === "openai")
       ?? (matches.length > 0 && matches.every((candidate) => sameCapabilities(matches[0]!, candidate)) ? matches[0] : undefined);
-    if (!model) return [];
-    return [{
-      id,
-      name: model.name,
-      reasoning: model.reasoning,
-      input: model.input,
-      cost: ZERO_COST,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-    }];
+    return model ? [model] : [];
   });
+  return matchedModels.sort((left, right) => catalog.indexOf(right) - catalog.indexOf(left)).map((model) => ({
+    id: model.id,
+    name: model.name,
+    reasoning: model.reasoning,
+    input: model.input,
+    cost: ZERO_COST,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+  }));
 }
 
 function sameCapabilities(left: RuntimeModel, right: RuntimeModel): boolean {
