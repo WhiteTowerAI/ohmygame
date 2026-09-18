@@ -1,9 +1,9 @@
 import { Check, ChevronDown, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
-import { createConversation, createProject, getHomeComposerCapabilities, waitForRuntime } from "./api.js";
+import { createConversation, createProject, getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
@@ -32,6 +32,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [planning, setPlanning] = useState(false);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [creating, setCreating] = useState(false);
+  const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
@@ -77,7 +78,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
     setError(undefined);
     try {
       const project = await createProject({ type: projectType });
-      const conversation = await createConversation(project.id, selectedModel, reasoningLevel);
+      const conversation = await createConversation(project.id);
       onCreate(
         project.id,
         conversation.id,
@@ -90,6 +91,27 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
       setError(errorMessage(cause));
       setCreating(false);
     }
+  }
+
+  async function saveDefaults(nextModel: AgentModelRef, nextReasoningLevel: AgentReasoningLevel): Promise<void> {
+    if (savingDefaults) return;
+    const modelRef = { provider: nextModel.provider, id: nextModel.id };
+    setSavingDefaults(true);
+    setError(undefined);
+    try {
+      await updateAgentDefaults({ model: modelRef, reasoningLevel: nextReasoningLevel });
+      setModel(modelRef);
+      setReasoningLevel(nextReasoningLevel);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSavingDefaults(false);
+    }
+  }
+
+  function changeModel(nextModel: AgentModel): void {
+    const nextReasoningLevel = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, nextModel.reasoningLevels);
+    void saveDefaults(nextModel, nextReasoningLevel);
   }
 
   function togglePlanning(): void {
@@ -196,9 +218,9 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
               status={modelCatalog.status}
               value={selectedModel}
               reasoningLevel={reasoningLevel}
-              disabled={creating}
-              onChange={setModel}
-              onReasoningChange={setReasoningLevel}
+              disabled={creating || savingDefaults}
+              onChange={changeModel}
+              onReasoningChange={(next) => { if (selectedModel) void saveDefaults(selectedModel, next); }}
             />
             <button
               className="icon-button send-button"

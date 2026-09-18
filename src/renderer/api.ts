@@ -29,6 +29,7 @@ import {
   type StoryDocument,
   type StoryTextGenerationRequest,
   type StoryTextGenerationResponse,
+  type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
   type PublishResult,
   type RuntimeEvent,
@@ -131,6 +132,13 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
+}
+
+export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Promise<void> {
+  await request("/models/default", {
+    method: "PUT",
+    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel }),
+  });
 }
 
 export async function connectAccount(accessToken: string): Promise<void> {

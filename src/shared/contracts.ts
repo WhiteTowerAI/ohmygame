@@ -572,6 +572,10 @@ export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
 }
+export interface UpdateAgentDefaultsRequest {
+  model: AgentModelRef;
+  reasoningLevel: AgentReasoningLevel;
+}
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
 export interface SetConversationReasoningRequest { level: AgentReasoningLevel }

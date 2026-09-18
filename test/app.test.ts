@@ -966,6 +966,11 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
 
     const models = await app.inject({ method: "GET", url: "/models" });
+    const defaults = await app.inject({
+      method: "PUT",
+      url: "/models/default",
+      payload: { model: { provider: second.provider, id: second.id }, reasoningLevel: "high" },
+    });
     const created = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations`,
@@ -1002,6 +1007,7 @@ describe("daemon", () => {
       ],
       defaultReasoningLevel: "medium",
     });
+    expect(defaults.statusCode).toBe(204);
     expect(created.json()).toMatchObject({ id: expect.any(String), projectId: project.id, title: "New conversation" });
     expect(changed.json()).toEqual({
       model: { provider: second.provider, id: second.id },
@@ -1011,8 +1017,8 @@ describe("daemon", () => {
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
     expect(detail.json().cursor).toBe(0);
     expect(defaultDetail.json().settings).toEqual({
-      model: { provider: first.provider, id: first.id },
-      reasoningLevel: "medium",
+      model: { provider: second.provider, id: second.id },
+      reasoningLevel: "high",
     });
   });
 

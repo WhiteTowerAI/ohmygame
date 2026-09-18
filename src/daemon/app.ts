@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -1865,6 +1865,26 @@ export function createApp(options: AppOptions = {}) {
     };
   });
 
+  app.put<{ Body: UpdateAgentDefaultsRequest }>("/models/default", async (request, reply) => {
+    if (!isUpdateAgentDefaultsRequest(request.body)) {
+      return reply.code(400).send({ error: "Invalid agent defaults" });
+    }
+    const runtime = await getModelRuntime();
+    const model = (await runtime.getAvailable(request.body.model.provider))
+      .find((candidate) => candidate.id === request.body.model.id);
+    if (!model) return reply.code(400).send({ error: "Model is not available" });
+    if (!supportedReasoningLevels(model).includes(request.body.reasoningLevel)) {
+      return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+    }
+    const settings = SettingsManager.create(dataDirectory, piAgentDirectory);
+    settings.setDefaultModelAndProvider(model.provider, model.id);
+    settings.setDefaultThinkingLevel(request.body.reasoningLevel);
+    await settings.flush();
+    const failure = settings.drainErrors()[0];
+    if (failure) throw failure.error;
+    return reply.code(204).send();
+  });
+
   app.get("/account/connection", async () => accountConnection.get());
 
   app.get("/account/plans", async (_request, reply) =>
@@ -2711,8 +2731,19 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
   if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel")) return false;
   if (body.reasoningLevel !== undefined && !AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel)) return false;
   if (body.model === undefined) return true;
-  if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) return false;
-  const model = body.model as Record<string, unknown>;
+  return isAgentModelRef(body.model);
+}
+
+function isUpdateAgentDefaultsRequest(value: unknown): value is UpdateAgentDefaultsRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel") &&
+    isAgentModelRef(body.model) && AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel);
+}
+
+function isAgentModelRef(value: unknown): value is AgentModelRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const model = value as Record<string, unknown>;
   return Object.keys(model).every((key) => key === "provider" || key === "id") &&
     typeof model.provider === "string" && model.provider.length > 0 && model.provider.length <= 100 &&
     typeof model.id === "string" && model.id.length > 0 && model.id.length <= 200;

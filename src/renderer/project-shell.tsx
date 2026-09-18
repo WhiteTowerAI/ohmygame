@@ -510,7 +510,7 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id, state.settings.model, state.settings.reasoningLevel);
+      const created = await createConversation(project.id);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
