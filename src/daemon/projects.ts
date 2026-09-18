@@ -86,7 +86,7 @@ export class ProjectManager {
     await mkdir(projectDirectory, { recursive: true });
     if (!hasExternalWorkspace) await mkdir(workspacePath, { recursive: true });
     await writeMetadata(projectDirectory, metadata);
-    const project = projectState(workspacePath, metadata, false, projectDirectory, true);
+    const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath), projectDirectory, true);
     this.#projects.set(id, project);
     return project;
   }

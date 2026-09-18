@@ -55,13 +55,13 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
     event.preventDefault();
     if (creating) return;
     setCreating(true);
-      setError(undefined);
-      try {
-        const project = await createProject({
-          name: name.trim() || (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)),
-          type,
-          ...(type === "interactive-drama" && templateId ? { templateId } : {}),
-          ...(workspacePath ? { workspacePath } : {}),
+    setError(undefined);
+    try {
+      const project = await createProject({
+        name: name.trim() || (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)),
+        type,
+        ...(type === "interactive-drama" && templateId ? { templateId } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
       });
       onCreated(project);
     } catch (cause) {

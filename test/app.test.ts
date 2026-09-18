@@ -111,6 +111,23 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("recognizes a runnable imported workspace when it is created", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-runnable-workspace-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-vite-workspace-"));
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Runnable workspace", workspacePath },
+    })).json();
+
+    expect(project.preview).toEqual({ status: "stopped" });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),
