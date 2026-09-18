@@ -9,7 +9,7 @@ import "./styles.css";
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
 applyAppearance(readAppearance());
-if (window.openGameDesktop?.platform === "darwin") {
+if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }
 const route = parseAppRoute(window.location.hash);

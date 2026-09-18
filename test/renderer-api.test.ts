@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, ensureInteractiveDramaStarterProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -8,16 +8,28 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
-  it("ensures the Interactive Drama starter project", async () => {
+  it("shows the specific API error message", async () => {
     installWindow();
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      error: "Bad Request",
+      message: "querystring/page must be valid",
+    }, { status: 400 })));
+
+    await expect(accountApi.usage("token", 1)).rejects.toThrow(
+      "querystring/page must be valid",
+    );
+  });
+
+  it("sends Interactive Drama template selection only when requested", async () => {
+    installWindow();
+    const project = { id: "project", name: "Story", type: "interactive-drama", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
+    const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(ensureInteractiveDramaStarterProject()).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/interactive-drama/starter-project/ensure",
-      expect.objectContaining({ method: "POST" }),
-    );
+    await createProject({ type: "interactive-drama" });
+    await createProject({ type: "interactive-drama", templateId: "night-train" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama", templateId: "night-train" }) }));
   });
 
   it("uploads a Library asset as binary data", async () => {
@@ -181,17 +193,17 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ plugins: [], errors: [] }))
-      .mockResolvedValueOnce(Response.json({ id: "opengame:godot" }))
+      .mockResolvedValueOnce(Response.json({ id: "ohmygame:godot" }))
       .mockResolvedValueOnce(Response.json({ id: "skills/godot/SKILL.md", content: "# Godot" }));
     vi.stubGlobal("fetch", fetchMock);
 
     await listPlugins();
-    await readPlugin("opengame:godot");
-    await readPluginSkill("opengame:godot", "skills/godot/SKILL.md");
+    await readPlugin("ohmygame:godot");
+    await readPluginSkill("ohmygame:godot", "skills/godot/SKILL.md");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/opengame%3Agodot", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/opengame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/ohmygame%3Agodot", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/ohmygame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
   });
 
   it("loads Composer capabilities before a project exists", async () => {
@@ -290,14 +302,14 @@ describe("renderer project API", () => {
   it("installs and publishes Catalog Plugins through the daemon API", async () => {
     installWindow();
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ id: "opengame:tools" }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ id: "ohmygame:tools" }, { status: 201 }))
       .mockResolvedValueOnce(Response.json({}, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await installCatalogPlugin("opengame:tools");
+    await installCatalogPlugin("ohmygame:tools");
     await publishPlugin("personal:tools", "user-access-token", "0.1.0");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/opengame%3Atools/install", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/ohmygame%3Atools/install", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
       method: "POST", body: JSON.stringify({ accessToken: "user-access-token", version: "0.1.0" }),
     }));
@@ -441,7 +453,7 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ queued: false, turnId: "turn-1" }, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
 
     await sendPrompt("project-1", "conversation-1", "Use @Godot", [], [], "normal", [mention]);
 
@@ -640,7 +652,7 @@ describe("renderer project API", () => {
 
   it("downloads workspace assets with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -656,7 +668,7 @@ describe("renderer project API", () => {
 
   it("loads and stores project covers with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -680,7 +692,7 @@ describe("renderer project API", () => {
 
   it("loads Community game covers through the local runtime", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -757,7 +769,7 @@ describe("renderer tools API", () => {
 
   it("downloads tool output with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -804,7 +816,7 @@ describe("renderer tools API", () => {
 
 function installWindow(): void {
   vi.stubGlobal("window", {
-    openGameDesktop: undefined,
+    ohMyGameDesktop: undefined,
     setTimeout,
     clearTimeout,
   });

@@ -66,8 +66,8 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
         interface: { ...selected.manifest.interface, ...entry.interface },
       };
       const detail = await inspectPluginBundle(source, {
-        idPrefix: "opengame:",
-        marketplace: { id: "opengame", displayName: "OpenGame" },
+        idPrefix: "ohmygame:",
+        marketplace: { id: "ohmygame", displayName: "OhMyGame" },
         source: { type: "catalog", pluginId: entry.pluginId, releaseId: entry.releaseId },
       }, undefined, manifest);
       const archive = await createPluginArchive(source);

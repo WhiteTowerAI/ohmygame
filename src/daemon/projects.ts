@@ -15,7 +15,7 @@ interface ProjectMetadata {
   name: string;
   type: ProjectType;
   updatedAt: string;
-  /** Present only when the user chose a workspace outside OpenGame storage. */
+  /** Present only when the user chose a workspace outside OhMyGame storage. */
   workspacePath?: string;
   publication?: PublicationState;
 }
@@ -463,8 +463,8 @@ export class ProjectManager {
       } catch (cause) {
         throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
-      if (story.player.backgroundAssetId === assetId || story.player.openUiVideoAssetId === assetId || story.chapters.some((chapter) => chapter.nodes.some((node) => (
-        ((node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
+      if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
+        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
         ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
@@ -489,17 +489,16 @@ export class ProjectManager {
       const current = await readStoryCodebase(project.workspacePath);
       const story: StoryDocument = {
           ...current,
-          player: {
-            ...current.player,
-            ...(current.player.backgroundAssetId === assetId ? { backgroundAssetId: undefined } : {}),
-            ...(current.player.openUiVideoAssetId === assetId ? { openUiVideoAssetId: undefined } : {}),
-          },
           chapters: current.chapters.map((chapter) => {
             const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
             return {
               ...chapter,
               nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
+                if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
                 if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+                if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+                if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+                if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
                 if (node.type === "image") {
                   const images = node.data.images.filter((image) =>
                     (image.type !== "library" || image.assetId !== assetId) &&
@@ -525,9 +524,6 @@ export class ProjectManager {
                     data: { ...node.data, references },
                   };
                 }
-                if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
                 return node;
               }),
             };
@@ -573,12 +569,12 @@ export class ProjectManager {
       throw new ProjectWorkspaceError("The filesystem root cannot be used as a workspace");
     }
     if (pathsOverlap(workspacePath, this.#projectsDirectory)) {
-      throw new ProjectWorkspaceError("OpenGame's project storage cannot be used as a workspace");
+      throw new ProjectWorkspaceError("OhMyGame's project storage cannot be used as a workspace");
     }
     for (const project of this.#projects.values()) {
       const existingWorkspace = path.resolve(project.workspacePath);
       if (pathsOverlap(workspacePath, existingWorkspace)) {
-        throw new ProjectWorkspaceError("This folder overlaps with another OpenGame workspace");
+        throw new ProjectWorkspaceError("This folder overlaps with another OhMyGame workspace");
       }
     }
     return workspacePath;

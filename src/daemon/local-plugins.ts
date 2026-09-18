@@ -3,7 +3,7 @@ import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node
 import path from "node:path";
 import {
   PERSONAL_MARKETPLACE,
-  OPENGAME_MARKETPLACE,
+  OHMYGAME_MARKETPLACE,
   PLUGIN_ARCHIVE_MAX_BYTES,
   PLUGIN_ARCHIVE_MAX_ENTRIES,
   PLUGIN_MANIFEST_PATH,
@@ -121,8 +121,8 @@ export class LocalPluginStore {
         sourcePath,
         installedProvenance,
         manifest,
-        replaced?.marketplace ?? OPENGAME_MARKETPLACE,
-        !replaced || replaced.marketplace.id === OPENGAME_MARKETPLACE.id,
+        replaced?.marketplace ?? OHMYGAME_MARKETPLACE,
+        !replaced || replaced.marketplace.id === OHMYGAME_MARKETPLACE.id,
         { pluginId: provenance.pluginId, releaseId: provenance.releaseId },
       );
     });
@@ -139,7 +139,7 @@ export class LocalPluginStore {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
     if (pathsOverlap(source, this.#pluginsDirectory)) {
-      throw new LocalPluginError("Plugin source must be outside OpenGame's managed plugin directory");
+      throw new LocalPluginError("Plugin source must be outside OhMyGame's managed plugin directory");
     }
     if (provenance.type === "directory" && path.resolve(provenance.path) !== source) {
       throw new LocalPluginError("Plugin directory provenance does not match its source");
@@ -322,7 +322,7 @@ export class LocalPluginStore {
 
 function pluginIdentity(marketplace: PluginMarketplaceRef, source: PluginSource): PluginBundleIdentity {
   const idPrefix = marketplace.id === PERSONAL_MARKETPLACE.id ? "personal:"
-    : marketplace.id === OPENGAME_MARKETPLACE.id ? "opengame:"
+    : marketplace.id === OHMYGAME_MARKETPLACE.id ? "ohmygame:"
     : `marketplace:${marketplace.id}:`;
   return { idPrefix, marketplace, source };
 }
@@ -363,7 +363,7 @@ async function readPluginManifest(pluginRoot: string): Promise<PluginManifest> {
   try {
     value = JSON.parse(await readFile(manifestPath, "utf8"));
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LocalPluginError(`OpenGame Plugin manifest not found at ${PLUGIN_MANIFEST_PATH}`);
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LocalPluginError(`OhMyGame Plugin manifest not found at ${PLUGIN_MANIFEST_PATH}`);
     throw new LocalPluginError(`Could not read plugin manifest: ${errorMessage(cause)}`);
   }
   if (!isPluginManifest(value)) throw new LocalPluginError("Plugin manifest is invalid");
@@ -428,7 +428,7 @@ async function referencedComponents(ids: string[] | undefined, available: readon
   for (const id of ids ?? []) {
     if (known && !known.has(id)) throw new LocalPluginError(`${label} is not available: ${id}`);
   }
-  return (ids ?? []).map((id) => ({ id, name: displayName(id.replace(/^opengame-/, "")), enabled: true }));
+  return (ids ?? []).map((id) => ({ id, name: displayName(id.replace(/^ohmygame-/, "")), enabled: true }));
 }
 
 async function declaredPath(root: string, relativePath: string): Promise<string> {
@@ -507,7 +507,7 @@ function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
 
 function validateMarketplace(marketplace: PluginMarketplaceRef, trusted = false): void {
   if (!isPluginMarketplace(marketplace)) throw new LocalPluginError("Plugin marketplace is invalid");
-  if (marketplace.id === "opengame" && !trusted) {
+  if (marketplace.id === "ohmygame" && !trusted) {
     throw new LocalPluginError(`Plugin marketplace name is reserved: ${marketplace.id}`);
   }
 }
@@ -519,8 +519,8 @@ function isPluginName(value: unknown): value is string {
 function pluginRecordId(record: Pick<LocalPluginRecord, "name" | "marketplace">): string {
   return record.marketplace.id === PERSONAL_MARKETPLACE.id
     ? `personal:${record.name}`
-    : record.marketplace.id === OPENGAME_MARKETPLACE.id
-      ? `opengame:${record.name}`
+    : record.marketplace.id === OHMYGAME_MARKETPLACE.id
+      ? `ohmygame:${record.name}`
     : `marketplace:${record.marketplace.id}:${record.name}`;
 }
 

@@ -6,7 +6,7 @@ import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile } from "../src
 
 describe("workspace inspection", () => {
   it("lists source files and ignores generated directories", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "src"));
     await mkdir(path.join(workspace, "node_modules"));
     await mkdir(path.join(workspace, "dist"));
@@ -24,7 +24,7 @@ describe("workspace inspection", () => {
   });
 
   it("adds stored Asset metadata and defaults legacy publications to listed", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await mkdir(path.join(workspace, "assets", "generated"), { recursive: true });
     await mkdir(path.join(workspace, ".data"));
     await writeFile(path.join(workspace, "assets", "generated", "image.webp"), "image");
@@ -44,7 +44,7 @@ describe("workspace inspection", () => {
   });
 
   it("reads bounded text and reports binary files", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await writeFile(path.join(workspace, "large.txt"), "x".repeat(300 * 1024));
     await writeFile(path.join(workspace, "image.bin"), Buffer.from([0xff, 0xfe, 0x00]));
 
@@ -55,8 +55,8 @@ describe("workspace inspection", () => {
   });
 
   it("rejects traversal and symbolic links", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
-    const outside = path.join(await mkdtemp(path.join(tmpdir(), "open-game-outside-")), "secret.txt");
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    const outside = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-outside-")), "secret.txt");
     await writeFile(outside, "secret");
     await symlink(outside, path.join(workspace, "link.txt"));
 
@@ -66,7 +66,7 @@ describe("workspace inspection", () => {
   });
 
   it("resolves supported media and rejects other raw files", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "open-game-workspace-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await writeFile(path.join(workspace, "sound.mp3"), "audio");
     await writeFile(path.join(workspace, "model.glb"), "model");
     await writeFile(path.join(workspace, "notes.txt"), "text");

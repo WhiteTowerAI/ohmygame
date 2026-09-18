@@ -7,15 +7,17 @@ import {
 } from "../shared/game-mosaic.js";
 import type { PublishCommunityGame } from "../shared/publish-v1.js";
 import { getCommunityGame, listCommunityGames } from "./api.js";
+import { WebAccountPage } from "./account.js";
+import type { AccountSection } from "../account-ui/account-page.js";
 import appleIcon from "./assets/apple.svg";
 import fullscreenIcon from "./assets/fullscreen.svg";
 import githubIcon from "./assets/github.svg";
-import brandMark from "../shared/assets/opengame-mark.svg";
+import brandMark from "../shared/assets/ohmygame-mark.svg";
 import shareIcon from "./assets/share.svg";
 import windowsIcon from "./assets/windows.svg";
 
-const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/open-game/releases/latest";
-const GITHUB_URL = "https://github.com/WhiteTowerAI/open-game";
+const DOWNLOAD_URL = "https://github.com/WhiteTowerAI/ohmygame/releases/latest";
+const GITHUB_URL = "https://github.com/WhiteTowerAI/ohmygame";
 const RELATED_GAMES_LIMIT = 10;
 
 type MosaicStyle = CSSProperties & {
@@ -31,10 +33,15 @@ export function getGameMosaicSlots(count: number): readonly GameMosaicSlot[] {
 export type CommunityRoute =
   | { page: "home" }
   | { page: "game"; gameId: string }
+  | { page: "account"; section: AccountSection }
   | { page: "not-found" };
 
 export function parseCommunityRoute(pathname: string): CommunityRoute {
   if (pathname === "/" || pathname === "") return { page: "home" };
+  const path = pathname.replace(/\/$/, "");
+  if (path === "/pricing") return { page: "account", section: "plans" };
+  if (path === "/account" || path === "/account/billing") return { page: "account", section: "billing" };
+  if (path === "/account/usage") return { page: "account", section: "usage" };
   const match = /^\/games\/([^/]+)\/?$/.exec(pathname);
   if (!match?.[1]) return { page: "not-found" };
   try {
@@ -50,6 +57,7 @@ export function App() {
     <SiteShell>
       {route.page === "home" ? <HomePage /> : null}
       {route.page === "game" ? <GamePage gameId={route.gameId} /> : null}
+      {route.page === "account" ? <WebAccountPage section={route.section} /> : null}
       {route.page === "not-found" ? <NotFound /> : null}
     </SiteShell>
   );
@@ -70,15 +78,17 @@ function SiteShell({ children }: { children: ReactNode }) {
 }
 
 function SiteHeader() {
+  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
   return (
     <header className="site-header">
-      <a className="brand-link" href="/" aria-label="OpenGame home"><Brand /></a>
-      <nav className="site-nav" aria-label="OpenGame">
-        <a className="is-active" href="/#games">Games</a>
-        <a className="api-link" href="https://portal.open-game.ai">API</a>
+      <a className="brand-link" href="/" aria-label="OhMyGame home"><Brand /></a>
+      <nav className="site-nav" aria-label="OhMyGame">
+        <a className={pathname === "/" || pathname.startsWith("/games/") ? "is-active" : undefined} href="/#games">Games</a>
+        <a className={pathname === "/pricing" ? "is-active" : undefined} href="/pricing">Pricing</a>
+        <a className={pathname.startsWith("/account") ? "is-active" : undefined} href="/account/usage">Account</a>
       </nav>
       <div className="header-actions">
-        <a className="github-link" href={GITHUB_URL} aria-label="OpenGame on GitHub" title="GitHub"><img src={githubIcon} alt="" /></a>
+        <a className="github-link" href={GITHUB_URL} aria-label="OhMyGame on GitHub" title="GitHub"><img src={githubIcon} alt="" /></a>
         <a className="download-button" href={DOWNLOAD_URL}>Download</a>
       </div>
     </header>
@@ -118,7 +128,7 @@ function HomePage() {
         </div>
       </section>
       <section className="featured-games content-width" id="games">
-        <header className="section-heading"><h2>Games Built with OpenGame</h2><span>Play and explore</span></header>
+        <header className="section-heading"><h2>Games Built with OhMyGame</h2><span>Play and explore</span></header>
         {loading ? <Status><LoaderCircle className="spin" size={18} />Loading games</Status> : null}
         {!loading && error ? <Status error={error} onRetry={loadGames} /> : null}
         {!loading && !error && games.length === 0 ? <Status>No published games yet</Status> : null}
@@ -209,8 +219,8 @@ function GamePage({ gameId }: { gameId: string }) {
 
   useEffect(() => {
     if (!game) return;
-    document.title = `${game.title} | OpenGame`;
-    return () => { document.title = "OpenGame"; };
+    document.title = `${game.title} | OhMyGame`;
+    return () => { document.title = "OhMyGame"; };
   }, [game]);
 
   if (error) return <main className="game-detail content-width"><Status error={error} /></main>;
@@ -260,7 +270,7 @@ function GameDetail({ game, relatedGames }: { game: PublishCommunityGame; relate
 }
 
 function NotFound() {
-  return <main className="not-found content-width"><h1>GAME NOT FOUND</h1><p>This game may have moved or is no longer available.</p><a href="/">Back to OpenGame</a></main>;
+  return <main className="not-found content-width"><h1>GAME NOT FOUND</h1><p>This game may have moved or is no longer available.</p><a href="/">Back to OhMyGame</a></main>;
 }
 
 function Status({ children, error, onRetry }: { children?: ReactNode; error?: string; onRetry?: () => void }) {

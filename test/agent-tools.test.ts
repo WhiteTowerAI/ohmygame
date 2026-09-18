@@ -30,7 +30,7 @@ describe("agent tools", () => {
   });
 
   it("installs a plugin only from inside the current workspace", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Plugin Creator");
@@ -63,7 +63,7 @@ describe("agent tools", () => {
   });
 
   it("generates an image into the current project workspace", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Game");
@@ -90,7 +90,7 @@ describe("agent tools", () => {
   });
 
   it("publishes a validated structured plan", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Game");
@@ -125,7 +125,7 @@ describe("agent tools", () => {
   });
 
   it("generates a 3D model from a project image", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Game");
@@ -155,7 +155,7 @@ describe("agent tools", () => {
   });
 
   it("generates a video from a project image", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-agent-tool-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const library = new AssetLibrary(dataDirectory);
     const projects = new ProjectManager(dataDirectory, library);
     await Promise.all([library.load(), projects.load()]);

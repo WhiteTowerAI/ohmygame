@@ -51,5 +51,5 @@ function draft(overrides: { imagePrompt?: string; panelView?: AssetStudioDraft["
 }
 
 function temporaryData(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), "open-game-asset-studio-draft-"));
+  return mkdtemp(path.join(tmpdir(), "ohmygame-asset-studio-draft-"));
 }

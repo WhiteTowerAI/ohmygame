@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import type { StoryDocument, StoryInteractionCommand } from "../shared/contracts.js";
 import {
   advanceSceneTime,
+  advanceOpenUi,
   chooseOption,
   completeSceneMedia,
-  createPlayerState,
   createStoryCheckpoint,
   resolveInteractionNode,
   restartGame,
@@ -35,6 +35,8 @@ function PublishedPlayer() {
   const [error, setError] = useState<string>();
   const progress = useRef<{ key: string; signature: string } | undefined>(undefined);
   const checkpoint = useRef<PlayingRuntimeState | undefined>(undefined);
+  const chapter = story?.chapters[0];
+  const variables = useMemo(() => story?.variables ?? [], [story]);
 
   useEffect(() => {
     let disposed = false;
@@ -55,7 +57,7 @@ function PublishedPlayer() {
       setManifest(loadedManifest);
       setStory(loadedStory);
       setHasCheckpoint(Boolean(saved));
-      setRuntime(createPlayerState(chapter.id, loadedStory.variables ?? []));
+      setRuntime(restartGame(chapter, loadedStory.variables ?? []));
       document.title = loadedStory.player.title || chapter.title;
     }).catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
     return () => { disposed = true; };
@@ -63,7 +65,8 @@ function PublishedPlayer() {
 
   useEffect(() => {
     const storage = progress.current;
-    if (!storage || !runtime || !shouldCreateStoryCheckpoint(checkpoint.current, runtime)) return;
+    const runtimeNode = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
+    if (!storage || !runtime || runtimeNode?.type === "open-ui" || !shouldCreateStoryCheckpoint(checkpoint.current, runtime)) return;
     const save = createStoryCheckpoint(storage.signature, runtime);
     checkpoint.current = save.checkpoint;
     setHasCheckpoint(true);
@@ -73,7 +76,7 @@ function PublishedPlayer() {
     } catch {
       setSaveStatus("error");
     }
-  }, [runtime]);
+  }, [chapter, runtime]);
 
   useEffect(() => {
     if (saveStatus !== "saved") return;
@@ -81,8 +84,6 @@ function PublishedPlayer() {
     return () => window.clearTimeout(timeout);
   }, [saveStatus]);
 
-  const chapter = story?.chapters[0];
-  const variables = useMemo(() => story?.variables ?? [], [story]);
   const resetPlayer = useCallback(() => setPlayerKey((value) => value + 1), []);
   const startNewGame = useCallback(() => {
     if (!chapter) return;
@@ -102,10 +103,16 @@ function PublishedPlayer() {
   }, [resetPlayer]);
   const menu = useCallback(() => {
     if (!chapter) return;
-    setRuntime(createPlayerState(chapter.id, variables));
+    setRuntime(restartGame(chapter, variables));
     setPaused(false);
     resetPlayer();
   }, [chapter, resetPlayer, variables]);
+  const advanceUi = useCallback(() => {
+    if (!chapter) return;
+    setRuntime((current) => current ? advanceOpenUi(chapter, current) : current);
+    setPaused(false);
+    resetPlayer();
+  }, [chapter, resetPlayer]);
   const onSceneTime = useCallback((mediaId: string, timeMs: number) => {
     if (chapter) setRuntime((current) => current ? advanceSceneTime(chapter, current, mediaId, timeMs) : current);
   }, [chapter]);
@@ -144,7 +151,7 @@ function PublishedPlayer() {
     hasCheckpoint={hasCheckpoint}
     saveStatus={saveStatus}
     assetUrls={manifest.assets}
-    onStart={startNewGame}
+    onAdvanceOpenUi={advanceUi}
     onContinueGame={restore}
     onPause={() => setPaused(true)}
     onResume={() => setPaused(false)}

@@ -37,9 +37,9 @@ export function App() {
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
-  if (route.page === "games") return <GamesPage onNavigate={navigateToSidebarPage} onOpenGame={openGame} />;
+  if (route.page === "games") return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   if (route.page === "assets") return <ExploreAssetsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOpenGame={openGame} />;
+  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
@@ -75,7 +75,7 @@ export function App() {
   async function addPlugin(): Promise<void> {
     const session = await createPluginAuthoringSession();
     setInitialPrompt(undefined);
-    setInitialDraft({ conversationId: session.conversationId, draft: { prompt: "$plugin-creator Create an OpenGame plugin that ", mentions: [] } });
+    setInitialDraft({ conversationId: session.conversationId, draft: { prompt: "$plugin-creator Create an OhMyGame plugin that ", mentions: [] } });
     navigateToConversation(session.projectId, session.conversationId);
   }
 
@@ -114,7 +114,7 @@ export function App() {
     setRoute({ page: "home" });
   }
 
-  function openGame(gameId: string): void {
+  function ohMyGame(gameId: string): void {
     window.history.pushState(null, "", gameHash(gameId));
     setRoute({ page: "game", gameId });
   }

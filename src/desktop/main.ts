@@ -11,27 +11,27 @@ import { DesktopUpdater } from "./updater.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
-const developmentRendererUrl = process.env.OPEN_GAME_RENDERER_URL ?? "http://127.0.0.1:43120";
+const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 let quitting = false;
 let updater: DesktopUpdater | undefined;
-const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("open-game:auth-callback"));
+const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 
 async function stopServices(): Promise<void> {
   await Promise.all([daemon?.stop(), oauth.cancel()]);
 }
 
-ipcMain.handle("open-game:open-auth-url", async (_event, url: unknown) => {
+ipcMain.handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
   if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
   await shell.openExternal(url);
 });
-ipcMain.handle("open-game:take-auth-callback", () => oauth.takeCallback());
-ipcMain.handle("open-game:auth-callback-url", () => oauth.callbackUrl());
-ipcMain.handle("open-game:cancel-auth", () => oauth.cancel());
-ipcMain.handle("open-game:browse-plugin-directory", async (event, pluginId: unknown) => {
+ipcMain.handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
+ipcMain.handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
+ipcMain.handle("ohmygame:cancel-auth", () => oauth.cancel());
+ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/directory`, {
@@ -43,7 +43,7 @@ ipcMain.handle("open-game:browse-plugin-directory", async (event, pluginId: unkn
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
-ipcMain.handle("open-game:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
+ipcMain.handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
     throw new Error("Invalid Plugin Skill");
@@ -56,12 +56,12 @@ ipcMain.handle("open-game:reveal-plugin-skill", async (event, pluginId: unknown,
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
 });
-ipcMain.handle("open-game:select-plugin-directory", async (event) => {
+ipcMain.handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle("open-game:select-project-directory", async (event) => {
+ipcMain.handle("ohmygame:select-project-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "Select project workspace",
@@ -70,12 +70,12 @@ ipcMain.handle("open-game:select-project-directory", async (event) => {
   });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle("open-game:capture-page", async (event, rectangle: unknown) => {
+ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
   return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
-ipcMain.handle("open-game:open-playtest", async (event, projectId: unknown, chapterId: unknown) => {
+ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
   if (!validRouteId(projectId) || !validRouteId(chapterId) || !daemon) throw new Error("Invalid playtest target");
   const current = playtestWindows.get(projectId);
@@ -110,10 +110,10 @@ ipcMain.handle("open-game:open-playtest", async (event, projectId: unknown, chap
     throw error;
   }
 });
-ipcMain.handle("open-game:update-state", () => updater?.state() ?? null);
-ipcMain.handle("open-game:check-for-update", () => updater?.check());
-ipcMain.handle("open-game:download-update", () => updater?.download());
-ipcMain.handle("open-game:install-update", () => updater?.install());
+ipcMain.handle("ohmygame:update-state", () => updater?.state() ?? null);
+ipcMain.handle("ohmygame:check-for-update", () => updater?.check());
+ipcMain.handle("ohmygame:download-update", () => updater?.download());
+ipcMain.handle("ohmygame:install-update", () => updater?.install());
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
@@ -129,7 +129,7 @@ try {
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   daemon = await startDaemon({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
-    dataDirectory: process.env.OPEN_GAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
+    dataDirectory: process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: path.join(app.getPath("userData"), "pi-agent"),
@@ -157,7 +157,7 @@ try {
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
   });
-  updater.subscribe((state) => mainWindow?.webContents.send("open-game:update-state", state));
+  updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
   if (app.isPackaged) void updater.check();
   mainWindow.once("closed", () => {
     mainWindow = undefined;
@@ -169,7 +169,7 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
-  if (app.isReady()) dialog.showErrorBox("OpenGame could not start", message);
+  if (app.isReady()) dialog.showErrorBox("OhMyGame could not start", message);
   await stopServices();
   app.exit(1);
 }

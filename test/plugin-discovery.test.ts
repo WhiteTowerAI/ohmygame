@@ -83,7 +83,7 @@ describe("plugin discovery", () => {
 });
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-discovery-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-discovery-"));
   directories.push(directory);
   return directory;
 }

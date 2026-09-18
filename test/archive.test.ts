@@ -6,7 +6,7 @@ import { createPluginArchive } from "../src/daemon/publish/archive.js";
 
 describe("publish archives", () => {
   it("creates identical ZIPs in different time zones", async () => {
-    const source = await mkdtemp(path.join(tmpdir(), "open-game-archive-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-"));
     await writeFile(path.join(source, "example.txt"), "same content");
     const originalTimeZone = process.env.TZ;
 

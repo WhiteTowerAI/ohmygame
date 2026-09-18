@@ -1,22 +1,22 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderImages } from "../src/daemon/provider-images.js";
-import type { PortalConnection } from "../src/daemon/portal-connection.js";
+import type { AccountConnection } from "../src/daemon/account-connection.js";
 
 describe("ProviderImages", () => {
   it("lists supported image models for each connected provider", async () => {
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
+      accountConnection(),
       () => undefined,
       vi.fn(async () => Response.json({ data: [{ id: "gpt-image-2" }, { id: "text-only" }] })),
     );
 
     const models = await images.models();
     expect(models).toEqual([
-      expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gpt-image-2" }),
-      expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" }),
-      expect.objectContaining({ provider: "opengame", providerName: "OpenGame Portal", id: "gemini-3.1-flash-image", name: "Nano Banana 2" }),
+      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gpt-image-2" }),
+      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" }),
+      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gemini-3.1-flash-image", name: "Nano Banana 2" }),
       expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2" }),
     ]);
     const gpt = models.find((model) => model.id === "gpt-image-2");
@@ -30,7 +30,7 @@ describe("ProviderImages", () => {
     });
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
+      accountConnection(),
       () => ({ provider: "openai", id: "gpt-image-2" }),
       request,
     );
@@ -48,45 +48,45 @@ describe("ProviderImages", () => {
     }));
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
+      accountConnection(),
       () => ({ provider: "openai", id: "gpt-image-2" }),
       request,
     );
 
     await images.generate({
       prompt: "A game icon",
-      imageModel: { provider: "opengame", id: "gpt-image-2" },
+      imageModel: { provider: "ohmygame", id: "gpt-image-2" },
       resolution: "1K",
       aspectRatio: "1:1",
     });
 
-    expect(request.mock.calls[0]?.[0]).toBe("https://portal.open-game.ai/v1/images/generations");
-    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-portal" }));
+    expect(request.mock.calls[0]?.[0]).toBe("https://account.ohmygame.ai/v1/images/generations");
+    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-account" }));
   });
 
-  it("uses a selected Portal model without querying unrelated providers", async () => {
+  it("uses a selected managed model without querying unrelated providers", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({
       data: [{ b64_json: Buffer.from("image").toString("base64") }],
     }));
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
-      () => ({ provider: "opengame", id: "gpt-image-2" }),
+      accountConnection(),
+      () => ({ provider: "ohmygame", id: "gpt-image-2" }),
       request,
     );
 
     await images.generate({ prompt: "A game icon", size: "1024x1024" });
 
     expect(request).toHaveBeenCalledOnce();
-    expect(request.mock.calls[0]?.[0]).toBe("https://portal.open-game.ai/v1/images/generations");
-    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-portal" }));
+    expect(request.mock.calls[0]?.[0]).toBe("https://account.ohmygame.ai/v1/images/generations");
+    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-account" }));
   });
 
   it("validates the selected model's supported sizes", async () => {
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
-      () => ({ provider: "opengame", id: "gpt-image-2" }),
+      accountConnection(),
+      () => ({ provider: "ohmygame", id: "gpt-image-2" }),
       vi.fn(),
     );
 
@@ -100,8 +100,8 @@ describe("ProviderImages", () => {
     }));
     const images = new ProviderImages(
       async () => runtime(),
-      portal(),
-      () => ({ provider: "opengame", id: "gpt-image-2" }),
+      accountConnection(),
+      () => ({ provider: "ohmygame", id: "gpt-image-2" }),
       request,
     );
 
@@ -122,12 +122,12 @@ function runtime(): ModelRuntime {
   } as unknown as ModelRuntime;
 }
 
-function portal(): PortalConnection {
+function accountConnection(): AccountConnection {
   return {
     imageSource: () => ({
-      baseUrl: "https://portal.open-game.ai/v1",
-      apiKey: "sk-portal",
+      baseUrl: "https://account.ohmygame.ai/v1",
+      apiKey: "sk-account",
       modelIds: ["gpt-image-2", "gemini-3.1-flash-lite-image", "gemini-3.1-flash-image", "text-only"],
     }),
-  } as unknown as PortalConnection;
+  } as unknown as AccountConnection;
 }

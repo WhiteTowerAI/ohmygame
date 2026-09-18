@@ -33,7 +33,7 @@ export async function installCatalogPlugin(
   store: LocalPluginStore,
   input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer; replaceId?: string },
 ): Promise<PluginDetail> {
-  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "open-game-catalog-plugin-"));
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ohmygame-catalog-plugin-"));
   const archivePath = path.join(temporaryRoot, "plugin.zip");
   const source = path.join(temporaryRoot, "plugin");
   try {
@@ -60,7 +60,7 @@ async function withResolvedSource<T>(
     return operation(source, { type: "directory", path: source });
   }
   const url = validatedGitUrl(input.url);
-  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "open-game-plugin-"));
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-"));
   const clonePath = path.join(temporaryRoot, "repository");
   try {
     await git(["clone", "--depth", "1", "--no-recurse-submodules", "--", url, clonePath]);

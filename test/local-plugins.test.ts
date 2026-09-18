@@ -99,7 +99,7 @@ describe("local plugins", () => {
     const store = new LocalPluginStore(dataDirectory);
 
     await expect(store.install(source)).rejects.toThrow("Plugin resource not found: ./missing/");
-    await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "broken-plugin",
       version: "1.0.0",
       description: "Broken plugin",
@@ -229,7 +229,7 @@ describe("local plugins", () => {
 });
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-game-local-plugin-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-local-plugin-"));
   directories.push(directory);
   return directory;
 }
@@ -241,6 +241,6 @@ async function writePlugin(source: string, manifest: Record<string, unknown>): P
 }
 
 async function writePluginManifest(source: string, manifest: Record<string, unknown>): Promise<void> {
-  await mkdir(path.join(source, ".opengame-plugin"), { recursive: true });
-  await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+  await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }

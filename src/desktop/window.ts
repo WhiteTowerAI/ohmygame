@@ -22,8 +22,8 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   const loadTarget = options.rendererHash ? `${rendererTarget}${options.rendererHash}` : rendererTarget;
 
   const runtimeArguments = [
-    `--open-game-daemon-url=${options.runtime.url}`,
-    `--open-game-daemon-token=${options.runtime.token}`,
+    `--ohmygame-daemon-url=${options.runtime.url}`,
+    `--ohmygame-daemon-token=${options.runtime.token}`,
   ];
   const macWindowOptions = process.platform === "darwin"
     ? {

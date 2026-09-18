@@ -5,23 +5,24 @@ import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { readStoryCodebase } from "../src/daemon/story-codebase.js";
 import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { createPlayableStoryDocument } from "./story-fixture.js";
 
 describe("Interactive Drama project codebase", () => {
-  it("creates a canonical playable project", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+  it("creates an empty Interactive Drama project", async () => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    expect(story.chapters[0]?.nodes.map((node) => node.type)).toEqual(["start", "project-state", "ending"]);
-    expect(story.chapters[0]?.edges).toHaveLength(2);
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(stored.characters).toBeUndefined();
     expect(stored.overlays).toBeUndefined();
     expect(stored.interactions).toBeUndefined();
     expect(stored.playerViews).toBeUndefined();
+    expect(stored.chapters[0]).toMatchObject({ nodes: [], edges: [] });
   });
 
   it("stores node code outside story.json without overwriting authored source", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
     story.chapters[0]!.nodes.push({
@@ -44,7 +45,7 @@ describe("Interactive Drama project codebase", () => {
   });
 
   it("removes source files owned by deleted nodes", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
     story.chapters[0]!.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
@@ -61,7 +62,7 @@ describe("Interactive Drama project codebase", () => {
   });
 
   it("rejects unsupported legacy story formats", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     await manager.story(project.id);
     const storyPath = path.join(project.workspacePath, "story.json");
@@ -72,7 +73,7 @@ describe("Interactive Drama project codebase", () => {
   });
 
   it("requires the canonical editor layout instead of recovering layout from story data", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     await manager.story(project.id);
     const stored = await readFile(path.join(project.workspacePath, "story.json"), "utf8");
@@ -83,28 +84,30 @@ describe("Interactive Drama project codebase", () => {
   });
 
   it("rejects an editor layout with missing node positions", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
-    await manager.story(project.id);
+    await manager.setStory(project.id, createPlayableStoryDocument());
     const layoutPath = path.join(project.workspacePath, "editor-layout.json");
     const layout = JSON.parse(await readFile(layoutPath, "utf8"));
-    delete layout.nodes[Object.keys(layout.nodes).find((id) => id !== "open-ui")!];
+    delete layout.nodes[Object.keys(layout.nodes)[0]!];
     await writeFile(layoutPath, JSON.stringify(layout));
     await expect(readStoryCodebase(project.workspacePath)).rejects.toThrow("node positions do not match story.json");
   });
 
   it("removes every Open UI reference to a deleted Library asset", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "open-game-projects-")));
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
+    await manager.setStory(project.id, createPlayableStoryDocument());
     const story = await manager.story(project.id);
-    story.player.backgroundAssetId = "shared-media";
-    story.player.openUiVideoAssetId = "shared-media";
+    const openUi = story.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    if (openUi.type !== "open-ui") throw new Error("Open UI is missing");
+    openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "video", source: { type: "library", assetId: "shared-media" } }] };
     await manager.setStory(project.id, story);
 
     await manager.removeLibraryAssetReferences("shared-media");
 
     const updated = await manager.story(project.id);
-    expect(updated.player.backgroundAssetId).toBeUndefined();
-    expect(updated.player.openUiVideoAssetId).toBeUndefined();
+    const updatedOpenUi = updated.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    expect(updatedOpenUi.type === "open-ui" && updatedOpenUi.data.presentation.media).toEqual({ mode: "own", items: [] });
   });
 });

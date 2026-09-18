@@ -1,4 +1,4 @@
-# OpenGame
+# OhMyGame
 
 The current milestone is a local-first creation loop with remote publishing: a
 Pi coding session on the left, a live preview on the right, and a public
@@ -20,7 +20,7 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
-The daemon also exposes an image generation tool. Connect OpenGame Portal or
+The daemon also exposes an image generation tool. Connect OhMyGame account or
 OpenAI under Providers, then choose an available image model in the Images
 tool. Provider credentials remain in the daemon and are never exposed to the
 renderer or project workspaces.
@@ -42,7 +42,7 @@ configuration as Web.
 
 By default, projects, workspaces, and Pi sessions are stored under the daemon
 data directory. In the desktop app, a new project can instead use a selected
-existing folder as its workspace; OpenGame keeps that project's metadata and Pi
+existing folder as its workspace; OhMyGame keeps that project's metadata and Pi
 sessions in the daemon data directory, and never deletes the selected folder
 when the project is removed. Restarting the daemon restores the same project,
 Pi context, and conversation shown in the Project Shell.
@@ -81,6 +81,13 @@ It reads the public `/v1/community` API directly and provides shareable
 serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
 service. The included `vercel.json` configures the production build, API proxy,
 and shareable game routes.
+
+The same web app owns the public `/pricing` page and signed-in `/account/usage`
+and `/account/billing` pages. The desktop renderer exposes the same account
+features under Settings. Both use the OhMyGame account service; its private New
+API administration credentials never enter either client.
+Add the production website account routes to the Supabase redirect allow list
+alongside the renderer and desktop callback URLs.
 
 It listens on `http://127.0.0.1:43130` by default. Creator routes verify the
 signed-in user's Supabase access token and use its `sub` as the publisher ID;

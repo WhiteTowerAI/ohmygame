@@ -96,15 +96,15 @@ describe("plugin installer", () => {
 });
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-installer-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-installer-"));
   directories.push(directory);
   return directory;
 }
 
 async function writePlugin(root: string): Promise<void> {
-  await mkdir(path.join(root, ".opengame-plugin"), { recursive: true });
+  await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
   await mkdir(path.join(root, "skills", "test"), { recursive: true });
-  await writeFile(path.join(root, ".opengame-plugin", "plugin.json"), JSON.stringify({
+  await writeFile(path.join(root, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
     name: "test-plugin",
     version: "1.0.0",
     description: "Test plugin",

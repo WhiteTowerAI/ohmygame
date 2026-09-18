@@ -47,12 +47,12 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
-          name: OpenGame-Windows-x64
+          name: OhMyGame-Windows-x64
           if-no-files-found: error
           path: |
             release/*.exe
             release/*.blockmap
-            release/alpha.yml
+            release/latest.yml
 
   macos:
     runs-on: macos-14
@@ -100,13 +100,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - uses: actions/upload-artifact@v4
         with:
-          name: OpenGame-macOS-arm64
+          name: OhMyGame-macOS-arm64
           if-no-files-found: error
           path: |
             release/*.dmg
             release/*.zip
             release/*.blockmap
-            release/alpha-mac.yml
+            release/latest-mac.yml
 
   release:
     needs:
@@ -116,7 +116,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: OpenGame-*
+          pattern: OhMyGame-*
           path: release-assets
           merge-multiple: true
       - name: Validate update publishing configuration
@@ -140,8 +140,8 @@ jobs:
               exit 1
               ;;
           esac
-          test -f release-assets/alpha.yml
-          test -f release-assets/alpha-mac.yml
+          test -f release-assets/latest.yml
+          test -f release-assets/latest-mac.yml
       - name: Upload immutable update packages to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -166,7 +166,7 @@ jobs:
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           R2_DESKTOP_UPDATE_PREFIX: ${{ vars.R2_DESKTOP_UPDATE_PREFIX }}
         run: |
-          for manifest in release-assets/alpha.yml release-assets/alpha-mac.yml; do
+          for manifest in release-assets/latest.yml release-assets/latest-mac.yml; do
             aws s3 cp "$manifest" "s3://$R2_BUCKET/$R2_DESKTOP_UPDATE_PREFIX/$(basename "$manifest")" \
               --content-type "application/x-yaml" \
               --cache-control "no-cache, no-store, must-revalidate" \
@@ -177,5 +177,5 @@ jobs:
         env:
           DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
         run: |
-          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/alpha.yml" >/dev/null
-          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/alpha-mac.yml" >/dev/null
+          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest.yml" >/dev/null
+          curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest-mac.yml" >/dev/null

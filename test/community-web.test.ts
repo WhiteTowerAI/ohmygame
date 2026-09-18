@@ -9,6 +9,11 @@ describe("Community Web routes", () => {
     expect(parseCommunityRoute("/games/game-1/")).toEqual({ page: "game", gameId: "game-1" });
     expect(parseCommunityRoute("/games")).toEqual({ page: "not-found" });
     expect(parseCommunityRoute("/games/%")).toEqual({ page: "not-found" });
+    expect(parseCommunityRoute("/pricing")).toEqual({ page: "account", section: "plans" });
+    expect(parseCommunityRoute("/account/usage")).toEqual({ page: "account", section: "usage" });
+    expect(parseCommunityRoute("/plans")).toEqual({ page: "not-found" });
+    expect(parseCommunityRoute("/usage")).toEqual({ page: "not-found" });
+    expect(parseCommunityRoute("/billing")).toEqual({ page: "not-found" });
   });
 });
 

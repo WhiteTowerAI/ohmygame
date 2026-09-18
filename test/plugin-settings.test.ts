@@ -7,7 +7,7 @@ import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin settings", () => {
   it("persists the plugin switch separately from skill switches", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-"));
     const plugin = godotPlugin();
     const store = new PluginSettingsStore(directory);
     await store.load();
@@ -18,18 +18,18 @@ describe("plugin settings", () => {
     await reloaded.load();
     expect(reloaded.decorate(plugin)).toMatchObject({
       enabled: false,
-      connections: [{ id: "opengame-godot", enabled: true }],
+      connections: [{ id: "ohmygame-godot", enabled: true }],
     });
   });
 
   it("ignores legacy non-skill component settings", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-"));
     await writeFile(path.join(directory, "plugin-settings.json"), JSON.stringify({
       version: 1,
       plugins: {
-        "opengame:godot": {
+        "ohmygame:godot": {
           enabled: true,
-          components: { "mcpServer:opengame-godot": false, "app:godot": true },
+          components: { "mcpServer:ohmygame-godot": false, "app:godot": true },
         },
       },
     }));
@@ -41,7 +41,7 @@ describe("plugin settings", () => {
   });
 
   it("rejects component keys that do not belong to the plugin", async () => {
-    const store = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-")));
+    const store = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-")));
     await store.load();
     await expect(store.update(godotPlugin(), {
       enabled: true,
@@ -50,7 +50,7 @@ describe("plugin settings", () => {
   });
 
   it("keeps memory unchanged when persistence fails", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-"));
     const blockedDirectory = path.join(directory, "not-a-directory");
     await writeFile(blockedDirectory, "blocked");
     const plugin = godotPlugin();
@@ -66,15 +66,15 @@ describe("plugin settings", () => {
 
 function godotPlugin(): PluginDetail {
   return {
-    id: "opengame:godot",
+    id: "ohmygame:godot",
     name: "godot",
     displayName: "Godot",
     description: "Connect the agent to the Godot editor.",
-    marketplace: { id: "opengame", displayName: "OpenGame" },
+    marketplace: { id: "ohmygame", displayName: "OhMyGame" },
     source: { type: "builtIn" },
     installed: true,
     enabled: true,
     skills: [],
-    connections: [{ id: "opengame-godot", name: "Godot", enabled: true }],
+    connections: [{ id: "ohmygame-godot", name: "Godot", enabled: true }],
   };
 }

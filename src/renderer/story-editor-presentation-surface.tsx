@@ -16,7 +16,7 @@ export interface StoryEditorCommand {
 }
 
 interface PresentationSurfaceMessage {
-  channel: "open-game:editor-presentation";
+  channel: "ohmygame:editor-presentation";
   instanceId: string;
   type: "result" | "error" | "command";
   rendered?: boolean;
@@ -60,8 +60,8 @@ export function StoryEditorPresentationSurface({ source, styles, region, node, c
       if (event.data.type === "command" && event.data.command) {
         const command = event.data.command;
         void Promise.resolve(onCommandRef.current?.(command)).then(
-          (result) => iframe.current?.contentWindow?.postMessage({ channel: "open-game:editor-presentation", instanceId, type: "command-result", commandId: command.id, ok: true, result }, "*"),
-          (cause) => iframe.current?.contentWindow?.postMessage({ channel: "open-game:editor-presentation", instanceId, type: "command-result", commandId: command.id, ok: false, message: cause instanceof Error ? cause.message : String(cause) }, "*"),
+          (result) => iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:editor-presentation", instanceId, type: "command-result", commandId: command.id, ok: true, result }, "*"),
+          (cause) => iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:editor-presentation", instanceId, type: "command-result", commandId: command.id, ok: false, message: cause instanceof Error ? cause.message : String(cause) }, "*"),
         );
         return;
       }
@@ -73,7 +73,7 @@ export function StoryEditorPresentationSurface({ source, styles, region, node, c
   }, [instanceId, region]);
   useEffect(() => {
     if (!loaded || !source) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "open-game:editor-presentation", instanceId, type: "render", source, styles, region, node, context }, "*");
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:editor-presentation", instanceId, type: "render", source, styles, region, node, context }, "*");
   }, [context, instanceId, loaded, node, region, source, styles]);
   if (!source) return null;
   return <iframe
@@ -91,5 +91,5 @@ export function StoryEditorPresentationSurface({ source, styles, region, node, c
 function isPresentationMessage(value: unknown): value is PresentationSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<PresentationSurfaceMessage>;
-  return message.channel === "open-game:editor-presentation" && typeof message.instanceId === "string" && (message.type === "result" || message.type === "error" || message.type === "command");
+  return message.channel === "ohmygame:editor-presentation" && typeof message.instanceId === "string" && (message.type === "result" || message.type === "error" || message.type === "command");
 }

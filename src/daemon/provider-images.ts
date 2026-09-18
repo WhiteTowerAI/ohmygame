@@ -3,30 +3,30 @@ import type { ImageModel, ImageModelRef } from "../shared/contracts.js";
 import { imageModelDefinition, imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
-import type { PortalConnection } from "./portal-connection.js";
+import type { AccountConnection } from "./account-connection.js";
 
 export class ProviderImages implements ImageGenerator {
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
-    private readonly portal: PortalConnection,
+    private readonly accountConnection: AccountConnection,
     private readonly selected: () => ImageModelRef | undefined,
     private readonly request: typeof fetch = fetch,
   ) {}
 
   async models(signal?: AbortSignal): Promise<ImageModel[]> {
-    const portal = this.portal.imageSource();
-    const portalModels = portal
-      ? imageModelsForProvider("opengame", "OpenGame Portal", portal.modelIds)
+    const accountSource = this.accountConnection.imageSource();
+    const accountModels = accountSource
+      ? imageModelsForProvider("ohmygame", "OhMyGame account", accountSource.modelIds)
       : [];
     const runtime = await this.runtime();
     const openAI = runtime.getProvider("openai");
-    if (!openAI || !runtime.hasConfiguredAuth("openai")) return portalModels;
+    if (!openAI || !runtime.hasConfiguredAuth("openai")) return accountModels;
     try {
       const source = await runtimeSource(runtime, "openai");
       const ids = await modelIds(source, this.request, signal);
-      return [...portalModels, ...imageModelsForProvider("openai", openAI.name, ids)];
+      return [...accountModels, ...imageModelsForProvider("openai", openAI.name, ids)];
     } catch {
-      return portalModels;
+      return accountModels;
     }
   }
 
@@ -41,9 +41,9 @@ export class ProviderImages implements ImageGenerator {
     }
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
     let source: ImageSource | undefined;
-    if (selected.provider === "opengame") {
-      const portal = this.portal.imageSource();
-      if (portal && portal.modelIds.includes(selected.id)) source = portal;
+    if (selected.provider === "ohmygame") {
+      const accountSource = this.accountConnection.imageSource();
+      if (accountSource && accountSource.modelIds.includes(selected.id)) source = accountSource;
     } else {
       const runtime = await this.runtime();
       source = await runtimeSource(runtime, selected.provider);

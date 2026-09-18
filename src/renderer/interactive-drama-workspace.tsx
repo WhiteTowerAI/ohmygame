@@ -1,10 +1,12 @@
 import {
   ArrowUp,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleStop,
   Clapperboard,
+  Clipboard,
   Code2,
+  Copy,
   Download,
   FileText,
   Flag,
@@ -35,8 +37,9 @@ import {
   VolumeX,
   Wrench,
   X,
+  type IconComponent,
 } from "./icons.js";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -58,8 +61,10 @@ import {
   type NodeChange,
   type NodeProps,
   type NodeTypes,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./story-canvas-alignment.js";
+import { duplicateStoryNode, snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
 import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODEL,
@@ -91,6 +96,7 @@ import {
   type StoryNodeType,
   type StoryPlayerConfig,
   type StoryOpenUiAction,
+  type StoryOpenUiContent,
   type StoryInteractionOutcome,
   type StorySceneMedia,
   type StorySceneSurface,
@@ -103,7 +109,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, getWorkspaceFile, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -130,18 +136,75 @@ const STORY_EDGE_OPTIONS = {
 };
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
-const OPEN_UI_ENTRY_EDGE_ID = "open-ui-entry";
-const OPEN_UI_STORY_EDGE_ID = "open-ui-story";
 const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
+const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
 const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
-const PLAYER_UI_NODE_ID = "open-ui";
 type InteractionMode = "pointer" | "pan";
 type StoryWorkspaceView = "canvas" | "code";
 type InteractionTemplate = "blank" | StoryInteractionBehavior["type"];
+type CanvasNodeCreationAction =
+  | { kind: "node"; type: Exclude<StoryNodeType, "asset"> }
+  | { kind: "interaction"; template: InteractionTemplate };
+interface CanvasNodeCreationLeaf {
+  label: string;
+  description: string;
+  icon: IconComponent;
+  action: CanvasNodeCreationAction;
+}
+interface CanvasNodeCreationBranch {
+  label: string;
+  description: string;
+  icon: IconComponent;
+  children: CanvasNodeCreationLeaf[];
+}
+type CanvasNodeCreationItem = CanvasNodeCreationLeaf | CanvasNodeCreationBranch;
+interface CanvasNodeCreationGroup {
+  label: string;
+  items: CanvasNodeCreationItem[];
+}
+type CanvasContextMenuState = {
+  kind: "pane" | "node";
+  screenPosition: { x: number; y: number };
+  flowPosition: { x: number; y: number };
+  nodeId?: string;
+};
+
+const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
+  {
+    label: "Story Flow",
+    items: [
+      { label: "Start", description: "Set the story entry point", icon: Flag, action: { kind: "node", type: "start" } },
+      { label: "Open UI", description: "Add a coded player interface", icon: PanelToggle, action: { kind: "node", type: "open-ui" } },
+      { label: "Scene", description: "Ordered image or video media", icon: Clapperboard, action: { kind: "node", type: "scene" } },
+      { label: "Interaction", description: "Wait for player input", icon: MousePointer2, children: [
+        { label: "Continue", description: "Wait for the player to continue", icon: Play, action: { kind: "interaction", template: "continue" } },
+        { label: "QTE", description: "Timed button or keyboard input", icon: Code2, action: { kind: "interaction", template: "qte" } },
+        { label: "Hotspot", description: "Timed clickable area", icon: MousePointer2, action: { kind: "interaction", template: "hotspot" } },
+        { label: "Custom", description: "Start from HTML, CSS, and JavaScript", icon: Code2, action: { kind: "interaction", template: "blank" } },
+      ] },
+      { label: "Choice", description: "Branch into player options", icon: GitBranch, action: { kind: "node", type: "choice" } },
+      { label: "Project State", description: "Apply state changes in the flow", icon: Wrench, action: { kind: "node", type: "project-state" } },
+      { label: "Ending", description: "Finish this story path", icon: CircleStop, action: { kind: "node", type: "ending" } },
+    ],
+  },
+  {
+    label: "Assets",
+    items: [
+      { label: "Text", description: "Write a reusable prompt", icon: FileText, action: { kind: "node", type: "text" } },
+      { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
+      { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
+    ],
+  },
+];
+
+function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasNodeCreationLeaf {
+  return "action" in item;
+}
+
 interface SceneCanvasPreviewData {
   assetId?: string;
   totalDurationMs: number;
@@ -179,6 +242,8 @@ type StoryFlowData = {
   timeout?: StoryChoiceTimeout;
   presentation?: StoryNodePresentation;
   behavior?: StoryInteractionBehavior;
+  actions?: StoryAction[];
+  content?: StoryOpenUiContent;
   scenePreview?: SceneCanvasPreviewData;
   inheritedScenePreview?: InheritedScenePreviewData;
   playerConfig?: StoryPlayerConfig;
@@ -192,7 +257,7 @@ type StoryFlowData = {
   textRuntime?: TextNodeRuntime;
 };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType> & StoryNodeEditorMetadata;
-type StoryCanvasNode = Node<StoryFlowData, StoryNodeType | "player-ui"> & StoryNodeEditorMetadata;
+type StoryCanvasNode = StoryFlowNode;
 
 interface MediaNodeRuntime {
   generating: boolean;
@@ -242,7 +307,7 @@ interface MediaReferenceView {
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
-  "player-ui": CustomPlayerUiNode,
+  "open-ui": CustomOpenUiNode,
   start: CustomStartNode,
   "project-state": CustomProjectStateNode,
   scene: CustomSceneNode,
@@ -278,10 +343,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [player, setPlayer] = useState<StoryPlayerConfig>(() => structuredClone(DEFAULT_STORY_PLAYER_CONFIG));
   const [nodes, setNodes] = useState<StoryFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [openUiPosition, setOpenUiPosition] = useState({ x: 240, y: 240 });
   const [selectedId, setSelectedId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
-  const [stateEditorOpen, setStateEditorOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<StoryWorkspaceView>("canvas");
   const [editorLayout, setEditorLayout] = useState<StoryEditorLayout>({
     version: 1,
@@ -297,6 +360,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
+  const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
+  const [copiedNode, setCopiedNode] = useState<StoryNode>();
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -310,6 +375,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [publishOpen, setPublishOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
   const canvas = useRef<HTMLDivElement>(null);
+  const reactFlow = useRef<ReactFlowInstance<StoryCanvasNode>>(null);
   const remainingChapters = useRef<StoryChapter[]>([]);
   const latestStory = useRef<StoryDocument | undefined>(undefined);
   const queuedStory = useRef<string | undefined>(undefined);
@@ -334,6 +400,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     historyObservedJson.current = undefined;
     historyPendingBase.current = undefined;
     historyGestureBase.current = undefined;
+    setCanvasContextMenu(undefined);
+    setCopiedNode(undefined);
     void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(async ([story, assets, models]) => {
       if (disposed) return;
       const [presentation, presentationStyles] = await Promise.all([
@@ -351,14 +419,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       const normalizedLayout = loadedLayout;
       setEditorLayout(normalizedLayout);
       setWorkspaceView(normalizedLayout.view === "code" ? "code" : "canvas");
-      const startNode = firstChapter.nodes.find((node) => node.type === "start");
-      const startPosition = startNode?.position ?? { x: 80, y: 240 };
-      const firstEdge = firstChapter.edges.find((edge) => edge.source === startNode?.id && (edge.sourceHandle ?? OUTPUT_HANDLE) === OUTPUT_HANDLE);
-      const firstNodePosition = firstChapter.nodes.find((node) => node.id === firstEdge?.target)?.position;
-      const availableGap = firstNodePosition ? firstNodePosition.x - (startPosition.x + 112) : 0;
-      setOpenUiPosition(normalizedLayout.nodes[PLAYER_UI_NODE_ID] ?? (availableGap >= 480
-        ? { x: startPosition.x + 112 + (availableGap - 440) / 2, y: Math.max(208, startPosition.y - 32) }
-        : { x: startPosition.x + 145, y: Math.max(208, Math.min(startPosition.y, firstNodePosition?.y ?? startPosition.y) - 32) }));
       setEdges(firstChapter.edges);
       remainingChapters.current = story.chapters.slice(1);
       queuedStory.current = JSON.stringify(story);
@@ -383,11 +443,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       nodes: {
         ...Object.fromEntries(remainingChapters.current.flatMap((remaining) => remaining.nodes.map((node) => [node.id, node.position]))),
         ...Object.fromEntries(nodes.map((node) => [node.id, node.position])),
-        [PLAYER_UI_NODE_ID]: openUiPosition,
       },
       view: workspaceView,
     }) : undefined,
-    [chapter, edges, editorLayout, nodes, openUiPosition, player, variables, workspaceView],
+    [chapter, edges, editorLayout, nodes, player, variables, workspaceView],
   );
   latestStory.current = document;
 
@@ -497,8 +556,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [document, workspaceView]);
-  const playerUiNodeId = useMemo(() => uniquePlayerUiNodeId(nodes), [nodes]);
-
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
     if (node.type === "image") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
@@ -543,18 +600,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     return derived;
   }), [nodes, selectedAssetEdgeId]);
 
-  // Keep Start as the persisted runtime root, while making the player-facing
-  // opening sequence explicit in the canvas: Start → Open UI → first story node.
-  const openUiEdges = useMemo<Edge[]>(() => {
-    const start = nodes.find((node) => node.type === "start");
-    if (!start) return [];
-    const first = edges.find((edge) => edge.source === start.id && (edge.sourceHandle ?? OUTPUT_HANDLE) === OUTPUT_HANDLE);
-    return [
-      { id: OPEN_UI_ENTRY_EDGE_ID, source: start.id, target: playerUiNodeId, sourceHandle: OUTPUT_HANDLE, className: "story-entry-edge", selectable: false, deletable: false },
-      ...(first ? [{ id: OPEN_UI_STORY_EDGE_ID, source: playerUiNodeId, target: first.target, sourceHandle: OUTPUT_HANDLE, className: "story-entry-edge", selectable: false, deletable: false }] : []),
-    ];
-  }, [edges, nodes, playerUiNodeId]);
-
   const save = useCallback((story: StoryDocument): Promise<void> => {
     const serialized = JSON.stringify(story);
     if (serialized === queuedStory.current) return saveChain.current;
@@ -585,21 +630,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }, [save]);
 
   const onNodesChange = useCallback((changes: NodeChange<StoryCanvasNode>[]) => {
-    for (const change of changes) {
-      if (change.type === "position" && change.id === playerUiNodeId && change.position) setOpenUiPosition(change.position);
-    }
-    const storyChanges = changes.filter((change) => {
-      const id = change.type === "add" ? change.item.id : change.id;
-      return id !== playerUiNodeId;
-    });
-    setNodes((current) => applyNodeChanges(storyChanges, current).filter(isStoryFlowNode));
-  }, [playerUiNodeId]);
+    setNodes((current) => applyNodeChanges(changes, current));
+  }, []);
   function onEdgesChange(changes: EdgeChange[]): void {
     const assetEdgeIds = new Set(assetEdges.map((edge) => edge.id));
-    if (changes.some((change) => change.type === "remove" && change.id === OPEN_UI_STORY_EDGE_ID)) {
-      const start = nodes.find((node) => node.type === "start");
-      if (start) setEdges((current) => current.filter((edge) => edge.source !== start.id || (edge.sourceHandle ?? OUTPUT_HANDLE) !== OUTPUT_HANDLE));
-    }
     for (const change of changes) {
       if (change.type === "add") continue;
       if (!assetEdgeIds.has(change.id)) continue;
@@ -628,25 +662,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         setSelectedAssetEdgeId(undefined);
       }
     }
-    const storyChanges = changes.filter((change) => change.type === "add" || (!assetEdgeIds.has(change.id) && !change.id.startsWith("reference:") && change.id !== OPEN_UI_ENTRY_EDGE_ID && change.id !== OPEN_UI_STORY_EDGE_ID));
+    const storyChanges = changes.filter((change) => change.type === "add" || (!assetEdgeIds.has(change.id) && !change.id.startsWith("reference:")));
     if (storyChanges.length) setEdges((current) => applyEdgeChanges(storyChanges, current));
   }
 
   function onConnect(connection: Connection): void {
     if (!connection.source || !connection.target) return;
     const target = nodes.find((node) => node.id === connection.target);
-    if (connection.source === playerUiNodeId) {
-      const start = nodes.find((node) => node.type === "start");
-      if (!start || !target || target.type !== "project-state" || connectionRelation(start, target, nodes, libraryAssets, imageModels) !== "story") return;
-      setPlayIssue(undefined);
-      setEdges((current) => replaceOutgoingEdge(current, {
-        id: crypto.randomUUID(),
-        source: start.id,
-        target: target.id,
-        sourceHandle: OUTPUT_HANDLE,
-      }));
-      return;
-    }
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
     const relation = connectionRelation(source, target, nodes, libraryAssets, imageModels);
@@ -690,14 +712,19 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
-  const playerSelected = selectedId === playerUiNodeId;
+  const contextMenuNode = canvasContextMenu?.kind === "node" ? nodes.find((node) => node.id === canvasContextMenu.nodeId) : undefined;
+  const contextMenuNodeMissing = canvasContextMenu?.kind === "node" && !contextMenuNode;
+  const canInsertCopiedNode = Boolean(copiedNode && (copiedNode.type !== "start" || !nodes.some((node) => node.type === "start")));
+  const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
+  const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
   const activeChapter = document?.chapters[0];
   const playerViewport = player.viewport;
   const playerViewportAspect = playerViewport.width / playerViewport.height;
   const canvasStageWidth = 440 * Math.min(1, playerViewportAspect);
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
-  function addNode(type: Exclude<StoryNodeType, "start" | "project-state" | "asset">, position: { x: number; y: number }): void {
+  function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
+    if (type === "start" && nodes.some((node) => node.type === "start")) return;
     const node = { ...createFlowNode(type, position, imageModels, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -747,10 +774,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     }
   }
 
-  function updatePlayer(config: StoryPlayerConfig): void {
-    setPlayer(config);
-  }
-
   function updateVariables(next: StoryVariable[]): void {
     const names = next.map((variable) => variable.name.trim());
     if (names.some((name) => !name) || new Set(names).size !== names.length) {
@@ -784,13 +807,56 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setSelectedId(node.id);
   }
 
-  function deleteSelected(): void {
-    if (!selectedNode || selectedNode.type === "start" || selectedNode.type === "project-state") return;
-    const removedIds = new Set([selectedNode.id]);
+  function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
+    if (item.action.kind === "interaction") addInteraction(position, item.action.template);
+    else addNode(item.action.type, position);
+  }
+
+  function insertNodeCopy(source: StoryNode, position: { x: number; y: number }): void {
+    if (source.type === "start" && nodes.some((node) => node.type === "start")) return;
+    const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels), selected: true };
+    setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), duplicate]);
+    setSelectedAssetEdgeId(undefined);
+    setSelectedId(duplicate.id);
+  }
+
+  function copyCanvasNode(nodeId: string): void {
+    const source = nodes.find((node) => node.id === nodeId);
+    if (!source) return;
+    setCopiedNode(structuredClone(toStoryNode(source)));
+  }
+
+  function duplicateCanvasNode(nodeId: string): void {
+    const source = nodes.find((node) => node.id === nodeId);
+    if (!source) return;
+    const canonical = toStoryNode(source);
+    if (canonical.type === "start" && nodes.some((node) => node.type === "start")) return;
+    insertNodeCopy(canonical, { x: source.position.x + STORY_CANVAS_GRID_SIZE * 2, y: source.position.y + STORY_CANVAS_GRID_SIZE * 2 });
+  }
+
+  function removeCanvasNodes(requestedIds: ReadonlySet<string>): void {
+    const removedIds = new Set(nodes.filter((node) => requestedIds.has(node.id)).map((node) => node.id));
+    if (!removedIds.size) return;
     const removedOutputs = interactionOutputsRemovedWithNodes(nodes, removedIds);
     setNodes((current) => removeNodesAndReferences(current, removedIds));
     setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target) && !removedOutputs.has(interactionOutputKey(edge.source, edge.sourceHandle ?? OUTPUT_HANDLE))));
-    setSelectedId(undefined);
+    if (removedIds.has(selectedId ?? "")) setSelectedId(undefined);
+  }
+
+  function deleteSelected(): void {
+    if (selectedNode) removeCanvasNodes(new Set([selectedNode.id]));
+  }
+
+  function openCanvasContextMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
+    event.preventDefault();
+    const flowPosition = reactFlow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!flowPosition) return;
+    setCanvasContextMenu({
+      kind,
+      nodeId,
+      screenPosition: { x: event.clientX, y: event.clientY },
+      flowPosition: snapStoryCanvasPosition(flowPosition),
+    });
   }
 
   function clearSelection(): void {
@@ -987,6 +1053,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       ...node,
       data: { ...node.data, editorPresentationSource, variables },
     };
+    if (node.type === "open-ui") {
+      const item = node.data.presentation?.media.mode === "own" ? node.data.presentation.media.items[0] : undefined;
+      const assetId = item ? resolveStoryAssetId(activeChapter ?? { id: "", title: "", nodes: [], edges: [] }, item.source) : undefined;
+      const asset = libraryAssets.find((candidate) => candidate.id === assetId);
+      const mediaType: "image" | "video" | undefined = asset?.mediaType === "video" ? "video" : asset?.mediaType === "image" ? "image" : undefined;
+      return { ...node, data: { ...node.data, editorPresentationSource, playerConfig: player, openUiPreview: { assetId, mediaType, durationMs: Math.max(0, Math.round((asset?.duration ?? 0) * 1_000)) } } };
+    }
     if (node.type === "choice" || node.type === "interaction" || node.type === "ending") return {
       ...node,
       data: {
@@ -1088,16 +1161,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     clearSelection();
     setPlayIssue(undefined);
     try {
-      if (player.backgroundAssetId && !libraryAssets.some((asset) => asset.id === player.backgroundAssetId && asset.mediaType === "image")) {
-        setSelectedId(playerUiNodeId);
-        setPlayIssue({ nodeId: playerUiNodeId, message: "The Player background is missing from Library or is not an image." });
-        return;
-      }
-      if (player.openUiVideoAssetId && !libraryAssets.some((asset) => asset.id === player.openUiVideoAssetId && asset.mediaType === "video")) {
-        setSelectedId(playerUiNodeId);
-        setPlayIssue({ nodeId: playerUiNodeId, message: "The Open UI video is missing from Library or is not a video." });
-        return;
-      }
       const assetIssue = validatePlayableChapter(activeChapter, {
         availableAssets: new Map(libraryAssets.flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const])),
       });
@@ -1110,10 +1173,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         return;
       }
       await save(document);
-      if (window.openGameDesktop) {
-        await window.openGameDesktop.openPlaytest(projectId, activeChapter.id);
+      if (window.ohMyGameDesktop) {
+        await window.ohMyGameDesktop.openPlaytest(projectId, activeChapter.id);
       } else {
-        window.open(new URL(playtestHash(projectId, activeChapter.id), window.location.href).href, "open-game-playtest");
+        window.open(new URL(playtestHash(projectId, activeChapter.id), window.location.href).href, "ohmygame-playtest");
       }
     } catch (error) {
       setPlayIssue({ nodeId: "", message: errorMessage(error) });
@@ -1195,14 +1258,14 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     if (command.type === "open-node") {
       const nodeId = payload?.nodeId;
       if (typeof nodeId !== "string") throw new Error("editor.openNode requires a node ID");
-      if (nodes.some((node) => node.id === nodeId && node.type === "project-state")) setStateEditorOpen(true);
-      else if (nodeId === playerUiNodeId || nodes.some((node) => node.id === nodeId)) setOpenedNodeId(nodeId);
-      else throw new Error(`Node ${nodeId} was not found`);
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) throw new Error(`Node ${nodeId} was not found`);
+      if (!hasNodeEditor(node)) throw new Error(`${titleCase(node.type)} nodes are edited on the canvas`);
+      setOpenedNodeId(nodeId);
       return { nodeId };
     }
     if (command.type === "close-node") {
       setOpenedNodeId(undefined);
-      setStateEditorOpen(false);
       return { closed: true };
     }
     if (command.type === "playtest") {
@@ -1227,24 +1290,14 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       onCommand: handleEditorCommand,
       regions: editorPresentationRegions,
     }}>
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId || stateEditorOpen ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-drama-project-context window-drag-exclusion">
-          <button className="interactive-drama-chapter" type="button">
-            <span>Chapter 1 / {chapter?.title ?? "Untitled"}</span>
-            <ChevronDown size={14} />
-          </button>
-        </div>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
-          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setStateEditorOpen(false); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
+          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
         </nav>
         <CustomizableEditorRegion region="toolbar" node={{ id: "workspace-toolbar", type: "toolbar", data: {} }} fallback={<div className="interactive-drama-header-actions">
-          <div className="interactive-drama-history-actions" aria-label="Edit history">
-            <button type="button" title="Undo (Cmd/Ctrl+Z)" aria-label="Undo" disabled={!historyPendingBase.current && editorUndoHistory.current.length === 0} onClick={undoEditorChange}><Undo2 size={14} /></button>
-            <button type="button" title="Redo (Cmd/Ctrl+Shift+Z)" aria-label="Redo" disabled={Boolean(historyPendingBase.current) || editorRedoHistory.current.length === 0} onClick={redoEditorChange}><Redo2 size={14} /></button>
-          </div>
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
@@ -1266,32 +1319,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           {phase === "ready" ? (
             <ReactFlow<StoryCanvasNode>
               className={`story-canvas story-canvas-${interactionMode}`}
-              nodes={[...renderedNodes.map((node) => ({ ...node, data: { ...node.data, ...(node.editor ? { editorMetadata: node.editor } : {}) } })), {
-                id: playerUiNodeId,
-                type: "player-ui",
-                position: openUiPosition,
-                measured: { width: 440, height: 304 },
-                draggable: true,
-                deletable: false,
-                selectable: true,
-                selected: playerSelected,
-                data: {
-                  title: player.title || chapter?.title || DEFAULT_STORY_PLAYER_CONFIG.title,
-                  editorPresentationSource,
-                  playerConfig: player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: chapter?.title ?? DEFAULT_STORY_PLAYER_CONFIG.title },
-                  openUiPreview: (() => {
-                    const video = libraryAssets.find((asset) => asset.id === player.openUiVideoAssetId && asset.mediaType === "video");
-                    const image = libraryAssets.find((asset) => asset.id === player.backgroundAssetId && asset.mediaType === "image");
-                    const asset = video ?? image;
-                    return { assetId: asset?.id, mediaType: asset?.mediaType === "video" ? "video" : asset?.mediaType === "image" ? "image" : undefined, durationMs: Math.max(0, Math.round((video?.duration ?? 0) * 1_000)) };
-                  })(),
-                },
-              }]}
-              edges={[...edges.filter((edge) => {
-                const start = nodes.find((node) => node.type === "start");
-                return !(start && edge.source === start.id && (edge.sourceHandle ?? OUTPUT_HANDLE) === OUTPUT_HANDLE);
-              }).map((edge) => ({ ...edge, ...storyEdgeStateLabel(edge, nodes, variables) })), ...openUiEdges, ...assetEdges]}
+              nodes={renderedNodes.map((node) => ({ ...node, data: { ...node.data, ...(node.editor ? { editorMetadata: node.editor } : {}) } }))}
+              edges={[...edges.map((edge) => ({ ...edge, ...storyEdgeStateLabel(edge, nodes, variables) })), ...assetEdges]}
               nodeTypes={STORY_NODE_TYPES}
+              onInit={(instance) => { reactFlow.current = instance; }}
               defaultEdgeOptions={STORY_EDGE_OPTIONS}
               connectionLineStyle={STORY_EDGE_OPTIONS.style}
               minZoom={MIN_ZOOM}
@@ -1306,18 +1337,18 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               zoomOnScroll={false}
               zoomOnPinch
               zoomOnDoubleClick={false}
-              deleteKeyCode={openedNodeId || stateEditorOpen ? null : ["Backspace", "Delete"]}
+              deleteKeyCode={openedNodeId ? null : ["Backspace", "Delete"]}
               onNodesChange={onNodesChange}
-              onNodeDragStart={() => { setAlignmentGuides(undefined); beginHistoryGesture(); }}
+              onNodeDragStart={() => { setCanvasContextMenu(undefined); setAlignmentGuides(undefined); beginHistoryGesture(); }}
               onNodeDrag={(_event, node) => {
                 const [active, ...candidates] = alignmentNodesFromDom([
                   node,
                   ...renderedNodes,
-                  { id: playerUiNodeId, position: openUiPosition },
                 ]);
                 setAlignmentGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
               }}
               onNodeDragStop={() => { setAlignmentGuides(undefined); finishHistoryGesture(); }}
+              onMoveStart={() => setCanvasContextMenu(undefined)}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
@@ -1326,6 +1357,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 setSelectedId(undefined);
               }}
               onNodeClick={(_event, node) => {
+                setCanvasContextMenu(undefined);
                 window.clearTimeout(nodeClickTimer.current);
                 nodeClickTimer.current = window.setTimeout(() => {
                   setSelectedAssetEdgeId(undefined);
@@ -1333,29 +1365,26 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 }, 180);
               }}
               onNodeDoubleClick={(_event, node) => {
+                setCanvasContextMenu(undefined);
                 window.clearTimeout(nodeClickTimer.current);
                 setSelectedAssetEdgeId(undefined);
                 setSelectedId(node.id);
-                if (node.type === "project-state") {
-                  setStateEditorOpen(true);
-                  return;
-                }
-                setOpenedNodeId(node.id);
+                if (hasNodeEditor(node)) setOpenedNodeId(node.id);
               }}
-              onPaneClick={() => { window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
+              onPaneClick={() => { setCanvasContextMenu(undefined); window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
+              onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
+              onNodeContextMenu={(event, node) => {
+                window.clearTimeout(nodeClickTimer.current);
+                setSelectedAssetEdgeId(undefined);
+                setSelectedId(node.id);
+                setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
+                openCanvasContextMenu(event, "node", node.id);
+              }}
               onNodesDelete={(deleted) => {
-                const removedIds = new Set(deleted.filter(isStoryFlowNode).map((node) => node.id));
-                const removedOutputs = interactionOutputsRemovedWithNodes(nodes, removedIds);
-                if (removedIds.has(selectedId ?? "")) setSelectedId(undefined);
-                setNodes((current) => removeNodesAndReferences(current, removedIds));
-                setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target) && !removedOutputs.has(interactionOutputKey(edge.source, edge.sourceHandle ?? OUTPUT_HANDLE))));
+                removeCanvasNodes(new Set(deleted.map((node) => node.id)));
               }}
               isValidConnection={(connection) => {
                 const target = nodes.find((node) => node.id === connection.target);
-                if (connection.source === playerUiNodeId) {
-                  const start = nodes.find((node) => node.type === "start");
-                  return Boolean(start && target?.type === "project-state" && connectionRelation(start, target, nodes, libraryAssets, imageModels) === "story");
-                }
                 const source = nodes.find((node) => node.id === connection.source);
                 return Boolean(source && target && connectionRelation(source, target, nodes, libraryAssets, imageModels));
               }}
@@ -1368,6 +1397,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               <CanvasToolbar
                 mode={interactionMode}
                 canvas={canvas}
+                hasStart={nodes.some((node) => node.type === "start")}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
                 importing={importingAssets}
                 reserveInspector={false}
@@ -1379,6 +1409,25 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               />
             </ReactFlow>
           ) : null}
+          {canvasContextMenu ? <StoryCanvasContextMenu
+            menu={canvasContextMenu}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            canPaste={canInsertCopiedNode}
+            canDuplicate={Boolean(contextMenuNode && (contextMenuNode.type !== "start" || !nodes.some((node) => node.type === "start")))}
+            hasStart={nodes.some((node) => node.type === "start")}
+            nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
+            importing={importingAssets}
+            onClose={() => setCanvasContextMenu(undefined)}
+            onUndo={undoEditorChange}
+            onRedo={redoEditorChange}
+            onPaste={() => { if (copiedNode) insertNodeCopy(copiedNode, canvasContextMenu.flowPosition); }}
+            onAdd={(item) => addCanvasNode(item, canvasContextMenu.flowPosition)}
+            onUpload={(file) => void importAssetFile(file, canvasContextMenu.flowPosition)}
+            onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
+            onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
+            onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
+          /> : null}
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
           {playIssue && phase === "ready" ? (
             <div className="story-play-issue" role="alert">
@@ -1389,19 +1438,17 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         </div>
       </div> : <main className="story-code-view" aria-label="Interactive Drama code"><WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} /></main>}
       {openedNodeId ? <NodeEditorPage
-        node={openedNodeId === playerUiNodeId ? undefined : renderedNodes.find((candidate) => candidate.id === openedNodeId)}
-        isOpenUi={openedNodeId === playerUiNodeId}
+        node={renderedNodes.find((candidate) => candidate.id === openedNodeId)}
         config={player ?? { ...DEFAULT_STORY_PLAYER_CONFIG, title: chapter?.title ?? DEFAULT_STORY_PLAYER_CONFIG.title }}
         nodes={nodes}
         edges={edges}
         libraryAssets={libraryAssets}
         variables={variables}
-        onConfigChange={updatePlayer}
+        onVariablesChange={updateVariables}
         onNodeChange={updateSelected}
         onPlaytest={() => void startPlaytest()}
         onClose={() => setOpenedNodeId(undefined)}
       /> : null}
-      {stateEditorOpen ? <StateEditorPage variables={variables} onChange={updateVariables} onClose={() => setStateEditorOpen(false)} /> : null}
       {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
       {document && !useDefaultEditor ? <ProjectEditorWorkspace onRegionsChange={(regions) => setEditorPresentationRegions((current) => current.join("\0") === regions.join("\0") ? current : regions)} /> : null}
     </section>
@@ -1409,11 +1456,12 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   );
 }
 
-function StateEditorPage({ variables, onChange, onClose }: { variables: StoryVariable[]; onChange: (variables: StoryVariable[]) => void; onClose: () => void }) {
-  return <section className="story-node-editor-page story-state-editor-page" aria-label="Initial State editor">
-    <header className="story-node-editor-header"><StoryEditorBreadcrumb label="Initial State" onClose={onClose} /></header>
-    <main className="story-state-editor-content"><StateInspector variables={variables} onChange={onChange} hideHeader /></main>
-  </section>;
+function StateEditorPage({ node, variables, onVariablesChange, onNodeChange }: { node: StoryFlowNode; variables: StoryVariable[]; onVariablesChange: (variables: StoryVariable[]) => void; onNodeChange: (data: StoryFlowData) => void }) {
+  return <main className="story-state-editor-content"><div className="story-inspector-content">
+    <InspectorField label="Title"><input maxLength={120} value={node.data.title ?? ""} onChange={(event) => onNodeChange({ ...node.data, title: event.target.value })} /></InspectorField>
+    <ChoiceActionsEditor variables={variables} value={node.data.actions ?? []} onChange={(actions) => onNodeChange({ ...node.data, actions })} />
+    <StateInspector variables={variables} onChange={onVariablesChange} hideHeader />
+  </div></main>;
 }
 
 function StateInspector({ variables, onChange, hideHeader = false }: { variables: StoryVariable[]; onChange: (variables: StoryVariable[]) => void; hideHeader?: boolean }) {
@@ -1473,8 +1521,8 @@ function ProjectEditorWorkspace({ onRegionsChange }: { onRegionsChange: (regions
   </div>;
 }
 
-function CustomPlayerUiNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<PlayerUiNode {...props} />} />;
+function CustomOpenUiNode(props: NodeProps<StoryCanvasNode>) {
+  return <CustomizableStoryNode props={props} fallback={<OpenUiNode {...props} />} />;
 }
 
 function CustomStartNode(props: NodeProps<StoryCanvasNode>) {
@@ -1502,15 +1550,15 @@ function CustomEndingNode(props: NodeProps<StoryCanvasNode>) {
 }
 
 function CustomTextNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<TextNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<TextNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomImageNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<ImageNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<ImageNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomVideoNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<VideoNode {...props as unknown as NodeProps<StoryFlowNode>} canvas />} />;
+  return <CustomizableStoryNode props={props} fallback={<VideoNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
 }
 
 function CustomAssetNode(props: NodeProps<StoryCanvasNode>) {
@@ -1556,7 +1604,7 @@ function StoryCustomNodeHandles({ type, data }: { type: StoryCanvasNode["type"];
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     {storyInteractionNodeOutcomes(data.behavior ?? { type: "continue", label: "Continue" }).map((outcome, index, outcomes) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
   </>;
-  if (type === "player-ui") return <><Handle className="story-media-input-handle" type="target" position={Position.Left} /><Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
+  if (type === "open-ui") return <><Handle className="story-media-input-handle" type="target" position={Position.Left} /><Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
   if (type === "image" || type === "video") return <><Handle className="story-media-input-handle" type="target" position={Position.Left} /><Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
   if (type === "text" || type === "asset") return <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />;
   return null;
@@ -1567,7 +1615,7 @@ function presentationNode(id: string, type: string, data: StoryFlowData, editor?
   return { id, type, data: JSON.parse(serialized) as Record<string, unknown>, ...(editor ? { editor } : {}) };
 }
 
-function PlayerUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
+function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   const config = data.playerConfig ?? DEFAULT_STORY_PLAYER_CONFIG;
   const preview = data.openUiPreview;
   const assetId = preview?.assetId;
@@ -1599,7 +1647,7 @@ function PlayerUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
     <div data-alignment-frame className="story-media-stage story-open-ui-node-preview">
       {asset.url && mediaType === "image" ? <img src={asset.url} alt="" /> : null}
       {asset.url && mediaType === "video" ? <video ref={video} src={asset.url} muted={muted} playsInline onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={() => { setCurrentMs(totalMs); setPlaying(false); }} /> : null}
-      <OpenUiCanvasSurface config={config} transparent={Boolean(asset.url)} />
+      <OpenUiCanvasSurface data={data} viewport={config.viewport} transparent={Boolean(asset.url)} />
       {assetId && mediaType === "video" ? <InlineVideoControls
         label="Open UI preview"
         playing={playing}
@@ -1622,18 +1670,19 @@ function PlayerUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   </div>;
 }
 
-function OpenUiCanvasSurface({ config, transparent, runtime = false, onAction }: { config: StoryPlayerConfig; transparent: boolean; runtime?: boolean; onAction?: (action: StoryOpenUiAction) => void }) {
-  const files = openUiSurfaceFiles(config, transparent);
-  const content = openUiRuntimeContent(config, false);
-  return <StoryScreenSurface files={files} content={content} mode={runtime ? "runtime" : "preview"} title="Open UI preview" className="story-open-ui-node-surface" designViewport={config.viewport} onAction={onAction} />;
+function OpenUiCanvasSurface({ data, viewport, transparent, runtime = false, onAction }: { data: StoryFlowData; viewport: StoryPlayerConfig["viewport"]; transparent: boolean; runtime?: boolean; onAction?: (action: StoryOpenUiAction) => void }) {
+  const presentation = data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  const files = openUiSurfaceFiles(presentation, transparent);
+  const content = openUiRuntimeContent(data.content ?? DEFAULT_OPEN_UI_CONTENT, false);
+  return <StoryScreenSurface files={files} content={content} mode={runtime ? "runtime" : "preview"} title="Open UI preview" className="story-open-ui-node-surface" designViewport={viewport} onAction={onAction} />;
 }
 
 function ProjectStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const variables = data.variables ?? [];
   return <div data-alignment-frame className={`story-node story-node-initial-state${selected ? " is-selected" : ""}`}>
     <Handle type="target" position={Position.Left} />
-    <header><span><Wrench size={14} />Initial State</span><small>{variables.length} {variables.length === 1 ? "var" : "vars"}</small></header>
-    <div className="story-state-resource-list">{variables.slice(0, 3).map((variable) => <span key={variable.id}><b>{variable.name || "Unnamed"}</b><small>= {variable.type === "text" ? JSON.stringify(variable.initialValue) : String(variable.initialValue)}</small></span>)}{variables.length > 3 ? <em>+{variables.length - 3} more</em> : null}{!variables.length ? <em>No variables</em> : null}</div>
+    <header><span><Wrench size={14} />{data.title || "Project State"}</span><small>{data.actions?.length ?? 0} actions</small></header>
+    <div className="story-state-resource-list">{(data.actions ?? []).slice(0, 3).map((action, index) => <span key={`${action.type}:${action.variableId}:${index}`}><b>{variables.find((variable) => variable.id === action.variableId)?.name || "Variable"}</b><small>{action.type === "set-variable" ? `= ${String(action.value)}` : `${action.amount >= 0 ? "+" : ""}${action.amount}`}</small></span>)}{(data.actions?.length ?? 0) > 3 ? <em>+{data.actions!.length - 3} more</em> : null}{!data.actions?.length ? <em>No actions</em> : null}</div>
     <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
   </div>;
 }
@@ -1889,7 +1938,7 @@ function InheritedScenePoster({ preview, children, className = "" }: { preview?:
   </div>;
 }
 
-function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function TextNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
   const effectiveModel = data.textModel ?? runtime?.defaultModel;
   const selectedModel = runtime?.models.find((model) => sameAgentModel(model, effectiveModel));
@@ -1905,13 +1954,13 @@ function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNo
           aria-label="Text output"
           rows={5}
           value={data.text ?? ""}
-          disabled={!canvas && runtime?.busy}
-          readOnly={canvas}
+          disabled={runtime?.busy}
+          readOnly={!selected}
           placeholder="Generated or manually written text"
           onChange={(event) => runtime?.onChange({ ...data, textRuntime: undefined, text: event.target.value })}
         />
       </div>
-      {selected && !canvas ? (
+      {selected ? (
         <div className="story-text-composer nodrag nowheel">
           <textarea
             aria-label="Text generation instruction"
@@ -1946,7 +1995,7 @@ function TextNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNo
   );
 }
 
-function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function ImageNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.imageRuntime;
   const selectedModel = runtime?.models.find((model) => sameImageModel(model, data.model));
   const modelOptions = selectedModel?.generationOptions ?? [];
@@ -1970,7 +2019,7 @@ function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowN
   }
 
   return (
-    <MediaNodeShell kind="image" selected={selected} editable={!canvas} assetId={data.assetId} aspectRatio={data.aspectRatio} inputCount={data.images?.length} runtime={runtime}>
+    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} inputCount={data.images?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -1997,13 +2046,13 @@ function ImageNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowN
   );
 }
 
-function VideoNode({ data, selected, canvas = false }: Pick<NodeProps<StoryFlowNode>, "data" | "selected"> & { canvas?: boolean }) {
+function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
   const referenceError = runtime?.references.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(runtime.references)
     ? "Add an image or video to use an audio reference."
     : undefined;
   return (
-    <MediaNodeShell kind="video" selected={selected} editable={!canvas} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
+    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="video"
@@ -2145,10 +2194,9 @@ function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
   );
 }
 
-function MediaNodeShell({ kind, selected, editable = true, assetId, aspectRatio, inputCount = 0, runtime, children }: {
+function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, runtime, children }: {
   kind: "image" | "video";
   selected: boolean;
-  editable?: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   inputCount?: number;
@@ -2176,7 +2224,7 @@ function MediaNodeShell({ kind, selected, editable = true, assetId, aspectRatio,
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {selected && editable ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
+      {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
     </div>
   );
 }
@@ -2392,24 +2440,24 @@ function VariableValueInput({ variable, value, label, onChange }: { variable: St
   return <input aria-label={label} type={variable.type === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(variable.type === "number" ? Number(event.target.value) : event.target.value)} />;
 }
 
-function NodeEditorPage({ node, isOpenUi, config, nodes, edges, libraryAssets, variables, onConfigChange, onNodeChange, onPlaytest, onClose }: {
+function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, onVariablesChange, onNodeChange, onPlaytest, onClose }: {
   node?: StoryFlowNode;
-  isOpenUi: boolean;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   edges: Edge[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
-  onConfigChange: (config: StoryPlayerConfig) => void;
+  onVariablesChange: (variables: StoryVariable[]) => void;
   onNodeChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onPlaytest: () => void;
   onClose: () => void;
 }) {
   const [sceneMode, setSceneMode] = useState<"design" | "code">("design");
-  const title = isOpenUi ? (config.title || "Untitled Story") : (node?.data.title || node?.data.name || (node ? titleCase(node.type) : "Untitled node"));
-  useEffect(() => { setSceneMode("design"); }, [isOpenUi, node?.id]);
+  const isOpenUi = node?.type === "open-ui";
+  const title = node?.data.title || node?.data.name || (node ? titleCase(node.type) : "Untitled node");
+  useEffect(() => { setSceneMode("design"); }, [node?.id]);
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => { if (event.data?.type === "open-game:start-story") onPlaytest(); };
+    const handleMessage = (event: MessageEvent) => { if (event.data?.type === "ohmygame:start-story") onPlaytest(); };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, [onPlaytest]);
@@ -2421,26 +2469,15 @@ function NodeEditorPage({ node, isOpenUi, config, nodes, edges, libraryAssets, v
         <button type="button" className={sceneMode === "code" ? "is-active" : ""} aria-pressed={sceneMode === "code"} onClick={() => setSceneMode("code")}>Code</button>
       </div> : null}
     </header>
-    {isOpenUi ? <OpenUiWorkbench mode={sceneMode} config={config} libraryAssets={libraryAssets} onChange={onConfigChange} onPlaytest={onPlaytest} />
+    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} config={config} libraryAssets={libraryAssets} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
+      : node?.type === "project-state" ? <StateEditorPage node={node} variables={variables} onVariablesChange={onVariablesChange} onNodeChange={onNodeChange} />
       : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
       : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
       : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
       : node?.type === "ending" ? <EndingWorkbench node={node} nodes={nodes} edges={edges} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} onPlaytest={onPlaytest} />
-      : node && (node.type === "text" || node.type === "image" || node.type === "video" || node.type === "asset") ? <UtilityNodeWorkbench node={node} />
       : <div className="story-node-editor-content"><div className="story-node-editor-main"><div className="story-node-editor-preview"><span>{node?.type ?? "Node"}</span><h1>{title}</h1><p>Node editor preview</p></div></div></div>}
   </section>;
-}
-
-function UtilityNodeWorkbench({ node }: { node: StoryFlowNode }) {
-  return <main className={`story-utility-node-editor story-utility-node-editor-${node.type}`}>
-    <div className="story-utility-node-editor-content">
-      {node.type === "text" ? <TextNode data={node.data} selected />
-        : node.type === "image" ? <ImageNode data={node.data} selected />
-        : node.type === "video" ? <VideoNode data={node.data} selected />
-        : <AssetNode data={node.data} selected />}
-    </div>
-  </main>;
 }
 
 function StoryEditorBreadcrumb({ label, onClose }: { label: string; onClose: () => void }) {
@@ -2657,11 +2694,12 @@ function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, ha
   </section>;
 }
 
-function OpenUiWorkbench({ mode, config, libraryAssets, onChange, onPlaytest }: {
+function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlaytest }: {
   mode: "design" | "code";
+  node: StoryFlowNode;
   config: StoryPlayerConfig;
   libraryAssets: LibraryAsset[];
-  onChange: (config: StoryPlayerConfig) => void;
+  onChange: (data: StoryFlowData) => void;
   onPlaytest: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -2669,8 +2707,11 @@ function OpenUiWorkbench({ mode, config, libraryAssets, onChange, onPlaytest }: 
   const [muted, setMuted] = useState(true);
   const [currentMs, setCurrentMs] = useState(0);
   const previewVideo = useRef<HTMLVideoElement>(null);
-  const selectedVideo = libraryAssets.find((asset) => asset.id === config.openUiVideoAssetId && asset.mediaType === "video");
-  const selectedImage = libraryAssets.find((asset) => asset.id === config.backgroundAssetId && asset.mediaType === "image");
+  const presentation = node.data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  const mediaItem = presentation.media.mode === "own" ? presentation.media.items[0] : undefined;
+  const mediaAssetId = mediaItem?.source.type === "library" ? mediaItem.source.assetId : undefined;
+  const selectedVideo = libraryAssets.find((asset) => asset.id === mediaAssetId && asset.mediaType === "video");
+  const selectedImage = libraryAssets.find((asset) => asset.id === mediaAssetId && asset.mediaType === "image");
   const selectedBackground = selectedVideo ?? selectedImage;
   const totalMs = Math.max(1_000, Math.round((selectedVideo?.duration ?? 10) * 1_000));
   const previewAsset = useWorkspaceAssetUrl(undefined, "", 0, selectedBackground?.id);
@@ -2695,12 +2736,12 @@ function OpenUiWorkbench({ mode, config, libraryAssets, onChange, onPlaytest }: 
     setPlaying(nextPlaying);
   }
 
-  if (mode === "code") return <OpenUiCodeWorkbench config={config} />;
+  if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
   const preview = <StoryWorkbenchPreview ariaLabel="Open UI live preview" viewport={config.viewport} hasMedia={Boolean(selectedBackground)} stageClassName="story-open-ui-stage">
           {previewAsset.url && selectedImage ? <img src={previewAsset.url} alt="" /> : null}
           {previewAsset.url && selectedVideo ? <video ref={previewVideo} src={previewAsset.url} muted={muted} playsInline preload="auto" onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={() => { setCurrentMs(totalMs); setPlaying(false); }} /> : null}
-          <OpenUiCanvasSurface config={config} transparent={Boolean(previewAsset.url)} onAction={(action) => { if (action === "enter-game") onPlaytest(); }} />
+          <OpenUiCanvasSurface data={node.data} viewport={config.viewport} transparent={Boolean(previewAsset.url)} onAction={(action) => { if (action === "enter-game") onPlaytest(); }} />
           {selectedVideo ? <InlineVideoControls
             label="Open UI preview"
             playing={playing}
@@ -2715,16 +2756,16 @@ function OpenUiWorkbench({ mode, config, libraryAssets, onChange, onPlaytest }: 
   const inspector = <aside className="story-open-ui-inspector story-inspector" aria-label="Open UI inspector">
         <div className="story-inspector-content">
           <section className="story-open-ui-inspector-section">
-            <InspectorField label="Title"><input maxLength={120} value={config.openUiContent?.title ?? config.title} onChange={(event) => onChange({ ...config, title: event.target.value, openUiContent: { ...(config.openUiContent ?? DEFAULT_OPEN_UI_CONTENT), title: event.target.value } })} /></InspectorField>
+            <InspectorField label="Title"><input maxLength={120} value={node.data.content?.title ?? node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), title: event.target.value } })} /></InspectorField>
           </section>
           <section className="story-open-ui-inspector-section story-open-ui-background">
             <h3>Background</h3>
-            {selectedBackground ? <div className="story-open-ui-background-row"><span>{selectedVideo ? <Film size={15} /> : <ImageIcon size={15} />}</span><div><strong>{selectedBackground.name}</strong><small>{selectedVideo ? "Video" : "Image"} · Library</small></div><button type="button" title="Remove background" aria-label="Remove background" onClick={() => onChange({ ...config, backgroundAssetId: undefined, openUiVideoAssetId: undefined })}><X size={13} /></button></div> : <p>No background selected</p>}
+            {selectedBackground ? <div className="story-open-ui-background-row"><span>{selectedVideo ? <Film size={15} /> : <ImageIcon size={15} />}</span><div><strong>{selectedBackground.name}</strong><small>{selectedVideo ? "Video" : "Image"} · Library</small></div><button type="button" title="Remove background" aria-label="Remove background" onClick={() => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [] } } })}><X size={13} /></button></div> : <p>No background selected</p>}
             {!selectedBackground ? <button className="story-field-add" type="button" onClick={() => setPickerOpen(true)}><Plus size={14} />Add background</button> : null}
           </section>
         </div>
         {pickerOpen ? <StoryAssetPicker title="Choose background" assets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
-          onChange({ ...config, backgroundAssetId: asset.mediaType === "image" ? asset.id : undefined, openUiVideoAssetId: asset.mediaType === "video" ? asset.id : undefined });
+          if (asset.mediaType === "image" || asset.mediaType === "video") onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [{ id: crypto.randomUUID(), type: asset.mediaType, source: { type: "library", assetId: asset.id } }] } } });
           setPickerOpen(false);
         }} /> : null}
       </aside>;
@@ -2733,40 +2774,8 @@ function OpenUiWorkbench({ mode, config, libraryAssets, onChange, onPlaytest }: 
     preview={preview}
     inspector={inspector}
     timeline={null}
-    presentation={presentationNode("open-ui", "player-ui", { title: config.title, playerConfig: config })}
+    presentation={presentationNode(node.id, "open-ui", node.data, node.editor)}
   />;
-}
-
-interface OpenUiCodeFile {
-  id: string;
-  group: string;
-  path: string;
-  content: string;
-}
-
-function OpenUiCodeWorkbench({ config }: { config: StoryPlayerConfig }) {
-  const openUiFiles = openUiSurfaceFiles(config, false);
-  const source = config.openUiSource;
-  const files: OpenUiCodeFile[] = [
-    { id: "open-ui:html", group: "Open UI", path: source?.html ?? "ui/open-ui/index.html", content: openUiFiles.html },
-    { id: "open-ui:css", group: "Open UI", path: source?.css ?? "ui/open-ui/style.css", content: openUiFiles.css },
-    { id: "open-ui:javascript", group: "Open UI", path: source?.javascript ?? "ui/open-ui/screen.js", content: openUiFiles.javascript },
-  ];
-  const [fileId, setFileId] = useState(files[0]!.id);
-  const selected = files.find((file) => file.id === fileId) ?? files[0]!;
-  const groups = [...new Set(files.map((file) => file.group))];
-
-  return <div className="story-scene-code-workbench story-open-ui-code-workbench code-view">
-    <aside className="file-explorer" aria-label="Open UI files">
-      <nav className="story-scene-file-tree">
-        {groups.map((group) => <section key={group}><h3>{group}</h3>{files.filter((file) => file.group === group).map((file) => <button key={file.id} type="button" className={selected.id === file.id ? "is-active" : ""} aria-pressed={selected.id === file.id} title={file.path} onClick={() => setFileId(file.id)}><FileText size={13} aria-hidden="true" /><span>{file.path.split("/").at(-1)}</span></button>)}</section>)}
-      </nav>
-    </aside>
-    <section className="file-content" aria-label="Open UI code">
-      <div className="file-content-header">{selected.path}</div>
-      <HighlightedCode path={selected.path} content={selected.content} />
-    </section>
-  </div>;
 }
 
 interface SceneTimelineSegment {
@@ -2887,14 +2896,13 @@ function StoryPresentationCodeWorkbench({ node }: {
   node: StoryFlowNode;
 }) {
   const [file, setFile] = useState<keyof StorySurfaceFiles>("html");
-  const fallback = node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
+  const fallback = node.type === "open-ui" ? DEFAULT_OPEN_UI_CODE : node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
   const files = node.data.presentation?.surface.files ?? fallback;
-  const source = node.data.presentation?.surface.source;
-  const scriptName = node.type === "scene" ? "scene.js" : node.type === "interaction" ? "interaction.js" : node.type === "choice" ? "choice.js" : node.type === "ending" ? "ending.js" : "surface.js";
+  const source = node.data.presentation?.surface.source ?? defaultStoryNodeSource(node.id);
   const paths: Record<keyof StorySurfaceFiles, string> = {
-    html: source?.html ?? "index.html",
-    css: source?.css ?? "style.css",
-    javascript: source?.javascript ?? scriptName,
+    html: source.html,
+    css: source.css,
+    javascript: source.javascript,
   };
 
   return <div className="story-scene-code-workbench code-view">
@@ -3326,6 +3334,7 @@ function InspectorField({ label, children }: { label: string; children: React.Re
 function CanvasToolbar({
   mode,
   canvas,
+  hasStart,
   libraryAssets,
   importing,
   reserveInspector,
@@ -3337,16 +3346,18 @@ function CanvasToolbar({
 }: {
   mode: InteractionMode;
   canvas: React.RefObject<HTMLDivElement | null>;
+  hasStart: boolean;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   reserveInspector: boolean;
-  onAdd: (type: Exclude<StoryNodeType, "start" | "project-state" | "asset">, position: { x: number; y: number }) => void;
+  onAdd: (type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }) => void;
   onAddInteraction: (position: { x: number; y: number }, template?: InteractionTemplate) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (file: File, position: { x: number; y: number }) => void;
   onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -3385,17 +3396,11 @@ function CanvasToolbar({
     return screenToFlowPosition({ x: bounds.left + availableWidth / 2, y: bounds.top + bounds.height / 2 });
   }
 
-  function add(type: Exclude<StoryNodeType, "start" | "project-state" | "asset">): void {
+  function addItem(item: CanvasNodeCreationLeaf): void {
     const position = placementPosition();
     if (!position) return;
-    onAdd(type, position);
-    setAddOpen(false);
-  }
-
-  function addInteractionNode(template: InteractionTemplate = "blank"): void {
-    const position = placementPosition();
-    if (!position) return;
-    onAddInteraction(position, template);
+    if (item.action.kind === "interaction") onAddInteraction(position, item.action.template);
+    else onAdd(item.action.type, position);
     setAddOpen(false);
   }
 
@@ -3403,28 +3408,31 @@ function CanvasToolbar({
     <Panel className="story-canvas-toolbar" position="bottom-center">
       <div ref={addMenu} className="story-add-node">
         {addOpen ? (
-          <div className="story-add-node-menu">
-            <button type="button" onClick={() => add("scene")}><Clapperboard size={15} /><span><strong>Scene</strong><small>Ordered image or video media</small></span></button>
-            <button type="button" onClick={() => add("text")}><FileText size={15} /><span><strong>Text</strong><small>Write a reusable prompt</small></span></button>
-            <button type="button" onClick={() => add("image")}><ImageIcon size={15} /><span><strong>Image</strong><small>Generate an image on canvas</small></span></button>
-            <button type="button" onClick={() => add("video")}><Film size={15} /><span><strong>Video</strong><small>Generate a video on canvas</small></span></button>
-            <button type="button" onClick={() => add("choice")}><GitBranch size={15} /><span><strong>Choice</strong><small>Branch into player options</small></span></button>
-            <button type="button" onClick={() => add("ending")}><CircleStop size={15} /><span><strong>Ending</strong><small>Finish this story path</small></span></button>
-            <span className="story-add-node-menu-label">Add UI &amp; logic</span>
-            <button type="button" onClick={() => addInteractionNode("qte")}><Code2 size={15} /><span><strong>QTE</strong><small>Timed button or keyboard input</small></span></button>
-            <button type="button" onClick={() => addInteractionNode("hotspot")}><MousePointer2 size={15} /><span><strong>Hotspot</strong><small>Timed clickable area</small></span></button>
-            <button type="button" onClick={() => addInteractionNode("continue")}><Play size={15} /><span><strong>Continue</strong><small>Wait for the player to continue</small></span></button>
-            <button type="button" onClick={() => addInteractionNode("blank")}><Code2 size={15} /><span><strong>Custom Interaction</strong><small>Start from HTML, CSS, and JavaScript</small></span></button>
-            <span className="story-add-node-menu-label">Add media</span>
-            <button type="button" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
-            <button type="button" onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
+          <div className="story-add-node-menu" role="menu" aria-label="Add node">
+            {creationBranch ? <>
+              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span><strong>{creationBranch.label}</strong><small>All node types</small></span></button>
+              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
+            </> : <>
+              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+                <span className="story-add-node-menu-label">{group.label}</span>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
+                  const description = disabled ? "Only one Start node is allowed" : item.description;
+                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
+                })}
+              </Fragment>)}
+              <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
+            </>}
           </div>
         ) : null}
         <input
           ref={uploadInput}
           hidden
           type="file"
-          accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav"
+          accept={STORY_ASSET_ACCEPT}
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
@@ -3433,7 +3441,7 @@ function CanvasToolbar({
             setAddOpen(false);
           }}
         />
-        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => setAddOpen((open) => !open)}>
+        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => { setCreationBranch(undefined); setAddOpen((open) => !open); }}>
           <Plus size={18} />
         </button>
       </div>
@@ -3450,6 +3458,136 @@ function CanvasToolbar({
         setLibraryOpen(false);
       }} /> : null}
     </Panel>
+  );
+}
+
+function StoryCanvasContextMenu({
+  menu,
+  canUndo,
+  canRedo,
+  canPaste,
+  canDuplicate,
+  hasStart,
+  nodeActionsDisabled,
+  importing,
+  onClose,
+  onUndo,
+  onRedo,
+  onPaste,
+  onAdd,
+  onUpload,
+  onCopy,
+  onDuplicate,
+  onDelete,
+}: {
+  menu: CanvasContextMenuState;
+  canUndo: boolean;
+  canRedo: boolean;
+  canPaste: boolean;
+  canDuplicate: boolean;
+  hasStart: boolean;
+  nodeActionsDisabled: boolean;
+  importing: boolean;
+  onClose: () => void;
+  onUndo: () => unknown;
+  onRedo: () => unknown;
+  onPaste: () => void;
+  onAdd: (item: CanvasNodeCreationLeaf) => void;
+  onUpload: (file: File) => void;
+  onCopy: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
+  const [position, setPosition] = useState(menu.screenPosition);
+  const opensLeft = menu.screenPosition.x > window.innerWidth - 430;
+  const opensUp = menu.screenPosition.y > window.innerHeight / 2;
+
+  useLayoutEffect(() => {
+    const bounds = root.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setPosition({
+      x: Math.max(6, Math.min(menu.screenPosition.x, window.innerWidth - bounds.width - 6)),
+      y: Math.max(6, Math.min(menu.screenPosition.y, window.innerHeight - bounds.height - 6)),
+    });
+    root.current?.focus();
+  }, [menu.screenPosition.x, menu.screenPosition.y]);
+
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as globalThis.Node)) onClose();
+    };
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const closeOnResize = () => onClose();
+    document.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("keydown", closeOnKey);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("keydown", closeOnKey);
+      window.removeEventListener("resize", closeOnResize);
+    };
+  }, [onClose]);
+
+  const run = (action: () => unknown) => {
+    action();
+    onClose();
+  };
+
+  return createPortal(
+    <div
+      ref={root}
+      className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
+      role="menu"
+      aria-label={menu.kind === "pane" ? "Canvas actions" : "Node actions"}
+      tabIndex={-1}
+      style={{ left: position.x, top: position.y }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {menu.kind === "pane" ? <>
+        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>Undo</span></button>
+        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
+        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>Paste</span></button>
+        <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
+          {addOpen ? <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
+            {creationBranch ? <>
+              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span>{creationBranch.label}</span></button>
+              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
+            </> : CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              <span className="story-canvas-context-menu-label">{group.label}</span>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
+                const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
+                return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? "Only one Start node is allowed" : undefined} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
+              })}
+            </Fragment>)}
+          </div> : null}
+        </div>
+        <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? "Uploading..." : "Upload"}</span></button>
+        <input
+          ref={uploadInput}
+          hidden
+          type="file"
+          accept={STORY_ASSET_ACCEPT}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) onUpload(file);
+            onClose();
+          }}
+        />
+      </> : <>
+        <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
+        <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
+        <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
+      </>}
+    </div>,
+    document.body,
   );
 }
 
@@ -3520,7 +3658,7 @@ function ZoomControls() {
 }
 
 function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
-  if (node.type === "project-state") return { ...node, deletable: false };
+  if (node.type === "project-state" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, ...(node.editor ? { editor: node.editor } : {}), deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
   if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, ...(node.editor ? { editor: node.editor } : {}), deletable: true, data: { title: node.data.title, behavior: node.data.behavior, presentation: node.data.presentation } };
@@ -3553,7 +3691,7 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
-  if (node.type !== "image" || node.data.model) return { ...node, deletable: node.type !== "start" };
+  if (node.type !== "image" || node.data.model) return { ...node, deletable: true };
   const model = imageModels[0];
   const option = preferredImageOption(model);
   return {
@@ -3567,8 +3705,11 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "start" | "project-state" | "asset">, position: { x: number; y: number }, imageModels: ImageModel[], defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], defaultTextModel?: AgentModelRef): StoryFlowNode {
   const id = crypto.randomUUID();
+  if (type === "start") return { id, type, position, data: {} };
+  if (type === "project-state") return { id, type, position, data: { title: "Project State", actions: [] } };
+  if (type === "open-ui") return { id, type, position, data: { title: "Open UI", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (type === "text") return { id, type, position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
   if (type === "choice") return {
     id,
@@ -3630,8 +3771,8 @@ function storyDocument(
   editorLayout: StoryEditorLayout,
 ): StoryDocument {
   return {
-    version: 9,
-    codebase: { version: 2 },
+    version: 10,
+    codebase: { version: 3 },
     editorLayout,
     player,
     variables,
@@ -3677,7 +3818,8 @@ function normalizeVariableValue(value: StoryVariableValue, type: StoryVariableTy
 function toStoryNode(node: StoryFlowNode): StoryNode {
   const editor = node.editor ? { editor: node.editor } : {};
   if (node.type === "start") return { id: node.id, type: "start", position: node.position, data: {}, ...editor };
-  if (node.type === "project-state") return { id: node.id, type: "project-state", position: node.position, data: {}, ...editor };
+  if (node.type === "project-state") return { id: node.id, type: "project-state", position: node.position, data: { title: node.data.title ?? "Project State", actions: node.data.actions ?? [] }, ...editor };
+  if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } }, ...editor };
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
@@ -3868,7 +4010,6 @@ function connectionRelation(
       ? undefined
       : "presentation-media";
   }
-  if (target.type === "project-state") return source.type === "start" ? "story" : undefined;
   return source.type !== "ending" && !isInlineNodeType(source.type) && target.type !== "start" && !isInlineNodeType(target.type)
     ? "story"
     : undefined;
@@ -3881,10 +4022,6 @@ function preferredImageOption(model?: ImageModel): ImageModel["generationOptions
 
 function isMediaNodeType(type: StoryNodeType): type is "image" | "video" {
   return type === "image" || type === "video";
-}
-
-function isStoryFlowNode(node: StoryCanvasNode): node is StoryFlowNode {
-  return node.type !== "player-ui";
 }
 
 function storyNodeVariableIds(node: StoryFlowNode | StoryNode): Set<string> {
@@ -3930,14 +4067,6 @@ function storyEdgeStateLabel(edge: Edge, nodes: readonly StoryFlowNode[], variab
   return label ? { label, labelShowBg: true, labelStyle: { fill: "#c7ccd2", fontSize: 9, fontWeight: 600 }, labelBgStyle: { fill: "#202327", fillOpacity: 0.96, stroke: "#3a3f45", strokeWidth: 1 }, labelBgPadding: [5, 4], labelBgBorderRadius: 4 } : {};
 }
 
-function uniquePlayerUiNodeId(nodes: readonly StoryFlowNode[]): string {
-  const ids = new Set(nodes.map((node) => node.id));
-  let id = PLAYER_UI_NODE_ID;
-  let suffix = 2;
-  while (ids.has(id)) id = `${PLAYER_UI_NODE_ID}-${suffix++}`;
-  return id;
-}
-
 function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   const next = [...items];
   const [item] = next.splice(from, 1);
@@ -3945,16 +4074,26 @@ function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   return next;
 }
 
+function hasNodeEditor(node: StoryFlowNode): boolean {
+  return node.type === "open-ui"
+    || node.type === "project-state"
+    || node.type === "scene"
+    || node.type === "interaction"
+    || node.type === "choice"
+    || node.type === "ending";
+}
+
 function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "asset" {
   return type === "text" || type === "asset" || isMediaNodeType(type);
 }
 
 function isVisiblePresentationFlowNode(node: StoryFlowNode): boolean {
-  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function flowNodePresentation(node: StoryFlowNode): StoryNodePresentation {
   if (node.data.presentation) return node.data.presentation;
+  if (node.type === "open-ui") return { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   if (node.type === "scene") return { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
   if (node.type === "interaction") return { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
   return {

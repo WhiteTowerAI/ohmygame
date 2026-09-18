@@ -51,8 +51,29 @@ import type { Connection, SaveConnectionRequest } from "../shared/connections.js
 import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
+import type { AccountApi } from "../shared/account.js";
 
 const API_BASE = "/api";
+
+export const accountApi: AccountApi = {
+  plans: () => request("/account/plans"),
+  subscription: (accessToken) => request("/account/subscription", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+  usage: (accessToken, page) => request(`/account/usage?page=${page}`, {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+  checkout: (accessToken, planId) => request("/account/checkout", {
+    method: "POST",
+    body: JSON.stringify({ accessToken, planId }),
+  }),
+  manage: (accessToken) => request("/account/manage", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  }),
+};
 
 interface DesktopRuntime {
   daemonUrl: string;
@@ -61,7 +82,7 @@ interface DesktopRuntime {
 
 declare global {
   interface Window {
-    openGameDesktop?: {
+    ohMyGameDesktop?: {
       platform: string;
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
@@ -90,12 +111,7 @@ declare global {
 }
 
 export async function createProject(input: CreateProjectRequest = {}): Promise<ProjectState> {
-  const payload = input.type === "interactive-drama" && input.template === undefined ? { ...input, template: "starter" as const } : input;
-  return request("/projects", { method: "POST", body: JSON.stringify(payload) });
-}
-
-export async function ensureInteractiveDramaStarterProject(): Promise<void> {
-  await request("/interactive-drama/starter-project/ensure", { method: "POST" });
+  return request("/projects", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function listProjects(): Promise<ProjectState[]> {
@@ -118,17 +134,17 @@ export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
 }
 
-export async function connectPortal(accessToken: string): Promise<void> {
-  await request("/portal/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
+export async function connectAccount(accessToken: string): Promise<void> {
+  await request("/account/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
   notifyAgentModelsChanged();
 }
 
-export async function disconnectPortal(): Promise<void> {
-  await request("/portal/connection", { method: "DELETE" });
+export async function disconnectAccount(): Promise<void> {
+  await request("/account/connection", { method: "DELETE" });
   notifyAgentModelsChanged();
 }
 
-export const MODELS_CHANGED_EVENT = "open-game-models-changed";
+export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
 
 export function notifyAgentModelsChanged(): void {
   window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
@@ -771,7 +787,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 async function responseError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
-  return new ApiError(body.error ?? body.message ?? `Request failed with ${response.status}`, response.status);
+  return new ApiError(body.message ?? body.error ?? `Request failed with ${response.status}`, response.status);
 }
 
 async function streamProjectEvents(
@@ -945,7 +961,7 @@ function modelRef(model: AgentModelRef): AgentModelRef {
 }
 
 function desktopRuntime(): DesktopRuntime | undefined {
-  return window.openGameDesktop?.runtime;
+  return window.ohMyGameDesktop?.runtime;
 }
 
 function reconnectDelay(signal: AbortSignal): Promise<void> {

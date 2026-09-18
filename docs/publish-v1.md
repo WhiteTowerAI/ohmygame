@@ -1,6 +1,6 @@
 # Publish v1
 
-Publish v1 is the protocol between an OpenGame creator client and a public
+Publish v1 is the protocol between an OhMyGame creator client and a public
 publishing service. It is shared by the official service and self-hosted
 implementations.
 
@@ -112,9 +112,9 @@ The service returns absolute URLs; clients must not construct them. A typical
 official deployment uses separate hosts:
 
 ```text
-Community:          https://opengame.example/games/<game-id>
-Stable play URL:    https://g-<game-id>.play.opengame.example/
-Immutable version: https://d-<deployment-id>.play.opengame.example/
+Community:          https://ohmygame.example/games/<game-id>
+Stable play URL:    https://g-<game-id>.play.ohmygame.example/
+Immutable version: https://d-<deployment-id>.play.ohmygame.example/
 ```
 
 The play domain must not receive Community authentication cookies or publishing

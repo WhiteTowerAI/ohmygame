@@ -45,7 +45,7 @@ export class PreinstalledPluginManager {
     for (const entry of this.#entries) {
       const receipt = this.#state.plugins[entry.pluginId];
       if (receipt?.removed) continue;
-      const id = `opengame:${entry.name}`;
+      const id = `ohmygame:${entry.name}`;
       try {
         if (!await store.read(id)) {
           const archive = await readFile(path.join(this.directory!, entry.artifactFile));

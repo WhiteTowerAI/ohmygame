@@ -1,5 +1,5 @@
 import type { StoryDocument, StoryInteractionBehavior, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_OPEN_UI_SOURCE } from "./story.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT } from "./story.js";
 import { createStoryInteractionFiles } from "./story-interaction-code.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
@@ -11,6 +11,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   const id = () => crypto.randomUUID();
   const chapterId = id();
   const startId = id();
+  const openUiId = id();
   const stateId = id();
   const sceneId = id();
   const choiceId = id();
@@ -46,13 +47,13 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   };
 
   return {
-    version: 9,
-    codebase: { version: 2 },
+    version: 10,
+    codebase: { version: 3 },
     editorLayout: {
       version: 1,
       nodes: {
         [startId]: { x: 80, y: 240 },
-        "open-ui": { x: 250, y: 210 },
+        [openUiId]: { x: 250, y: 210 },
         [stateId]: { x: 760, y: 210 },
         [sceneId]: { x: 1_160, y: 210 },
         [hotspotId]: { x: 1_660, y: 120 },
@@ -67,9 +68,6 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
     player: {
       title,
       viewport: { width: 1280, height: 720 },
-      openUiContent: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title },
-      openUiSource: structuredClone(DEFAULT_OPEN_UI_SOURCE),
-      openUiCode: structuredClone(DEFAULT_OPEN_UI_CODE),
       theme: { accentColor: "#62d6cb", textColor: "#ffffff", font: "sans" },
       videoFit: "cover",
       choicePosition: "bottom",
@@ -83,7 +81,8 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       title: "Platform 13",
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
-        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: {} },
+        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
         {
           id: sceneId,
           type: "scene",
@@ -145,7 +144,8 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         },
       ],
       edges: [
-        { id: id(), source: startId, target: stateId },
+        { id: id(), source: startId, target: openUiId },
+        { id: id(), source: openUiId, target: stateId },
         { id: id(), source: stateId, target: sceneId },
         { id: id(), source: sceneId, target: hotspotId },
         { id: id(), source: hotspotId, sourceHandle: "success", target: qteId },

@@ -1,7 +1,7 @@
 import { Plus, RefreshCw } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { PluginMention, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, ensureInteractiveDramaStarterProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
@@ -28,7 +28,6 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
     setLoadError(undefined);
     try {
       await waitForRuntime();
-      await ensureInteractiveDramaStarterProject();
       setProjects(recentInteractiveDramaProjects(await listProjects()));
       setPhase("ready");
     } catch (cause) {
@@ -77,7 +76,7 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
             onCreate={onCreate}
           />
           <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />Start blank
+            <Plus size={14} />New drama
           </button>
         </div>
 

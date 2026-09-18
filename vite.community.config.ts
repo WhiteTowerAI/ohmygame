@@ -7,6 +7,7 @@ const repositoryRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: path.join(repositoryRoot, "src/community-web"),
+  envDir: repositoryRoot,
   plugins: [
     react(),
     {
@@ -30,6 +31,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/v1": "http://127.0.0.1:43130",
+      "/account-api": {
+        target: process.env.ACCOUNT_SERVICE_URL ?? "http://127.0.0.1:43150",
+        rewrite: (path) => path.replace(/^\/account-api/, "/api"),
+      },
     },
   },
 });

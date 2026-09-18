@@ -154,7 +154,7 @@ export class PublishStore {
     }
     const publisherColumns = this.#database.prepare("PRAGMA table_info(publishers)").all() as Row[];
     if (!publisherColumns.some((column) => column.name === "display_name")) {
-      this.#database.exec("ALTER TABLE publishers ADD COLUMN display_name TEXT NOT NULL DEFAULT 'OpenGame Creator'");
+      this.#database.exec("ALTER TABLE publishers ADD COLUMN display_name TEXT NOT NULL DEFAULT 'OhMyGame Creator'");
     }
     if (!publisherColumns.some((column) => column.name === "avatar_url")) {
       this.#database.exec("ALTER TABLE publishers ADD COLUMN avatar_url TEXT");
@@ -999,7 +999,7 @@ function interactionCounts(type: CommunitySubjectType, idExpression: string): st
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS publishers (
     id TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL DEFAULT 'OpenGame Creator',
+    display_name TEXT NOT NULL DEFAULT 'OhMyGame Creator',
     avatar_url TEXT,
     created_at TEXT NOT NULL
   );

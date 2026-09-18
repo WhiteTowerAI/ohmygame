@@ -33,7 +33,7 @@ describe("publish capabilities", () => {
   });
 
   it("stores an immutable archive with content-specific required files", async () => {
-    const store = new ArtifactStore(await mkdtemp(path.join(tmpdir(), "open-game-artifacts-")));
+    const store = new ArtifactStore(await mkdtemp(path.join(tmpdir(), "ohmygame-artifacts-")));
     await store.load(new Set());
     const archive = await zipFiles({ "plugin.json": "{}", "skills/example/SKILL.md": "# Example" });
     const upload = store.temporaryFile("upload", ".zip");
@@ -50,7 +50,7 @@ describe("publish capabilities", () => {
   });
 
   it("rejects an archive missing a content-specific required file", async () => {
-    const store = new ArtifactStore(await mkdtemp(path.join(tmpdir(), "open-game-artifacts-")));
+    const store = new ArtifactStore(await mkdtemp(path.join(tmpdir(), "ohmygame-artifacts-")));
     await store.load(new Set());
     const archive = await zipFiles({ "README.md": "Plugin" });
     const upload = store.temporaryFile("upload", ".zip");

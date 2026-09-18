@@ -6,7 +6,7 @@ import { ModelEndpointSettingsStore } from "../src/daemon/model-endpoint-setting
 
 describe("model endpoint settings", () => {
   it("uses the official endpoint until a custom endpoint is saved", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-model-endpoint-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-"));
     const store = new ModelEndpointSettingsStore(dataDirectory, "openai-endpoint.json", "https://api.openai.com/v1", "OpenAI");
     await store.load();
 
@@ -24,7 +24,7 @@ describe("model endpoint settings", () => {
   });
 
   it("removes the override when the official endpoint is restored", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-model-endpoint-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-"));
     const store = new ModelEndpointSettingsStore(dataDirectory, "openai-endpoint.json", "https://api.openai.com/v1", "OpenAI");
     await store.update("https://relay.example/v1");
 
@@ -35,7 +35,7 @@ describe("model endpoint settings", () => {
   });
 
   it("rejects invalid endpoints", async () => {
-    const store = new ModelEndpointSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-model-endpoint-")), "openai-endpoint.json", "https://api.openai.com/v1", "OpenAI");
+    const store = new ModelEndpointSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-")), "openai-endpoint.json", "https://api.openai.com/v1", "OpenAI");
     await expect(store.update("file:///tmp/openai")).rejects.toThrow("not valid");
   });
 });

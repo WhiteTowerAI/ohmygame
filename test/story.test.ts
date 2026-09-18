@@ -2,54 +2,89 @@ import { describe, expect, it } from "vitest";
 import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
-  applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, getNextNode,
-  getProjectStateNode, getStartNode, isStoryDocument, normalizeStoryVariableReferences,
+  advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
+  getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
 } from "../src/shared/story.js";
+import { createPlayableStoryDocument } from "./story-fixture.js";
 
 describe("canonical Interactive Drama story", () => {
-  it("creates a complete Start -> Initial State -> Ending graph", () => {
+  it("creates a valid blank story document", () => {
     const story = createStoryDocument();
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.editorLayout.nodes).toEqual({});
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("derives stable source paths for presentation nodes", () => {
+    expect(defaultStoryNodeSource("Scene One")).toEqual({
+      html: "nodes/scene-one-4ott8j/index.html",
+      css: "nodes/scene-one-4ott8j/style.css",
+      javascript: "nodes/scene-one-4ott8j/script.js",
+    });
+    expect(defaultStoryNodeSource("Scene One")).toEqual(defaultStoryNodeSource("Scene One"));
+    expect(defaultStoryNodeSource("!!!").html).toMatch(/^nodes\/definition-[a-z0-9]+\/index\.html$/);
+  });
+
+  it("creates a complete Start -> Open UI -> Project State -> Ending graph", () => {
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0]!;
     const start = getStartNode(chapter)!;
     const state = getProjectStateNode(chapter)!;
-    expect(getNextNode(chapter, start.id)?.id).toBe(state.id);
+    const openUi = getNextNode(chapter, start.id)!;
+    expect(openUi.type).toBe("open-ui");
+    expect(getNextNode(chapter, openUi.id)?.id).toBe(state.id);
     expect(getNextNode(chapter, state.id)?.type).toBe("ending");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
   });
 
-  it("requires exactly one Initial State connected directly after Start", () => {
-    const story = createStoryDocument();
+  it("recognizes only the Open UI connected directly after Start as the entry UI", () => {
+    const story = createPlayableStoryDocument();
+    const chapter = story.chapters[0]!;
+    const entry = chapter.nodes.find((node) => node.type === "open-ui")!;
+    const midFlow = structuredClone(entry);
+    midFlow.id = "mid-flow-ui";
+    chapter.nodes.push(midFlow);
+
+    expect(isEntryOpenUiNode(chapter, entry.id)).toBe(true);
+    expect(isEntryOpenUiNode(chapter, midFlow.id)).toBe(false);
+  });
+
+  it("allows incomplete editing state but rejects more than one Start", () => {
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0]!;
     const state = getProjectStateNode(chapter)!;
     chapter.nodes = chapter.nodes.filter((node) => node.id !== state.id);
     chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id && edge.target !== state.id);
-    expect(isStoryDocument(story)).toBe(false);
+    delete story.editorLayout.nodes[state.id];
+    expect(isStoryDocument(story)).toBe(true);
 
-    const second = createStoryDocument();
+    const second = createPlayableStoryDocument();
     const secondChapter = second.chapters[0]!;
-    secondChapter.edges.find((edge) => edge.source === getStartNode(secondChapter)!.id)!.target = secondChapter.nodes.find((node) => node.type === "ending")!.id;
+    secondChapter.nodes.push({ id: "second-start", type: "start", position: { x: 0, y: 0 }, data: {} });
+    second.editorLayout.nodes["second-start"] = { x: 0, y: 0 };
     expect(isStoryDocument(second)).toBe(false);
   });
 
   it("rejects old document versions instead of migrating them", () => {
-    expect(() => parseStoryDocument({ ...createStoryDocument(), version: 8 })).toThrow("Invalid story document");
+    expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), version: 8 })).toThrow("Invalid story document");
+    expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), codebase: { version: 2 } })).toThrow("Invalid story document");
   });
 
   it("rejects legacy and unknown fields instead of normalizing them", () => {
-    expect(isStoryDocument({ ...createStoryDocument(), overlays: [] })).toBe(false);
-    const { player: _player, ...withoutPlayer } = createStoryDocument();
+    expect(isStoryDocument({ ...createPlayableStoryDocument(), overlays: [] })).toBe(false);
+    const { player: _player, ...withoutPlayer } = createPlayableStoryDocument();
     expect(isStoryDocument(withoutPlayer)).toBe(false);
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
     ending.data = { ...ending.data, overlayIds: [] } as typeof ending.data;
     expect(isStoryDocument(story)).toBe(false);
   });
 
   it("requires non-empty unique variable names", () => {
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     story.variables = [
       { id: "one", name: "score", type: "number", initialValue: 0 },
       { id: "two", name: "score", type: "number", initialValue: 1 },
@@ -70,7 +105,7 @@ describe("canonical Interactive Drama story", () => {
     expect("overlays" in story).toBe(false);
     expect("playerViews" in story).toBe(false);
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
-    expect(story.player.openUiContent.title).toBe("Midnight Run");
+    expect(story.chapters[0]!.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
     expect(isStoryDocument(story)).toBe(true);
   });
 
@@ -78,6 +113,7 @@ describe("canonical Interactive Drama story", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" });
     const chapter = story.chapters[0]!;
     let state = restartGame(chapter, story.variables);
+    state = advanceOpenUi(chapter, state);
     const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
     state = { ...state, nodeId: getNextNode(chapter, scene.id)!.id, scenePlayback: undefined };
     const interaction = chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.id === state.nodeId && node.type === "interaction")!;
@@ -87,10 +123,25 @@ describe("canonical Interactive Drama story", () => {
     expect(state.variables[story.variables.find((variable) => variable.name === "Courage")!.id]).toBe(3);
   });
 
+  it("applies Project State actions while advancing through the flow", () => {
+    const story = createPlayableStoryDocument();
+    const chapter = story.chapters[0]!;
+    const stateNode = getProjectStateNode(chapter)!;
+    const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
+    story.variables = [variable];
+    stateNode.data.actions = [{ type: "increment-variable", variableId: variable.id, amount: 2 }];
+
+    let runtime = restartGame(chapter, story.variables);
+    runtime = advanceOpenUi(chapter, runtime);
+
+    expect(runtime.variables[variable.id]).toBe(3);
+    expect(runtime.nodeId).toBe(chapter.nodes.find((node) => node.type === "ending")?.id);
+  });
+
   it("carries presentation media along the path actually played", () => {
     const variables: StoryDocument["variables"] = [];
     const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
-    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: {} };
+    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "own", items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: inheritedPresentation().surface } } };
     const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", behavior: { type: "continue", label: "Continue" }, presentation: inheritedPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
@@ -112,7 +163,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("validates image and video presentation media by their actual type", () => {
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0]!;
     const state = getProjectStateNode(chapter)!;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
@@ -126,17 +177,17 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("requires globally unique node IDs and complete exact editor layout", () => {
-    const missingLayout = createStoryDocument();
+    const missingLayout = createPlayableStoryDocument();
     delete missingLayout.editorLayout.nodes[missingLayout.chapters[0]!.nodes[0]!.id];
     expect(isStoryDocument(missingLayout)).toBe(false);
 
-    const duplicate = createStoryDocument();
+    const duplicate = createPlayableStoryDocument();
     duplicate.chapters.push({ ...duplicate.chapters[0]!, id: "second", title: "Second" });
     expect(isStoryDocument(duplicate)).toBe(false);
   });
 
   it("rejects multiple owned media items outside Scene nodes", () => {
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
     if (ending.type !== "ending") throw new Error("Ending is missing");
     ending.data.presentation.media = { mode: "own", items: [
@@ -147,7 +198,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("resolves canonical presentation media through Library and media nodes", () => {
-    const story = createStoryDocument();
+    const story = createPlayableStoryDocument();
     const chapter = story.chapters[0]!;
     chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
     expect(resolveStoryAssetId(chapter, { type: "library", assetId: "library" })).toBe("library");
@@ -180,8 +231,8 @@ describe("canonical Interactive Drama story", () => {
   });
 });
 
-function isVisibleNode(node: StoryNode): node is Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isVisibleNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function inheritedPresentation() {

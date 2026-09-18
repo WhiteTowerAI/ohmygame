@@ -16,7 +16,7 @@ import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentSt
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
-import { ensureOpenGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
+import { ensureOhMyGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 
@@ -1048,7 +1048,7 @@ export class AgentManager {
     const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
     const managed = { session, unsubscribe };
     this.#sessions.set(key, managed);
-    const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "open-game-plan");
+    const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-plan");
     if (!this.#planStates.has(key) && entry?.type === "custom" && entry.data && typeof entry.data === "object") {
       const state = entry.data as Partial<PlanSessionState>;
       if (state.mode === "normal" || state.mode === "planning" || state.mode === "awaiting_approval" || state.mode === "executing") {
@@ -1867,9 +1867,9 @@ function executionPrompt(prompt: string, plan?: PlanState): string {
 
 function appendPlanState(sessionManager: CodingSession["sessionManager"], state: PlanSessionState): void {
   if (!sessionManager) return;
-  const previous = sessionManager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === "open-game-plan");
+  const previous = sessionManager.getBranch().findLast((entry) => entry.type === "custom" && entry.customType === "ohmygame-plan");
   if (previous?.type === "custom" && JSON.stringify(previous.data) === JSON.stringify(state)) return;
-  sessionManager.appendCustomEntry("open-game-plan", state);
+  sessionManager.appendCustomEntry("ohmygame-plan", state);
 }
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
@@ -1915,7 +1915,7 @@ export async function loadPiSkillCatalog(
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<SkillCatalogItem[]> {
-  await ensureOpenGamePiEnvironment(agentDir);
+  await ensureOhMyGamePiEnvironment(agentDir);
   const pluginSkills = await resolvePluginSkills?.() ?? [];
   return skillCatalog(loadSkills({
     cwd: workspacePath,
@@ -1930,7 +1930,7 @@ async function createPiResourceLoader(
   agentDir: string,
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
-  await ensureOpenGamePiEnvironment(agentDir);
+  await ensureOhMyGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());

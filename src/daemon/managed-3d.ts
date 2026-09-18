@@ -30,7 +30,7 @@ interface Model3DArtifact {
 }
 
 /** Uses New API's provider-independent 3D generation contract. */
-export class Portal3DGenerator implements Model3DGenerator {
+export class Managed3DGenerator implements Model3DGenerator {
   constructor(
     private readonly source: () => Model3DSource | undefined,
     private readonly request: typeof fetch = fetch,
@@ -47,7 +47,7 @@ export class Portal3DGenerator implements Model3DGenerator {
     const source = this.source();
     if (!source || !source.modelIds.includes(model)) {
       throw new Model3DGenerationError(
-        `${modelName(model)} is not available through OpenGame Portal`,
+        `${modelName(model)} is not available through OhMyGame account`,
         503,
       );
     }
@@ -154,7 +154,7 @@ export class Portal3DGenerator implements Model3DGenerator {
     if (response.ok) return response;
     if (response.status === 401 || response.status === 403) {
       throw new Model3DGenerationError(
-        "OpenGame Portal connection is no longer authorized",
+        "OhMyGame account connection is no longer authorized",
         503,
       );
     }

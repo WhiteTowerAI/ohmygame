@@ -278,7 +278,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     setAddMenuOpen(false);
     setError(undefined);
     try {
-      const selected = await window.openGameDesktop?.selectPluginDirectory();
+      const selected = await window.ohMyGameDesktop?.selectPluginDirectory();
       if (!selected) return;
       await prepareInstall({ type: "directory", path: selected });
     } catch (cause) {
@@ -375,7 +375,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
             <button className="plugins-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding === "create" ? "Opening..." : adding === "install" ? "Installing..." : "Add plugin"}</button>
             {addMenuOpen ? <div className="plugins-add-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void addPlugin(); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
-              {window.openGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
+              {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
               <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>Install from Git...</strong><small>Clone a public HTTPS repository</small></span></button>
             </div> : null}
           </div>
@@ -439,7 +439,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       <form className="plugin-install-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-publish-title" onKeyDown={(event) => {
         if (event.key === "Escape" && !updating) closePublishVersion();
       }} onSubmit={(event) => { event.preventDefault(); void submitPublishVersion(); }}>
-        <header><h2 id="plugin-publish-title">Publish Plugin</h2><p>Publish a semantic version to OpenGame Explore.</p></header>
+        <header><h2 id="plugin-publish-title">Publish Plugin</h2><p>Publish a semantic version to OhMyGame Explore.</p></header>
         <label><span>Version</span><input autoFocus required disabled={Boolean(updating)} value={publishVersion.value} placeholder="0.1.0" onChange={(event) => { setPublishVersion((current) => current ? { ...current, value: event.target.value } : current); setError(undefined); }} /></label>
         {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
         <footer><button type="button" disabled={Boolean(updating)} onClick={closePublishVersion}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(updating) || !publishVersion.value.trim()}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Publishing..." : "Publish"}</button></footer>
@@ -454,7 +454,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   async function browsePlugin(plugin: Pick<PluginSummary, "id">): Promise<void> {
     setError(undefined);
     try {
-      await window.openGameDesktop?.browsePluginDirectory(plugin.id);
+      await window.ohMyGameDesktop?.browsePluginDirectory(plugin.id);
     } catch (cause) {
       setError(errorMessage(cause));
     }
@@ -463,7 +463,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   async function browsePluginSkill(pluginId: string, skillId: string): Promise<void> {
     setError(undefined);
     try {
-      await window.openGameDesktop?.revealPluginSkill(pluginId, skillId);
+      await window.ohMyGameDesktop?.revealPluginSkill(pluginId, skillId);
     } catch (cause) {
       setError(errorMessage(cause));
     }
@@ -670,7 +670,7 @@ function PluginDetailView({ phase, plugin, publication, updating, error, notice,
         <h2>Try it</h2>
         <div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}>
           <span className="plugin-prompt-copy">
-            <span className="plugin-prompt-reference">{plugin.id === "opengame:godot" ? <GodotIcon size={14} /> : <Package size={14} aria-hidden="true" />}{plugin.displayName}</span>
+            <span className="plugin-prompt-reference">{plugin.id === "ohmygame:godot" ? <GodotIcon size={14} /> : <Package size={14} aria-hidden="true" />}{plugin.displayName}</span>
             <span className="plugin-prompt-text">{prompt}</span>
           </span>
           <ChevronRight size={14} />
@@ -756,7 +756,7 @@ function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle
           <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
           <ChevronRight size={14} aria-hidden="true" />
         </button>
-        {installed && window.openGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
+        {installed && window.ohMyGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
         {installed ? <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} /> : null}
       </div>
       {open ? <div className="plugin-skill-content">
@@ -796,7 +796,7 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 
 function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "source">; large?: boolean }): ReactNode {
   const size = large ? 42 : 29;
-  const godot = plugin.id === "opengame:godot";
+  const godot = plugin.id === "ohmygame:godot";
   return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
 }
 
@@ -822,7 +822,7 @@ function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace" | "origin" 
   if (plugin.origin?.type === "github") {
     return `${plugin.curation === "featured" ? "Featured · " : ""}GitHub · ${plugin.origin.repository}`;
   }
-  return plugin.marketplace.id === "opengame" || plugin.marketplace.id === "personal"
+  return plugin.marketplace.id === "ohmygame" || plugin.marketplace.id === "personal"
     ? plugin.marketplace.displayName
     : `Marketplace · ${plugin.marketplace.displayName}`;
 }
@@ -839,17 +839,17 @@ function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, o
   const repository = plugin.origin?.repository;
   const version = plugin.version ?? plugin.latestVersion;
   const showLatest = Boolean(plugin.updateAvailable && plugin.latestVersion);
-  const canBrowse = (plugin.source.type === "directory" || plugin.source.type === "git") && Boolean(window.openGameDesktop);
+  const canBrowse = (plugin.source.type === "directory" || plugin.source.type === "git") && Boolean(window.ohMyGameDesktop);
   const canStartPublication = !pluginCatalogId(plugin) && (plugin.source.type === "directory" || plugin.source.type === "git");
   let source: ReactNode;
   if (plugin.preinstalled || plugin.source.type === "builtIn") {
-    source = "Included with OpenGame";
+    source = "Included with OhMyGame";
   } else if (plugin.origin?.type === "github") {
     source = <RepositoryLink repository={plugin.origin.repository} />;
   } else if (plugin.origin?.type === "claude-marketplace") {
     source = `Claude Marketplace · ${plugin.origin.marketplace}`;
   } else if (plugin.source.type === "catalog") {
-    source = "OpenGame Explore";
+    source = "OhMyGame Explore";
   } else if (plugin.source.type === "directory") {
     source = "Local folder";
   } else {

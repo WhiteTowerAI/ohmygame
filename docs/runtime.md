@@ -68,7 +68,7 @@ reuse the existing installation.
 
 This milestone runs Pi in trusted-local mode. The workspace is Pi's working
 directory, but `cwd` is not an operating-system security boundary. Enabled Pi
-tools execute without an OpenGame approval prompt; the Tools page controls
+tools execute without an OhMyGame approval prompt; the Tools page controls
 which custom tools are exposed to the session.
 
 ## Electron shell
@@ -114,7 +114,7 @@ A project may have many immutable remote Deployments, while its Game points to
 only the latest one. The daemon receives absolute play URLs from the
 service and never sends the workspace, Pi session, conversation, or credentials.
 
-Publish does not require an OpenGame manifest or template. A workspace is
+Publish does not require an OhMyGame manifest or template. A workspace is
 publishable when it either has a non-empty `scripts.build` that produces a
 static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Hidden files, dependencies, and symbolic links are not archived.
@@ -130,12 +130,12 @@ tools/runs/<run-id>/
 
 Image generation uses the selected `provider + model` through the provider's
 OpenAI-compatible Images API. The available models are the intersection of the
-provider's `/v1/models` response and OpenGame's supported image model
+provider's `/v1/models` response and OhMyGame's supported image model
 definitions. Provider credentials stay in the daemon. Tool runs are not added
 to project workspaces until the user chooses Add to Project. Enabled tools are
 also available to Pi through the existing custom-tool integration.
 
-Image to 3D uses the authenticated OpenGame Portal connection and New API's
+Image to 3D uses the authenticated OhMyGame account connection and New API's
 provider-independent 3D endpoint. Meshy 7 supports text and one-to-four-image
 generation; Meshy T2 supports single-image generation. Meshy credentials,
 including Meshy 7's private preview/refine stages, remain inside New API and

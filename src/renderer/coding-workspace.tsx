@@ -516,7 +516,7 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
 
   function scheduleCoverCapture(frame: HTMLIFrameElement): void {
     clearTimeout(captureTimer.current);
-    if (!project || !window.openGameDesktop?.capturePage) return;
+    if (!project || !window.ohMyGameDesktop?.capturePage) return;
     captureTimer.current = setTimeout(() => {
       void captureProjectCover(project.id, frame).catch(() => {});
     }, 1_000);
@@ -544,7 +544,7 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
 async function captureProjectCover(projectId: string, frame: HTMLIFrameElement): Promise<void> {
   const bounds = frame.getBoundingClientRect();
   if (bounds.width < 1 || bounds.height < 1) return;
-  const png = await window.openGameDesktop!.capturePage({
+  const png = await window.ohMyGameDesktop!.capturePage({
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
