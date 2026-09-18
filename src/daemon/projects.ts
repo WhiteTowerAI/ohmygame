@@ -319,7 +319,7 @@ export class ProjectManager {
   async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/.test(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
+    if (!validAssetName(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
     const assetsDirectory = path.join(project.workspacePath, "assets");
     const importedDirectory = path.join(assetsDirectory, "imported");
     await ensureDirectory(project.workspacePath);

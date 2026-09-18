@@ -4,6 +4,7 @@ import {
   Copy,
   FilePenLine,
   FileText,
+  Image,
   LoaderCircle,
   Pencil,
   Plug,
@@ -16,7 +17,7 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -259,7 +260,7 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
       </div>
       {hasContent ? (
         <div className="active-work-items">
-          <WorkItems items={display.work} active />
+          <WorkItems items={display.work} images={display.user?.images} active />
           {display.waiting ? <ThinkingActivity /> : null}
         </div>
       ) : null}
@@ -275,18 +276,19 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
         <ChevronRight className="work-chevron" size={13} />
       </summary>
       <div className="work-items">
-        <WorkItems items={display.work} failed={display.failed} />
+        <WorkItems items={display.work} images={display.user?.images} failed={display.failed} />
       </div>
     </details>
   );
 }
 
-function WorkItems({ items, active = false, failed = false }: { items: TurnDisplay["work"]; active?: boolean; failed?: boolean }) {
+function WorkItems({ items, images, active = false, failed = false }: { items: TurnDisplay["work"]; images?: PromptImage[]; active?: boolean; failed?: boolean }) {
   const rendered = items.map((item, index) => {
     if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} current={item.current} thinking={item.thinking} />;
     return <TimelineItem
       key={item.item.id}
       item={item.item}
+      images={item.item.type === "imageRead" ? images : undefined}
       hideError={item.item.type === "agentMessage" && Boolean(item.item.error)}
       retrying={active && item.item.type === "retry" && item.item.status === "inProgress" && index === items.length - 1}
     />;
@@ -382,8 +384,44 @@ function thinkingLabel(text?: string): string {
   return label.trim() || "Thinking";
 }
 
-function TimelineItem({ item, hideError = false, retrying = false }: { item: ThreadItem; hideError?: boolean; retrying?: boolean }) {
+function TimelineItem({ item, images, hideError = false, retrying = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean; retrying?: boolean }) {
   if (item.type === "reasoning") return null;
+  if (item.type === "modelChange") {
+    return (
+      <div className="model-change-event" role="status">
+        <span>Switched to {item.name ?? item.model.id}</span>
+      </div>
+    );
+  }
+  if (item.type === "imageRead") {
+    const label = item.count === 1 ? "Viewed an image" : `Viewed ${item.count} images`;
+    if (images?.length) {
+      return (
+        <details className="image-read-details">
+          <summary className="timeline-event timeline-event-expandable">
+            <Image size={13} aria-hidden="true" />
+            <span>{label}</span>
+            <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+          </summary>
+          <div className="image-read-previews">
+            {images.map((image, index) => (
+              <img
+                key={`${image.mediaType}:${index}`}
+                src={imageSource(image)}
+                alt={image.name ?? `Viewed image ${index + 1}`}
+              />
+            ))}
+          </div>
+        </details>
+      );
+    }
+    return (
+      <div className="timeline-event">
+        <Image size={13} aria-hidden="true" />
+        <span>{label}</span>
+      </div>
+    );
+  }
   if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") return <ToolActivity item={item} />;
   if (item.type === "retry") {
     return <ConnectionActivity
@@ -396,8 +434,8 @@ function TimelineItem({ item, hideError = false, retrying = false }: { item: Thr
   if (item.type === "contextCompaction") {
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
-        {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : <X size={13} />}
-        <span>{item.error?.message ?? "Compacting context"}</span>
+        {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />}
+        <span>{item.error?.message ?? (item.status === "completed" ? "Context compacted" : "Compacting context")}</span>
       </div>
     );
   }

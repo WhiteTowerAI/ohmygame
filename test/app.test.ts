@@ -705,7 +705,7 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const image = { mediaType: "image/png", data: "aW1hZ2U=" };
+    const image = { name: "狗大王.PNG", mediaType: "image/png", data: "aW1hZ2U=" };
 
     const response = await app.inject({
       method: "POST",
@@ -717,6 +717,17 @@ describe("daemon", () => {
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("", {
       images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }],
     }));
+    await vi.waitFor(async () => {
+      const detail = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
+      expect(detail.json().agent.status).toBe("idle");
+    });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Again", images: [image] } })).statusCode).toBe(202);
+    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
+      expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
+    ]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+      expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
+    ]);
   });
 
   it("restores an active image prompt without replaying its base64 event", async () => {
@@ -748,7 +759,10 @@ describe("daemon", () => {
         id: turn.json().turnId,
         conversationId: conversation.id,
         status: "inProgress",
-        items: [{ type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId }],
+        items: [
+          { type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId },
+          { type: "imageRead", count: 1, status: "completed", turnId: turn.json().turnId },
+        ],
       }],
       cursor: 1,
     });
@@ -1111,6 +1125,7 @@ describe("daemon", () => {
     });
     expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
+    expect(detail.json().cursor).toBe(0);
   });
 
   it("applies an OpenAI-compatible endpoint through Pi", async () => {
@@ -1352,6 +1367,15 @@ describe("daemon", () => {
         timestamp: new Date(0).toISOString(),
         message: { role: "assistant", content: [{ type: "text", text: "Hi" }], stopReason: "stop", timestamp: 1 },
       }),
+      JSON.stringify({
+        type: "compaction",
+        id: "compaction-1",
+        parentId: "assistant-1",
+        timestamp: new Date(2).toISOString(),
+        summary: "Earlier context",
+        firstKeptEntryId: "user-1",
+        tokensBefore: 42_000,
+      }),
     ].join("\n") + "\n");
 
     const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
@@ -1375,6 +1399,11 @@ describe("daemon", () => {
           { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
           { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
         ],
+      }, {
+        id: "compaction-1",
+        conversationId: "session-1",
+        status: "completed",
+        items: [{ id: "compaction-1", turnId: "compaction-1", type: "contextCompaction", status: "completed", timestamp: 2 }],
       }],
       cursor: 0,
       pendingPrompts: [],

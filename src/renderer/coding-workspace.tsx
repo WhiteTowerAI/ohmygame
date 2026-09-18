@@ -158,7 +158,7 @@ export function CodingWorkspace({
           ) : null}
           <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
           <span className="workspace-tab-divider" aria-hidden="true" />
-          <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Assets" onClick={() => setActiveTab("assets")} />
+          <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
         </nav>
         <div className="viewer-controls-slot">
           {supportsPreview && activeTab === "preview" ? (

@@ -30,6 +30,16 @@ describe("rendererReducer", () => {
     expect(state.agent).toEqual({ status: "idle" });
   });
 
+  it("adds image-reading activity when an image prompt starts", () => {
+    const image = { name: "map.png", mediaType: "image/png" as const, data: "aW1hZ2U=" };
+    const state = event(initialized(), runtimeEvent(1, "agent.started", { prompt: "Inspect", images: [image] }));
+
+    expect(state.turns[0]?.items).toEqual([
+      expect.objectContaining({ type: "userMessage", images: [image] }),
+      expect.objectContaining({ type: "imageRead", count: 1, status: "completed" }),
+    ]);
+  });
+
   it("keeps questionnaire lifecycle inside its ThreadItem", () => {
     let state = initialized();
     state = event(state, runtimeEvent(1, "agent.started", { prompt: "Plan" }));
@@ -133,6 +143,23 @@ describe("rendererReducer", () => {
     expect(state.conversation).toEqual(renamed);
   });
 
+  it("adds a completed timeline row when the conversation model changes", () => {
+    const item = {
+      id: "model-change",
+      turnId: "model-change",
+      type: "modelChange" as const,
+      model: { provider: "openai", id: "gpt-next" },
+      name: "GPT Next",
+    };
+    const state = event(initialized(), runtimeEvent(1, "conversation.model.changed", { item }));
+
+    expect(state.turns.at(-1)).toMatchObject({
+      id: "model-change",
+      status: "completed",
+      items: [expect.objectContaining({ type: "modelChange", name: "GPT Next" })],
+    });
+  });
+
   it("updates the active project name", () => {
     const renamed = { ...project(), name: "Platform World" };
     const state = event(initialized(), runtimeEvent(1, "project.renamed", { project: renamed }));
@@ -184,6 +211,6 @@ function initialized() {
 }
 
 function runtimeEvent<T extends RuntimeEventType>(id: number, type: T, data: RuntimeEventData[T]): RuntimeEvent<T> {
-  const scoped = type.startsWith("agent.") || type.startsWith("item.") || type.startsWith("plan.") || type.startsWith("prompt.");
+  const scoped = type.startsWith("agent.") || type.startsWith("item.") || type.startsWith("plan.") || type.startsWith("prompt.") || type === "conversation.model.changed";
   return { id, projectId: "project-1", ...(scoped ? { conversationId: "conversation-1", turnId: "turn-1" } : {}), type, timestamp: new Date(0).toISOString(), data } as RuntimeEvent<T>;
 }

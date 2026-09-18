@@ -1,4 +1,4 @@
-import { useEffect, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { promptHistoryDirection } from "./prompt-history.js";
 
 interface PromptBoxProps {
@@ -18,6 +18,7 @@ interface PromptBoxProps {
   actions: ReactNode;
   onCommandKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
   onSelectionChange?: (cursor: number) => void;
+  onDropFiles?: (files: File[]) => void;
 }
 
 export function PromptBox({
@@ -37,7 +38,10 @@ export function PromptBox({
   actions,
   onCommandKeyDown,
   onSelectionChange,
+  onDropFiles,
 }: PromptBoxProps) {
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepth = useRef(0);
   useEffect(() => {
     resizeTextarea(textareaRef?.current ?? null);
   }, [textareaRef, value]);
@@ -48,7 +52,36 @@ export function PromptBox({
   }
 
   return (
-    <form className={`prompt-box prompt-box-${variant}`} onSubmit={submit}>
+    <form
+      className={`prompt-box prompt-box-${variant}${dropActive ? " prompt-box-drop-active" : ""}`}
+      onSubmit={submit}
+      onDragEnter={(event) => {
+        if (!onDropFiles || !hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current += 1;
+        setDropActive(true);
+      }}
+      onDragOver={(event) => {
+        if (!onDropFiles || !hasFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!onDropFiles || !hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDropActive(false);
+      }}
+      onDrop={(event) => {
+        if (!onDropFiles || !hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = 0;
+        setDropActive(false);
+        const files = [...event.dataTransfer.files];
+        if (files.length) onDropFiles(files);
+      }}
+    >
+      {dropActive ? <div className="prompt-box-drop-overlay">Drop images to attach</div> : null}
       {overlay}
       {content}
       <div className="prompt-box-input">
@@ -98,6 +131,10 @@ export function PromptBox({
       </div>
     </form>
   );
+}
+
+function hasFiles(event: DragEvent<HTMLElement>): boolean {
+  return event.dataTransfer.types.includes("Files");
 }
 
 function resizeTextarea(element: HTMLTextAreaElement | null): void {

@@ -285,7 +285,9 @@ export function ProjectShell({
     ) return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions).catch((error) => {
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions).then(() => {
+      if (initialPrompt.images.length) setWorkspaceRevision((value) => value + 1);
+    }).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
       onInitialPromptHandled?.();
@@ -351,6 +353,7 @@ export function ProjectShell({
     dispatch({ type: "notice", message: undefined });
     try {
       await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions);
+      if (images.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
       return true;
     } catch (error) {

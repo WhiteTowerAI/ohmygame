@@ -685,6 +685,45 @@ describe("AgentTimeline", () => {
     expect(html).toContain('</div><div class="user-message">Build</div>');
   });
 
+  it("renders image-reading and completed compaction records", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      { id: "images", turnId: "turn-1", type: "imageRead", count: 2, status: "completed" },
+      { id: "compaction", turnId: "compaction", type: "contextCompaction", status: "completed" },
+    ]} />);
+
+    expect(html).toContain("Viewed 2 images");
+    expect(html).toContain("Context compacted");
+  });
+
+  it("expands image-reading activity to show the viewed images", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { ...user(), images: [{ name: "reference.png", mediaType: "image/png", data: "aW1hZ2U=" }] },
+      { id: "images", turnId: "turn-1", type: "imageRead", count: 1, status: "completed" },
+    ]} />);
+
+    expect(html).toContain("Viewed an image");
+    expect(html).toContain('class="image-read-previews"');
+    expect(html).toContain('alt="reference.png"');
+  });
+
+  it("centers model switches between conversation turns", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      assistant("final", "Done.", "final_answer"),
+      {
+        id: "model-change",
+        turnId: "model-change",
+        type: "modelChange",
+        model: { provider: "openai", id: "gpt-next" },
+        name: "GPT Next",
+      },
+    ]} />);
+
+    expect(html).toContain('class="model-change-event"');
+    expect(html).toContain("Switched to GPT Next");
+  });
+
   it("offers edit only on the latest user message", () => {
     const html = renderToStaticMarkup(<AgentTimeline
       items={[
