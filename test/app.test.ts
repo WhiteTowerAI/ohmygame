@@ -918,7 +918,7 @@ describe("daemon", () => {
     }
   });
 
-  it("titles a new conversation before Pi produces a response", async () => {
+  it("uses the first prompt as the conversation title without renaming the project", async () => {
     const session: CodingSession = {
       messages: [],
       prompt: async () => { throw new Error("No API key"); },
@@ -946,137 +946,12 @@ describe("daemon", () => {
       method: "GET",
       url: `/projects/${project.id}/conversations`,
     });
+    const unchangedProject = await app.inject({ method: "GET", url: `/projects/${project.id}` });
 
     expect(conversations.json()).toEqual([
       expect.objectContaining({ id: conversation.id, title: "Build a small game" }),
     ]);
-  });
-
-  it("generates conversation and project names after the current turn settles", async () => {
-    let finishTurn: (() => void) | undefined;
-    const session: CodingSession = {
-      messages: [],
-      prompt: () => new Promise<void>((_resolve, reject) => {
-        finishTurn = () => reject(new Error("Model request failed"));
-      }),
-      abort: async () => {},
-      dispose: () => {},
-      subscribe: () => () => {},
-    };
-    const generateConversationTitle = vi.fn().mockResolvedValue("Build platform game");
-    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
-    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-generated-title-")),
-      createSession: async () => session,
-      createModelRuntime: async () => fakeModelRuntime([model]),
-      generateConversationTitle,
-      generateProjectTitle,
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const conversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Build a small platform game" },
-    });
-
-    expect(response.statusCode).toBe(202);
-    await vi.waitFor(() => expect(finishTurn).toBeDefined());
-    expect(generateConversationTitle).not.toHaveBeenCalled();
-    finishTurn!();
-    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalled());
-    await vi.waitFor(async () => {
-      const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations` });
-      expect(listed.json()[0].title).toBe("Build platform game");
-      const renamedProject = await app.inject({ method: "GET", url: `/projects/${project.id}` });
-      expect(renamedProject.json().name).toBe("Platform World");
-    });
-    expect(generateConversationTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
-    expect(generateProjectTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
-
-    finishTurn = undefined;
-    const namedProject = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "My game" },
-    })).json();
-    const namedConversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${namedProject.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-    await app.inject({
-      method: "POST",
-      url: `/projects/${namedProject.id}/conversations/${namedConversation.id}/turns`,
-      payload: { prompt: "Add a forest level" },
-    });
-    await vi.waitFor(() => expect(finishTurn).toBeDefined());
-    finishTurn!();
-    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalledTimes(2));
-
-    expect(generateProjectTitle).toHaveBeenCalledTimes(1);
-    expect((await app.inject({ method: "GET", url: `/projects/${namedProject.id}` })).json().name).toBe("My game");
-  });
-
-  it("names an untitled project when its conversation was already named", async () => {
-    const session: CodingSession = {
-      messages: [],
-      prompt: async () => {},
-      abort: async () => {},
-      dispose: () => {},
-      subscribe: () => () => {},
-    };
-    const generateConversationTitle = vi.fn().mockResolvedValue("Generated conversation");
-    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
-    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-project-title-")),
-      createSession: async () => session,
-      createModelRuntime: async () => fakeModelRuntime([model]),
-      generateConversationTitle,
-      generateProjectTitle,
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const conversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-    await app.inject({
-      method: "PATCH",
-      url: `/projects/${project.id}/conversations/${conversation.id}`,
-      payload: { title: "Manual conversation" },
-    });
-
-    await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Build a small platform game" },
-    });
-
-    await vi.waitFor(async () => {
-      const renamed = await app.inject({ method: "GET", url: `/projects/${project.id}` });
-      expect(renamed.json().name).toBe("Platform World");
-    });
-    expect(generateConversationTitle).not.toHaveBeenCalled();
-    expect(generateProjectTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
+    expect(unchangedProject.json().name).toBe(project.name);
   });
 
   it("lists Pi models and stores a conversation model without starting a session", async () => {

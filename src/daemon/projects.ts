@@ -133,16 +133,6 @@ export class ProjectManager {
     return project;
   }
 
-  async renameIfCurrent(id: string, expectedName: string, name: string): Promise<ProjectState | undefined> {
-    const project = this.#projects.get(id);
-    if (!project || project.name !== expectedName) return undefined;
-    const normalized = name.trim();
-    if (!normalized) throw new Error("Project name must not be empty");
-    if (normalized === expectedName) return undefined;
-    await this.#save(project, { name: normalized, updatedAt: new Date().toISOString() });
-    return project;
-  }
-
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);

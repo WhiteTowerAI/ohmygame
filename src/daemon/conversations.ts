@@ -5,7 +5,6 @@ import { parseReasoningLevel } from "../shared/reasoning.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
-const PROVISIONAL_TITLE_MAX_LENGTH = 36;
 const PLAN_STATE_ENTRY = "ohmygame-plan";
 
 export interface StoredConversation {
@@ -60,23 +59,10 @@ export class ConversationManager {
     return this.#rename(project, conversationId, title);
   }
 
-  async renameIfCurrent(
-    project: ProjectState,
-    conversationId: string,
-    expectedTitle: string,
-    title: string,
-  ): Promise<ConversationSummary | undefined> {
-    const stored = await this.get(project, conversationId);
-    if (!stored) return undefined;
-    if (stored.summary.title !== expectedTitle) return undefined;
-    if (normalizeTitle(title) === expectedTitle) return undefined;
-    return this.#rename(project, conversationId, title, stored);
-  }
-
   setInitialTitle(project: ProjectState, conversationId: string, prompt: string): ConversationSummary | undefined {
     const pending = this.#pending.get(key(project.id, conversationId));
     if (!pending || pending.titled) return undefined;
-    const title = normalizeTitle(prompt, PROVISIONAL_TITLE_MAX_LENGTH);
+    const title = normalizeTitle(prompt);
     if (!title) return undefined;
     pending.titled = true;
     pending.manager.appendSessionInfo(title);

@@ -10,14 +10,12 @@ import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
-import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
 import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
@@ -69,8 +67,6 @@ export interface AppOptions {
   model3DGenerator?: Model3DGenerator;
   videoGenerator?: VideoGenerator;
   createModelRuntime?: () => Promise<ModelRuntime>;
-  generateConversationTitle?: TitleGenerator;
-  generateProjectTitle?: TitleGenerator;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
@@ -496,7 +492,6 @@ export function createApp(options: AppOptions = {}) {
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
   const conversations = new ConversationManager();
-  const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
@@ -524,18 +519,6 @@ export function createApp(options: AppOptions = {}) {
     if (baseUrl) runtime.registerProvider("openai", { baseUrl });
     return runtime;
   })();
-  const generateConversationName = options.generateConversationTitle ?? (async (model, prompt) =>
-    generateConversationTitle(await getModelRuntime(), model, prompt));
-  const generateProjectName = options.generateProjectTitle ?? (async (model, prompt) =>
-    generateProjectTitle(await getModelRuntime(), model, prompt));
-  const conversationModel = (project: ProjectState, conversation: StoredConversation) => {
-    const selected = conversations.model(project, conversation);
-    if (selected) return selected;
-    const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
-    const provider = settings.getDefaultProvider();
-    const id = settings.getDefaultModel();
-    return provider && id ? { provider, id } : undefined;
-  };
   const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
     events.publish(
       conversation.projectId,
@@ -2314,47 +2297,8 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
-      const provisional = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
-      if (provisional) publishConversationRenamed(provisional);
-      const expectedProjectName = isDefaultProjectName(project) && !projectsBeingNamed.has(project.id)
-        ? project.name
-        : undefined;
-      if (provisional || expectedProjectName) {
-        const model = conversationModel(project, conversation);
-        if (model) {
-          if (expectedProjectName) projectsBeingNamed.add(project.id);
-          void (async () => {
-            await turn.result?.catch(() => undefined);
-            if (provisional) {
-              try {
-                const title = await generateConversationName(model, request.body.prompt);
-                if (title) {
-                  const updated = await conversations.renameIfCurrent(
-                    project,
-                    conversation.summary.id,
-                    provisional.title,
-                    title,
-                  );
-                  if (updated) publishConversationRenamed(updated);
-                }
-              } catch (cause) {
-                request.log.debug({ err: cause }, "conversation title generation failed");
-              }
-            }
-            if (!expectedProjectName) return;
-            try {
-              const name = await generateProjectName(model, request.body.prompt);
-              if (!name) return;
-              const updated = await projects.renameIfCurrent(project.id, expectedProjectName, name);
-              if (updated) publishProjectRenamed(updated);
-            } catch (cause) {
-              request.log.debug({ err: cause }, "project title generation failed");
-            } finally {
-              projectsBeingNamed.delete(project.id);
-            }
-          })();
-        }
-      }
+      const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
+      if (titled) publishConversationRenamed(titled);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
   );
