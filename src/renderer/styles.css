@@ -199,6 +199,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.home-sidebar nav {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
 .home-sidebar-traffic {
   display: flex;
   gap: 8px;
@@ -232,6 +239,7 @@ body {
 }
 
 .desktop-macos .home-sidebar nav,
+.desktop-macos .home-sidebar-community,
 .desktop-macos .home-sidebar-account,
 .desktop-macos .settings-page-back,
 .desktop-macos .home-sidebar-resizer,
@@ -1861,13 +1869,9 @@ body {
   mask-image: url("./assets/sidebar/interactive-drama.svg");
   -webkit-mask-image: url("./assets/sidebar/interactive-drama.svg");
 }
-.home-nav-icon-games {
+.home-nav-icon-community {
   mask-image: url("./assets/sidebar/games.svg");
   -webkit-mask-image: url("./assets/sidebar/games.svg");
-}
-.home-nav-icon-assets {
-  mask-image: url("./assets/sidebar/assets.svg");
-  -webkit-mask-image: url("./assets/sidebar/assets.svg");
 }
 
 .home-nav-item-active .home-nav-icon-home {
@@ -1894,13 +1898,9 @@ body {
   mask-image: url("./assets/sidebar/fill/interactive-drama.svg");
   -webkit-mask-image: url("./assets/sidebar/fill/interactive-drama.svg");
 }
-.home-nav-item-active .home-nav-icon-games {
+.home-nav-item-active .home-nav-icon-community {
   mask-image: url("./assets/sidebar/fill/games.svg");
   -webkit-mask-image: url("./assets/sidebar/fill/games.svg");
-}
-.home-nav-item-active .home-nav-icon-assets {
-  mask-image: url("./assets/sidebar/fill/assets.svg");
-  -webkit-mask-image: url("./assets/sidebar/fill/assets.svg");
 }
 
 .home-nav-item-active .home-nav-icon {
@@ -2045,6 +2045,10 @@ button.home-nav-item-active:hover {
 }
 
 .sidebar-page-toolbar {
+  min-width: 0;
+}
+
+.community-categories {
   min-width: 0;
 }
 
@@ -15486,6 +15490,10 @@ button {
 
 :root[data-appearance="light"] .asset-template-dialog {
   background: rgb(28 35 31 / 24%);
+}
+
+:root[data-appearance="light"] .asset-template-preview {
+  background: var(--surface-hover);
 }
 
 :root[data-appearance="light"] .asset-template-preview .asset-template-type,

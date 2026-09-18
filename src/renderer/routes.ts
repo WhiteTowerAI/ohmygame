@@ -5,18 +5,21 @@ export type SidebarPage =
   | "plugins"
   | "interactive-drama"
   | "asset-studio"
-  | "games"
-  | "assets";
+  | "community";
+
+export type CommunitySection = "games" | "images" | "videos" | "audio" | "models";
 
 export type SettingsSection = "account" | "usage" | "plans" | "billing" | "appearance" | "providers" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
+type SidebarRoutePage = Exclude<SidebarPage, "community">;
 
-const SIDEBAR_PAGES = new Set<SidebarPage>([
-  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio", "games", "assets",
+const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
+  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio",
 ]);
 
 export type AppRoute =
-  | { page: SidebarPage }
+  | { page: SidebarRoutePage }
+  | { page: "community"; section: CommunitySection }
   | { page: "settings"; section: SettingsSection }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string; chapterId: string }
@@ -26,11 +29,13 @@ export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const settingsMatch = /^#\/settings(?:\/(account|usage|plans|billing|appearance|providers|connections|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
+  const communityMatch = /^#\/community(?:\/(games|images|videos|audio|models))?$/.exec(hash);
+  if (communityMatch) return { page: "community", section: (communityMatch[1] as CommunitySection | undefined) ?? "games" };
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);
-  if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarPage)) {
-    return { page: sidebarMatch[1] as SidebarPage };
+  if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarRoutePage)) {
+    return { page: sidebarMatch[1] as SidebarRoutePage };
   }
-  const gameMatch = /^#\/games\/([^/]+)$/.exec(hash);
+  const gameMatch = /^#\/community\/games\/([^/]+)$/.exec(hash);
   if (gameMatch?.[1]) {
     try {
       return { page: "game", gameId: decodeURIComponent(gameMatch[1]) };
@@ -69,7 +74,8 @@ export function parseAppRoute(hash: string): AppRoute {
 }
 
 export function sidebarHash(page: SidebarPage): string {
-  return page === "home" ? "#/" : `#/${page}`;
+  if (page === "home") return "#/";
+  return page === "community" ? communityHash() : `#/${page}`;
 }
 
 export function settingsHash(section: SettingsSection): string {
@@ -85,7 +91,11 @@ export function conversationHash(projectId: string, conversationId: string): str
 }
 
 export function gameHash(gameId: string): string {
-  return `#/games/${encodeURIComponent(gameId)}`;
+  return `#/community/games/${encodeURIComponent(gameId)}`;
+}
+
+export function communityHash(section: CommunitySection = "games"): string {
+  return `#/community/${section}`;
 }
 
 export function playtestHash(projectId: string, chapterId: string): string {
