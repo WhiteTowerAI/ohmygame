@@ -1096,6 +1096,11 @@ describe("daemon", () => {
       url: `/projects/${project.id}/conversations`,
       payload: { model: { provider: first.provider, id: first.id }, reasoningLevel: "medium" },
     });
+    const createdWithDefaults = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+      payload: {},
+    });
     const changed = await app.inject({
       method: "PUT",
       url: `/projects/${project.id}/conversations/${created.json().id}/model`,
@@ -1104,6 +1109,10 @@ describe("daemon", () => {
     const detail = await app.inject({
       method: "GET",
       url: `/projects/${project.id}/conversations/${created.json().id}`,
+    });
+    const defaultDetail = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${createdWithDefaults.json().id}`,
     });
     const reasoning = await app.inject({
       method: "PUT",
@@ -1126,6 +1135,10 @@ describe("daemon", () => {
     expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
     expect(detail.json().cursor).toBe(0);
+    expect(defaultDetail.json().settings).toEqual({
+      model: { provider: first.provider, id: first.id },
+      reasoningLevel: "medium",
+    });
   });
 
   it("applies an OpenAI-compatible endpoint through Pi", async () => {

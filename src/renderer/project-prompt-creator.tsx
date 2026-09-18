@@ -1,7 +1,8 @@
 import { Check, ChevronDown, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
+import { preferredAgentModel } from "../shared/agent-models.js";
 import { createConversation, createProject, getHomeComposerCapabilities, waitForRuntime } from "./api.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
@@ -36,7 +37,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
-  const displayedModel = model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
+  const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
   const candidateMention = mentionQuery(prompt, mentionCursor);
   const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
   const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
@@ -60,18 +61,10 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   }, [mentionKey]);
 
   useEffect(() => {
-    if (modelCatalog.models.some((candidate) => sameModel(candidate, model))) return;
-    const fallback = modelCatalog.models.find((candidate) => sameModel(candidate, modelCatalog.defaultModel))
-      ?? modelCatalog.models[0];
-    if (!fallback || !sameModel(fallback, model)) setModel(fallback);
-  }, [model, modelCatalog.models, modelCatalog.defaultModel]);
-
-  useEffect(() => {
-    const selected = modelCatalog.models.find((candidate) => sameModel(candidate, model));
-    if (!selected) return;
-    const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selected.reasoningLevels);
+    if (!selectedModel) return;
+    const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selectedModel.reasoningLevels);
     if (next && next !== reasoningLevel) setReasoningLevel(next);
-  }, [model, modelCatalog.models, modelCatalog.defaultReasoningLevel, reasoningLevel]);
+  }, [selectedModel, modelCatalog.defaultReasoningLevel, reasoningLevel]);
 
   async function submit(): Promise<void> {
     if (matchesPlanCommand(prompt)) {
@@ -84,7 +77,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
     setError(undefined);
     try {
       const project = await createProject({ type: projectType });
-      const conversation = await createConversation(project.id, model, reasoningLevel);
+      const conversation = await createConversation(project.id, selectedModel, reasoningLevel);
       onCreate(
         project.id,
         conversation.id,
@@ -201,7 +194,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
             <ModelSelector
               models={modelCatalog.models}
               status={modelCatalog.status}
-              value={displayedModel}
+              value={selectedModel}
               reasoningLevel={reasoningLevel}
               disabled={creating}
               onChange={setModel}
@@ -361,10 +354,6 @@ function ProjectTypeSelector({ value, disabled, onChange }: {
       ) : null}
     </div>
   );
-}
-
-function sameModel(model: AgentModel, value?: AgentModelRef): boolean {
-  return Boolean(value && model.provider === value.provider && model.id === value.id);
 }
 
 function errorMessage(cause: unknown): string {

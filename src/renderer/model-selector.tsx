@@ -66,7 +66,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
-        disabled={disabled || status !== "ready" || !current}
+        disabled={disabled || status !== "ready" || models.length === 0}
         onClick={() => {
           setOpen((value) => !value);
           setShowReasoning(false);
@@ -107,10 +107,12 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                   );
                 })}
               </div>
-              <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setShowReasoning(true)}>
-                <span>Reasoning</span>
-                <span className="model-selector-setting-value">{reasoningLabel(reasoningLevel)}<ChevronRight size={12} /></span>
-              </button>
+              {current ? (
+                <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setShowReasoning(true)}>
+                  <span>Reasoning</span>
+                  <span className="model-selector-setting-value">{reasoningLabel(reasoningLevel)}<ChevronRight size={12} /></span>
+                </button>
+              ) : null}
             </div>
           ) : null}
 

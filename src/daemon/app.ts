@@ -5,7 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
@@ -1867,10 +1868,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/models", async () => {
     const runtime = await getModelRuntime();
     const models = await runtime.getAvailable();
-    const piSettings = SettingsManager.create(dataDirectory, piAgentDirectory);
-    const defaultProvider = piSettings.getDefaultProvider();
-    const defaultId = piSettings.getDefaultModel();
-    const defaultModel = models.find(({ provider, id }) => provider === defaultProvider && id === defaultId);
+    const defaultModel = findAgentModel(models, configuredDefaultModel(dataDirectory, piAgentDirectory));
     return {
       models: models.map((model) => ({
         provider: model.provider,
@@ -1880,7 +1878,7 @@ export function createApp(options: AppOptions = {}) {
         reasoningLevels: supportedReasoningLevels(model),
       })),
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
-      defaultReasoningLevel: parseReasoningLevel(piSettings.getDefaultThinkingLevel()) ?? "medium",
+      defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
   });
 
@@ -2085,15 +2083,29 @@ export function createApp(options: AppOptions = {}) {
       if (!isCreateConversationRequest(request.body)) {
         return reply.code(400).send({ error: "Invalid conversation request" });
       }
-      const model = request.body?.model;
-      const selectedModel = model ? await availableModel(getModelRuntime, model.provider, model.id) : undefined;
-      if (model && !selectedModel) {
+      const requestedModel = request.body?.model;
+      let selectedModel: RuntimeModel | undefined;
+      if (requestedModel) {
+        selectedModel = await availableModel(getModelRuntime, requestedModel.provider, requestedModel.id);
+      } else {
+        const runtime = await getModelRuntime();
+        selectedModel = preferredAgentModel(
+          await runtime.getAvailable(),
+          undefined,
+          configuredDefaultModel(dataDirectory, piAgentDirectory),
+        );
+      }
+      if (requestedModel && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
       }
       if (request.body?.reasoningLevel && selectedModel && !supportedReasoningLevels(selectedModel).includes(request.body.reasoningLevel)) {
         return reply.code(400).send({ error: "Reasoning level is not available for this model" });
       }
-      const conversation = await conversations.create(project, model, request.body?.reasoningLevel);
+      const model = selectedModel ? { provider: selectedModel.provider, id: selectedModel.id } : undefined;
+      const reasoningLevel = request.body?.reasoningLevel ?? (!requestedModel && selectedModel
+        ? effectiveReasoningLevel(selectedModel, undefined, defaultReasoningLevel(dataDirectory, piAgentDirectory))
+        : undefined);
+      const conversation = await conversations.create(project, model, reasoningLevel);
       return reply.code(201).send(conversation.summary);
     },
   );
@@ -2781,6 +2793,13 @@ function effectiveReasoningLevel(
 
 function defaultReasoningLevel(cwd: string, agentDir: string): AgentReasoningLevel {
   return parseReasoningLevel(SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel()) ?? "medium";
+}
+
+function configuredDefaultModel(cwd: string, agentDir: string): AgentModelRef | undefined {
+  const settings = SettingsManager.create(cwd, agentDir);
+  const provider = settings.getDefaultProvider();
+  const id = settings.getDefaultModel();
+  return provider && id ? { provider, id } : undefined;
 }
 
 function publishOrigin(bundle: InstalledPluginBundle): PublishPluginOrigin | undefined {
