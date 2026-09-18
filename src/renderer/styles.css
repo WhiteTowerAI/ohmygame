@@ -11800,6 +11800,32 @@ button {
   color: var(--danger);
 }
 
+.compaction-details {
+  margin: 0;
+}
+
+.compaction-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.compaction-details[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.compaction-content {
+  margin: 6px 0 12px 21px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.compaction-stats {
+  margin: 0 0 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 .connection-activity-details {
   margin: 0;
 }

@@ -119,6 +119,8 @@ describe("conversationItems", () => {
       turnId: "compaction-1",
       type: "contextCompaction",
       status: "completed",
+      summary: "Earlier context",
+      tokensBefore: 42_000,
     })]);
   });
 
@@ -1098,7 +1100,13 @@ describe("AgentManager", () => {
     const session = new FakeSession();
     session.compact.mockImplementation(async () => {
       session.emit({ type: "compaction_start", reason: "manual" });
-      session.emit({ type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false });
+      session.emit({
+        type: "compaction_end",
+        reason: "manual",
+        result: { summary: "## Goal\nKeep building", firstKeptEntryId: "user-2", tokensBefore: 42_000, estimatedTokensAfter: 12_000 },
+        aborted: false,
+        willRetry: false,
+      });
     });
     const events = new RuntimeEventBus();
     const onRunCompleted = vi.fn();
@@ -1115,6 +1123,13 @@ describe("AgentManager", () => {
       "item.completed",
       "agent.completed",
     ]);
+    expect(events.since(project.id).find((event) => event.type === "item.completed")?.data.item).toMatchObject({
+      type: "contextCompaction",
+      status: "completed",
+      summary: "## Goal\nKeep building",
+      tokensBefore: 42_000,
+      estimatedTokensAfter: 12_000,
+    });
     expect(onRunCompleted).not.toHaveBeenCalled();
     await manager.close();
   });
@@ -1123,6 +1138,7 @@ describe("AgentManager", () => {
     const session = new FakeSession();
     session.compact.mockImplementation(async () => {
       session.emit({ type: "compaction_start", reason: "manual" });
+      session.emit({ type: "compaction_end", reason: "manual", result: undefined, aborted: false, willRetry: false, errorMessage: "Compaction failed" });
       throw new Error("Compaction failed");
     });
     const events = new RuntimeEventBus();
@@ -1138,6 +1154,39 @@ describe("AgentManager", () => {
       item: expect.objectContaining({ type: "contextCompaction", status: "failed", error: { message: "Compaction failed" } }),
     });
     expect(manager.agentState(conversation)).toEqual({ status: "error", error: "Compaction failed" });
+    await manager.close();
+  });
+
+  it("cancels manual compaction through the native Pi compaction abort API", async () => {
+    const session = new FakeSession();
+    const started = deferred<void>();
+    const completion = deferred<void>();
+    session.compact.mockImplementation(async () => {
+      session.emit({ type: "compaction_start", reason: "manual" });
+      started.resolve();
+      await completion.promise;
+    });
+    session.abortCompaction.mockImplementation(() => {
+      session.emit({ type: "compaction_end", reason: "manual", result: undefined, aborted: true, willRetry: false });
+      completion.reject(new Error("Compaction cancelled"));
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = await manager.compact(project, conversation);
+    await started.promise;
+    expect(manager.activeStart(project.id, conversation.summary.id)).toEqual(expect.objectContaining({ id: expect.any(Number), timestamp: expect.any(String) }));
+    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+
+    await expect(turn.result).resolves.toBe("cancelled");
+    expect(session.abortCompaction).toHaveBeenCalledOnce();
+    expect(events.since(project.id).map((event) => event.type)).toEqual(["item.started", "item.completed", "agent.cancelled"]);
+    expect(events.since(project.id).at(-2)?.data).toEqual({
+      item: expect.objectContaining({ type: "contextCompaction", status: "cancelled", error: { message: "Context compaction stopped" } }),
+    });
+    expect(manager.agentState(conversation)).toEqual({ status: "idle" });
     await manager.close();
   });
 
@@ -1491,6 +1540,7 @@ class FakeSession implements CodingSession {
   clearQueue = vi.fn<NonNullable<CodingSession["clearQueue"]>>(() => ({ steering: [], followUp: [] }));
   navigateTree = vi.fn<NonNullable<CodingSession["navigateTree"]>>(async () => ({ cancelled: false }));
   compact = vi.fn<NonNullable<CodingSession["compact"]>>(async () => {});
+  abortCompaction = vi.fn<NonNullable<CodingSession["abortCompaction"]>>();
   getContextUsage = vi.fn<NonNullable<CodingSession["getContextUsage"]>>(() => undefined);
   getSkills = vi.fn<NonNullable<CodingSession["getSkills"]>>(() => []);
   abort = vi.fn<() => Promise<void>>(async () => {});

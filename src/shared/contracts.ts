@@ -518,7 +518,10 @@ export type ThreadItem = (
       id: string;
       turnId: string;
       type: "contextCompaction";
-      status: Extract<ItemStatus, "inProgress" | "completed" | "failed">;
+      status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
+      summary?: string;
+      tokensBefore?: number;
+      estimatedTokensAfter?: number;
       error?: ThreadItemError;
     }
   | {

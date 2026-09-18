@@ -370,8 +370,29 @@ function turnDuration(display: TurnDisplay): string {
 }
 
 function activeTurnDuration(display: TurnDisplay, now: number): string {
-  const startedAt = display.user?.timestamp ?? now;
+  const workTimestamps = display.work.flatMap((item) => item.kind === "item"
+    ? [item.item.timestamp]
+    : item.tools.map((tool) => tool.timestamp));
+  const startedAt = [display.user?.timestamp, ...workTimestamps]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    .reduce((earliest, value) => Math.min(earliest, value), now);
   return formatDuration(Math.max(0, now - startedAt));
+}
+
+function compactionStats(tokensBefore: number, estimatedTokensAfter?: number): string {
+  const formatter = new Intl.NumberFormat();
+  const before = formatter.format(tokensBefore);
+  return estimatedTokensAfter === undefined
+    ? `Compacted from ${before} tokens`
+    : `Compacted from ${before} to approximately ${formatter.format(estimatedTokensAfter)} tokens`;
+}
+
+function compactionLabel(item: Extract<ThreadItem, { type: "contextCompaction" }>): string {
+  if (item.error) return item.error.message;
+  if (item.status === "completed") return "Context compacted";
+  if (item.status === "cancelled") return "Context compaction stopped";
+  if (item.status === "failed") return "Context compaction failed";
+  return "Compacting context";
 }
 
 function formatDuration(milliseconds: number): string {
@@ -446,10 +467,27 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
     />;
   }
   if (item.type === "contextCompaction") {
+    const label = compactionLabel(item);
+    const icon = item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    if (item.status === "completed" && item.summary) {
+      return (
+        <details className="compaction-details">
+          <summary className="timeline-event timeline-event-expandable">
+            {icon}
+            <span>{label}</span>
+            <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+          </summary>
+          <div className="compaction-content">
+            {item.tokensBefore !== undefined ? <p className="compaction-stats">{compactionStats(item.tokensBefore, item.estimatedTokensAfter)}</p> : null}
+            <MarkdownContent text={item.summary} />
+          </div>
+        </details>
+      );
+    }
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
-        {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />}
-        <span>{item.error?.message ?? (item.status === "completed" ? "Context compacted" : "Compacting context")}</span>
+        {icon}
+        <span>{label}</span>
       </div>
     );
   }

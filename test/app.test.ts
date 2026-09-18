@@ -1708,7 +1708,7 @@ describe("daemon", () => {
         id: "compaction-1",
         conversationId: "session-1",
         status: "completed",
-        items: [{ id: "compaction-1", turnId: "compaction-1", type: "contextCompaction", status: "completed", timestamp: 2 }],
+        items: [{ id: "compaction-1", turnId: "compaction-1", type: "contextCompaction", status: "completed", summary: "Earlier context", tokensBefore: 42_000, timestamp: 2 }],
       }],
       cursor: 0,
       pendingPrompts: [],

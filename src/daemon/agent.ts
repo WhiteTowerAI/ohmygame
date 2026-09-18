@@ -27,6 +27,7 @@ export interface CodingSession {
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   compact?(customInstructions?: string): Promise<unknown>;
+  abortCompaction?(): void;
   getContextUsage?(): AgentContextUsage | undefined;
   clearQueue?(): { steering: string[]; followUp: string[] };
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
@@ -57,6 +58,7 @@ interface PiPromptImage {
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
 export type AgentRunResult = "completed" | "cancelled";
+type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
 export function loadConversation(project: ProjectState, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
@@ -82,6 +84,8 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         turnId: entry.id,
         type: "contextCompaction",
         status: "completed",
+        summary: entry.summary,
+        tokensBefore: entry.tokensBefore,
         ...(Number.isFinite(compactedAt) ? { timestamp: compactedAt } : {}),
       });
       continue;
@@ -465,11 +469,15 @@ export class AgentManager {
     const execution = managed.session.compact(customInstructions).then(() => "completed" as const);
     run = execution.then(
       (result) => {
-        this.#finishCompact(project, active, run);
+        this.#finishCompact(project, active, run, { status: result });
         return result;
       },
       (cause) => {
-        this.#finishCompact(project, active, run, cause);
+        if (isCancelling(active)) {
+          this.#finishCompact(project, active, run, { status: "cancelled" });
+          return "cancelled" as const;
+        }
+        this.#finishCompact(project, active, run, { status: "failed", cause });
         throw cause;
       },
     );
@@ -742,6 +750,7 @@ export class AgentManager {
         managed.session.clearQueue?.();
         this.#clearPending(projectId, conversationId);
       });
+      managed.session.abortCompaction?.();
       await managed.session.abort();
     } else {
       this.#clearPending(projectId, conversationId);
@@ -977,6 +986,7 @@ export class AgentManager {
     }
     this.#questionnaires.clear();
     const sessions = [...this.#sessions.values()];
+    for (const { session } of sessions) session.abortCompaction?.();
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
     await Promise.allSettled([...this.#queueMutations.values()]);
@@ -1024,11 +1034,21 @@ export class AgentManager {
     });
   }
 
-  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, cause?: unknown): void {
+  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, outcome: CompactRunOutcome): void {
     this.#runs.delete(run);
     const key = conversationKey(project.id, active.conversationId);
     if (this.#activeTurns.get(key) === active) {
-      const error = cause === undefined ? undefined : cause instanceof Error ? cause.message : String(cause);
+      if (outcome.status === "cancelled") {
+        this.#completeOpenItems(project.id, active, "cancelled");
+        this.#activeTurns.delete(key);
+        this.#setState(project.id, active.conversationId, { status: "idle" });
+        this.events.publish(project.id, "agent.cancelled", {}, eventScope(active));
+        this.#flushInvalidatedProject(project.id);
+        return;
+      }
+      const error = outcome.status === "failed"
+        ? outcome.cause instanceof Error ? outcome.cause.message : String(outcome.cause)
+        : undefined;
       this.#completeOpenItems(project.id, active, error ? "failed" : "completed", error);
       this.#activeTurns.delete(key);
       this.#setState(project.id, active.conversationId, error ? { status: "error", error } : { status: "idle" });
@@ -1283,21 +1303,31 @@ export class AgentManager {
       }
       active.retryItemId = undefined;
     } else if (event.type === "compaction_start") {
-      this.#startItem(projectId, active, {
+      const started = this.#startItem(projectId, active, {
         id: `${active.turnId}:compaction`,
         turnId: active.turnId,
         type: "contextCompaction",
         status: "inProgress",
       });
+      active.startedEventId ??= started.id;
+      active.startedAt ??= Date.parse(started.timestamp);
     } else if (event.type === "compaction_end") {
+      const stopped = event.aborted && isCancelling(active);
+      const status = stopped ? "cancelled" : event.aborted || event.errorMessage ? "failed" : "completed";
+      const error = event.errorMessage ?? (event.aborted
+        ? event.willRetry ? "Context compaction interrupted; retrying" : stopped ? "Context compaction stopped" : "Context compaction interrupted"
+        : undefined);
       this.#completeItem(projectId, active, {
         id: `${active.turnId}:compaction`,
         turnId: active.turnId,
         type: "contextCompaction",
-        status: event.aborted ? "failed" : "completed",
-        ...(event.errorMessage ? { error: itemError(event.errorMessage) } : event.aborted ? {
-          error: itemError(event.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted"),
+        status,
+        ...(event.result ? {
+          summary: event.result.summary,
+          tokensBefore: event.result.tokensBefore,
+          estimatedTokensAfter: event.result.estimatedTokensAfter,
         } : {}),
+        ...(error ? { error: itemError(error) } : {}),
       });
     } else if (event.type === "tool_execution_start") {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
@@ -1347,9 +1377,9 @@ export class AgentManager {
     }
   }
 
-  #startItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+  #startItem(projectId: string, active: ActiveTurn, item: ThreadItem) {
     active.items.set(item.id, item);
-    this.events.publish(projectId, "item.started", { item }, eventScope(active));
+    return this.events.publish(projectId, "item.started", { item }, eventScope(active));
   }
 
   #updateItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
@@ -1382,7 +1412,7 @@ export class AgentManager {
       } else if (item.type === "contextCompaction" && item.status === "inProgress") {
         this.#completeItem(projectId, active, {
           ...item,
-          status: status === "completed" ? "completed" : "failed",
+          status: status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : "failed",
           ...(error ? { error: itemError(error) } : {}),
         });
       } else if (item.type === "retry" && item.status === "inProgress") {
