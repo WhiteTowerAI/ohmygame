@@ -6227,10 +6227,6 @@ button {
   flex-basis: 16px;
   font-size: 8px;
 }
-.asset-template-card.is-official > .community-meta .community-author > span {
-  background: color-mix(in srgb, var(--home-accent) 24%, var(--surface-raised));
-  color: var(--home-accent);
-}
 .asset-template-card > .community-meta .community-like-button {
   padding: 2px;
 }

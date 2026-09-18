@@ -1,33 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { defaultTemplateForMode, templatesForMode } from "../src/renderer/asset-templates.js";
+import { STUDIO_PROMPT_PLACEHOLDERS } from "../src/renderer/asset-templates.js";
 import { isAssetTemplateDefinition } from "../src/shared/asset-templates.js";
 
 describe("asset templates", () => {
-  it("provides a default template for every studio mode", () => {
-    for (const mode of ["image", "video", "3d"] as const) {
-      const templates = templatesForMode(mode);
-      expect(templates.length).toBeGreaterThan(0);
-      expect(defaultTemplateForMode(mode)).toBe(templates[0]);
-      expect(templates.every((template) => template.mode === mode)).toBe(true);
-    }
-  });
-
-  it("uses unique template ids", () => {
-    const templates = (["image", "video", "3d"] as const).flatMap((mode) => templatesForMode(mode));
-    expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length);
-  });
-
-  it("only includes the general template for each mode", () => {
-    expect((["image", "video", "3d"] as const).map((mode) => templatesForMode(mode).map((template) => template.id)))
-      .toEqual([["general-image"], ["general-video"], ["general-3d"]]);
-    expect((["image", "video", "3d"] as const).every((mode) => defaultTemplateForMode(mode).defaultPrompt === undefined)).toBe(true);
-  });
-
-  it("uses Meshy 7 for the general 3D template", () => {
-    const templates = templatesForMode("3d");
-    expect(defaultTemplateForMode("3d").defaults?.model3DSource).toBe("text");
-    expect(templates.every((template) => template.defaults?.model3DModel === "meshy-7")).toBe(true);
-    expect(templates.every((template) => template.defaults?.model3DQuality === "standard")).toBe(true);
+  it("keeps empty-state prompt hints separate from templates", () => {
+    expect(STUDIO_PROMPT_PLACEHOLDERS).toEqual({
+      image: "A stylized floating island at sunrise, soft volumetric light, game concept art...",
+      video: "Describe the scene, motion, and camera movement...",
+      "3d": "A stylized wooden treasure chest with iron bands and a hinged lid...",
+    });
   });
 
   it("validates model-specific 3D template defaults", () => {

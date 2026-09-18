@@ -1,10 +1,9 @@
 import type { AssetTemplateDefinition, Model3DSource, StudioMode } from "../shared/asset-templates.js";
-import { BUILT_IN_ASSET_TEMPLATES } from "../shared/built-in-asset-templates.js";
 export type { Model3DSource, StudioMode } from "../shared/asset-templates.js";
 
 export interface AssetTemplate extends AssetTemplateDefinition {
   id: string;
-  source: "builtIn" | "local" | "catalog";
+  source: "local" | "catalog";
   hasCover?: boolean;
   releaseId?: string;
   publication?: import("../shared/asset-templates.js").LocalAssetTemplate["publication"];
@@ -12,17 +11,8 @@ export interface AssetTemplate extends AssetTemplateDefinition {
   stats?: import("../shared/publish-v1.js").CommunityStats;
 }
 
-export const ASSET_TEMPLATES: readonly AssetTemplate[] = BUILT_IN_ASSET_TEMPLATES.map((template) => ({
-  ...template,
-  source: "builtIn",
-}));
-
-export function templatesForMode(mode: StudioMode): readonly AssetTemplate[] {
-  return ASSET_TEMPLATES.filter((template) => template.mode === mode);
-}
-
-export function defaultTemplateForMode(mode: StudioMode): AssetTemplate {
-  const template = templatesForMode(mode)[0];
-  if (!template) throw new Error(`No asset template configured for ${mode}`);
-  return template;
-}
+export const STUDIO_PROMPT_PLACEHOLDERS: Record<StudioMode, string> = {
+  image: "A stylized floating island at sunrise, soft volumetric light, game concept art...",
+  video: "Describe the scene, motion, and camera movement...",
+  "3d": "A stylized wooden treasure chest with iron bands and a hinged lid...",
+};

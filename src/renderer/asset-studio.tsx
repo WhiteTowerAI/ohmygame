@@ -29,9 +29,8 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, retryToolJob, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
-import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
+import { STUDIO_PROMPT_PLACEHOLDERS, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
-import { OHMYGAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { useAuth } from "./auth.js";
@@ -141,15 +140,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const resultActions = useRef<HTMLDivElement>(null);
   const auth = useAuth();
 
-  const builtInTemplateIds = new Set(ASSET_TEMPLATES.map((template) => template.id));
   const yoursTemplates = localTemplates.map(templateForGallery);
-  const communityTemplates = exploreTemplates
-    .filter((template) => template.author.id !== OHMYGAME_TEMPLATE_AUTHOR.id
-      && !builtInTemplateIds.has(template.id))
-    .map(templateForGallery);
+  const communityTemplates = exploreTemplates.map(templateForGallery);
   const templates = [...yoursTemplates, ...communityTemplates];
   const selectedTemplate = templates.find((template) => template.id === templateIds[mode] && template.mode === mode);
-  const activeTemplate = selectedTemplate ?? defaultTemplateForMode(mode);
+  const promptPlaceholder = selectedTemplate?.promptPlaceholder ?? STUDIO_PROMPT_PLACEHOLDERS[mode];
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
     selectedImageModel?.generationOptions.some((option) => option.resolution === candidate),
@@ -269,7 +264,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     if (local.status === "fulfilled") setLocalTemplates(localTemplates);
     else setActionStatus({ type: "error", message: errorMessage(local.reason) });
     if (explore.status === "fulfilled") setExploreTemplates(exploreTemplates);
-    const available = [...localTemplates, ...exploreTemplates.filter((template) => !builtInTemplateIds.has(template.id))];
+    const available = [...localTemplates, ...exploreTemplates];
     setTemplateIds((current) => ({
       ...(available.some((template) => template.id === current.image && template.mode === "image") ? { image: current.image } : {}),
       ...(available.some((template) => template.id === current.video && template.mode === "video") ? { video: current.video } : {}),
@@ -710,7 +705,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       mode,
       name,
       description: description.trim(),
-      promptPlaceholder: activeTemplate.promptPlaceholder,
+      promptPlaceholder,
       ...(prompt.trim() ? { defaultPrompt: prompt.trim() } : {}),
       defaults,
     };
@@ -877,12 +872,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       {imagePhase === "ready" && imageModels.length ? <ModelSelect id="asset-model" value={imageModelKey} options={imageModels.map((model) => ({ value: modelKey(model), label: model.name }))} onChange={chooseImageModel} /> : null}
                       {imagePhase === "ready" && !imageModels.length ? <p className="asset-inline-state">No image model is connected</p> : null}
                     </Field>
-                    <PromptField id="asset-image-prompt" value={imagePrompt} placeholder={activeTemplate.promptPlaceholder} onChange={setImagePrompt} />
+                    <PromptField id="asset-image-prompt" value={imagePrompt} placeholder={promptPlaceholder} onChange={setImagePrompt} />
                   </>
                 ) : mode === "video" ? (
                   <>
                     <Field label="Model" htmlFor="asset-video-model"><ModelSelect id="asset-video-model" value={VIDEO_MODEL} options={VIDEO_MODEL_OPTIONS} onChange={() => undefined} /></Field>
-                    <PromptField id="asset-video-prompt" value={videoPrompt} placeholder={activeTemplate.promptPlaceholder} onChange={setVideoPrompt} />
+                    <PromptField id="asset-video-prompt" value={videoPrompt} placeholder={promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
                   <>
@@ -902,7 +897,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                       imageNames={modelReferenceNames}
                       multiView={model3DMultiView}
                       allowMultiView={!isMeshyT2}
-                      promptPlaceholder={activeTemplate.promptPlaceholder}
+                      promptPlaceholder={promptPlaceholder}
                       onSourceChange={setModel3DSource}
                       onPromptChange={setModel3DPrompt}
                       onMultiViewChange={setModel3DMultiView}
@@ -1143,10 +1138,10 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [actionsOpen]);
-  return <article className={`asset-template-card${selected ? " is-selected" : ""}${template.source === "builtIn" ? " is-official" : ""}${actionsOpen ? " is-menu-open" : ""}`}>
+  return <article className={`asset-template-card${selected ? " is-selected" : ""}${actionsOpen ? " is-menu-open" : ""}`}>
     <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} disabled={busy} onClick={() => onSelect(template)}>
       <TemplatePreview template={template} />
-      <span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" && !template.author ? <small>OhMyGame</small> : publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
+      <span className="asset-template-card-copy"><strong>{template.name}</strong>{publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
     </button>
     {template.source === "local" ? <div className="asset-template-actions" ref={actions}>
       <button className="asset-template-actions-trigger" type="button" aria-label={`Manage ${template.name}`} title="Template actions" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy} onClick={() => setActionsOpen((open) => !open)}><MoreHorizontal size={15} /></button>
@@ -1157,7 +1152,7 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
         <button className="is-danger" type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onDelete?.(template); }}><Trash2 size={13} />Delete</button>
       </div> : null}
     </div> : null}
-    {template.author && template.stats ? <CommunityMeta type="template" id={template.id} author={template.author} stats={template.stats} useLabel="uses" verified={template.source === "builtIn"} /> : null}
+    {template.author && template.stats ? <CommunityMeta type="template" id={template.id} author={template.author} stats={template.stats} useLabel="uses" /> : null}
   </article>;
 }
 
