@@ -29,8 +29,8 @@ describe("preinstalled plugins", () => {
   });
 
   it("installs a prepared Catalog Plugin enabled by default without replacing it on restart", async () => {
-    const dataDirectory = await temporary("open-game-preinstalled-data-");
-    const bundledPluginsDirectory = await temporary("open-game-preinstalled-bundled-");
+    const dataDirectory = await temporary("ohmygame-preinstalled-data-");
+    const bundledPluginsDirectory = await temporary("ohmygame-preinstalled-bundled-");
     const prepared = await preparedPlugin();
     const first = createApp({
       dataDirectory,
@@ -41,10 +41,10 @@ describe("preinstalled plugins", () => {
     apps.push(first);
     await first.ready();
 
-    const detail = await first.inject({ method: "GET", url: "/plugins/opengame%3Areference-tools" });
+    const detail = await first.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" });
     expect(detail.statusCode).toBe(200);
     expect(detail.json()).toMatchObject({
-      id: "opengame:reference-tools",
+      id: "ohmygame:reference-tools",
       installed: true,
       enabled: true,
       preinstalled: true,
@@ -55,12 +55,12 @@ describe("preinstalled plugins", () => {
     });
 
     const installedSkill = path.join(
-      dataDirectory, "plugins", "installed", "marketplace", "opengame", "reference-tools", "1.0.0",
+      dataDirectory, "plugins", "installed", "marketplace", "ohmygame", "reference-tools", "1.0.0",
       "skills", "reference", "SKILL.md",
     );
     expect((await first.inject({
       method: "PUT",
-      url: "/plugins/opengame%3Areference-tools/settings",
+      url: "/plugins/ohmygame%3Areference-tools/settings",
       payload: { enabled: false, components: {} },
     })).statusCode).toBe(200);
     await writeFile(installedSkill, `${prepared.skillContent}\nLocal marker`);
@@ -76,12 +76,12 @@ describe("preinstalled plugins", () => {
     apps.push(second);
     await second.ready();
     expect(await readFile(installedSkill, "utf8")).toContain("Local marker");
-    expect((await second.inject({ method: "GET", url: "/plugins/opengame%3Areference-tools" })).json().enabled).toBe(false);
+    expect((await second.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" })).json().enabled).toBe(false);
   });
 
   it("does not restore a preinstalled Plugin after the user removes it", async () => {
-    const dataDirectory = await temporary("open-game-preinstalled-remove-");
-    const bundledPluginsDirectory = await temporary("open-game-preinstalled-bundled-");
+    const dataDirectory = await temporary("ohmygame-preinstalled-remove-");
+    const bundledPluginsDirectory = await temporary("ohmygame-preinstalled-bundled-");
     const prepared = await preparedPlugin();
     const first = createApp({
       dataDirectory,
@@ -91,7 +91,7 @@ describe("preinstalled plugins", () => {
     });
     apps.push(first);
     await first.ready();
-    expect((await first.inject({ method: "DELETE", url: "/plugins/opengame%3Areference-tools" })).statusCode).toBe(204);
+    expect((await first.inject({ method: "DELETE", url: "/plugins/ohmygame%3Areference-tools" })).statusCode).toBe(204);
     await first.close();
     apps.splice(apps.indexOf(first), 1);
 
@@ -104,7 +104,7 @@ describe("preinstalled plugins", () => {
     apps.push(second);
     await second.ready();
 
-    expect((await second.inject({ method: "GET", url: "/plugins/opengame%3Areference-tools" })).statusCode).toBe(404);
+    expect((await second.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" })).statusCode).toBe(404);
     expect(JSON.parse(await readFile(path.join(dataDirectory, "plugins", "preinstalled-plugins.json"), "utf8")))
       .toMatchObject({ plugins: { [prepared.pluginId]: { seededReleaseId: prepared.releaseId, removed: true } } });
   });
@@ -113,21 +113,21 @@ describe("preinstalled plugins", () => {
     const prepared = await preparedPlugin();
     await writeFile(path.join(prepared.directory, `${prepared.releaseId}.zip`), "damaged");
     const app = createApp({
-      dataDirectory: await temporary("open-game-preinstalled-invalid-"),
-      bundledPluginsDirectory: await temporary("open-game-preinstalled-bundled-"),
+      dataDirectory: await temporary("ohmygame-preinstalled-invalid-"),
+      bundledPluginsDirectory: await temporary("ohmygame-preinstalled-bundled-"),
       preinstalledPluginsDirectory: prepared.directory,
       publishFetch: async () => Response.json([]),
     });
     apps.push(app);
 
     await app.ready();
-    expect((await app.inject({ method: "GET", url: "/plugins/opengame%3Areference-tools" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" })).statusCode).toBe(404);
   });
 
   it("seeds the prepared release into the public Catalog with its source metadata", async () => {
     const prepared = await preparedPlugin();
     const app = createPublishApp({
-      dataDirectory: await temporary("open-game-preinstalled-publish-"),
+      dataDirectory: await temporary("ohmygame-preinstalled-publish-"),
       preinstalledPluginsDirectory: prepared.directory,
       verifyPublisherToken: async () => undefined,
     });
@@ -154,7 +154,7 @@ describe("preinstalled plugins", () => {
   });
 
   it("does not downgrade or relist an existing Catalog Plugin when seeding again", async () => {
-    const store = new PublishStore(await temporary("open-game-preinstalled-store-"));
+    const store = new PublishStore(await temporary("ohmygame-preinstalled-store-"));
     const publisher = { id: "github:example", displayName: "Example" };
     const plugin: StoredPlugin = {
       id: "plugin-1", publisherId: publisher.id, name: "reference-tools", currentReleaseId: "release-1",
@@ -195,8 +195,8 @@ describe("preinstalled plugins", () => {
 });
 
 async function preparedPlugin() {
-  const directory = await temporary("open-game-prepared-plugin-");
-  const source = await temporary("open-game-prepared-source-");
+  const directory = await temporary("ohmygame-prepared-plugin-");
+  const source = await temporary("ohmygame-prepared-source-");
   const pluginId = "11111111-1111-4111-8111-111111111111";
   const releaseId = "22222222-2222-4222-8222-222222222222";
   const skillContent = "---\nname: reference\ndescription: Rebuild a reference.\n---\n";
@@ -207,9 +207,9 @@ async function preparedPlugin() {
     skills: ["./skills/reference/SKILL.md"],
     interface: { displayName: "Reference Tools", shortDescription: "Rebuild a reference." },
   };
-  await mkdir(path.join(source, ".opengame-plugin"), { recursive: true });
+  await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
   await mkdir(path.join(source, "skills", "reference"), { recursive: true });
-  await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify(manifest));
+  await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify(manifest));
   await writeFile(path.join(source, "skills", "reference", "SKILL.md"), skillContent);
   const archive = await createPluginArchive(source);
   const artifactSha256 = createHash("sha256").update(archive).digest("hex");

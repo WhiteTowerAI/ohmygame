@@ -10,8 +10,8 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 describe("Connections API", () => {
   it("manages mcp.json Connections through one API", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-connections-api-data-")),
-      piAgentDirectory: await mkdtemp(path.join(tmpdir(), "open-game-connections-api-agent-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-connections-api-data-")),
+      piAgentDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-connections-api-agent-")),
     });
     apps.push(app);
     await app.ready();
@@ -28,7 +28,7 @@ describe("Connections API", () => {
     expect(created.statusCode).toBe(201);
     expect(disabled.statusCode).toBe(204);
     expect(listed.json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "opengame-godot", source: "preset", enabled: true }),
+      expect.objectContaining({ id: "ohmygame-godot", source: "preset", enabled: true }),
       expect.objectContaining({ id: "context7", source: "user", enabled: false }),
     ]));
     expect(removed.statusCode).toBe(204);
@@ -36,8 +36,8 @@ describe("Connections API", () => {
 
   it("rejects malformed definitions and protected preset mutations", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-connections-api-data-")),
-      piAgentDirectory: await mkdtemp(path.join(tmpdir(), "open-game-connections-api-agent-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-connections-api-data-")),
+      piAgentDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-connections-api-agent-")),
     });
     apps.push(app);
     await app.ready();
@@ -47,7 +47,7 @@ describe("Connections API", () => {
       url: "/settings/connections",
       payload: { id: "invalid", transport: { type: "stdio", args: [] } },
     });
-    const protectedPreset = await app.inject({ method: "DELETE", url: "/settings/connections/opengame-godot" });
+    const protectedPreset = await app.inject({ method: "DELETE", url: "/settings/connections/ohmygame-godot" });
 
     expect(malformed.statusCode).toBe(400);
     expect(protectedPreset.statusCode).toBe(400);

@@ -28,7 +28,7 @@ export async function requirePublisher(
     return undefined;
   }
   const publisher = typeof verified === "string"
-    ? { id: verified, displayName: "OpenGame Creator" }
+    ? { id: verified, displayName: "OhMyGame Creator" }
     : verified;
   ensurePublisher(publisher, new Date().toISOString());
   return publisher.id;
@@ -50,7 +50,7 @@ export function createSupabaseTokenVerifier(
         : {};
       const displayName = [metadata.full_name, metadata.name, metadata.user_name]
         .find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim()
-        ?? "OpenGame Creator";
+        ?? "OhMyGame Creator";
       const avatarUrl = [metadata.avatar_url, metadata.picture]
         .find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim();
       return { id: payload.sub, displayName, ...(avatarUrl ? { avatarUrl } : {}) };

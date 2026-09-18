@@ -7,14 +7,14 @@ import { ConnectionManager } from "./connections.js";
 const MCP_ADAPTER_PACKAGE = "npm:pi-mcp-adapter@2.27.0";
 const PLUGIN_CREATOR_SKILL = `---
 name: plugin-creator
-description: Create or update an OpenGame plugin from a natural-language request, validate it, and install it for the user.
+description: Create or update an OhMyGame plugin from a natural-language request, validate it, and install it for the user.
 ---
 
-# OpenGame Plugin Creator
+# OhMyGame Plugin Creator
 
 Create a normal plugin directory inside the current workspace. Use a short kebab-case directory name.
 
-Every plugin must contain \`.opengame-plugin/plugin.json\`:
+Every plugin must contain \`.ohmygame-plugin/plugin.json\`:
 
 \`\`\`json
 {
@@ -22,7 +22,7 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
   "version": "0.1.0",
   "description": "What the plugin does.",
   "skills": "./skills/",
-  "connections": ["opengame-godot"],
+  "connections": ["ohmygame-godot"],
   "interface": {
     "displayName": "My Plugin",
     "shortDescription": "A short user-facing description.",
@@ -33,7 +33,7 @@ Every plugin must contain \`.opengame-plugin/plugin.json\`:
 }
 \`\`\`
 
-Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, and \`interactive-drama\`. The built-in Godot connection is \`opengame-godot\`. OpenGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
+Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, and \`interactive-drama\`. The built-in Godot connection is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
 Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. Do not create a Pi extension, custom in-process tool, or MCP server.
 
@@ -48,7 +48,7 @@ export interface PiMcpServer {
   enabled: boolean;
 }
 
-export function isOpenGameManagedPiPackage(source: string): boolean {
+export function isOhMyGameManagedPiPackage(source: string): boolean {
   return source === "npm:pi-mcp-adapter" || source.startsWith("npm:pi-mcp-adapter@");
 }
 
@@ -57,12 +57,12 @@ export function withRequiredPiPackages(
 ): ReturnType<SettingsManager["getPackages"]> {
   const hasAdapter = packages.some((entry) => {
     const source = typeof entry === "string" ? entry : entry.source;
-    return isOpenGameManagedPiPackage(source);
+    return isOhMyGameManagedPiPackage(source);
   });
   return hasAdapter ? packages : [...packages, MCP_ADAPTER_PACKAGE];
 }
 
-export function ensureOpenGamePiEnvironment(agentDir: string): Promise<void> {
+export function ensureOhMyGamePiEnvironment(agentDir: string): Promise<void> {
   const directory = path.resolve(agentDir);
   const existing = pendingConfiguration.get(directory);
   if (existing) return existing;
@@ -99,7 +99,7 @@ async function ensurePluginCreatorSkill(agentDir: string): Promise<void> {
 }
 
 export async function listMcpServers(agentDir: string): Promise<PiMcpServer[]> {
-  await ensureOpenGamePiEnvironment(agentDir);
+  await ensureOhMyGamePiEnvironment(agentDir);
   return (await new ConnectionManager(agentDir).list()).map(({ id, enabled }) => ({ id, enabled }));
 }
 

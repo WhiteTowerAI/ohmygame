@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
-import { ensureOpenGamePiEnvironment } from "./pi-agent.js";
+import { ensureOhMyGamePiEnvironment } from "./pi-agent.js";
 import { configureNetworkProxy } from "./proxy.js";
 
 configureNetworkProxy();
@@ -11,7 +11,7 @@ try {
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
-const dataDirectory = process.env.OPEN_GAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
+const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
 process.env.PI_CODING_AGENT_DIR = piAgentDirectory;
 let app: ReturnType<typeof createApp> | undefined;
@@ -27,18 +27,18 @@ process.once("SIGTERM", shutdown);
 
 try {
   try {
-    await ensureOpenGamePiEnvironment(piAgentDirectory);
+    await ensureOhMyGamePiEnvironment(piAgentDirectory);
   } catch (error) {
-    console.warn("Could not initialize the OpenGame Pi environment; continuing without managed MCP configuration.", error);
+    console.warn("Could not initialize the OhMyGame Pi environment; continuing without managed MCP configuration.", error);
   }
   app = createApp({
     dataDirectory,
     piAgentDirectory,
-    bundledPluginsDirectory: process.env.OPEN_GAME_BUNDLED_PLUGINS_DIR,
-    preinstalledPluginsDirectory: process.env.OPEN_GAME_PREINSTALLED_PLUGINS_DIR
+    bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
+    preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
-    accessToken: process.env.OPEN_GAME_DAEMON_TOKEN,
-    allowedOrigins: (process.env.OPEN_GAME_ALLOWED_ORIGINS ?? "")
+    accessToken: process.env.OHMYGAME_DAEMON_TOKEN,
+    allowedOrigins: (process.env.OHMYGAME_ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean),

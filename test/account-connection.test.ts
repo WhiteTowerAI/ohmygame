@@ -1,7 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { PortalConnection, portalModels } from "../src/daemon/portal-connection.js";
-import type { PortalClient } from "../src/daemon/portal-client.js";
+import { AccountConnection, accountModels } from "../src/daemon/account-connection.js";
+import type { AccountServiceClient } from "../src/daemon/account-service-client.js";
 
 const knownModel = {
   provider: "openai",
@@ -16,9 +16,9 @@ const knownModel = {
   maxTokens: 10_000,
 } as const;
 
-describe("portalModels", () => {
-  it("uses Portal availability with Pi capability metadata", () => {
-    expect(portalModels([knownModel] as never, ["known-model", "unknown-model"])).toEqual([{
+describe("accountModels", () => {
+  it("uses account availability with Pi capability metadata", () => {
+    expect(accountModels([knownModel] as never, ["known-model", "unknown-model"])).toEqual([{
       id: "known-model",
       name: "Known Model",
       reasoning: true,
@@ -32,7 +32,7 @@ describe("portalModels", () => {
   it("uses OpenAI metadata when another provider defines the same model differently", () => {
     const alternate = { ...knownModel, provider: "azure-openai-responses", contextWindow: 1_000_000 };
 
-    expect(portalModels([alternate, knownModel] as never, ["known-model"]))
+    expect(accountModels([alternate, knownModel] as never, ["known-model"]))
       .toMatchObject([{ id: "known-model", contextWindow: 100_000 }]);
   });
 
@@ -40,7 +40,7 @@ describe("portalModels", () => {
     const anthropic = { ...knownModel, provider: "anthropic", id: "claude-known" };
     const gateway = { ...anthropic, provider: "cloudflare-ai-gateway" };
 
-    expect(portalModels([anthropic, gateway] as never, ["claude-known"]))
+    expect(accountModels([anthropic, gateway] as never, ["claude-known"]))
       .toMatchObject([{ id: "claude-known", contextWindow: 100_000 }]);
   });
 
@@ -48,34 +48,34 @@ describe("portalModels", () => {
     const image = { ...knownModel, id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" };
     const preview = { ...knownModel, id: "google/gemini-3-pro-image-preview", name: "Nano Banana Pro" };
 
-    expect(portalModels([knownModel, image, preview] as never, [knownModel.id, image.id, preview.id]))
+    expect(accountModels([knownModel, image, preview] as never, [knownModel.id, image.id, preview.id]))
       .toMatchObject([{ id: "known-model" }]);
   });
 });
 
-describe("PortalConnection", () => {
+describe("AccountConnection", () => {
   it("registers a memory-only provider and removes it on disconnect", async () => {
     const runtime = runtimeMock();
     const client = {
-      credential: vi.fn(async () => ({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "sk-portal" })),
+      credential: vi.fn(async () => ({ baseUrl: "https://account.ohmygame.ai/v1", apiKey: "sk-account" })),
       modelIds: vi.fn(async () => ["known-model", "meshy-7", "meshy-t2"]),
       stageMedia: vi.fn(async () => ({ id: "media", url: "https://storage.example/media" })),
       removeMedia: vi.fn(async () => undefined),
-    } as unknown as PortalClient;
-    const connection = new PortalConnection(async () => runtime, client);
+    } as unknown as AccountServiceClient;
+    const connection = new AccountConnection(async () => runtime, client);
 
     await expect(connection.connect("supabase-token")).resolves.toEqual({ status: "connected", modelCount: 1 });
     expect(connection.imageSource()).toEqual({
-      baseUrl: "https://portal.open-game.ai/v1",
-      apiKey: "sk-portal",
+      baseUrl: "https://account.ohmygame.ai/v1",
+      apiKey: "sk-account",
       modelIds: ["known-model", "meshy-7", "meshy-t2"],
     });
     expect(connection.model3DSource()).toEqual(connection.imageSource());
-    expect(runtime.registerProvider).toHaveBeenCalledWith("opengame", expect.objectContaining({
-      baseUrl: "https://portal.open-game.ai/v1",
+    expect(runtime.registerProvider).toHaveBeenCalledWith("ohmygame", expect.objectContaining({
+      baseUrl: "https://account.ohmygame.ai/v1",
       api: "openai-responses",
     }));
-    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
+    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("ohmygame", "sk-account");
     const videoSource = connection.videoSource();
     await expect(videoSource?.stageMedia({ type: "image", name: "image.png", mediaType: "image/png", absolutePath: "/image.png" }))
       .resolves.toEqual({ id: "media", url: "https://storage.example/media" });
@@ -83,17 +83,17 @@ describe("PortalConnection", () => {
 
     await connection.disconnect();
     expect(connection.imageSource()).toBeUndefined();
-    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
-    expect(runtime.unregisterProvider).toHaveBeenCalledWith("opengame");
+    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
+    expect(runtime.unregisterProvider).toHaveBeenCalledWith("ohmygame");
   });
 
-  it("connects without registering a Pi provider when Portal has no supported agent models", async () => {
+  it("connects without registering a Pi provider when account service has no supported agent models", async () => {
     const runtime = runtimeMock();
     const client = {
-      credential: vi.fn(async () => ({ baseUrl: "https://portal.open-game.ai/v1", apiKey: "sk-portal" })),
+      credential: vi.fn(async () => ({ baseUrl: "https://account.ohmygame.ai/v1", apiKey: "sk-account" })),
       modelIds: vi.fn(async () => ["unknown-model"]),
-    } as unknown as PortalClient;
-    const connection = new PortalConnection(async () => runtime, client);
+    } as unknown as AccountServiceClient;
+    const connection = new AccountConnection(async () => runtime, client);
 
     await expect(connection.connect("supabase-token")).resolves.toEqual({ status: "connected", modelCount: 0 });
     expect(runtime.registerProvider).not.toHaveBeenCalled();

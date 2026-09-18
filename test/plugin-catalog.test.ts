@@ -9,7 +9,7 @@ import type { PluginDetail } from "../src/shared/plugins.js";
 describe("plugin catalog", () => {
   it("exposes personal plugins behind the catalog", async () => {
     const personal = localPlugin();
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       new LocalPluginAdapter({ list: async () => ({ plugins: [personal], errors: [] }), read: async (id) => id === personal.id ? personal : undefined }),
@@ -26,7 +26,7 @@ describe("plugin catalog", () => {
 
   it("validates mentions against installed enabled plugins", async () => {
     const plugin = localPlugin();
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       new LocalPluginAdapter({ list: async () => ({ plugins: [plugin], errors: [] }), read: async () => plugin }),
@@ -40,7 +40,7 @@ describe("plugin catalog", () => {
 
   it("keeps healthy catalog entries when an adapter reports a damaged plugin", async () => {
     const plugin = localPlugin();
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       new LocalPluginAdapter({
@@ -56,19 +56,19 @@ describe("plugin catalog", () => {
   });
 
   it("preserves a catalog read failure when no adapter finds the Plugin", async () => {
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const failure = new Error("Catalog unavailable");
     const catalog = new PluginCatalogService([
       adapter({ read: async () => { throw failure; } }),
     ], settings);
 
-    await expect(catalog.read("opengame:missing")).rejects.toBe(failure);
+    await expect(catalog.read("ohmygame:missing")).rejects.toBe(failure);
   });
 
   it("keeps an installed Plugin available when another adapter fails", async () => {
     const plugin = localPlugin();
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       adapter({ read: async () => plugin }),
@@ -81,9 +81,9 @@ describe("plugin catalog", () => {
   it("does not apply Catalog update metadata to a bundled Plugin", async () => {
     const bundled: PluginDetail = {
       ...localPlugin(),
-      id: "opengame:godot",
+      id: "ohmygame:godot",
       name: "godot",
-      marketplace: { id: "opengame", displayName: "OpenGame" },
+      marketplace: { id: "ohmygame", displayName: "OhMyGame" },
       source: { type: "builtIn" },
     };
     const remote = {
@@ -95,7 +95,7 @@ describe("plugin catalog", () => {
       skills: [],
       connections: [],
     };
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       adapter({ plugins: [bundled] }),
@@ -111,9 +111,9 @@ describe("plugin catalog", () => {
   it("merges current Catalog metadata into an installed Catalog Plugin", async () => {
     const installed: PluginDetail = {
       ...localPlugin(),
-      id: "opengame:reference-tools",
+      id: "ohmygame:reference-tools",
       name: "reference-tools",
-      marketplace: { id: "opengame", displayName: "OpenGame" },
+      marketplace: { id: "ohmygame", displayName: "OhMyGame" },
       source: { type: "catalog", pluginId: "plugin-1", releaseId: "release-1" },
     };
     const remote: PluginDetail = {
@@ -127,7 +127,7 @@ describe("plugin catalog", () => {
       author: { id: "github:example", displayName: "Example" },
       stats: { likes: 2, uses: 3 },
     };
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       adapter({ plugins: [installed], read: async () => installed }),
@@ -155,7 +155,7 @@ describe("plugin catalog", () => {
     };
     const remote: PluginDetail = {
       ...installed,
-      id: "opengame:reference-tools",
+      id: "ohmygame:reference-tools",
       version: "0.2.0",
       source: { type: "catalog", pluginId: "plugin-1", releaseId: "release-2" },
       catalog: undefined,
@@ -164,7 +164,7 @@ describe("plugin catalog", () => {
       author: { id: "github:example", displayName: "Example" },
       stats: { likes: 2, uses: 3 },
     };
-    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")));
+    const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));
     await settings.load();
     const catalog = new PluginCatalogService([
       adapter({ plugins: [installed], read: async (id) => id === installed.id ? installed : undefined }),

@@ -6,7 +6,7 @@ import { parseReasoningLevel } from "../shared/reasoning.js";
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
 const PROVISIONAL_TITLE_MAX_LENGTH = 36;
-const PLAN_STATE_ENTRY = "open-game-plan";
+const PLAN_STATE_ENTRY = "ohmygame-plan";
 
 export interface StoredConversation {
   summary: ConversationSummary;

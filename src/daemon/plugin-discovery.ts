@@ -22,15 +22,15 @@ export async function discoverPlugins(root: string): Promise<DiscoveredPlugin[]>
   ]);
   if (marketplacePath) return discoverMarketplace(root, marketplacePath);
 
-  const manifests: Array<{ path: string; format: "opengame" | "codex" | "claude" }> = [
-    { path: PLUGIN_MANIFEST_PATH, format: "opengame" },
+  const manifests: Array<{ path: string; format: "ohmygame" | "codex" | "claude" }> = [
+    { path: PLUGIN_MANIFEST_PATH, format: "ohmygame" },
     { path: ".codex-plugin/plugin.json", format: "codex" },
     { path: ".claude-plugin/plugin.json", format: "claude" },
   ];
   for (const candidate of manifests) {
     if (!await exists(path.join(root, candidate.path))) continue;
-    const manifest = candidate.format === "opengame"
-      ? await readOpenGameManifest(path.join(root, candidate.path))
+    const manifest = candidate.format === "ohmygame"
+      ? await readOhMyGameManifest(path.join(root, candidate.path))
       : await normalizeManifest(root, await readJson(path.join(root, candidate.path)), candidate.format);
     return [await installCandidate(root, candidate.format, manifest, PERSONAL_MARKETPLACE)];
   }
@@ -73,7 +73,7 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
     const nativePath = path.join(sourceRoot, PLUGIN_MANIFEST_PATH);
     const codexPath = path.join(sourceRoot, ".codex-plugin", "plugin.json");
     const claudePath = path.join(sourceRoot, ".claude-plugin", "plugin.json");
-    if (await exists(nativePath)) manifest = await readOpenGameManifest(nativePath);
+    if (await exists(nativePath)) manifest = await readOhMyGameManifest(nativePath);
     else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
     else if (await exists(claudePath)) manifest = await normalizeManifest(sourceRoot, await readJson(claudePath), "claude");
     else manifest = await normalizeManifest(sourceRoot, entry, format, rawSkills.length ? rawSkills : undefined);
@@ -159,7 +159,7 @@ async function installCandidate(
 function marketplaceReference(source: Record<string, unknown>): PluginInstallCandidate["marketplace"] {
   const name = stringValue(source.name);
   if (!name || !validName(name)) throw new LocalPluginError("Plugin marketplace name is invalid");
-  if (name === "opengame" || name === "personal") throw new LocalPluginError(`Plugin marketplace name is reserved: ${name}`);
+  if (name === "ohmygame" || name === "personal") throw new LocalPluginError(`Plugin marketplace name is reserved: ${name}`);
   const ui = source.interface && typeof source.interface === "object" ? asRecord(source.interface) : {};
   return { id: name, displayName: stringValue(ui.displayName) || displayName(name) };
 }
@@ -234,9 +234,9 @@ function rebasePaths(repositoryRoot: string, pluginRoot: string, value: Resolved
   return paths.length === 1 ? paths[0] : paths;
 }
 
-async function readOpenGameManifest(manifestPath: string): Promise<PluginManifest> {
+async function readOhMyGameManifest(manifestPath: string): Promise<PluginManifest> {
   const value = await readJson(manifestPath);
-  if (!isPluginManifest(value)) throw new LocalPluginError("OpenGame Plugin manifest is invalid");
+  if (!isPluginManifest(value)) throw new LocalPluginError("OhMyGame Plugin manifest is invalid");
   return value;
 }
 

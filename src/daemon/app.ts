@@ -4,10 +4,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { isDefaultProjectName } from "../shared/project-names.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -20,19 +21,19 @@ import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
-import { PortalClient } from "./portal-client.js";
-import { PortalConnection } from "./portal-connection.js";
+import { AccountServiceClient } from "./account-service-client.js";
+import { AccountConnection } from "./account-connection.js";
 import { isRunnableWorkspace, ProjectAssetError, ProjectManager, ProjectStoryReferenceError } from "./projects.js";
 import { ImageSettingsStore } from "./image-settings.js";
-import { InteractiveDramaStarter } from "./interactive-drama-starter.js";
+import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
-import { Portal3DGenerator } from "./portal-3d.js";
+import { Managed3DGenerator } from "./managed-3d.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { PortalVideoGenerator, type VideoGenerator } from "./seedance-video.js";
+import { ManagedVideoGenerator, type VideoGenerator } from "./seedance-video.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, RemotePluginAdapter } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore, type InstalledPluginBundle } from "./local-plugins.js";
@@ -59,8 +60,8 @@ export interface AppOptions {
   allowedOrigins?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
-  portalUrl?: string;
-  portalFetch?: typeof fetch;
+  accountServiceUrl?: string;
+  accountServiceFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
@@ -75,6 +76,17 @@ export interface AppOptions {
   interactiveDramaExamplesDirectory?: string;
 }
 
+async function accountReply<T>(
+  reply: FastifyReply,
+  operation: () => Promise<T>,
+): Promise<T | FastifyReply> {
+  try {
+    return await operation();
+  } catch {
+    return reply.code(502).send({ error: "OhMyGame account service is temporarily unavailable" });
+  }
+}
+
 const createProjectSchema = {
   body: {
     type: "object",
@@ -82,7 +94,7 @@ const createProjectSchema = {
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
-      template: { type: "string", enum: ["starter"] },
+      templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
     },
   },
 } as const;
@@ -445,7 +457,7 @@ const modelEndpointSchema = {
   },
 } as const;
 
-const portalConnectionSchema = {
+const accountConnectionSchema = {
   body: {
     type: "object",
     additionalProperties: false,
@@ -487,7 +499,6 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
-  const interactiveDramaStarter = new InteractiveDramaStarter(dataDirectory, interactiveDramaExamplesDirectory, projects, library);
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -536,16 +547,17 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
-  const portal = new PortalConnection(
+  const accountServiceClient = new AccountServiceClient(options.accountServiceUrl ?? process.env.ACCOUNT_SERVICE_URL ?? "https://account.ohmygame.ai", options.accountServiceFetch);
+  const accountConnection = new AccountConnection(
     getModelRuntime,
-    new PortalClient(options.portalUrl ?? process.env.OPEN_GAME_PORTAL_URL ?? "https://portal.open-game.ai", options.portalFetch),
+    accountServiceClient,
   );
-  const providerImages = new ProviderImages(getModelRuntime, portal, () => imageSettings.get().model, options.imageFetch);
+  const providerImages = new ProviderImages(getModelRuntime, accountConnection, () => imageSettings.get().model, options.imageFetch);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new Portal3DGenerator(() => portal.model3DSource(), options.portalFetch),
-    options.videoGenerator ?? new PortalVideoGenerator(() => portal.videoSource(), options.portalFetch),
+    options.model3DGenerator ?? new Managed3DGenerator(() => accountConnection.model3DSource(), options.accountServiceFetch),
+    options.videoGenerator ?? new ManagedVideoGenerator(() => accountConnection.videoSource(), options.accountServiceFetch),
     library,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
@@ -1134,17 +1146,15 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
-    if (request.body?.type === "interactive-drama" && request.body.template === "starter") {
-      const project = await interactiveDramaStarter.createProject(request.body.name);
+    if (request.body?.templateId && request.body.type !== "interactive-drama") {
+      return reply.code(400).send({ error: "Project templates require a matching project type" });
+    }
+    if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
+      const project = await createInteractiveDramaStarterProject(interactiveDramaExamplesDirectory, projects, library, request.body.name);
       return reply.code(201).send(project);
     }
     const project = await projects.create(request.body?.name, request.body?.type);
     return reply.code(201).send(project);
-  });
-
-  app.post("/interactive-drama/starter-project/ensure", async (_request, reply) => {
-    await interactiveDramaStarter.ensure();
-    return reply.code(204).send();
   });
 
   app.get("/projects", async () => projects.list());
@@ -1874,34 +1884,93 @@ export function createApp(options: AppOptions = {}) {
     };
   });
 
-  app.get("/portal/connection", async () => portal.get());
+  app.get("/account/connection", async () => accountConnection.get());
+
+  app.get("/account/plans", async (_request, reply) =>
+    accountReply(reply, () => accountServiceClient.plans()),
+  );
+  app.post<{ Body: { accessToken: string } }>(
+    "/account/subscription",
+    { schema: accountConnectionSchema },
+    async (request, reply) =>
+      accountReply(reply, () => accountServiceClient.subscription(request.body.accessToken)),
+  );
+  app.post<{ Querystring: { page?: string }; Body: { accessToken: string } }>(
+    "/account/usage",
+    {
+      schema: {
+        ...accountConnectionSchema,
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            page: {
+              type: "string",
+              pattern: "^(?:[1-9][0-9]{0,3}|10000)$",
+              default: "1",
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      accountReply(reply, () =>
+        accountServiceClient.usage(request.body.accessToken, Number(request.query.page ?? "1")),
+      ),
+  );
+  app.post<{ Body: { accessToken: string; planId: number } }>(
+    "/account/checkout",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["accessToken", "planId"],
+          properties: {
+            accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
+            planId: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+          },
+        },
+      },
+    },
+    async (request, reply) =>
+      accountReply(reply, () =>
+        accountServiceClient.checkout(request.body.accessToken, request.body.planId),
+      ),
+  );
+  app.post<{ Body: { accessToken: string } }>(
+    "/account/manage",
+    { schema: accountConnectionSchema },
+    async (request, reply) =>
+      accountReply(reply, () => accountServiceClient.manageSubscription(request.body.accessToken)),
+  );
 
   app.put<{ Body: { accessToken: string } }>(
-    "/portal/connection",
-    { schema: portalConnectionSchema },
+    "/account/connection",
+    { schema: accountConnectionSchema },
     async (request, reply) => {
-      const state = await portal.connect(request.body.accessToken);
+      const state = await accountConnection.connect(request.body.accessToken);
       if (state.status === "error") return reply.code(502).send({ error: state.error });
       return state;
     },
   );
 
-  app.delete("/portal/connection", async (_request, reply) => {
-    await portal.disconnect();
+  app.delete("/account/connection", async (_request, reply) => {
+    await accountConnection.disconnect();
     return reply.code(204).send();
   });
 
   app.get("/settings/providers", async () => {
     const piProviders = await modelAuth.providers();
-    const portalState = portal.get();
-    const portalStatus = portalState.status === "connected"
+    const accountState = accountConnection.get();
+    const accountStatus = accountState.status === "connected"
       ? "connected"
-      : portalState.status === "connecting"
+      : accountState.status === "connecting"
         ? "connecting"
-        : portalState.status === "error" ? "error" : "not_configured";
+        : accountState.status === "error" ? "error" : "not_configured";
     return [
       ...piProviders
-        .filter((provider) => provider.id !== "opengame")
+        .filter((provider) => provider.id !== "ohmygame")
         .map((provider) => ({
           ...provider,
           kind: "pi" as const,
@@ -1909,14 +1978,14 @@ export function createApp(options: AppOptions = {}) {
           capabilities: provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
         })),
       {
-        id: "opengame",
-        name: "OpenGame Portal",
-        configured: portalStatus === "connected",
-        kind: "portal" as const,
-        status: portalStatus,
+        id: "ohmygame",
+        name: "OhMyGame",
+        configured: accountStatus === "connected",
+        kind: "account" as const,
+        status: accountStatus,
         capabilities: ["language", "image", "video", "3d"] as const,
         methods: [],
-        ...(portalState.error ? { error: portalState.error } : {}),
+        ...(accountState.error ? { error: accountState.error } : {}),
       },
     ].sort((left, right) => left.name.localeCompare(right.name));
   });
@@ -2716,7 +2785,7 @@ function defaultReasoningLevel(cwd: string, agentDir: string): AgentReasoningLev
 
 function publishOrigin(bundle: InstalledPluginBundle): PublishPluginOrigin | undefined {
   const repository = bundle.provenance.type === "git" ? githubRepository(bundle.provenance.url) : undefined;
-  if (!["personal", "opengame"].includes(bundle.marketplace.id)) {
+  if (!["personal", "ohmygame"].includes(bundle.marketplace.id)) {
     return { type: "claude-marketplace", marketplace: bundle.marketplace.displayName, ...(repository ? { repository } : {}) };
   }
   if (bundle.provenance.type === "git" && repository) return { type: "github", repository, commit: bundle.provenance.commit };

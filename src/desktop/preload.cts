@@ -9,40 +9,40 @@ function argument(name: string): string {
 }
 
 if (process.isMainFrame) {
-  contextBridge.exposeInMainWorld("openGameDesktop", Object.freeze({
+  contextBridge.exposeInMainWorld("ohMyGameDesktop", Object.freeze({
     platform: process.platform,
     runtime: Object.freeze({
-      daemonUrl: argument("open-game-daemon-url"),
-      token: argument("open-game-daemon-token"),
+      daemonUrl: argument("ohmygame-daemon-url"),
+      token: argument("ohmygame-daemon-token"),
     }),
-    openExternal: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
-    browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("open-game:browse-plugin-directory", pluginId) as Promise<void>,
-    revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("open-game:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
-    selectPluginDirectory: () => ipcRenderer.invoke("open-game:select-plugin-directory") as Promise<string | undefined>,
+    openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
+    browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("ohmygame:browse-plugin-directory", pluginId) as Promise<void>,
+    revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("ohmygame:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
+    selectPluginDirectory: () => ipcRenderer.invoke("ohmygame:select-plugin-directory") as Promise<string | undefined>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
-      ipcRenderer.invoke("open-game:capture-page", bounds) as Promise<Uint8Array>,
+      ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
     openPlaytest: (projectId: string, chapterId: string) =>
-      ipcRenderer.invoke("open-game:open-playtest", projectId, chapterId) as Promise<void>,
+      ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId) as Promise<void>,
     updates: Object.freeze({
-      state: () => ipcRenderer.invoke("open-game:update-state") as Promise<DesktopUpdateState | null>,
-      check: () => ipcRenderer.invoke("open-game:check-for-update") as Promise<void>,
-      download: () => ipcRenderer.invoke("open-game:download-update") as Promise<void>,
-      install: () => ipcRenderer.invoke("open-game:install-update") as Promise<void>,
+      state: () => ipcRenderer.invoke("ohmygame:update-state") as Promise<DesktopUpdateState | null>,
+      check: () => ipcRenderer.invoke("ohmygame:check-for-update") as Promise<void>,
+      download: () => ipcRenderer.invoke("ohmygame:download-update") as Promise<void>,
+      install: () => ipcRenderer.invoke("ohmygame:install-update") as Promise<void>,
       onState: (listener: (state: DesktopUpdateState) => void) => {
         const callback = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState) => listener(state);
-        ipcRenderer.on("open-game:update-state", callback);
-        return () => ipcRenderer.removeListener("open-game:update-state", callback);
+        ipcRenderer.on("ohmygame:update-state", callback);
+        return () => ipcRenderer.removeListener("ohmygame:update-state", callback);
       },
     }),
     auth: Object.freeze({
-      callbackUrl: () => ipcRenderer.invoke("open-game:auth-callback-url") as Promise<string>,
-      cancel: () => ipcRenderer.invoke("open-game:cancel-auth") as Promise<void>,
-      openUrl: (url: string) => ipcRenderer.invoke("open-game:open-auth-url", url) as Promise<void>,
-      takeCallback: () => ipcRenderer.invoke("open-game:take-auth-callback") as Promise<string | undefined>,
+      callbackUrl: () => ipcRenderer.invoke("ohmygame:auth-callback-url") as Promise<string>,
+      cancel: () => ipcRenderer.invoke("ohmygame:cancel-auth") as Promise<void>,
+      openUrl: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
+      takeCallback: () => ipcRenderer.invoke("ohmygame:take-auth-callback") as Promise<string | undefined>,
       onCallback: (listener: () => void) => {
         const callback = () => listener();
-        ipcRenderer.on("open-game:auth-callback", callback);
-        return () => ipcRenderer.removeListener("open-game:auth-callback", callback);
+        ipcRenderer.on("ohmygame:auth-callback", callback);
+        return () => ipcRenderer.removeListener("ohmygame:auth-callback", callback);
       },
     }),
   }));

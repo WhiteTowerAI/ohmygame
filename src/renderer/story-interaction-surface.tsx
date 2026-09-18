@@ -6,7 +6,7 @@ export interface StoryInteractionRuntimeContext {
 }
 
 interface EventSurfaceMessage {
-  channel: "open-game:interaction-surface";
+  channel: "ohmygame:interaction-surface";
   instanceId: string;
   type: "complete" | "error";
   result?: string;
@@ -41,7 +41,7 @@ export function StoryInteractionSurface({ files, mode, context, title, className
   }, [instanceId]);
   useEffect(() => {
     if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "open-game:interaction-surface", instanceId, type: "init", files, mode, context }, "*");
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files, mode, context }, "*");
   }, [context, files.css, files.html, files.javascript, instanceId, loaded, mode]);
   return <iframe ref={iframe} className={className} title={title} sandbox="allow-scripts" src="interaction-surface.html" onLoad={() => setLoaded(true)} />;
 }
@@ -49,5 +49,5 @@ export function StoryInteractionSurface({ files, mode, context, title, className
 function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<EventSurfaceMessage>;
-  return message.channel === "open-game:interaction-surface" && typeof message.instanceId === "string" && (message.type === "complete" || message.type === "error");
+  return message.channel === "ohmygame:interaction-surface" && typeof message.instanceId === "string" && (message.type === "complete" || message.type === "error");
 }

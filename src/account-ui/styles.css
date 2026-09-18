@@ -1,0 +1,35 @@
+.account { color: var(--text); --account-muted: var(--text-secondary, var(--muted)); --account-line: var(--border, var(--line)); min-width: 0; font-size: 14px; letter-spacing: 0; }
+.account-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.account h1 { font-size: 24px; line-height: 1.3; margin: 0; }
+.account h2 { font-size: 17px; line-height: 1.4; margin: 24px 0 12px; }
+.account p { line-height: 1.6; }
+.account button { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 8px 14px; border: 1px solid var(--account-line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.account button:hover:not(:disabled) { background: var(--surface-hover, var(--line)); }
+.account button:focus-visible { outline: 2px solid var(--theme-accent, var(--accent)); outline-offset: 3px; }
+.account button:disabled { opacity: .5; cursor: default; }
+.account-heading button, .account-pagination button { width: 36px; height: 36px; padding: 0; flex-shrink: 0; }
+.account-muted, .account-metrics span { color: var(--account-muted); }
+.account-error { color: var(--danger); overflow-wrap: anywhere; }
+.account-state { padding: 28px 0; }
+.account-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; margin-top: 28px; }
+.account-plan { display: flex; flex-direction: column; gap: 16px; padding: 24px; border: 1px solid var(--account-line); border-radius: 8px; min-width: 0; }
+.account-plan h2, .account-plan p { margin: 0; }
+.account-plan strong { font-size: 26px; line-height: 1.5; overflow-wrap: anywhere; }
+.account-plan small { font-size: 12px; font-weight: 400; color: var(--account-muted); }
+.account-plan p, .account-plan span { color: var(--account-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.account-plan button { margin-top: auto; }
+.account-billing-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 0; border-bottom: 1px solid var(--account-line); }
+.account-billing-row h2 { margin: 8px 0 0; }
+.account-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 24px; padding: 28px 0; border-bottom: 1px solid var(--account-line); }
+.account-metrics > div { display: grid; gap: 10px; min-width: 0; }
+.account-metrics strong { font-size: 24px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.account-table { width: 100%; overflow-x: auto; }
+.account table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.account th, .account td { padding: 14px 12px; border-bottom: 1px solid var(--account-line); white-space: nowrap; }
+.account th { color: var(--account-muted); font-weight: 500; }
+.account td:last-child, .account th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.account-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 20px; color: var(--account-muted); font-size: 12px; }
+.account-pagination > span:first-child { margin-right: auto; }
+.account-loading { display: grid; gap: 16px; padding-top: 28px; min-height: 260px; }
+.account-loading div { background: var(--surface); border: 1px solid var(--account-line); border-radius: 6px; min-height: 52px; }
+@media (max-width: 767px) { .account-plans, .account-metrics { grid-template-columns: 1fr; } .account-plan { padding: 20px; } }

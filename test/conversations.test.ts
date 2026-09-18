@@ -150,7 +150,7 @@ describe("ConversationManager", () => {
     const created = await conversations.create(project);
     const plan = { steps: [{ step: "Inspect files", status: "in_progress" as const }] };
 
-    conversations.open(project, created).appendCustomEntry("open-game-plan", { mode: "planning", plan });
+    conversations.open(project, created).appendCustomEntry("ohmygame-plan", { mode: "planning", plan });
 
     expect(conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
   });
@@ -163,7 +163,7 @@ describe("ConversationManager", () => {
 });
 
 async function createProject(): Promise<ProjectState> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-game-conversations-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-conversations-"));
   return {
     id: path.basename(directory),
     name: "Project",

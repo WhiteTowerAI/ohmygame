@@ -9,10 +9,10 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 
 describe("plugin catalog API", () => {
   it("installs a directory plugin enabled by default", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-install-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "open-game-plugin-source-"));
-    await mkdir(path.join(source, ".opengame-plugin"), { recursive: true });
-    await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-install-api-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "test-plugin", version: "1.0.0", description: "Test plugin",
     }));
     const app = createApp({ dataDirectory });
@@ -28,11 +28,11 @@ describe("plugin catalog API", () => {
   });
 
   it("reads only a registered Skill file from an installed plugin", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-skill-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "open-game-plugin-skill-source-"));
-    await mkdir(path.join(source, ".opengame-plugin"), { recursive: true });
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-api-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(source, "skills", "test"), { recursive: true });
-    await writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "test-plugin", version: "1.0.0", description: "Test plugin", skills: "./skills",
     }));
     const skillContent = "---\nname: test-skill\ndescription: Test workflows.\n---\n\n# Test Skill\n\nDo the thing.\n";
@@ -53,11 +53,11 @@ describe("plugin catalog API", () => {
     const capabilities = await app.inject({ method: "GET", url: "/composer/capabilities" });
     const unknown = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-content?id=.opengame-plugin%2Fplugin.json",
+      url: "/plugins/personal%3Atest-plugin/skill-content?id=.ohmygame-plugin%2Fplugin.json",
     });
     const unknownFile = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-file?id=.opengame-plugin%2Fplugin.json",
+      url: "/plugins/personal%3Atest-plugin/skill-file?id=.ohmygame-plugin%2Fplugin.json",
     });
 
     expect(skill.statusCode).toBe(200);
@@ -80,8 +80,8 @@ describe("plugin catalog API", () => {
   });
 
   it("inspects a Claude marketplace before installing a selected plugin", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-marketplace-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "open-game-plugin-marketplace-source-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-marketplace-api-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-marketplace-source-"));
     await mkdir(path.join(source, ".claude-plugin"), { recursive: true });
     await mkdir(path.join(source, "skills", "godot"), { recursive: true });
     await writeFile(path.join(source, ".claude-plugin", "marketplace.json"), JSON.stringify({
@@ -114,7 +114,7 @@ describe("plugin catalog API", () => {
   });
 
   it("creates a visible project for each plugin authoring session", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-authoring-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-authoring-")) });
     apps.push(app);
     await app.ready();
 
@@ -136,54 +136,54 @@ describe("plugin catalog API", () => {
     expect(projects.json()).toHaveLength(2);
   });
 
-  it("lists and reads OpenGame plugins without exposing Pi runtime packages", async () => {
+  it("lists and reads OhMyGame plugins without exposing Pi runtime packages", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-catalog-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")),
       publishFetch: async () => Response.json([]),
     });
     apps.push(app);
     await app.ready();
 
     const catalog = await app.inject({ method: "GET", url: "/plugins" });
-    const detail = await app.inject({ method: "GET", url: "/plugins/opengame%3Agodot" });
+    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Agodot" });
 
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
-        { id: "opengame:godot", installed: true },
+        { id: "ohmygame:godot", installed: true },
       ],
       explore: [],
       errors: [],
     });
     expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);
     expect(detail.json()).toMatchObject({
-      id: "opengame:godot",
+      id: "ohmygame:godot",
       longDescription: expect.any(String),
-      connections: [{ id: "opengame-godot", name: "Godot" }],
+      connections: [{ id: "ohmygame-godot", name: "Godot" }],
       defaultPrompts: expect.any(Array),
       projectTypes: ["godot-game"],
     });
   });
 
   it("stores the Plugin switch without owning Connection access", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-settings-api-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-api-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
 
     const updated = await app.inject({
       method: "PUT",
-      url: "/plugins/opengame%3Agodot/settings",
+      url: "/plugins/ohmygame%3Agodot/settings",
       payload: { enabled: false, components: {} },
     });
 
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ enabled: false, connections: [{ id: "opengame-godot", enabled: true }] });
+    expect(updated.json()).toMatchObject({ enabled: false, connections: [{ id: "ohmygame-godot", enabled: true }] });
   });
 
   it("does not turn an arbitrary Pi MCP configuration into a user Plugin", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-mcp-api-"));
-    const piAgentDirectory = await mkdtemp(path.join(tmpdir(), "open-game-plugin-mcp-agent-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-api-"));
+    const piAgentDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-agent-"));
     await writeFile(path.join(piAgentDirectory, "mcp.json"), JSON.stringify({
       mcpServers: { figma: { url: "https://example.com/mcp" } },
     }));

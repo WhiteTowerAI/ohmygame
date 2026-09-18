@@ -1,11 +1,11 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { OPENGAME_MARKETPLACE, type PluginDetail } from "../shared/plugins.js";
+import { OHMYGAME_MARKETPLACE, type PluginDetail } from "../shared/plugins.js";
 import { inspectPluginBundle } from "./local-plugins.js";
 
 const identity = {
-  idPrefix: "opengame:",
-  marketplace: OPENGAME_MARKETPLACE,
+  idPrefix: "ohmygame:",
+  marketplace: OHMYGAME_MARKETPLACE,
   source: { type: "builtIn" as const },
 };
 

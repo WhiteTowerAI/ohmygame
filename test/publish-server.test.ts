@@ -23,7 +23,7 @@ afterEach(async () => {
 describe("public publish server", () => {
   it("exposes verified author metadata and records unique community interactions", async () => {
     const app = createPublishApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-community-interactions-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-community-interactions-")),
       verifyPublisherToken: async (value) => value === token
         ? { id: "publisher", displayName: "Ada", avatarUrl: "https://example.com/ada.png" }
         : value === "other-publisher-token" ? "other-publisher" : undefined,
@@ -77,7 +77,7 @@ describe("public publish server", () => {
     expect(builtIns).toHaveLength(3);
     expect(builtIns).toContainEqual(expect.objectContaining({
       id: "general-image", releaseId: "general-image-v1",
-      author: { id: "opengame", displayName: "OpenGame" }, stats: { likes: 0, uses: 0 },
+      author: { id: "ohmygame", displayName: "OhMyGame" }, stats: { likes: 0, uses: 0 },
     }));
     expect((await app.inject({
       method: "PUT", url: `/v1/templates/${templateId}/listing`, headers: authorization, payload: { status: "listed" },
@@ -85,7 +85,7 @@ describe("public publish server", () => {
     expect((await app.inject({ method: "GET", url: "/v1/explore/templates" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: templateId, releaseId: release.json().release.id, ...definition,
-        author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 },
+        author: { id: "publisher", displayName: "OhMyGame Creator" }, stats: { likes: 0, uses: 0 },
       }),
     ]));
   });
@@ -126,7 +126,7 @@ describe("public publish server", () => {
     expect((await app.inject({ method: "GET", url: "/v1/explore/plugins" })).json()).toMatchObject([{
       id: pluginId, name: "level-tools", version: "1.0.0", manifest: { name: "level-tools" },
       skills: [{ id: "skills/level/SKILL.md", name: "Level", description: "Build levels." }],
-      author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 },
+      author: { id: "publisher", displayName: "OhMyGame Creator" }, stats: { likes: 0, uses: 0 },
     }]);
     const content = await app.inject({
       method: "GET", url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/content`,
@@ -141,7 +141,7 @@ describe("public publish server", () => {
     expect(skill.json()).toEqual({ id: "skills/level/SKILL.md", content: "---\nname: level\ndescription: Build levels.\n---\n" });
     expect((await app.inject({
       method: "GET",
-      url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/skill-content?id=.opengame-plugin%2Fplugin.json`,
+      url: `/v1/explore/plugins/${pluginId}/releases/${first.json().release.id}/skill-content?id=.ohmygame-plugin%2Fplugin.json`,
     })).statusCode).toBe(404);
 
     const stale = await publishPlugin(app, pluginId, "release-stale", pluginManifest("0.9.0"));
@@ -152,7 +152,7 @@ describe("public publish server", () => {
   });
 
   it("keeps published Plugin archives after restart", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-plugins-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-plugins-"));
     const first = createPublishApp({ dataDirectory, verifyPublisherToken });
     apps.push(first);
     const plugin = (await createPlugin(first, "plugin", "level-tools")).json();
@@ -174,7 +174,7 @@ describe("public publish server", () => {
   });
 
   it("migrates an existing Plugin release store", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-plugin-migration-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-plugin-migration-"));
     const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
     await initial.ready();
     await initial.close();
@@ -193,7 +193,7 @@ describe("public publish server", () => {
   });
 
   it("migrates deployments created before game covers", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-cover-migration-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-cover-migration-"));
     const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
     await initial.ready();
     await initial.close();
@@ -212,7 +212,7 @@ describe("public publish server", () => {
   });
 
   it("migrates publisher profiles and community interaction tables", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-community-migration-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-community-migration-"));
     const initial = createPublishApp({ dataDirectory, verifyPublisherToken });
     await initial.ready();
     await initial.close();
@@ -277,7 +277,7 @@ describe("public publish server", () => {
   });
 
   it("keeps published Asset files after restart", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-assets-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-assets-"));
     const first = createPublishApp({ dataDirectory, verifyPublisherToken });
     apps.push(first);
     const asset = (await createAsset(first, "asset", { title: "Persistent", mediaType: "model" })).json();
@@ -349,15 +349,15 @@ describe("public publish server", () => {
     const firstZip = await zipFiles({
       "index.html": "<h1>Version one</h1>",
       "assets/game.js": "console.log('one')",
-      "__opengame/cover.webp": "cover",
+      "__ohmygame/cover.webp": "cover",
     });
     const first = await publish(app, game.id, "deployment-one", firstZip);
     expect(first.statusCode).toBe(201);
     expect(first.json().game.currentDeploymentId).toBe(first.json().deployment.id);
 
     const firstDeployment = first.json().deployment;
-    expect(firstDeployment.coverUrl).toBe(`${firstDeployment.versionUrl}__opengame/cover.webp`);
-    expect((await play(app, firstDeployment.coverUrl, "/__opengame/cover.webp")).body).toBe("cover");
+    expect(firstDeployment.coverUrl).toBe(`${firstDeployment.versionUrl}__ohmygame/cover.webp`);
+    expect((await play(app, firstDeployment.coverUrl, "/__ohmygame/cover.webp")).body).toBe("cover");
     expect((await play(app, firstDeployment.versionUrl, "/")).body).toContain("Version one");
     expect((await play(app, firstDeployment.versionUrl, "/assets/game.js")).body).toContain("one");
     expect((await play(app, first.json().game.playUrl, "/")).body).toContain("Version one");
@@ -376,7 +376,7 @@ describe("public publish server", () => {
     expect((await app.inject({ method: "GET", url: "/v1/community/games" })).json()[0]).toMatchObject({
       id: game.id,
       deploymentId: firstDeployment.id,
-      coverUrl: `${firstDeployment.versionUrl}__opengame/cover.webp`,
+      coverUrl: `${firstDeployment.versionUrl}__ohmygame/cover.webp`,
     });
     const communityCover = await app.inject({
       method: "GET",
@@ -425,7 +425,7 @@ describe("public publish server", () => {
   });
 
   it("restores games and playable artifacts after restart", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-publish-server-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-server-"));
     const first = createPublishApp({
       dataDirectory,
       playOrigin: "http://localhost:43130",
@@ -479,7 +479,7 @@ describe("public publish server", () => {
 
   it("keeps the API host separate from wildcard game domains", async () => {
     const app = createPublishApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-publish-server-")),
       playOrigin: "https://play.example.com",
       verifyPublisherToken,
     });
@@ -497,7 +497,7 @@ describe("public publish server", () => {
 
   it("counts directory entries toward artifact limits", async () => {
     const app = createPublishApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-publish-server-")),
       playOrigin: "http://localhost:43130",
       verifyPublisherToken,
       artifactLimits: { compressedBytes: 1_000_000, expandedBytes: 1_000_000, fileBytes: 1_000_000, files: 2 },
@@ -517,7 +517,7 @@ describe("public publish server", () => {
 
 async function testApp(): Promise<FastifyInstance> {
   const app = createPublishApp({
-    dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-publish-server-")),
+    dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-publish-server-")),
     playOrigin: "http://localhost:43130",
     verifyPublisherToken,
   });
@@ -562,7 +562,7 @@ function assetTemplateDefinition(name: string) {
 
 async function publishPlugin(app: FastifyInstance, pluginId: string, key: string, manifest: ReturnType<typeof pluginManifest>) {
   const archive = await zipFiles({
-    ".opengame-plugin/plugin.json": JSON.stringify(manifest),
+    ".ohmygame-plugin/plugin.json": JSON.stringify(manifest),
     "skills/level/SKILL.md": "---\nname: level\ndescription: Build levels.\n---\n",
   });
   const metadata = {

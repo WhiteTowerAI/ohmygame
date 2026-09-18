@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenGame Logo Motion</title>
+  <title>OhMyGame Logo Motion</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -63,7 +63,7 @@
 <body>
   <main>
     <span class="logo state-idle" data-state="idle">
-      <svg viewBox="0 0 280 280" role="img" aria-label="OpenGame idle">
+      <svg viewBox="0 0 280 280" role="img" aria-label="OhMyGame idle">
         <defs>
           <linearGradient id="body-gradient" x1="52.0136" y1="74.8281" x2="254.469" y2="239.63" gradientUnits="userSpaceOnUse">
             <stop stop-color="#B8FF00"/><stop offset="0.572548" stop-color="#B8F21F"/><stop offset="1" stop-color="#6A8C12"/>
@@ -110,7 +110,7 @@
       state = next;
       logo.className = `logo state-${state}`;
       logo.dataset.state = state;
-      logo.querySelector("svg").setAttribute("aria-label", `OpenGame ${state}`);
+      logo.querySelector("svg").setAttribute("aria-label", `OhMyGame ${state}`);
       controls.querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.state === state)));
     }
     states.forEach((name) => {

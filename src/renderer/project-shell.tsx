@@ -69,8 +69,8 @@ interface ProjectShellProps {
 
 const DEFAULT_AGENT_WIDTH = 430;
 const MIN_AGENT_WIDTH = 320;
-const AGENT_WIDTH_STORAGE_KEY = "open-game-agent-width";
-const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "open-game-godot-workspace-open";
+const AGENT_WIDTH_STORAGE_KEY = "ohmygame-agent-width";
+const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "ohmygame-godot-workspace-open";
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
 export function ProjectShell({
@@ -484,7 +484,7 @@ export function ProjectShell({
 
   async function publish(details: PublishDetails = { title: project?.publication?.title ?? project?.name ?? "Untitled game", description: project?.publication?.description ?? "" }): Promise<boolean> {
     if (!project || publishing || agentBusy) return false;
-    const resumeAfterWebSignIn = !window.openGameDesktop && auth.state.status !== "signed-in";
+    const resumeAfterWebSignIn = !window.ohMyGameDesktop && auth.state.status !== "signed-in";
     if (resumeAfterWebSignIn) rememberPendingPublish(sessionStorage, project.id, details);
     setPublishing(true);
     dispatch({ type: "notice", message: undefined });

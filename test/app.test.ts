@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 
 describe("daemon", () => {
   it("creates an isolated empty project", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } });
     expect(response.statusCode).toBe(201);
@@ -25,7 +25,7 @@ describe("daemon", () => {
   });
 
   it("creates a typed project", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const response = await app.inject({
       method: "POST",
@@ -35,39 +35,27 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+    const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
   });
 
-  it("creates an Interactive Drama starter when requested", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-starter-create-")) });
-    apps.push(app);
-    const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama", template: "starter" } });
-    expect(response.statusCode).toBe(201);
-    const story = await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` });
-    expect(story.statusCode).toBe(200);
-    expect(story.json().interactions).toBeUndefined();
-    expect(story.json().chapters[0].nodes.filter((node: { type: string }) => node.type === "interaction")).toHaveLength(2);
-    expect(story.json().chapters[0].nodes.some((node: { type: string }) => node.type === "choice")).toBe(true);
-  });
-
-  it("provides a playable Interactive Drama starter project once", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-starter-"));
+  it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
-      dataDirectory,
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),
       interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
     });
     apps.push(app);
-
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-    const ensured = await Promise.all([
-      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
-      app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" }),
+    const created = await Promise.all([
+      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
+      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
     ]);
-    expect(ensured.map((response) => response.statusCode)).toEqual([204, 204]);
+    expect(created.map((response) => response.statusCode)).toEqual([201, 201]);
     const projects = (await app.inject({ method: "GET", url: "/projects" })).json();
-    expect(projects).toHaveLength(1);
-    expect(projects[0]).toMatchObject({ name: "Last Train Home", type: "interactive-drama" });
+    expect(projects).toHaveLength(2);
+    expect(new Set(projects.map((project: { id: string }) => project.id)).size).toBe(2);
+    expect(projects.every((project: { name: string; type: string }) => project.name === "Last Train Home" && project.type === "interactive-drama")).toBe(true);
 
-    const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${projects[0].id}/story` })).json();
+    const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/story` })).json();
     const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
@@ -75,36 +63,49 @@ describe("daemon", () => {
     expect(validatePlayableChapter(story.chapters[0], { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
     const scene = story.chapters[0].nodes.find((node) => node.type === "scene");
     expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapters[0], item.source)!))).toBe(true);
-
-    story.chapters[0].title = "Edited starter";
-    expect((await app.inject({ method: "PUT", url: `/projects/${projects[0].id}/story`, payload: story })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${projects[0].id}/cover` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "DELETE", url: `/projects/${projects[0].id}` })).statusCode).toBe(204);
-    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-
-    await app.close();
-    apps.splice(apps.indexOf(app), 1);
-    const restored = createApp({ dataDirectory, interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama") });
-    apps.push(restored);
-    expect((await restored.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await restored.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
-  it("does not add a starter when an Interactive Drama project already exists", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-existing-drama-")),
-      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
-    });
+  it("uses updated sample media only for newly created projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-sample-media-"));
+    const examplesDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-samples-"));
+    const sampleDirectory = path.join(examplesDirectory, "night-train");
+    await mkdir(sampleDirectory);
+    await writeFile(path.join(sampleDirectory, "mara.jpg"), "cover");
+    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "first video");
+    const app = createApp({ dataDirectory, interactiveDramaExamplesDirectory: examplesDirectory });
     apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "My Drama", type: "interactive-drama" } })).json();
 
-    expect((await app.inject({ method: "POST", url: "/interactive-drama/starter-project/ensure" })).statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([project]);
+    const firstProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "updated video");
+    const secondProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+
+    const assetId = async (projectId: string) => {
+      const story = (await app.inject({ method: "GET", url: `/projects/${projectId}/story` })).json() as StoryDocument;
+      const scene = story.chapters[0]!.nodes.find((node) => node.type === "scene");
+      if (scene?.type !== "scene") throw new Error("Sample scene not found");
+      const media = scene.data.presentation.media;
+      if (media.mode !== "own" || !media.items[0]) throw new Error("Sample video not found");
+      return resolveStoryAssetId(story.chapters[0]!, media.items[0].source)!;
+    };
+    const firstAssetId = await assetId(firstProject.id);
+    const secondAssetId = await assetId(secondProject.id);
+
+    expect(secondAssetId).not.toBe(firstAssetId);
+    expect((await app.inject({ method: "GET", url: `/library/assets/${firstAssetId}/content` })).rawPayload.toString()).toBe("first video");
+    expect((await app.inject({ method: "GET", url: `/library/assets/${secondAssetId}/content` })).rawPayload.toString()).toBe("updated video");
+  });
+
+  it("rejects an Interactive Drama template for another project type", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-template-type-")) });
+    apps.push(app);
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", templateId: "night-train" } });
+    expect(response.statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
   });
 
   it("creates a Godot project and rejects the removed general type", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
 
     const godot = await app.inject({ method: "POST", url: "/projects", payload: { name: "Platformer", type: "godot-game" } });
@@ -116,7 +117,7 @@ describe("daemon", () => {
   });
 
   it("loads and updates an Interactive Drama story", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const project = (await app.inject({
       method: "POST",
@@ -130,11 +131,7 @@ describe("daemon", () => {
     const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapters[0].nodes).toEqual([
-      expect.objectContaining({ type: "start" }),
-      expect.objectContaining({ type: "project-state" }),
-      expect.objectContaining({ type: "ending" }),
-    ]);
+    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
       .toMatchObject({ chapters: [{ title: "The Stopover" }] });
@@ -152,7 +149,7 @@ describe("daemon", () => {
       completeSimple,
     } as unknown as ModelRuntime;
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
       createModelRuntime: async () => runtime,
     });
     apps.push(app);
@@ -171,7 +168,7 @@ describe("daemon", () => {
 
   it("rejects story text generation without an available model", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
       createModelRuntime: async () => fakeModelRuntime([]),
     });
     apps.push(app);
@@ -190,7 +187,7 @@ describe("daemon", () => {
   it("rejects story text generation for other project types", async () => {
     const completeSimple = vi.fn();
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-story-text-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
       createModelRuntime: async () => ({
         ...fakeModelRuntime([{ provider: "provider-one", id: "model-one", name: "Model One" }]),
         completeSimple,
@@ -211,7 +208,7 @@ describe("daemon", () => {
   });
 
   it("lists projects", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const first = (await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } })).json();
     const second = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Second" } })).json();
@@ -223,7 +220,7 @@ describe("daemon", () => {
   });
 
   it("renames, duplicates, and deletes projects", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-project-actions-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-project-actions-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } })).json();
     await writeFile(path.join(project.workspacePath, "index.html"), "<h1>First</h1>");
@@ -242,7 +239,7 @@ describe("daemon", () => {
   });
 
   it("exposes read-only workspace code and media", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
@@ -265,7 +262,7 @@ describe("daemon", () => {
   });
 
   it("renames and deletes workspace assets", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "old name.png"), Buffer.from([1, 2, 3]));
@@ -287,7 +284,7 @@ describe("daemon", () => {
   });
 
   it("registers project media once in the global Library and protects references", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-api-")) });
     apps.push(app);
     const project = (await app.inject({
       method: "POST",
@@ -352,7 +349,7 @@ describe("daemon", () => {
   });
 
   it("materializes a Library asset once and checks unused Story projects without creating a document", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-library-materialize-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-materialize-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
@@ -379,7 +376,7 @@ describe("daemon", () => {
   });
 
   it("blocks Library deletion when an Interactive Drama document cannot be verified", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-old-story-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-old-story-")) });
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     await writeFile(path.join(storyProject.workspacePath, "story.json"), JSON.stringify({ version: 1, chapters: [] }));
@@ -395,7 +392,7 @@ describe("daemon", () => {
   });
 
   it("blocks Library deletion when a canonical Interactive Drama project is incomplete", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-incomplete-story-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-incomplete-story-")) });
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     await app.inject({ method: "GET", url: `/projects/${storyProject.id}/story` });
@@ -412,7 +409,7 @@ describe("daemon", () => {
   });
 
   it("renames and deletes an unreferenced Library asset", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-actions-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-actions-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "sprite.png"), "image bytes");
@@ -428,7 +425,7 @@ describe("daemon", () => {
   });
 
   it("imports a local image into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
     apps.push(app);
 
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -475,7 +472,7 @@ describe("daemon", () => {
   });
 
   it("rejects Library image data that does not match its media type", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
     apps.push(app);
 
     const response = await app.inject({
@@ -493,7 +490,7 @@ describe("daemon", () => {
   });
 
   it("uploads a video into the global Library", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-upload-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
     apps.push(app);
     const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
 
@@ -524,7 +521,7 @@ describe("daemon", () => {
   });
 
   it("removes deleted Library assets from image references", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-library-reference-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-reference-")) });
     apps.push(app);
     const image = (await app.inject({
       method: "POST",
@@ -548,7 +545,7 @@ describe("daemon", () => {
   });
 
   it("rejects unsafe workspace file paths", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-workspace-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
 
@@ -571,7 +568,7 @@ describe("daemon", () => {
       subscribe: () => () => {},
     };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-reference-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-reference-api-")),
       createSession: async () => session,
     });
     apps.push(app);
@@ -599,7 +596,7 @@ describe("daemon", () => {
   it("validates Plugin mentions and sends Codex references to Pi", async () => {
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-plugin-mention-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-api-")),
       createSession: async () => ({
         messages: [],
         prompt,
@@ -611,18 +608,18 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
 
     const accepted = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
       payload: { prompt: "Use @Godot", mentions: [mention] },
     });
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@opengame)"));
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@ohmygame)"));
     const rejected = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Use @Missing", mentions: [{ name: "missing", displayName: "Missing", marketplaceId: "opengame" }] },
+      payload: { prompt: "Use @Missing", mentions: [{ name: "missing", displayName: "Missing", marketplaceId: "ohmygame" }] },
     });
 
     expect(accepted.statusCode).toBe(202);
@@ -632,7 +629,7 @@ describe("daemon", () => {
 
   it("returns the skills loaded by the current conversation session", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-capabilities-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-capabilities-api-")),
       createSession: async () => ({
         messages: [],
         prompt: async () => {},
@@ -655,11 +652,11 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
   });
 
-  it("makes OpenGame media generation available without a Plugin", async () => {
+  it("makes OhMyGame media generation available without a Plugin", async () => {
     const setActiveToolsByName = vi.fn();
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-default-media-tools-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-default-media-tools-")),
       createSession: async () => ({
         messages: [],
         prompt,
@@ -696,7 +693,7 @@ describe("daemon", () => {
   it("accepts an image without text and passes it to Pi", async () => {
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-image-prompt-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-image-prompt-")),
       createSession: async () => ({
         messages: [],
         prompt,
@@ -736,7 +733,7 @@ describe("daemon", () => {
   it("restores an active image prompt without replaying its base64 event", async () => {
     let finishPrompt!: () => void;
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-active-image-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-active-image-")),
       createSession: async () => ({
         messages: [],
         prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
@@ -785,7 +782,7 @@ describe("daemon", () => {
       subscribe: () => () => {},
     };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-pending-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-pending-api-")),
       createSession: async () => session,
     });
     apps.push(app);
@@ -836,7 +833,7 @@ describe("daemon", () => {
       subscribe: () => () => {},
     };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-queue-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-queue-api-")),
       createSession: async () => session,
     });
     apps.push(app);
@@ -857,7 +854,7 @@ describe("daemon", () => {
   });
 
   it("exposes health and rejects empty prompts", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({ status: "ok" });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -874,7 +871,7 @@ describe("daemon", () => {
   });
 
   it("stores and serves a WebP project cover", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-cover-api-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-cover-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const cover = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
@@ -903,7 +900,7 @@ describe("daemon", () => {
   });
 
   it("opens an idle event stream immediately", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-sse-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-sse-")) });
     apps.push(app);
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -930,7 +927,7 @@ describe("daemon", () => {
       subscribe: () => () => {},
     };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-title-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-title-")),
       createSession: async () => session,
     });
     apps.push(app);
@@ -970,7 +967,7 @@ describe("daemon", () => {
     const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
     const model = { provider: "provider-one", id: "model-one", name: "Model One" };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-generated-title-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-generated-title-")),
       createSession: async () => session,
       createModelRuntime: async () => fakeModelRuntime([model]),
       generateConversationTitle,
@@ -1046,7 +1043,7 @@ describe("daemon", () => {
     const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
     const model = { provider: "provider-one", id: "model-one", name: "Model One" };
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-project-title-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-project-title-")),
       createSession: async () => session,
       createModelRuntime: async () => fakeModelRuntime([model]),
       generateConversationTitle,
@@ -1087,7 +1084,7 @@ describe("daemon", () => {
     const second = { provider: "provider-one", id: "model-two", name: "Model Two", reasoning: true };
     const runtime = fakeModelRuntime([first, second]);
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-models-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-models-")),
       createModelRuntime: async () => runtime,
     });
     apps.push(app);
@@ -1140,7 +1137,7 @@ describe("daemon", () => {
       unregisterProvider,
     } as unknown as ModelRuntime;
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-model-endpoint-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-")),
       createModelRuntime: async () => runtime,
     });
     apps.push(app);
@@ -1164,7 +1161,7 @@ describe("daemon", () => {
     expect(unregisterProvider).toHaveBeenCalledWith("openai");
   });
 
-  it("connects and disconnects the OpenGame Portal provider", async () => {
+  it("connects and disconnects the OhMyGame account provider", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
       getModels: vi.fn(() => [{
@@ -1177,26 +1174,58 @@ describe("daemon", () => {
       removeRuntimeApiKey: vi.fn(async () => undefined),
       listCredentials: vi.fn(async () => []),
     } as unknown as ModelRuntime;
-    const portalFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://portal.open-game.ai/v1", api_key: "sk-portal" } }))
+    const accountServiceFetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://account.ohmygame.ai/v1", api_key: "sk-account" } }))
       .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }] }));
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-")),
       createModelRuntime: async () => runtime,
-      portalFetch,
+      accountServiceFetch,
     });
     apps.push(app);
 
-    const connected = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
-    const disconnected = await app.inject({ method: "DELETE", url: "/portal/connection" });
+    const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
+    const disconnected = await app.inject({ method: "DELETE", url: "/account/connection" });
 
     expect(connected.json()).toEqual({ status: "connected", modelCount: 1 });
     expect(disconnected.statusCode).toBe(204);
-    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("opengame", "sk-portal");
-    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("opengame");
+    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("ohmygame", "sk-account");
+    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
   });
 
-  it("uses the connected Portal credential for Meshy 7 generation", async () => {
+  it("proxies account requests through the local daemon", async () => {
+    const accountServiceFetch = vi.fn(async () => Response.json({ data: [{ id: 1, name: "Plus" }] }));
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-")),
+      accountServiceFetch,
+    });
+    apps.push(app);
+
+    const plans = await app.inject({ method: "GET", url: "/account/plans" });
+    const usage = await app.inject({
+      method: "POST",
+      url: "/account/usage?page=1",
+      payload: { accessToken: "supabase-token" },
+    });
+
+    expect(plans.json()).toEqual([{ id: 1, name: "Plus" }]);
+    expect(accountServiceFetch).toHaveBeenCalledWith(new URL("https://account.ohmygame.ai/api/plans"), expect.any(Object));
+    expect(usage.statusCode).toBe(200);
+    expect(accountServiceFetch).toHaveBeenCalledWith(
+      new URL("https://account.ohmygame.ai/api/usage?page=1"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer supabase-token" }),
+      }),
+    );
+    const invalidPage = await app.inject({
+      method: "POST",
+      url: "/account/usage?page=0",
+      payload: { accessToken: "supabase-token" },
+    });
+    expect(invalidPage.statusCode).toBe(400);
+  });
+
+  it("uses the connected Account credential for Meshy 7 generation", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
       getModels: vi.fn(() => [{
@@ -1210,8 +1239,8 @@ describe("daemon", () => {
       listCredentials: vi.fn(async () => []),
       getProviders: vi.fn(() => []),
     } as unknown as ModelRuntime;
-    const portalFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.open-game.test/v1", api_key: "sk-portal" } }))
+    const accountServiceFetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.ohmygame.test/v1", api_key: "sk-account" } }))
       .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-7" }, { id: "meshy-t2" }] }))
       .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
       .mockResolvedValueOnce(Response.json({
@@ -1221,18 +1250,18 @@ describe("daemon", () => {
       }))
       .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-3d-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-")),
       createModelRuntime: async () => runtime,
-      portalFetch,
+      accountServiceFetch,
     });
     apps.push(app);
 
-    const connected = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
+    const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
     expect(connected.statusCode).toBe(200);
     const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
     expect(providers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "meshy" })]));
     expect(providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "opengame", capabilities: ["language", "image", "video", "3d"] }),
+      expect.objectContaining({ id: "ohmygame", capabilities: ["language", "image", "video", "3d"] }),
     ]));
     const generated = await app.inject({
       method: "POST",
@@ -1250,31 +1279,31 @@ describe("daemon", () => {
     const run = generated.json();
     const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
     expect(file.rawPayload).toEqual(Buffer.from("glb"));
-    expect(portalFetch).toHaveBeenNthCalledWith(3, "https://api.open-game.test/v1/3d/generations", expect.objectContaining({
+    expect(accountServiceFetch).toHaveBeenNthCalledWith(3, "https://api.ohmygame.test/v1/3d/generations", expect.objectContaining({
       method: "POST",
-      headers: { authorization: "Bearer sk-portal", "content-type": "application/json" },
+      headers: { authorization: "Bearer sk-account", "content-type": "application/json" },
     }));
-    expect(portalFetch).toHaveBeenNthCalledWith(5, "https://api.open-game.test/v1/3d/generations/task_123/content", expect.objectContaining({
-      headers: { authorization: "Bearer sk-portal" },
+    expect(accountServiceFetch).toHaveBeenNthCalledWith(5, "https://api.ohmygame.test/v1/3d/generations/task_123/content", expect.objectContaining({
+      headers: { authorization: "Bearer sk-account" },
     }));
   });
 
-  it("reports Portal connection failures as gateway errors", async () => {
+  it("reports Account connection failures as gateway errors", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-portal-error-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-error-")),
       createModelRuntime: async () => fakeModelRuntime([]),
-      portalFetch: vi.fn(async () => Response.json({ error: "unavailable" }, { status: 503 })),
+      accountServiceFetch: vi.fn(async () => Response.json({ error: "unavailable" }, { status: 503 })),
     });
     apps.push(app);
 
-    const response = await app.inject({ method: "PUT", url: "/portal/connection", payload: { accessToken: "user-token" } });
+    const response = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
 
     expect(response.statusCode).toBe(502);
-    expect(response.json()).toEqual({ error: "Portal request failed (503)" });
+    expect(response.json()).toEqual({ error: "Account service request failed (503)" });
   });
 
   it("validates request bodies before they reach a manager", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-test-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const invalidProject = await app.inject({ method: "POST", url: "/projects", payload: { name: 42 } });
     expect(invalidProject.statusCode).toBe(400);
@@ -1298,7 +1327,7 @@ describe("daemon", () => {
   });
 
   it("restores a project after an app restart", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-restart-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-restart-"));
     const first = createApp({ dataDirectory });
     apps.push(first);
     await first.ready();
@@ -1316,7 +1345,7 @@ describe("daemon", () => {
   });
 
   it("restores conversation history from the project's Pi session", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-conversation-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-conversation-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -1382,7 +1411,7 @@ describe("daemon", () => {
   });
 
   it("replays only the active turn from SSE when conversation is loaded mid-run", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-active-conversation-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-active-conversation-"));
     let finishPrompt!: () => void;
     const session: CodingSession = {
       messages: [],
@@ -1431,7 +1460,6 @@ describe("daemon", () => {
 
 function syncStoryLayout(story: StoryDocument): void {
   story.editorLayout.nodes = Object.fromEntries([
-    ["open-ui", story.editorLayout.nodes["open-ui"] ?? { x: 240, y: 240 }],
     ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
   ]);
 }

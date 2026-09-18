@@ -8,7 +8,7 @@ export interface StoryProgressStorage {
 }
 
 export function storyProgressKey(scope: string, chapterId: string): string {
-  return `open-game:story-progress:v1:${scope}:${chapterId}`;
+  return `ohmygame:story-progress:v1:${scope}:${chapterId}`;
 }
 
 export async function storySignature(story: StoryDocument): Promise<string> {

@@ -3,7 +3,7 @@ import { Check } from "typebox/value";
 import type { PluginMention, ProjectType } from "./contracts.js";
 import type { CommunityAuthor, CommunityStats, PublishPluginCuration, PublishPluginOrigin } from "./publish-v1.js";
 
-export const PLUGIN_MANIFEST_PATH = ".opengame-plugin/plugin.json";
+export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
@@ -11,7 +11,7 @@ export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
   ".agents",
   ".claude-plugin",
   ".codex-plugin",
-  ".opengame-plugin",
+  ".ohmygame-plugin",
 ];
 
 export type PluginSource =
@@ -35,7 +35,7 @@ export interface PluginInstallCandidate {
   displayName: string;
   description: string;
   skillCount: number;
-  format: "opengame" | "codex" | "claude" | "pi" | "agent-skills";
+  format: "ohmygame" | "codex" | "claude" | "pi" | "agent-skills";
   marketplace: PluginMarketplaceRef;
 }
 
@@ -48,7 +48,7 @@ export interface PluginMarketplaceRef {
   displayName: string;
 }
 
-export const OPENGAME_MARKETPLACE: PluginMarketplaceRef = { id: "opengame", displayName: "OpenGame" };
+export const OHMYGAME_MARKETPLACE: PluginMarketplaceRef = { id: "ohmygame", displayName: "OhMyGame" };
 export const PERSONAL_MARKETPLACE: PluginMarketplaceRef = { id: "personal", displayName: "Personal" };
 
 const PLUGIN_MENTION_PATTERN = /\[(@[^\]]+)\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;

@@ -6,7 +6,7 @@ import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
   it("waits for health and stops the managed child", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-desktop-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-"));
     const pidFile = path.join(directory, "pid");
     const entry = path.join(directory, "daemon.mjs");
     await writeFile(entry, `
@@ -42,7 +42,7 @@ describe("desktop daemon process", () => {
   });
 
   it("prepends the packaged runtime to the daemon path", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-runtime-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-runtime-"));
     const runtimeBin = path.join(directory, "runtime", "node", "bin");
     const pathFile = path.join(directory, "path");
     const entry = path.join(directory, "daemon.mjs");
@@ -71,8 +71,8 @@ describe("desktop daemon process", () => {
     await daemon.stop();
   });
 
-  it("passes the OpenGame Pi agent directory to the daemon", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-pi-agent-"));
+  it("passes the OhMyGame Pi agent directory to the daemon", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-pi-agent-"));
     const piAgentDirectory = path.join(directory, "pi-agent");
     const piAgentFile = path.join(directory, "pi-agent-path");
     const entry = path.join(directory, "daemon.mjs");

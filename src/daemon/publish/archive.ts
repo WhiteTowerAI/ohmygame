@@ -76,7 +76,7 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   const assets = new Map(library.list().map((asset) => [asset.id, asset]));
   validatePublishedStory(story, assets);
   const requiredIds = referencedAssetIds(story);
-  const output = await mkdtemp(path.join(tmpdir(), "open-game-story-build-"));
+  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-story-build-"));
   try {
     await cp(playerDirectory, output, { recursive: true });
     await mkdir(path.join(output, "assets", "media"), { recursive: true });
@@ -109,14 +109,8 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
     const issue = validatePlayableChapter(chapter, { availableAssets });
     if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
   }
-  if (story.player.backgroundAssetId && assets.get(story.player.backgroundAssetId)?.mediaType !== "image") {
-    throw new PublishError("The Player background is missing from Library or is not an image.");
-  }
-  if (story.player.openUiVideoAssetId && assets.get(story.player.openUiVideoAssetId)?.mediaType !== "video") {
-    throw new PublishError("The Open UI video is missing from Library or is not a video.");
-  }
   for (const chapter of story.chapters) for (const node of chapter.nodes) {
-    if ((node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+    if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
     for (const item of node.data.presentation.media.items) {
       const assetId = resolveStoryAssetId(chapter, item.source);
       if (!assetId || assets.get(assetId)?.mediaType !== item.type) {
@@ -128,11 +122,9 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
 
 function referencedAssetIds(story: StoryDocument): Set<string> {
   const ids = new Set<string>();
-  if (story.player.backgroundAssetId) ids.add(story.player.backgroundAssetId);
-  if (story.player.openUiVideoAssetId) ids.add(story.player.openUiVideoAssetId);
   for (const chapter of story.chapters) {
     for (const node of chapter.nodes) {
-      if ((node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+      if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
       for (const item of node.data.presentation.media.items) {
         const assetId = resolveStoryAssetId(chapter, item.source);
         if (assetId) ids.add(assetId);

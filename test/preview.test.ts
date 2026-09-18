@@ -42,7 +42,7 @@ describe("PreviewManager", () => {
 });
 
 async function createWorkspace(fail: boolean): Promise<string> {
-  const workspacePath = await mkdtemp(path.join(tmpdir(), "open-game-preview-"));
+  const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-"));
   await mkdir(path.join(workspacePath, "node_modules", ".bin"), { recursive: true });
   await writeFile(path.join(workspacePath, "node_modules", ".bin", "vite"), "");
   await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({

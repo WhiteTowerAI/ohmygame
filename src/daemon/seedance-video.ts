@@ -49,7 +49,7 @@ export class VideoGenerationError extends Error {
 }
 
 /** Uses New API's unified video endpoint, which adapts the request to Seedance. */
-export class PortalVideoGenerator implements VideoGenerator {
+export class ManagedVideoGenerator implements VideoGenerator {
   constructor(
     private readonly source: () => VideoSource | undefined,
     private readonly request: typeof fetch = fetch,

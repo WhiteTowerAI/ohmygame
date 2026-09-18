@@ -1,7 +1,7 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
-import { connectPortal, disconnectPortal } from "./api.js";
+import { connectAccount, disconnectAccount } from "./api.js";
 
 export type AuthState =
   | { status: "loading" }
@@ -24,8 +24,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const supabase = createSupabaseClient();
-const PORTAL_RETRY_INITIAL_MS = 5_000;
-const PORTAL_RETRY_MAX_MS = 60_000;
+const ACCOUNT_RETRY_INITIAL_MS = 5_000;
+const ACCOUNT_RETRY_MAX_MS = 60_000;
 
 interface AuthClient {
   auth: Pick<ReturnType<typeof createClient>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
@@ -38,8 +38,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pendingProvider, setPendingProvider] = useState<SignInProvider>();
   const [oauthBrowserOpen, setOAuthBrowserOpen] = useState(false);
   const pendingAccessToken = useRef<((token: string | undefined) => void) | undefined>(undefined);
-  const portalUserId = useRef<string | undefined>(undefined);
-  const connectingPortalUserId = useRef<string | undefined>(undefined);
+  const accountUserId = useRef<string | undefined>(undefined);
+  const connectingAccountUserId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!supabase) return;
@@ -47,13 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryUserId: string | undefined;
-    let retryDelay = PORTAL_RETRY_INITIAL_MS;
+    let retryDelay = ACCOUNT_RETRY_INITIAL_MS;
 
     function scheduleRetry(userId: string): void {
       if (!active || retryUserId !== userId) return;
       if (retryTimer) clearTimeout(retryTimer);
       const delay = retryDelay;
-      retryDelay = Math.min(retryDelay * 2, PORTAL_RETRY_MAX_MS);
+      retryDelay = Math.min(retryDelay * 2, ACCOUNT_RETRY_MAX_MS);
       retryTimer = setTimeout(() => {
         retryTimer = undefined;
         void getAccessToken(client).then((token) => {
@@ -65,21 +65,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     function connect(userId: string, accessToken: string): void {
-      if (userId === portalUserId.current || userId === connectingPortalUserId.current) return;
-      portalUserId.current = undefined;
+      if (userId === accountUserId.current || userId === connectingAccountUserId.current) return;
+      accountUserId.current = undefined;
       if (retryTimer) clearTimeout(retryTimer);
-      if (retryUserId !== userId) retryDelay = PORTAL_RETRY_INITIAL_MS;
+      if (retryUserId !== userId) retryDelay = ACCOUNT_RETRY_INITIAL_MS;
       retryUserId = userId;
-      connectingPortalUserId.current = userId;
-      void connectPortal(accessToken).then(() => {
-        if (active && connectingPortalUserId.current === userId) {
-          portalUserId.current = userId;
-          retryDelay = PORTAL_RETRY_INITIAL_MS;
+      connectingAccountUserId.current = userId;
+      void connectAccount(accessToken).then(() => {
+        if (active && connectingAccountUserId.current === userId) {
+          accountUserId.current = userId;
+          retryDelay = ACCOUNT_RETRY_INITIAL_MS;
         }
       }).catch(() => {
-        if (connectingPortalUserId.current === userId) scheduleRetry(userId);
+        if (connectingAccountUserId.current === userId) scheduleRetry(userId);
       }).finally(() => {
-        if (connectingPortalUserId.current === userId) connectingPortalUserId.current = undefined;
+        if (connectingAccountUserId.current === userId) connectingAccountUserId.current = undefined;
       });
     }
     void restoreAuthState(client).then((restored) => {
@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (token) connect(restored.user.id, token);
         }).catch(() => undefined);
       } else {
-        void disconnectPortal().catch(() => undefined);
+        void disconnectAccount().catch(() => undefined);
       }
     });
     const { data } = client.auth.onAuthStateChange((_event, session) => {
@@ -102,10 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         if (retryTimer) clearTimeout(retryTimer);
         retryUserId = undefined;
-        retryDelay = PORTAL_RETRY_INITIAL_MS;
-        portalUserId.current = undefined;
-        connectingPortalUserId.current = undefined;
-        void disconnectPortal().catch(() => undefined);
+        retryDelay = ACCOUNT_RETRY_INITIAL_MS;
+        accountUserId.current = undefined;
+        connectingAccountUserId.current = undefined;
+        void disconnectAccount().catch(() => undefined);
       }
     });
     return () => {
@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const desktopAuth = window.openGameDesktop?.auth;
+    const desktopAuth = window.ohMyGameDesktop?.auth;
     if (!supabase || !desktopAuth) return;
     let active = true;
     const consume = async () => {
@@ -202,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOAuthBrowserOpen(false);
     setError(undefined);
     try {
-      const desktopAuth = window.openGameDesktop?.auth;
+      const desktopAuth = window.ohMyGameDesktop?.auth;
       if (desktopAuth) {
         const authorizationUrl = await createOAuthAuthorizationUrl(supabase, provider, await desktopAuth.callbackUrl());
         await desktopAuth.openUrl(authorizationUrl);
@@ -211,7 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await startOAuth(supabase, provider, `${window.location.origin}${window.location.pathname}${window.location.hash}`);
       }
     } catch (signInError) {
-      await window.openGameDesktop?.auth.cancel().catch(() => undefined);
+      await window.ohMyGameDesktop?.auth.cancel().catch(() => undefined);
       setError(errorMessage(signInError));
       setPendingProvider(undefined);
       setOAuthBrowserOpen(false);
@@ -228,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           allowClose={oauthBrowserOpen}
           pendingProvider={pendingProvider}
           onClose={() => {
-            void window.openGameDesktop?.auth.cancel().catch(() => undefined);
+            void window.ohMyGameDesktop?.auth.cancel().catch(() => undefined);
             settleAccessTokenRequest(undefined);
             setDialogOpen(false);
             setError(undefined);
@@ -251,7 +251,7 @@ export function useAuth(): AuthContextValue {
 export function authUser(user: User): AuthUser {
   const metadata = user.user_metadata;
   const name = stringValue(metadata.full_name) ?? stringValue(metadata.name)
-    ?? stringValue(metadata.user_name) ?? user.email ?? "OpenGame creator";
+    ?? stringValue(metadata.user_name) ?? user.email ?? "OhMyGame creator";
   return {
     id: user.id,
     name,

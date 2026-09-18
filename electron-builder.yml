@@ -1,5 +1,5 @@
-appId: ai.opengame.desktop
-productName: OpenGame
+appId: ai.ohmygame.desktop
+productName: OhMyGame
 asar: true
 
 directories:
@@ -37,12 +37,12 @@ win:
   icon: build/icon.ico
   target:
     - nsis
-  artifactName: OpenGame-${version}-${arch}.${ext}
+  artifactName: OhMyGame-${version}-${arch}.${ext}
 
 publish:
   provider: generic
   url: ${env.DESKTOP_UPDATE_URL}
-  channel: alpha
+  channel: latest
 
 dmg:
-  artifactName: OpenGame-${version}-${arch}.${ext}
+  artifactName: OhMyGame-${version}-${arch}.${ext}

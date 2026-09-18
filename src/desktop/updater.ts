@@ -13,7 +13,7 @@ export class DesktopUpdater {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = true;
-    autoUpdater.channel = "alpha";
+    autoUpdater.channel = "latest";
     autoUpdater.on("checking-for-update", () => this.#set({ type: "checking" }));
     autoUpdater.on("update-not-available", () => this.#set({ type: "up-to-date" }));
     autoUpdater.on("update-available", (info) => this.#set({ type: "available", version: info.version }));

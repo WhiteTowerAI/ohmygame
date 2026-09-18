@@ -7,7 +7,7 @@ export interface BuiltInAssetTemplate extends AssetTemplateDefinition {
   publishedAt: string;
 }
 
-export const OPEN_GAME_TEMPLATE_AUTHOR: CommunityAuthor = { id: "opengame", displayName: "OpenGame" };
+export const OHMYGAME_TEMPLATE_AUTHOR: CommunityAuthor = { id: "ohmygame", displayName: "OhMyGame" };
 
 const PUBLISHED_AT = "2026-09-06T00:00:00.000Z";
 

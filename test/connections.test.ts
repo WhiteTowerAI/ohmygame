@@ -7,7 +7,7 @@ import { ConnectionError, ConnectionManager } from "../src/daemon/connections.js
 
 describe("ConnectionManager", () => {
   it("projects mcp.json into Connections and preserves unrelated JSONC", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-connections-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-connections-"));
     await writeFile(path.join(directory, "mcp.json"), `{
   // Keep adapter settings.
   "settings": { "idleTimeout": 5 },
@@ -19,13 +19,13 @@ describe("ConnectionManager", () => {
 
     expect(await manager.list()).toMatchObject([
       { id: "context7", source: "user", enabled: true, transport: { type: "stdio", cwd: "/tmp/project" } },
-      { id: "opengame-godot", source: "preset", editable: false, removable: false },
+      { id: "ohmygame-godot", source: "preset", editable: false, removable: false },
     ]);
     expect(await readFile(path.join(directory, "mcp.json"), "utf8")).toContain("// Keep adapter settings.");
   });
 
   it("creates, edits, disables, and removes user Connections", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-connections-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-connections-"));
     const manager = new ConnectionManager(directory);
 
     await manager.save({ id: "remote", transport: { type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer token" } } });
@@ -43,10 +43,10 @@ describe("ConnectionManager", () => {
   });
 
   it("protects presets and validates user definitions", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-connections-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-connections-"));
     const manager = new ConnectionManager(directory);
 
-    await expect(manager.remove("opengame-godot")).rejects.toBeInstanceOf(ConnectionError);
+    await expect(manager.remove("ohmygame-godot")).rejects.toBeInstanceOf(ConnectionError);
     await expect(manager.save({ id: "Bad ID", transport: { type: "stdio", command: "npx", args: [] } })).rejects.toBeInstanceOf(ConnectionError);
     await expect(manager.save({ id: "remote", transport: { type: "http", url: "file:///tmp/mcp" } })).rejects.toBeInstanceOf(ConnectionError);
   });

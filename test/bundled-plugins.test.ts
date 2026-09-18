@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("bundled plugins", () => {
-  it("loads a standard skill-only OpenGame plugin directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "open-game-bundled-plugins-"));
+  it("loads a standard skill-only OhMyGame plugin directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-plugins-"));
     const plugin = path.join(root, "reference-modeler");
-    await mkdir(path.join(plugin, ".opengame-plugin"), { recursive: true });
+    await mkdir(path.join(plugin, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(plugin, "skills", "reference-modeler"), { recursive: true });
-    await writeFile(path.join(plugin, ".opengame-plugin", "plugin.json"), JSON.stringify({
+    await writeFile(path.join(plugin, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "reference-modeler",
       version: "0.1.0",
       description: "Rebuild a reference as a model",
@@ -23,12 +23,12 @@ describe("bundled plugins", () => {
     await store.load();
 
     expect(store.list()).toMatchObject([{
-      id: "opengame:reference-modeler",
+      id: "ohmygame:reference-modeler",
       source: { type: "builtIn" },
       longDescription: "A detailed modeling workflow.",
       skills: [{ id: "skills/reference-modeler/SKILL.md" }],
       connections: [],
     }]);
-    expect(store.installedPath("opengame:reference-modeler")).toBe(plugin);
+    expect(store.installedPath("ohmygame:reference-modeler")).toBe(plugin);
   });
 });

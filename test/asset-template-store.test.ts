@@ -6,7 +6,7 @@ import { AssetTemplateStore } from "../src/daemon/asset-templates.js";
 
 describe("AssetTemplateStore", () => {
   it("persists local templates and their publication", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "open-game-asset-templates-"));
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-asset-templates-"));
     const store = new AssetTemplateStore(directory);
     const saved = await store.create({
       mode: "image",
