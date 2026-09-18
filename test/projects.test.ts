@@ -19,6 +19,34 @@ describe("Interactive Drama project codebase", () => {
     expect(stored.interactions).toBeUndefined();
     expect(stored.playerViews).toBeUndefined();
     expect(stored.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(await readFile(path.join(project.workspacePath, "AGENTS.md"), "utf8")).toContain("## Fast path for simple canvas edits");
+  });
+
+  it("preserves user-authored Interactive Drama instructions", async () => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
+    const project = await manager.create("Story", "interactive-drama");
+    await manager.story(project.id);
+    const instructions = path.join(project.workspacePath, "AGENTS.md");
+    await writeFile(instructions, "# My project instructions\n");
+
+    await manager.story(project.id);
+
+    expect(await readFile(instructions, "utf8")).toBe("# My project instructions\n");
+  });
+
+  it("upgrades the previous built-in Interactive Drama instructions", async () => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
+    const project = await manager.create("Story", "interactive-drama");
+    await manager.story(project.id);
+    const instructions = path.join(project.workspacePath, "AGENTS.md");
+    const current = await readFile(instructions, "utf8");
+    const fastPathStart = current.indexOf("\n## Fast path for simple canvas edits");
+    expect(fastPathStart).toBeGreaterThan(0);
+    await writeFile(instructions, current.slice(0, fastPathStart));
+
+    await manager.story(project.id);
+
+    expect(await readFile(instructions, "utf8")).toBe(current);
   });
 
   it("stores node code outside story.json without overwriting authored source", async () => {

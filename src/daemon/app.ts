@@ -15,7 +15,7 @@ import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLI
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
-import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
+import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
@@ -591,7 +591,8 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        project.type === "interactive-drama" ? undefined : () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        project.type === "interactive-drama" ? "interactive-drama" : "default",
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -604,7 +605,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
-        createAgentTools(
+        project.type === "interactive-drama" ? [] : createAgentTools(
           project,
           tools,
           projects,
@@ -618,13 +619,13 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        project.type === "interactive-drama" ? undefined : () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        project.type === "interactive-drama" ? "interactive-drama" : "default",
       );
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      if (mode === "planning") return planningPiToolNames();
-      return activePiToolNames(tools.list().map((tool) => tool.id), registered);
+      return projectPiToolNames(project.type, mode, tools.list().map((tool) => tool.id), registered);
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -2191,6 +2192,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      if (project.type === "interactive-drama") return { plugins: [], skills: [] } satisfies ConversationCapabilities;
       const [catalog, skills] = await Promise.all([
         plugins.list(),
         agents.skills(project, conversation),

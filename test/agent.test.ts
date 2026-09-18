@@ -1,9 +1,9 @@
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AgentManager, conversationItems, lastAssistantError, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
+import { AgentManager, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -25,6 +25,29 @@ describe("skillInvocationPrompt", () => {
   it("maps the Composer syntax to Pi's native skill command", () => {
     expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
     expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+  });
+});
+
+describe("Interactive Drama Pi profile", () => {
+  it("does not load global or Plugin skills", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-workspace-"));
+    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-dir-"));
+    const skillDirectory = path.join(agentDir, "skills", "review");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(path.join(skillDirectory, "SKILL.md"), "---\nname: review\ndescription: Review code.\n---\n");
+    const resolvePluginSkills = vi.fn(async () => [{
+      path: skillDirectory,
+      pluginDisplayName: "Review",
+      marketplaceDisplayName: "Personal",
+    }]);
+
+    await expect(loadPiSkills(
+      workspace,
+      agentDir,
+      resolvePluginSkills,
+      "interactive-drama",
+    )).resolves.toEqual([]);
+    expect(resolvePluginSkills).not.toHaveBeenCalled();
   });
 });
 
@@ -1267,6 +1290,31 @@ describe("AgentManager", () => {
     expect(session.setActiveToolsByName).toHaveBeenNthCalledWith(2, ["read", "write", "edit", "bash", "update_plan"]);
     expect(manager.planState(conversation)).toEqual({ mode: "normal" });
     expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
+    await manager.close();
+  });
+
+  it("does not instruct Interactive Drama to use unavailable planning tools", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      activeToolNames: (_project, mode) => mode === "planning" ? ["read"] : ["read", "write", "edit"],
+    });
+    const project = { ...createProject(), type: "interactive-drama" as const };
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;
+    expect(session.prompt.mock.calls[0]?.[0]).toContain("produce a concise, concrete implementation plan in your final response");
+    expect(session.prompt.mock.calls[0]?.[0]).not.toContain("questionnaire");
+    expect(session.prompt.mock.calls[0]?.[0]).not.toContain("update_plan");
+
+    const executionConversation = createConversation(project, "conversation-2");
+    manager.restorePlanState(executionConversation, {
+      mode: "awaiting_approval",
+      plan: { steps: [{ step: "Add the node", status: "pending" }] },
+    });
+    await (await manager.approvePlan(project, executionConversation)).result;
+    expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
+    expect(session.prompt.mock.calls[1]?.[0]).not.toContain("update_plan");
     await manager.close();
   });
 

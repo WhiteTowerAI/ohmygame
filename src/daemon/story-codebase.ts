@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { StoryDocument, StoryEditorLayout, StorySurfaceFiles, StoryNode, StoryNodePresentation, StorySourceFiles } from "../shared/contracts.js";
+import { VIDEO_MODEL, type StoryDocument, type StoryEditorLayout, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StorySourceFiles } from "../shared/contracts.js";
 import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } from "../shared/story.js";
 
 const STORY_FILE = "story.json";
@@ -73,7 +73,7 @@ Each function receives \`{ node, context, editor, root }\`. Render into \`root\`
 
 All changes cross the sandbox boundary and are validated by OhMyGame. Extension code cannot access the host DOM, filesystem, or network. Missing exports, \`false\` returns, and runtime errors fall back to the default editor.
 `;
-const AGENT_INSTRUCTIONS = `# Interactive Drama Project
+const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
 This workspace is the source of truth for an OhMyGame Interactive Drama.
 
@@ -103,6 +103,55 @@ Scene, Choice, and Ending JavaScript export \`render({ node, scene, game, variab
 Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`. Declarative behavior applies variable actions and Story edges perform the transition.
 
 Editor presentation JavaScript may export \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\`. Return \`{ replace: true }\` to use the rendered content, or \`false\` to retain OhMyGame's default UI. Use the provided \`editor\` SDK for validated project changes; the module runs in a sandbox without host DOM, filesystem, or network access.
+`;
+const AGENT_INSTRUCTIONS = `${BASE_AGENT_INSTRUCTIONS}
+## Fast path for simple canvas edits
+
+For a request that only creates, updates, moves, or deletes standard Story nodes:
+
+1. Read only \`story.json\` and \`editor-layout.json\` unless the requested node owns source files.
+2. Do not inspect Git, the OhMyGame application source, Godot, MCP servers, or unrelated files.
+3. Make the smallest possible edits and preserve every unrelated field.
+4. Keep node IDs unique and stable. Every node ID in \`story.json\` must have exactly one position in \`editor-layout.json\`, and the layout must not contain extra node IDs.
+5. Validate both JSON files once, then stop. Do not run a development server or build for a simple canvas edit.
+
+Canvas node positions live only in \`editor-layout.json\`; never add \`position\` to a persisted \`story.json\` node. Place a new node near the visible group of existing nodes, or at \`{ "x": 80, "y": 180 }\` when the canvas is empty.
+
+### Empty generation nodes
+
+Use the project Player viewport ratio when it is supported: \`1280 x 720\` uses \`16:9\`, \`720 x 1280\` uses \`9:16\`, and \`1080 x 1080\` uses \`1:1\`. The minimal persisted Image node is:
+
+\`\`\`json
+{
+  "id": "image-<unique-id>",
+  "type": "image",
+  "data": {
+    "prompt": "",
+    "resolution": "1K",
+    "aspectRatio": "16:9",
+    "images": []
+  }
+}
+\`\`\`
+
+The minimal persisted Video node is:
+
+\`\`\`json
+{
+  "id": "video-<unique-id>",
+  "type": "video",
+  "data": {
+    "prompt": "",
+    "model": "${VIDEO_MODEL}",
+    "resolution": "720p",
+    "aspectRatio": "16:9",
+    "duration": 6,
+    "references": []
+  }
+}
+\`\`\`
+
+Do not generate media when the user asks for an empty generation node.
 `;
 type UnknownRecord = Record<string, unknown>;
 
@@ -144,10 +193,14 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
 
 export async function ensureStoryCodebaseInstructions(workspacePath: string): Promise<void> {
   await Promise.all([ensureEditorPresentation(workspacePath), ensureEditorStyle(workspacePath), ensureEditorDocumentation(workspacePath), ensureProjectManifest(workspacePath)]);
+  const destination = path.join(workspacePath, AGENT_INSTRUCTIONS_FILE);
   try {
-    await writeFile(path.join(workspacePath, AGENT_INSTRUCTIONS_FILE), AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
+    const current = await readFile(destination, "utf8");
+    if (current === AGENT_INSTRUCTIONS) return;
+    if (current === BASE_AGENT_INSTRUCTIONS) await writeFile(destination, AGENT_INSTRUCTIONS, "utf8");
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    await writeFile(destination, AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
   }
 }
 

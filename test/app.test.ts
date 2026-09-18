@@ -701,6 +701,31 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
   });
 
+  it("does not expose Plugins or Skills to Interactive Drama conversations", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
+      createSession: async () => ({
+        messages: [],
+        prompt: async () => {},
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        getSkills: () => [{ name: "godot", description: "Control Godot" }],
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${conversation.id}/capabilities`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ plugins: [], skills: [] });
+  });
+
   it("makes OhMyGame media generation available without a Plugin", async () => {
     const setActiveToolsByName = vi.fn();
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});

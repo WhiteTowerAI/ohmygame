@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlanState, ProjectState, QuestionnaireResult, RunVideoToolRequest, ToolDefinition } from "../shared/contracts.js";
+import type { PlanMode, PlanState, ProjectState, ProjectType, QuestionnaireResult, RunVideoToolRequest, ToolDefinition } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -23,6 +23,22 @@ export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][],
 
 export function planningPiToolNames(): string[] {
   return ["read", "grep", "find", "ls", "questionnaire", "update_plan"];
+}
+
+export function projectPiToolNames(
+  projectType: ProjectType,
+  mode: PlanMode,
+  enabledTools: readonly ToolDefinition["id"][],
+  registeredToolNames: readonly string[] = [],
+): string[] {
+  if (projectType === "interactive-drama") {
+    return mode === "planning"
+      ? ["read", "grep", "find", "ls"]
+      : ["read", "write", "edit", "bash", "grep", "find", "ls"];
+  }
+  return mode === "planning"
+    ? planningPiToolNames()
+    : activePiToolNames(enabledTools, registeredToolNames);
 }
 
 export type AskQuestionnaire = (
