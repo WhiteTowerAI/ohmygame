@@ -22,7 +22,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { PortalClient } from "./portal-client.js";
 import { PortalConnection } from "./portal-connection.js";
-import { isRunnableWorkspace, ProjectAssetError, ProjectManager, ProjectStoryReferenceError } from "./projects.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ImageSettingsStore } from "./image-settings.js";
 import { InteractiveDramaStarter } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -83,6 +83,7 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
       template: { type: "string", enum: ["starter"] },
+      workspacePath: { type: "string", minLength: 1, maxLength: 4096 },
     },
   },
 } as const;
@@ -1134,12 +1135,17 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
-    if (request.body?.type === "interactive-drama" && request.body.template === "starter") {
-      const project = await interactiveDramaStarter.createProject(request.body.name);
+    try {
+      if (request.body?.type === "interactive-drama" && request.body.template === "starter") {
+        const project = await interactiveDramaStarter.createProject(request.body.name, request.body.workspacePath);
+        return reply.code(201).send(project);
+      }
+      const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
       return reply.code(201).send(project);
+    } catch (cause) {
+      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
     }
-    const project = await projects.create(request.body?.name, request.body?.type);
-    return reply.code(201).send(project);
   });
 
   app.post("/interactive-drama/starter-project/ensure", async (_request, reply) => {
@@ -2056,7 +2062,7 @@ export function createApp(options: AppOptions = {}) {
       const restoreActiveItems = Boolean(activeItems.find((item) => item.type === "userMessage")?.images?.length);
       const loadedItems = [
         ...loadConversation(
-          project.workspacePath,
+          project,
           conversation.sessionPath,
           currentRun?.timestamp,
           !currentRun,
@@ -2183,8 +2189,9 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (!(await isRunnableWorkspace(project.workspacePath))) {
-      return reply.code(409).send({ error: "Workspace is not runnable yet" });
+    const previewWorkspace = await previewWorkspaceStatus(project.workspacePath);
+    if (!previewWorkspace.runnable) {
+      return reply.code(409).send({ error: previewWorkspace.error ?? "Workspace is not runnable yet" });
     }
     return { url: await previews.start(project) };
   });

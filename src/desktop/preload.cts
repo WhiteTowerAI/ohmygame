@@ -19,6 +19,7 @@ if (process.isMainFrame) {
     browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("open-game:browse-plugin-directory", pluginId) as Promise<void>,
     revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("open-game:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
     selectPluginDirectory: () => ipcRenderer.invoke("open-game:select-plugin-directory") as Promise<string | undefined>,
+    selectProjectDirectory: () => ipcRenderer.invoke("open-game:select-project-directory") as Promise<string | undefined>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("open-game:capture-page", bounds) as Promise<Uint8Array>,
     openPlaytest: (projectId: string, chapterId: string) =>

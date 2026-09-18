@@ -117,6 +117,12 @@ export interface ProjectState {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** Internal OpenGame data kept separately from a user-selected workspace. */
+  storagePath?: string;
+  /** Whether OpenGame owns the workspace directory or only references it. */
+  workspaceLocation?: "managed" | "external";
+  /** False when a previously selected workspace is no longer available on disk. */
+  workspaceAvailable?: boolean;
   preview: { status: PreviewStatus; url?: string; error?: string };
   publication?: PublicationState;
 }
@@ -570,7 +576,13 @@ export interface AnswerQuestionnaireRequest {
   cancelled?: boolean;
 }
 
-export interface CreateProjectRequest { name?: string; type?: ProjectType; template?: "starter" }
+export interface CreateProjectRequest {
+  name?: string;
+  type?: ProjectType;
+  template?: "starter";
+  /** Absolute path returned by the desktop directory picker. */
+  workspacePath?: string;
+}
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;

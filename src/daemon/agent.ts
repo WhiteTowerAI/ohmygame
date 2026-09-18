@@ -59,9 +59,8 @@ export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 export type AgentRunResult = "completed" | "cancelled";
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
-export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
-  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
-  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+export function loadConversation(project: ProjectState, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
+  const entries = SessionManager.open(sessionPath, sessionDirectory(project), project.workspacePath).getBranch();
   return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries, markInterrupted);
 }
 
@@ -550,7 +549,7 @@ export class AgentManager {
     this.#revisions.add(key);
     let navigated = false;
     try {
-      const previous = lastUserPrompt(project.workspacePath, conversation.sessionPath);
+      const previous = lastUserPrompt(project, conversation.sessionPath);
       if (!previous) throw new Error("There is no user message to edit");
       const references = await Promise.all(previous.references.map(validateReference));
       const managed = await this.#getSession(project, conversation);
@@ -1039,7 +1038,7 @@ export class AgentManager {
 
     const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
       state.workspacePath,
-      SessionManager.open(stored.sessionPath, path.join(path.dirname(state.workspacePath), "session"), state.workspacePath),
+      SessionManager.open(stored.sessionPath, sessionDirectory(state), state.workspacePath),
       [],
     )))(project, conversation);
     if (this.#closing) {
@@ -1480,14 +1479,13 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
   }
 }
 
-function lastUserPrompt(workspacePath: string, sessionPath: string): {
+function lastUserPrompt(project: ProjectState, sessionPath: string): {
   id: string;
   mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
 } | undefined {
-  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
-  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+  const entries = SessionManager.open(sessionPath, sessionDirectory(project), project.workspacePath).getBranch();
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry.type !== "message" || entry.message.role !== "user") continue;
@@ -1500,6 +1498,10 @@ function lastUserPrompt(workspacePath: string, sessionPath: string): {
     };
   }
   return undefined;
+}
+
+function sessionDirectory(project: ProjectState): string {
+  return path.join(project.storagePath ?? path.dirname(project.workspacePath), "session");
 }
 
 function conversationKey(projectId: string, conversationId: string): string {

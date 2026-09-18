@@ -2883,6 +2883,57 @@ button.home-nav-item-active:hover {
   color: var(--text-faint);
   opacity: 1;
 }
+.project-create-workspace {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-create-workspace legend {
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-create-workspace-selection {
+  display: grid;
+  gap: 8px;
+}
+.project-create-workspace-selection > span {
+  overflow: hidden;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #111216;
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-create-workspace-selection > span.is-selected {
+  color: var(--text-muted);
+}
+.project-create-workspace-selection > div {
+  display: flex;
+  gap: 7px;
+}
+.project-create-workspace-selection button {
+  height: 27px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+.project-create-workspace-selection button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
 .project-create-types {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -15188,6 +15239,7 @@ button {
 :root[data-appearance="light"]
   :is(
     .project-create-name input,
+    .project-create-workspace-selection > span,
     .publish-dialog input:not([type="file"]),
     .publish-dialog textarea
   ) {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -35,6 +35,78 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
+  });
+
+  it("uses a selected non-empty folder as an external workspace without deleting it", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-external-project-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "open-game-user-workspace-"));
+    await writeFile(path.join(workspacePath, "README.md"), "Existing project files\n");
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Existing files", workspacePath },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const project = response.json();
+    expect(project).toMatchObject({
+      name: "Existing files",
+      workspaceLocation: "external",
+      workspaceAvailable: true,
+    });
+    expect(project.workspacePath).toBe(await realpath(workspacePath));
+    expect(await readFile(path.join(workspacePath, "README.md"), "utf8")).toBe("Existing project files\n");
+
+    const conversation = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` });
+    expect(conversation.statusCode).toBe(201);
+    expect((await stat(path.join(dataDirectory, "projects", project.id, "session"))).isDirectory()).toBe(true);
+
+    const duplicateWorkspace = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Duplicate workspace", workspacePath },
+    });
+    expect(duplicateWorkspace.statusCode).toBe(400);
+    expect(duplicateWorkspace.json()).toEqual({ error: "This folder overlaps with another OpenGame workspace" });
+
+    const nestedWorkspace = path.join(workspacePath, "nested");
+    await mkdir(nestedWorkspace);
+    const nested = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Nested workspace", workspacePath: nestedWorkspace },
+    });
+    expect(nested.statusCode).toBe(400);
+    expect(nested.json()).toEqual({ error: "This folder overlaps with another OpenGame workspace" });
+
+    expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}` })).statusCode).toBe(204);
+    expect(await readFile(path.join(workspacePath, "README.md"), "utf8")).toBe("Existing project files\n");
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("does not run a non-server dev script from an imported workspace", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-external-preview-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "open-game-format-workspace-"));
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({
+      scripts: { dev: "bun format" },
+    }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Formatting workspace", workspacePath },
+    })).json();
+
+    const preview = await app.inject({ method: "POST", url: `/projects/${project.id}/preview` });
+
+    expect(preview.statusCode).toBe(409);
+    expect(preview.json()).toEqual({ error: "This folder's dev script runs a non-server task: bun format" });
+    expect(project.preview).toEqual({ status: "waiting" });
+    await rm(workspacePath, { recursive: true, force: true });
   });
 
   it("creates an Interactive Drama starter when requested", async () => {
@@ -870,7 +942,7 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(400);
     const preview = await app.inject({ method: "POST", url: `/projects/${project.id}/preview` });
     expect(preview.statusCode).toBe(409);
-    expect(preview.json()).toEqual({ error: "Workspace is not runnable yet" });
+    expect(preview.json()).toEqual({ error: "This folder has no package.json dev script that starts a preview server." });
   });
 
   it("stores and serves a WebP project cover", async () => {
@@ -1313,6 +1385,45 @@ describe("daemon", () => {
     expect(restored.statusCode).toBe(200);
     expect(restored.json()).toMatchObject({ id: project.id, name: "Persistent" });
     expect(restored.json()).not.toHaveProperty("canUndo");
+  });
+
+  it("restores an external workspace after an app restart", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-external-restart-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "open-game-external-workspace-"));
+    await writeFile(path.join(workspacePath, "existing.txt"), "Keep me");
+    const first = createApp({ dataDirectory });
+    apps.push(first);
+    await first.ready();
+    const project = (await first.inject({ method: "POST", url: "/projects", payload: { name: "External", workspacePath } })).json();
+    await first.close();
+    apps.splice(apps.indexOf(first), 1);
+
+    const second = createApp({ dataDirectory });
+    apps.push(second);
+    await second.ready();
+    const restored = await second.inject({ method: "GET", url: `/projects/${project.id}` });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json()).toMatchObject({
+      id: project.id,
+      workspacePath: await realpath(workspacePath),
+      workspaceLocation: "external",
+      workspaceAvailable: true,
+    });
+    await second.close();
+    apps.splice(apps.indexOf(second), 1);
+    await rm(workspacePath, { recursive: true, force: true });
+
+    const third = createApp({ dataDirectory });
+    apps.push(third);
+    await third.ready();
+    const missingWorkspace = await third.inject({ method: "GET", url: `/projects/${project.id}` });
+    expect(missingWorkspace.statusCode).toBe(200);
+    expect(missingWorkspace.json()).toMatchObject({
+      id: project.id,
+      workspaceLocation: "external",
+      workspaceAvailable: false,
+    });
+    expect((await third.inject({ method: "DELETE", url: `/projects/${project.id}` })).statusCode).toBe(204);
   });
 
   it("restores conversation history from the project's Pi session", async () => {

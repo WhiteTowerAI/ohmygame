@@ -35,8 +35,8 @@ export class InteractiveDramaStarter {
   }
 
   /** Create a new Interactive Drama directly from the bundled starter template. */
-  createProject(name?: string): Promise<ProjectState> {
-    return createStarterProject(this.examplesDirectory, this.projects, this.library, name);
+  createProject(name?: string, workspacePath?: string): Promise<ProjectState> {
+    return createStarterProject(this.examplesDirectory, this.projects, this.library, name, workspacePath);
   }
 
   async #ensure(): Promise<void> {
@@ -71,14 +71,20 @@ export class InteractiveDramaStarter {
   }
 }
 
-async function createStarterProject(examplesDirectory: string, projects: ProjectManager, library: AssetLibrary, name?: string): Promise<ProjectState> {
+async function createStarterProject(
+  examplesDirectory: string,
+  projects: ProjectManager,
+  library: AssetLibrary,
+  name?: string,
+  workspacePath?: string,
+): Promise<ProjectState> {
   const directory = path.join(examplesDirectory, INTERACTIVE_DRAMA_STARTER.id);
-  const video = await library.addFile("night-train.mp4", path.join(directory, "night-train.mp4"), {
-    sourceKey: `builtin:interactive-drama:${INTERACTIVE_DRAMA_STARTER.id}:video:v1`,
-    duration: 12,
-  });
-  const project = await projects.create(name?.trim() || INTERACTIVE_DRAMA_STARTER.name, "interactive-drama");
+  const project = await projects.create(name?.trim() || INTERACTIVE_DRAMA_STARTER.name, "interactive-drama", workspacePath);
   try {
+    const video = await library.addFile("night-train.mp4", path.join(directory, "night-train.mp4"), {
+      sourceKey: `builtin:interactive-drama:${INTERACTIVE_DRAMA_STARTER.id}:video:v1`,
+      duration: 12,
+    });
     await projects.setStory(project.id, createInteractiveDramaStarterStory({ videoId: video.id }, project.name));
     await projects.setCover(project.id, await readFile(path.join(directory, "mara.jpg")));
     return projects.get(project.id)!;
