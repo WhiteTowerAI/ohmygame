@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { StorySurfaceFiles, StoryOpenUiAction } from "../shared/contracts.js";
 
 interface ScreenSurfaceMessage {
-  channel: "open-game:screen-surface";
+  channel: "ohmygame:screen-surface";
   instanceId: string;
   type: "action" | "error";
   action?: StoryOpenUiAction;
@@ -39,7 +39,7 @@ export function StoryScreenSurface({ files, content, mode, title, className, des
   }, [instanceId]);
   useEffect(() => {
     if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "open-game:screen-surface", instanceId, type: "init", files, content, mode }, "*");
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files, content, mode }, "*");
   }, [content, files.css, files.html, files.javascript, instanceId, loaded, mode]);
   useLayoutEffect(() => {
     if (!designViewport || !container.current) return;
@@ -72,5 +72,5 @@ export function StoryScreenSurface({ files, content, mode, title, className, des
 function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<ScreenSurfaceMessage>;
-  return message.channel === "open-game:screen-surface" && typeof message.instanceId === "string" && (message.type === "action" || message.type === "error");
+  return message.channel === "ohmygame:screen-surface" && typeof message.instanceId === "string" && (message.type === "action" || message.type === "error");
 }

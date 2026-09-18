@@ -35,5 +35,5 @@ export function ComposerCapabilityReferences({ skill, plugin, onRemoveSkill, onR
 }
 
 function isGodotPlugin(plugin: Pick<PluginMention, "name" | "marketplaceId">): boolean {
-  return plugin.marketplaceId === "opengame" && plugin.name === "godot";
+  return plugin.marketplaceId === "ohmygame" && plugin.name === "godot";
 }

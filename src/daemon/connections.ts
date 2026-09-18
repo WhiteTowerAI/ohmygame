@@ -4,7 +4,7 @@ import path from "node:path";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 import type { Connection, ConnectionTransport, SaveConnectionRequest } from "../shared/connections.js";
 
-const GODOT_ID = "opengame-godot";
+const GODOT_ID = "ohmygame-godot";
 const GODOT_TRANSPORT: ConnectionTransport = {
   type: "stdio",
   command: "npx",
@@ -149,9 +149,9 @@ interface McpConfig { mcpServers?: Record<string, unknown> }
 function parseConfig(contents: string, filePath: string): McpConfig {
   const errors: ParseError[] = [];
   const value = parse(contents, errors, { allowTrailingComma: true }) as unknown;
-  if (errors.length || !isRecord(value)) throw new ConnectionError(`OpenGame Pi MCP config is invalid: ${filePath}`);
+  if (errors.length || !isRecord(value)) throw new ConnectionError(`OhMyGame Pi MCP config is invalid: ${filePath}`);
   const servers = value.mcpServers;
-  if (servers !== undefined && !isRecord(servers)) throw new ConnectionError(`OpenGame Pi MCP config has an invalid mcpServers field: ${filePath}`);
+  if (servers !== undefined && !isRecord(servers)) throw new ConnectionError(`OhMyGame Pi MCP config has an invalid mcpServers field: ${filePath}`);
   return servers ? { mcpServers: servers } : {};
 }
 

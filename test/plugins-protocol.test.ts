@@ -11,7 +11,7 @@ import {
 
 describe("plugin protocol", () => {
   it("accepts a minimal plugin manifest", () => {
-    expect(PLUGIN_MANIFEST_PATH).toBe(".opengame-plugin/plugin.json");
+    expect(PLUGIN_MANIFEST_PATH).toBe(".ohmygame-plugin/plugin.json");
     expect(isPluginManifest({
       name: "character-writer",
       version: "1.0.0",
@@ -26,7 +26,7 @@ describe("plugin protocol", () => {
       version: "0.1.0-alpha.1",
       description: "Godot workflows and tools",
       skills: "./skills/",
-      connections: ["opengame-godot"],
+      connections: ["ohmygame-godot"],
       interface: {
         displayName: "Godot",
         shortDescription: "Godot workflows",
@@ -56,7 +56,7 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, name: "Invalid Plugin" })).toBe(false);
     expect(isPluginManifest({ ...base, skills: "skills/" })).toBe(false);
     expect(isPluginManifest({ ...base, skills: "./../skills/" })).toBe(false);
-    expect(isPluginManifest({ ...base, homepage: "https://open-game.ai" })).toBe(false);
+    expect(isPluginManifest({ ...base, homepage: "https://ohmygame.ai" })).toBe(false);
     expect(isPluginManifest({ ...base, version: "" })).toBe(false);
     expect(isPluginManifest({ ...base, enabled: true })).toBe(false);
     expect(isPluginManifest({ ...base, mcpServers: "./mcp.json" })).toBe(false);
@@ -82,11 +82,11 @@ describe("plugin protocol", () => {
 
   it("keeps catalog state outside the author manifest", () => {
     const plugin: PluginSummary = {
-      id: "opengame:godot",
+      id: "ohmygame:godot",
       name: "godot",
       displayName: "Godot",
       description: "Connect the agent to the Godot editor",
-      marketplace: { id: "opengame", displayName: "OpenGame" },
+      marketplace: { id: "ohmygame", displayName: "OhMyGame" },
       source: { type: "builtIn" },
       installed: true,
       enabled: true,
@@ -96,10 +96,10 @@ describe("plugin protocol", () => {
   });
 
   it("serializes and restores Codex-style Plugin mentions", () => {
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
     const serialized = serializePluginMentions("Use @Godot to inspect the scene", [mention]);
 
-    expect(serialized).toBe("Use [@Godot](plugin://godot@opengame) to inspect the scene");
+    expect(serialized).toBe("Use [@Godot](plugin://godot@ohmygame) to inspect the scene");
     expect(parsePluginMentions(serialized)).toEqual({
       text: "Use @Godot to inspect the scene",
       mentions: [mention],
@@ -118,7 +118,7 @@ describe("plugin protocol", () => {
   });
 
   it("leaves malformed Plugin references untouched", () => {
-    const malformed = "Use [@Godot](plugin://%E0%A4%A@opengame)";
+    const malformed = "Use [@Godot](plugin://%E0%A4%A@ohmygame)";
     expect(parsePluginMentions(malformed)).toEqual({ text: malformed, mentions: [] });
   });
 

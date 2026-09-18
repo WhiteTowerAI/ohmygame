@@ -10,7 +10,7 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 describe("desktop daemon access", () => {
   it("protects health and project routes with the process token", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-access-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-access-")),
       accessToken: "desktop-secret",
     });
     apps.push(app);
@@ -32,7 +32,7 @@ describe("desktop daemon access", () => {
 
   it("allows only the configured renderer origin", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-access-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-access-")),
       accessToken: "desktop-secret",
       allowedOrigins: ["http://127.0.0.1:43120"],
     });
@@ -57,7 +57,7 @@ describe("desktop daemon access", () => {
   it("preserves renderer CORS headers on the event stream", async () => {
     const origin = "http://127.0.0.1:43120";
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "open-game-access-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-access-")),
       accessToken: "desktop-secret",
       allowedOrigins: [origin],
     });

@@ -76,7 +76,7 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   const assets = new Map(library.list().map((asset) => [asset.id, asset]));
   validatePublishedStory(story, assets);
   const requiredIds = referencedAssetIds(story);
-  const output = await mkdtemp(path.join(tmpdir(), "open-game-story-build-"));
+  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-story-build-"));
   try {
     await cp(playerDirectory, output, { recursive: true });
     await mkdir(path.join(output, "assets", "media"), { recursive: true });

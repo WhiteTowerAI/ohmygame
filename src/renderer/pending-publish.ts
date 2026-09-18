@@ -1,4 +1,4 @@
-const STORAGE_KEY = "open-game-pending-publish";
+const STORAGE_KEY = "ohmygame-pending-publish";
 const MAX_AGE_MS = 15 * 60 * 1_000;
 
 interface PendingPublish {

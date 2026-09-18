@@ -33,7 +33,7 @@ describe("conversationItems", () => {
     const items = conversationItems([
       sessionMessage("user", {
         role: "user",
-        content: "Use [@Godot](plugin://godot@opengame) to inspect the scene",
+        content: "Use [@Godot](plugin://godot@ohmygame) to inspect the scene",
         timestamp: 1,
       }),
     ] as never, false);
@@ -41,7 +41,7 @@ describe("conversationItems", () => {
     expect(items[0]).toMatchObject({
       type: "userMessage",
       text: "Use @Godot to inspect the scene",
-      mentions: [{ name: "godot", displayName: "Godot", marketplaceId: "opengame" }],
+      mentions: [{ name: "godot", displayName: "Godot", marketplaceId: "ohmygame" }],
     });
   });
 
@@ -320,7 +320,7 @@ describe("conversationItems", () => {
           id: "mcp",
           name: "mcp",
           arguments: {
-            server: "opengame-godot",
+            server: "ohmygame-godot",
             tool: "create_scene",
             args: { projectPath: "/game", content: "x".repeat(3_000) },
           },
@@ -331,7 +331,7 @@ describe("conversationItems", () => {
 
     expect(items[1]).toMatchObject({
       type: "mcpToolCall",
-      server: "opengame-godot",
+      server: "ohmygame-godot",
       tool: "create_scene",
     });
     expect(items[1]?.type === "mcpToolCall" && typeof items[1].arguments).toBe("string");
@@ -343,18 +343,18 @@ describe("conversationItems", () => {
       sessionMessage("assistant", {
         role: "assistant",
         content: [
-          { type: "toolCall", id: "list", name: "mcp", arguments: { server: "opengame-godot" } },
-          { type: "toolCall", id: "search", name: "mcp", arguments: { server: "opengame-godot", search: "scene" } },
-          { type: "toolCall", id: "describe", name: "mcp", arguments: { server: "opengame-godot", describe: "opengame-godot_add_node" } },
+          { type: "toolCall", id: "list", name: "mcp", arguments: { server: "ohmygame-godot" } },
+          { type: "toolCall", id: "search", name: "mcp", arguments: { server: "ohmygame-godot", search: "scene" } },
+          { type: "toolCall", id: "describe", name: "mcp", arguments: { server: "ohmygame-godot", describe: "ohmygame-godot_add_node" } },
         ],
         stopReason: "toolUse",
       }),
     ] as never);
 
     expect(items.slice(1, 4)).toMatchObject([
-      { type: "mcpToolCall", server: "opengame-godot", tool: "list_tools" },
-      { type: "mcpToolCall", server: "opengame-godot", tool: "search_tools", arguments: { search: "scene" } },
-      { type: "mcpToolCall", server: "opengame-godot", tool: "describe_add_node", arguments: { describe: "opengame-godot_add_node" } },
+      { type: "mcpToolCall", server: "ohmygame-godot", tool: "list_tools" },
+      { type: "mcpToolCall", server: "ohmygame-godot", tool: "search_tools", arguments: { search: "scene" } },
+      { type: "mcpToolCall", server: "ohmygame-godot", tool: "describe_add_node", arguments: { describe: "ohmygame-godot_add_node" } },
     ]);
   });
 });
@@ -1209,7 +1209,7 @@ describe("AgentManager", () => {
     await manager.cancelPlan(project, conversation);
 
     expect(createSession).toHaveBeenCalledOnce();
-    expect(session.appendCustomEntry).toHaveBeenCalledWith("open-game-plan", { mode: "normal" });
+    expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-plan", { mode: "normal" });
     await manager.close();
   });
 
@@ -1286,7 +1286,7 @@ describe("AgentManager", () => {
   });
 
   it("revises the latest persisted user turn through Pi tree navigation", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "open-game-revise-"));
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-revise-"));
     const workspacePath = path.join(root, "workspace");
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));

@@ -82,7 +82,7 @@ interface DesktopRuntime {
 
 declare global {
   interface Window {
-    openGameDesktop?: {
+    ohMyGameDesktop?: {
       platform: string;
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
@@ -133,17 +133,17 @@ export async function listModels(): Promise<AgentModelCatalog> {
   return request("/models");
 }
 
-export async function connectPortal(accessToken: string): Promise<void> {
-  await request("/portal/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
+export async function connectAccount(accessToken: string): Promise<void> {
+  await request("/account/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
   notifyAgentModelsChanged();
 }
 
-export async function disconnectPortal(): Promise<void> {
-  await request("/portal/connection", { method: "DELETE" });
+export async function disconnectAccount(): Promise<void> {
+  await request("/account/connection", { method: "DELETE" });
   notifyAgentModelsChanged();
 }
 
-export const MODELS_CHANGED_EVENT = "open-game-models-changed";
+export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
 
 export function notifyAgentModelsChanged(): void {
   window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
@@ -960,7 +960,7 @@ function modelRef(model: AgentModelRef): AgentModelRef {
 }
 
 function desktopRuntime(): DesktopRuntime | undefined {
-  return window.openGameDesktop?.runtime;
+  return window.ohMyGameDesktop?.runtime;
 }
 
 function reconnectDelay(signal: AbortSignal): Promise<void> {

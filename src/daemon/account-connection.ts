@@ -1,42 +1,42 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { RuntimeModel } from "./agent.js";
-import { PortalClient } from "./portal-client.js";
-import type { Model3DSource } from "./portal-3d.js";
+import { AccountServiceClient } from "./account-service-client.js";
+import type { Model3DSource } from "./managed-3d.js";
 import type { VideoSource } from "./seedance-video.js";
 
-const PROVIDER_ID = "opengame";
+const PROVIDER_ID = "ohmygame";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-export interface PortalConnectionState {
+export interface AccountConnectionState {
   status: "disconnected" | "connecting" | "connected" | "error";
   modelCount?: number;
   error?: string;
 }
 
-export class PortalConnection {
+export class AccountConnection {
   private controller?: AbortController;
   private operation: Promise<unknown> = Promise.resolve();
   private runtimeInstance?: ModelRuntime;
   private registered = false;
-  private portalCredential?: { baseUrl: string; apiKey: string };
-  private portalAccessToken?: string;
-  private portalModelIds: string[] = [];
-  private state: PortalConnectionState = { status: "disconnected" };
+  private accountCredential?: { baseUrl: string; apiKey: string };
+  private accountAccessToken?: string;
+  private accountModelIds: string[] = [];
+  private state: AccountConnectionState = { status: "disconnected" };
 
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
-    private readonly client: PortalClient,
+    private readonly client: AccountServiceClient,
   ) {}
 
-  get(): PortalConnectionState {
+  get(): AccountConnectionState {
     return this.state;
   }
 
-  connect(accessToken: string): Promise<PortalConnectionState> {
+  connect(accessToken: string): Promise<AccountConnectionState> {
     this.controller?.abort();
-    this.portalCredential = undefined;
-    this.portalAccessToken = undefined;
-    this.portalModelIds = [];
+    this.accountCredential = undefined;
+    this.accountAccessToken = undefined;
+    this.accountModelIds = [];
     const controller = new AbortController();
     this.controller = controller;
     this.state = { status: "connecting" };
@@ -48,14 +48,14 @@ export class PortalConnection {
         if (controller.signal.aborted) return this.state;
         const credential = await this.client.credential(accessToken, controller.signal);
         const ids = await this.client.modelIds(credential, controller.signal);
-        const models = portalModels(runtime.getModels(), ids);
+        const models = accountModels(runtime.getModels(), ids);
         if (controller.signal.aborted) return this.state;
-        this.portalCredential = credential;
-        this.portalAccessToken = accessToken;
-        this.portalModelIds = ids;
+        this.accountCredential = credential;
+        this.accountAccessToken = accessToken;
+        this.accountModelIds = ids;
         if (models.length > 0) {
           runtime.registerProvider(PROVIDER_ID, {
-            name: "OpenGame",
+            name: "OhMyGame",
             baseUrl: credential.baseUrl,
             api: "openai-responses",
             authHeader: true,
@@ -72,21 +72,21 @@ export class PortalConnection {
       } catch (cause) {
         if (this.registered) await this.remove();
         if (controller.signal.aborted) return this.state;
-        this.portalCredential = undefined;
-        this.portalAccessToken = undefined;
-        this.portalModelIds = [];
+        this.accountCredential = undefined;
+        this.accountAccessToken = undefined;
+        this.accountModelIds = [];
         return this.state = { status: "error", error: cause instanceof Error ? cause.message : String(cause) };
       }
     });
   }
 
-  disconnect(): Promise<PortalConnectionState> {
+  disconnect(): Promise<AccountConnectionState> {
     this.controller?.abort();
     this.controller = undefined;
     this.state = { status: "disconnected" };
-    this.portalCredential = undefined;
-    this.portalAccessToken = undefined;
-    this.portalModelIds = [];
+    this.accountCredential = undefined;
+    this.accountAccessToken = undefined;
+    this.accountModelIds = [];
     return this.enqueue(async () => {
       await this.remove();
       return this.state;
@@ -94,13 +94,13 @@ export class PortalConnection {
   }
 
   imageSource(): { baseUrl: string; apiKey: string; modelIds: readonly string[] } | undefined {
-    if (this.state.status !== "connected" || !this.portalCredential) return undefined;
-    return { ...this.portalCredential, modelIds: [...this.portalModelIds] };
+    if (this.state.status !== "connected" || !this.accountCredential) return undefined;
+    return { ...this.accountCredential, modelIds: [...this.accountModelIds] };
   }
 
   videoSource(): VideoSource | undefined {
     const source = this.imageSource();
-    const accessToken = this.portalAccessToken;
+    const accessToken = this.accountAccessToken;
     if (!source || !accessToken) return undefined;
     return {
       ...source,
@@ -130,7 +130,7 @@ export class PortalConnection {
   }
 }
 
-export function portalModels(catalog: readonly RuntimeModel[], ids: readonly string[]) {
+export function accountModels(catalog: readonly RuntimeModel[], ids: readonly string[]) {
   return ids.flatMap((id) => {
     if (/-image(?:-preview)?$/i.test(id)) return [];
     const matches = catalog.filter((model) => model.provider !== PROVIDER_ID && model.id === id);

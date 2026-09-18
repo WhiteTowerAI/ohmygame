@@ -193,17 +193,17 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ plugins: [], errors: [] }))
-      .mockResolvedValueOnce(Response.json({ id: "opengame:godot" }))
+      .mockResolvedValueOnce(Response.json({ id: "ohmygame:godot" }))
       .mockResolvedValueOnce(Response.json({ id: "skills/godot/SKILL.md", content: "# Godot" }));
     vi.stubGlobal("fetch", fetchMock);
 
     await listPlugins();
-    await readPlugin("opengame:godot");
-    await readPluginSkill("opengame:godot", "skills/godot/SKILL.md");
+    await readPlugin("ohmygame:godot");
+    await readPluginSkill("ohmygame:godot", "skills/godot/SKILL.md");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/opengame%3Agodot", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/opengame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/ohmygame%3Agodot", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/ohmygame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
   });
 
   it("loads Composer capabilities before a project exists", async () => {
@@ -302,14 +302,14 @@ describe("renderer project API", () => {
   it("installs and publishes Catalog Plugins through the daemon API", async () => {
     installWindow();
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ id: "opengame:tools" }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ id: "ohmygame:tools" }, { status: 201 }))
       .mockResolvedValueOnce(Response.json({}, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await installCatalogPlugin("opengame:tools");
+    await installCatalogPlugin("ohmygame:tools");
     await publishPlugin("personal:tools", "user-access-token", "0.1.0");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/opengame%3Atools/install", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/ohmygame%3Atools/install", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
       method: "POST", body: JSON.stringify({ accessToken: "user-access-token", version: "0.1.0" }),
     }));
@@ -453,7 +453,7 @@ describe("renderer project API", () => {
     installWindow();
     const fetchMock = vi.fn(async () => Response.json({ queued: false, turnId: "turn-1" }, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "opengame" };
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
 
     await sendPrompt("project-1", "conversation-1", "Use @Godot", [], [], "normal", [mention]);
 
@@ -652,7 +652,7 @@ describe("renderer project API", () => {
 
   it("downloads workspace assets with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -668,7 +668,7 @@ describe("renderer project API", () => {
 
   it("loads and stores project covers with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -692,7 +692,7 @@ describe("renderer project API", () => {
 
   it("loads Community game covers through the local runtime", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -769,7 +769,7 @@ describe("renderer tools API", () => {
 
   it("downloads tool output with desktop authorization", async () => {
     vi.stubGlobal("window", {
-      openGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
       setTimeout,
       clearTimeout,
     });
@@ -816,7 +816,7 @@ describe("renderer tools API", () => {
 
 function installWindow(): void {
   vi.stubGlobal("window", {
-    openGameDesktop: undefined,
+    ohMyGameDesktop: undefined,
     setTimeout,
     clearTimeout,
   });

@@ -14,7 +14,7 @@ const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
 const DEFAULT_EDITOR_PRESENTATION = `/**
  * Optional project-local editor presentation.
  *
- * Return { replace: true } after rendering into root to replace OpenGame's
+ * Return { replace: true } after rendering into root to replace OhMyGame's
  * default node card or Inspector body. Return false to keep the default UI.
  * This module runs in a sandbox and cannot access the editor DOM or files.
  */
@@ -54,7 +54,7 @@ This directory customizes the Interactive Drama editor for this project using or
 
 \`presentation.js\` exports a \`regions\` array containing the enabled regions: \`workspace\`, \`toolbar\`, \`node\`, \`inspector\`, \`preview\`, and \`timeline\`. Only enabled regions create sandbox surfaces.
 It may export the matching \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\` functions.
-Each function receives \`{ node, context, editor, root }\`. Render into \`root\` and return \`{ replace: true }\` to replace that default region. Return \`false\` to keep OpenGame's UI.
+Each function receives \`{ node, context, editor, root }\`. Render into \`root\` and return \`{ replace: true }\` to replace that default region. Return \`false\` to keep OhMyGame's UI.
 
 \`context\` contains the project, complete hydrated story, editor layout, current selection, and Variables. A node may use \`node.editor.kind\` and \`node.editor.properties\` for project-specific presentation while retaining its standard runtime \`node.type\`.
 
@@ -71,11 +71,11 @@ Each function receives \`{ node, context, editor, root }\`. Render into \`root\`
 - \`editor.undo()\` and \`redo()\` operate on project-editor transactions.
 - \`editor.useDefaultEditor()\` exits a custom full-workspace editor.
 
-All changes cross the sandbox boundary and are validated by OpenGame. Extension code cannot access the host DOM, filesystem, or network. Missing exports, \`false\` returns, and runtime errors fall back to the default editor.
+All changes cross the sandbox boundary and are validated by OhMyGame. Extension code cannot access the host DOM, filesystem, or network. Missing exports, \`false\` returns, and runtime errors fall back to the default editor.
 `;
 const AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
-This workspace is the source of truth for an OpenGame Interactive Drama.
+This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 ## Contract
 
@@ -102,7 +102,7 @@ Scene, Choice, and Ending JavaScript export \`render({ node, scene, game, variab
 
 Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`. Declarative behavior applies variable actions and Story edges perform the transition.
 
-Editor presentation JavaScript may export \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\`. Return \`{ replace: true }\` to use the rendered content, or \`false\` to retain OpenGame's default UI. Use the provided \`editor\` SDK for validated project changes; the module runs in a sandbox without host DOM, filesystem, or network access.
+Editor presentation JavaScript may export \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\`. Return \`{ replace: true }\` to use the rendered content, or \`false\` to retain OhMyGame's default UI. Use the provided \`editor\` SDK for validated project changes; the module runs in a sandbox without host DOM, filesystem, or network access.
 `;
 type UnknownRecord = Record<string, unknown>;
 

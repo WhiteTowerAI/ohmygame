@@ -25,7 +25,7 @@ const { archiveName, extractedName, sha256: expectedSha256 } = runtime;
 const runtimeLayout = `${version}-${target}-minimal-1`;
 const runtimeRoot = path.resolve(".runtime");
 const destination = path.join(runtimeRoot, "node");
-const marker = path.join(destination, ".open-game-node-version");
+const marker = path.join(destination, ".ohmygame-node-version");
 
 try {
   if ((await readFile(marker, "utf8")).trim() === runtimeLayout) {

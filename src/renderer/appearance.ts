@@ -1,7 +1,7 @@
 export type Appearance = "system" | "light" | "dark";
 type ResolvedAppearance = Exclude<Appearance, "system">;
 
-const APPEARANCE_STORAGE_KEY = "open-game:appearance";
+const APPEARANCE_STORAGE_KEY = "ohmygame:appearance";
 const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
 let stopWatchingSystemAppearance: (() => void) | undefined;
 

@@ -39,7 +39,7 @@ describe("plugin runtime", () => {
 });
 
 async function settingsStore(): Promise<PluginSettingsStore> {
-  const store = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "open-game-plugin-runtime-")));
+  const store = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-runtime-")));
   await store.load();
   return store;
 }
@@ -49,6 +49,6 @@ function localPlugin(): PluginDetail {
     id: "personal:test", name: "test", displayName: "Test", description: "Test plugin", version: "0.1.0",
     marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" }, installed: true, enabled: true,
     skills: [{ id: "skills/review/SKILL.md", name: "Review", enabled: true }],
-    connections: [{ id: "opengame-godot", name: "Godot", enabled: true }],
+    connections: [{ id: "ohmygame-godot", name: "Godot", enabled: true }],
   };
 }

@@ -81,7 +81,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
 }
 
 async function openPayment(url: string): Promise<void> {
-  if (window.openGameDesktop) await window.openGameDesktop.openExternal(url);
+  if (window.ohMyGameDesktop) await window.ohMyGameDesktop.openExternal(url);
   else window.location.assign(url);
 }
 
@@ -201,7 +201,7 @@ function AccountSettings() {
 
 function AboutSettings() {
   const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
-  const updates = window.openGameDesktop?.updates;
+  const updates = window.ohMyGameDesktop?.updates;
   useEffect(() => {
     if (!updates) return;
     let disposed = false;

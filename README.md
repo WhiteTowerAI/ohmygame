@@ -1,4 +1,4 @@
-# OpenGame
+# OhMyGame
 
 The current milestone is a local-first creation loop with remote publishing: a
 Pi coding session on the left, a live preview on the right, and a public
@@ -20,7 +20,7 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
-The daemon also exposes an image generation tool. Connect OpenGame Portal or
+The daemon also exposes an image generation tool. Connect OhMyGame account or
 OpenAI under Providers, then choose an available image model in the Images
 tool. Provider credentials remain in the daemon and are never exposed to the
 renderer or project workspaces.
@@ -81,7 +81,7 @@ and shareable game routes.
 
 The same web app owns the public `/pricing` page and signed-in `/account/usage`
 and `/account/billing` pages. The desktop renderer exposes the same account
-features under Settings. Both use the OpenGame account service; its private New
+features under Settings. Both use the OhMyGame account service; its private New
 API administration credentials never enter either client.
 Add the production website account routes to the Supabase redirect allow list
 alongside the renderer and desktop callback URLs.

@@ -13,7 +13,7 @@ interface AppSidebarProps {
 const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 208;
 const MAX_SIDEBAR_WIDTH = 272;
-const SIDEBAR_WIDTH_STORAGE_KEY = "open-game-sidebar-width";
+const SIDEBAR_WIDTH_STORAGE_KEY = "ohmygame-sidebar-width";
 
 export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   const auth = useAuth();
@@ -41,7 +41,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   }, [accountMenuOpen]);
 
   useEffect(() => {
-    const updates = window.openGameDesktop?.updates;
+    const updates = window.ohMyGameDesktop?.updates;
     if (!updates) return;
     let disposed = false;
     void updates.state().then((state) => {
@@ -56,9 +56,9 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
 
   const updateStatus = update?.status.type;
   const updateAction = updateStatus === "available"
-    ? { label: "Update", icon: <ArrowDownToLine size={15} />, action: () => void window.openGameDesktop?.updates.download() }
+    ? { label: "Update", icon: <ArrowDownToLine size={15} />, action: () => void window.ohMyGameDesktop?.updates.download() }
     : updateStatus === "ready"
-      ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.openGameDesktop?.updates.install() }
+      ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.ohMyGameDesktop?.updates.install() }
       : undefined;
   const updateButton = updateAction ? (
     <button className="home-sidebar-update" type="button" aria-label={updateAction.label} onClick={updateAction.action}>

@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-open-game-scene-surface' blob:; font-src data:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-ohmygame-scene-surface' blob:; font-src data:" />
     <style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}</style>
   </head>
   <body>
-    <script nonce="open-game-scene-surface">
+    <script nonce="ohmygame-scene-surface">
       (() => {
-        const CHANNEL = "open-game:scene-surface";
+        const CHANNEL = "ohmygame:scene-surface";
         let activeInstanceId;
         let generation = 0;
         let moduleUrl;

@@ -3,7 +3,7 @@ import { activePluginMentions, extractLeadingPluginMention, formatComposerInvoca
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 
 const capabilities: ConversationCapabilities = {
-  plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "opengame", marketplaceDisplayName: "OpenGame" }],
+  plugins: [{ id: "plugin-1", name: "image-generation", displayName: "Image Generation", description: "Create images", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame" }],
   skills: [{ name: "review", description: "Review a change" }],
 };
 

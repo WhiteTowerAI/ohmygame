@@ -120,7 +120,7 @@ export function AccountPage({
   let content;
   if (error) {
     content = (
-      <div role="alert" className="og-account-state">
+      <div role="alert" className="account-state">
         <p>{error}</p>
         <button type="button" onClick={() => setRevision((value) => value + 1)}>Try again</button>
       </div>
@@ -129,7 +129,7 @@ export function AccountPage({
     content = <Loading />;
   } else if (section !== "plans" && !userId) {
     content = (
-      <div className="og-account-state">
+      <div className="account-state">
         <p>Sign in to view your {section}.</p>
         <button type="button" onClick={onSignIn}>Sign in</button>
       </div>
@@ -156,8 +156,8 @@ export function AccountPage({
 
   const title = section === "plans" ? "Plans" : section === "usage" ? "Usage" : "Billing";
   return (
-    <div className="og-account">
-      <header className="og-account-heading">
+    <div className="account">
+      <header className="account-heading">
         <h1>{title}</h1>
         <button
           type="button"
@@ -169,9 +169,9 @@ export function AccountPage({
         </button>
       </header>
       {section === "usage" ? (
-        <p className="og-account-muted">OpenGame usage in the last 30 days. External providers are not included.</p>
+        <p className="account-muted">OhMyGame usage in the last 30 days. External providers are not included.</p>
       ) : null}
-      {actionError ? <p role="alert" className="og-account-error">{actionError}</p> : null}
+      {actionError ? <p role="alert" className="account-error">{actionError}</p> : null}
       {content}
     </div>
   );
@@ -183,8 +183,8 @@ function PlansPanel({ plans, pending, onChoose }: {
   onChoose: (planId: number) => void;
 }) {
   return (
-    <div className="og-account-plans">
-      <article className="og-account-plan">
+    <div className="account-plans">
+      <article className="account-plan">
         <h2>Free</h2>
         <strong>{money(0, "USD")}</strong>
         <p>No monthly subscription.</p>
@@ -192,10 +192,10 @@ function PlansPanel({ plans, pending, onChoose }: {
         <button disabled>Included</button>
       </article>
       {plans.map((plan) => (
-        <article className="og-account-plan" key={plan.id}>
+        <article className="account-plan" key={plan.id}>
           <h2>{plan.name}</h2>
           <strong>{money(plan.price, plan.currency)}<small> / month</small></strong>
-          <p>{plan.description || "Monthly OpenGame usage credits."}</p>
+          <p>{plan.description || "Monthly OhMyGame usage credits."}</p>
           <span>{money(plan.monthly_credits, plan.currency)} monthly usage credits</span>
           <button
             type="button"
@@ -206,7 +206,7 @@ function PlansPanel({ plans, pending, onChoose }: {
           </button>
         </article>
       ))}
-      {!plans.length ? <p className="og-account-muted">No paid plans are currently available.</p> : null}
+      {!plans.length ? <p className="account-muted">No paid plans are currently available.</p> : null}
     </div>
   );
 }
@@ -218,9 +218,9 @@ function BillingPanel({ subscription, pending, onManage }: {
 }) {
   return (
     <>
-      <div className="og-account-billing-row">
+      <div className="account-billing-row">
         <div>
-          <span className="og-account-muted">Current plan</span>
+          <span className="account-muted">Current plan</span>
           <h2>{subscription.current?.plan_name ?? "Free"}</h2>
         </div>
         {subscription.current ? (
@@ -229,7 +229,7 @@ function BillingPanel({ subscription, pending, onManage }: {
           </button>
         ) : null}
       </div>
-      <div className="og-account-metrics">
+      <div className="account-metrics">
         <Metric label="Wallet balance" value={money(subscription.wallet_credits, subscription.currency)} />
         {subscription.current ? (
           <Metric label="Plan credits remaining" value={money(subscription.current.remaining_credits, subscription.currency)} />
@@ -237,7 +237,7 @@ function BillingPanel({ subscription, pending, onManage }: {
         <Metric label="Account status" value={subscription.account_status === "active" ? "Active" : "Unavailable"} />
       </div>
       {subscription.current ? (
-        <p className="og-account-muted">
+        <p className="account-muted">
           {subscription.current.cancel_at_period_end ? "Ends" : "Renews"} {date(subscription.current.renews_at)}. {money(subscription.current.total_credits, subscription.currency)} plan credits per period.
         </p>
       ) : null}
@@ -251,14 +251,14 @@ function UsagePanel({ usage, onPageChange }: {
 }) {
   return (
     <>
-      <div className="og-account-metrics">
+      <div className="account-metrics">
         <Metric label="Total spend" value={money(usage.summary.total_spend, usage.summary.currency)} />
         <Metric label="Wallet balance" value={money(usage.summary.available_balance, usage.summary.currency)} />
         <Metric label="Requests" value={usage.summary.total_requests.toLocaleString()} />
       </div>
       <h2>Usage log</h2>
       {usage.logs.length ? (
-        <div className="og-account-table">
+        <div className="account-table">
           <table>
             <thead><tr><th>Date</th><th>Model</th><th>Tokens</th><th>Amount</th></tr></thead>
             <tbody>
@@ -273,8 +273,8 @@ function UsagePanel({ usage, onPageChange }: {
             </tbody>
           </table>
         </div>
-      ) : <p className="og-account-state">No OpenGame usage in this period.</p>}
-      <div className="og-account-pagination">
+      ) : <p className="account-state">No OhMyGame usage in this period.</p>}
+      <div className="account-pagination">
         <span>{usage.pagination.total.toLocaleString()} requests</span>
         <span>Page {usage.pagination.page} of {usage.pagination.total_pages}</span>
         <button
@@ -301,7 +301,7 @@ function UsagePanel({ usage, onPageChange }: {
 }
 
 function Loading() {
-  return <div className="og-account-loading" role="status" aria-label="Loading account"><div /><div /><div /></div>;
+  return <div className="account-loading" role="status" aria-label="Loading account"><div /><div /><div /></div>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

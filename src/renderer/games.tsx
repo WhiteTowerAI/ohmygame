@@ -6,7 +6,7 @@ import {
   takeGameMosaicSlots,
   type GameMosaicSlot,
 } from "../shared/game-mosaic.js";
-import brandMark from "../shared/assets/opengame-mark.svg";
+import brandMark from "../shared/assets/ohmygame-mark.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
@@ -16,10 +16,10 @@ const RELATED_GAMES_LIMIT = 10;
 
 export function GamesPage({
   onNavigate,
-  onOpenGame,
+  onOhMyGame,
 }: {
   onNavigate: (page: AppNavigationTarget) => void;
-  onOpenGame: (gameId: string) => void;
+  onOhMyGame: (gameId: string) => void;
 }) {
   const [games, setGames] = useState<CommunityGame[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -56,7 +56,7 @@ export function GamesPage({
         {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
         {phase === "ready" && games.length === 0 ? <div className="explore-state">No published games yet</div> : null}
         {phase === "ready" && games.length > 0 ? (
-          <GameMosaic games={games.slice(0, HOME_GAME_MOSAIC_SLOTS.length)} onOpenGame={onOpenGame} />
+          <GameMosaic games={games.slice(0, HOME_GAME_MOSAIC_SLOTS.length)} onOhMyGame={onOhMyGame} />
         ) : null}
       </section>
     </SidebarPageLayout>
@@ -69,7 +69,7 @@ type MosaicStyle = CSSProperties & {
   "--mosaic-size": number;
 };
 
-function GameMosaic({ games, onOpenGame }: { games: CommunityGame[]; onOpenGame: (gameId: string) => void }) {
+function GameMosaic({ games, onOhMyGame }: { games: CommunityGame[]; onOhMyGame: (gameId: string) => void }) {
   const slots = takeGameMosaicSlots(HOME_GAME_MOSAIC_SLOTS, games.length);
   const complete = games.length === HOME_GAME_MOSAIC_SLOTS.length;
   return (
@@ -78,7 +78,7 @@ function GameMosaic({ games, onOpenGame }: { games: CommunityGame[]; onOpenGame:
         <GameTile
           game={game}
           key={game.id}
-          onOpen={() => onOpenGame(game.id)}
+          onOpen={() => onOhMyGame(game.id)}
           slot={slots[index]!}
           useFixedSlot={complete}
         />
@@ -148,11 +148,11 @@ function useGameCover(game: CommunityGame): string | undefined {
   return url;
 }
 
-export function GamePlayer({ gameId, onBack, onNavigate, onOpenGame }: {
+export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   gameId: string;
   onBack: () => void;
   onNavigate: (page: AppNavigationTarget) => void;
-  onOpenGame: (gameId: string) => void;
+  onOhMyGame: (gameId: string) => void;
 }) {
   const [game, setGame] = useState<CommunityGame>();
   const [relatedGames, setRelatedGames] = useState<CommunityGame[]>([]);
@@ -196,16 +196,16 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOpenGame }: {
             <button className="quiet-button" type="button" onClick={() => void load()}>Retry</button>
           </div>
         ) : null}
-        {game ? <GameDetail game={game} relatedGames={relatedGames} onOpenGame={onOpenGame} /> : null}
+        {game ? <GameDetail game={game} relatedGames={relatedGames} onOhMyGame={onOhMyGame} /> : null}
       </section>
     </SidebarPageLayout>
   );
 }
 
-function GameDetail({ game, relatedGames, onOpenGame }: {
+function GameDetail({ game, relatedGames, onOhMyGame }: {
   game: CommunityGame;
   relatedGames: CommunityGame[];
-  onOpenGame: (gameId: string) => void;
+  onOhMyGame: (gameId: string) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const recorded = useRef(false);
@@ -279,7 +279,7 @@ function GameDetail({ game, relatedGames, onOpenGame }: {
                 className="electron-game-related-tile"
                 game={relatedGame}
                 key={relatedGame.id}
-                onOpen={() => onOpenGame(relatedGame.id)}
+                onOpen={() => onOhMyGame(relatedGame.id)}
               />
             ))}
           </div>

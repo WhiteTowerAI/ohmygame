@@ -10,15 +10,15 @@ describe("image settings", () => {
     const store = new ImageSettingsStore(dataDirectory);
     await store.load();
 
-    await expect(store.update({ provider: "opengame", id: "gpt-image-2" })).resolves.toEqual({
-      model: { provider: "opengame", id: "gpt-image-2" },
+    await expect(store.update({ provider: "ohmygame", id: "gpt-image-2" })).resolves.toEqual({
+      model: { provider: "ohmygame", id: "gpt-image-2" },
     });
 
     const file = path.join(dataDirectory, "image-settings.json");
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
       version: 2,
-      model: { provider: "opengame", id: "gpt-image-2" },
+      model: { provider: "ohmygame", id: "gpt-image-2" },
     });
   });
 
@@ -38,5 +38,5 @@ describe("image settings", () => {
 });
 
 function temporaryData(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), "open-game-image-settings-"));
+  return mkdtemp(path.join(tmpdir(), "ohmygame-image-settings-"));
 }

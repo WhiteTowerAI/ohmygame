@@ -1173,10 +1173,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         return;
       }
       await save(document);
-      if (window.openGameDesktop) {
-        await window.openGameDesktop.openPlaytest(projectId, activeChapter.id);
+      if (window.ohMyGameDesktop) {
+        await window.ohMyGameDesktop.openPlaytest(projectId, activeChapter.id);
       } else {
-        window.open(new URL(playtestHash(projectId, activeChapter.id), window.location.href).href, "open-game-playtest");
+        window.open(new URL(playtestHash(projectId, activeChapter.id), window.location.href).href, "ohmygame-playtest");
       }
     } catch (error) {
       setPlayIssue({ nodeId: "", message: errorMessage(error) });
@@ -2457,7 +2457,7 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
   const title = node?.data.title || node?.data.name || (node ? titleCase(node.type) : "Untitled node");
   useEffect(() => { setSceneMode("design"); }, [node?.id]);
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => { if (event.data?.type === "open-game:start-story") onPlaytest(); };
+    const handleMessage = (event: MessageEvent) => { if (event.data?.type === "ohmygame:start-story") onPlaytest(); };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, [onPlaytest]);

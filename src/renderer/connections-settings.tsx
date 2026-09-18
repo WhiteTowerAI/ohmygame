@@ -85,7 +85,7 @@ export function ConnectionsSettings() {
     {phase === "error" ? <button className="settings-secondary-button" type="button" onClick={() => void load()}>Retry</button> : null}
     {phase === "ready" ? <div className="settings-connection-list">
       {connections.map((connection) => <article className={`settings-connection-row${connection.enabled ? "" : " is-disabled"}`} key={connection.id}>
-        <span className="settings-connection-icon">{connection.id === "opengame-godot" ? <GodotIcon size={20} /> : <Plug size={17} />}</span>
+        <span className="settings-connection-icon">{connection.id === "ohmygame-godot" ? <GodotIcon size={20} /> : <Plug size={17} />}</span>
         <span className="settings-connection-copy">
           <span><strong>{connection.displayName}</strong>{connection.source === "preset" ? <small>Built-in</small> : null}</span>
           <span className="settings-connection-transport" title={connectionDefinition(connection)}>{connection.transport.type === "stdio" ? "Local · STDIO" : "Remote · HTTP"}</span>

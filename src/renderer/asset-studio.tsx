@@ -31,7 +31,7 @@ import {
 import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, retryToolJob, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
 import { ASSET_TEMPLATES, defaultTemplateForMode, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
 import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
-import { OPEN_GAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
+import { OHMYGAME_TEMPLATE_AUTHOR } from "../shared/built-in-asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { useAuth } from "./auth.js";
@@ -144,7 +144,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const builtInTemplateIds = new Set(ASSET_TEMPLATES.map((template) => template.id));
   const yoursTemplates = localTemplates.map(templateForGallery);
   const communityTemplates = exploreTemplates
-    .filter((template) => template.author.id !== OPEN_GAME_TEMPLATE_AUTHOR.id
+    .filter((template) => template.author.id !== OHMYGAME_TEMPLATE_AUTHOR.id
       && !builtInTemplateIds.has(template.id))
     .map(templateForGallery);
   const templates = [...yoursTemplates, ...communityTemplates];
@@ -1146,7 +1146,7 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
   return <article className={`asset-template-card${selected ? " is-selected" : ""}${template.source === "builtIn" ? " is-official" : ""}${actionsOpen ? " is-menu-open" : ""}`}>
     <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} disabled={busy} onClick={() => onSelect(template)}>
       <TemplatePreview template={template} />
-      <span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" && !template.author ? <small>OpenGame</small> : publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
+      <span className="asset-template-card-copy"><strong>{template.name}</strong>{template.source === "builtIn" && !template.author ? <small>OhMyGame</small> : publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
     </button>
     {template.source === "local" ? <div className="asset-template-actions" ref={actions}>
       <button className="asset-template-actions-trigger" type="button" aria-label={`Manage ${template.name}`} title="Template actions" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy} onClick={() => setActionsOpen((open) => !open)}><MoreHorizontal size={15} /></button>

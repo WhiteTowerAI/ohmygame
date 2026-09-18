@@ -1,6 +1,6 @@
 # Desktop releases
 
-OpenGame uses `electron-updater` with a generic HTTPS update feed. The source
+OhMyGame uses `electron-updater` with a generic HTTPS update feed. The source
 repository may remain private: release artifacts are built by GitHub Actions
 and copied to a public, read-only Cloudflare R2 custom domain.
 
@@ -8,26 +8,26 @@ and copied to a public, read-only Cloudflare R2 custom domain.
 
 Create an R2 bucket and expose the release prefix through a custom domain. The
 URL must not require browser cookies or an embedded cloud credential. For
-example, with the prefix `desktop/alpha`:
+example, with the prefix `desktop`:
 
 ```text
-https://updates.example.com/desktop/alpha/alpha.yml
-https://updates.example.com/desktop/alpha/alpha-mac.yml
-https://updates.example.com/desktop/alpha/OpenGame-0.1.0-x64.exe
+https://updates.ohmygame.ai/desktop/latest.yml
+https://updates.ohmygame.ai/desktop/latest-mac.yml
+https://updates.ohmygame.ai/desktop/OhMyGame-0.1.0-x64.exe
 ```
 
 The workflow uploads versioned installers and blockmaps with immutable cache
-headers. It uploads `alpha.yml` and `alpha-mac.yml` last with caching disabled,
+headers. It uploads `latest.yml` and `latest-mac.yml` last with caching disabled,
 so clients never observe a manifest before its referenced files exist.
 
 Configure these GitHub Actions repository variables:
 
 | Variable | Example | Purpose |
 | --- | --- | --- |
-| `DESKTOP_UPDATE_URL` | `https://updates.example.com/desktop/alpha` | Public feed URL embedded in the app |
+| `DESKTOP_UPDATE_URL` | `https://updates.ohmygame.ai/desktop` | Public feed URL embedded in the app |
 | `R2_ACCOUNT_ID` | Cloudflare account ID | Builds the R2 S3 endpoint |
-| `R2_BUCKET` | `open-game-releases` | Destination bucket |
-| `R2_DESKTOP_UPDATE_PREFIX` | `desktop/alpha` | Destination key prefix, without surrounding slashes |
+| `R2_BUCKET` | `ohmygame-releases` | Destination bucket |
+| `R2_DESKTOP_UPDATE_PREFIX` | `desktop` | Destination key prefix, without surrounding slashes |
 
 Configure these repository secrets:
 
@@ -63,6 +63,6 @@ the update feed.
 ## Rollback
 
 Do not overwrite versioned installers. To roll back a bad release, restore the
-previous `alpha.yml` and `alpha-mac.yml` manifests, or publish a newer patch
+previous `latest.yml` and `latest-mac.yml` manifests, or publish a newer patch
 version containing the reverted code. Existing clients only install versions
 newer than their current application version.

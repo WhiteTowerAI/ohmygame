@@ -16,8 +16,8 @@ const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "update_plan", "questionnaire", "install_plugin"]);
 
 export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][], registeredToolNames: readonly string[] = []): string[] {
-  const openGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
-  const extensionTools = registeredToolNames.filter((name) => !openGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
+  const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
+  const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
   return [...new Set([...extensionTools, "read", "write", "edit", "bash", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
 }
 
@@ -78,7 +78,7 @@ export function createAgentTools(
   }), defineTool({
     name: "install_plugin",
     label: "Install Plugin",
-    description: "Validate and install an OpenGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
+    description: "Validate and install an OhMyGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",
     parameters: Type.Object({
       path: Type.String({ minLength: 1, description: "Plugin directory relative to the current workspace" }),
     }),

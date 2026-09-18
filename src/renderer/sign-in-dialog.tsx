@@ -64,8 +64,8 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
         <button className="sign-in-close" type="button" onClick={onClose} disabled={Boolean(pendingProvider) && !allowClose} aria-label="Close sign in">
           <X size={16} />
         </button>
-        <h2 id="sign-in-title">Sign in to OpenGame</h2>
-        <p>Keep your OpenGame identity across devices.</p>
+        <h2 id="sign-in-title">Sign in to OhMyGame</h2>
+        <p>Keep your OhMyGame identity across devices.</p>
         <div className="sign-in-actions">
           <ProviderButton provider="google" pendingProvider={pendingProvider} onSignIn={onSignIn} />
           <ProviderButton provider="github" pendingProvider={pendingProvider} onSignIn={onSignIn} />

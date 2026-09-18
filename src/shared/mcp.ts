@@ -3,7 +3,7 @@ export interface McpToolIdentity {
   tool: string;
 }
 
-export const GODOT_MCP_SERVER_ID = "opengame-godot";
+export const GODOT_MCP_SERVER_ID = "ohmygame-godot";
 const KNOWN_MCP_SERVERS = [GODOT_MCP_SERVER_ID];
 
 export function parseMcpToolIdentity(toolName: string, args: unknown): McpToolIdentity | undefined {

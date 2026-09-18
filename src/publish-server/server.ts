@@ -20,7 +20,7 @@ const app = createPublishApp({
   dataDirectory: process.env.PUBLISH_DATA_DIR ?? path.join(repositoryRoot, ".data", "publish"),
   playOrigin: process.env.PUBLISH_PLAY_ORIGIN ?? `http://localhost:${port}`,
   verifyPublisherToken: createSupabaseTokenVerifier(supabaseUrl),
-  preinstalledPluginsDirectory: process.env.OPEN_GAME_PREINSTALLED_PLUGINS_DIR
+  preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
     ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
   logger: true,
 });

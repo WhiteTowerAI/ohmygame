@@ -24,7 +24,7 @@ export type StoryNodeSurfaceAction =
   | { type: "menu" };
 
 interface SceneSurfaceMessage {
-  channel: "open-game:scene-surface";
+  channel: "ohmygame:scene-surface";
   instanceId: string;
   type: "ready" | "error" | "action";
   action?: StoryNodeSurfaceAction;
@@ -68,11 +68,11 @@ export function StorySceneSurface({ files, context, mode, title, className, onAc
   useEffect(() => {
     if (!loaded) return;
     setReady(false);
-    iframe.current?.contentWindow?.postMessage({ channel: "open-game:scene-surface", instanceId, type: "init", files, context: contextRef.current, mode }, "*");
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "init", files, context: contextRef.current, mode }, "*");
   }, [files.css, files.html, files.javascript, instanceId, loaded, mode]);
   useEffect(() => {
     if (!loaded || !ready) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "open-game:scene-surface", instanceId, type: "update", context, mode }, "*");
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "update", context, mode }, "*");
   }, [context, instanceId, loaded, mode, ready]);
   return <iframe ref={iframe} className={className} title={title} sandbox="allow-scripts" src="scene-surface.html" onLoad={() => setLoaded(true)} />;
 }
@@ -80,5 +80,5 @@ export function StorySceneSurface({ files, context, mode, title, className, onAc
 function isSceneSurfaceMessage(value: unknown): value is SceneSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<SceneSurfaceMessage>;
-  return message.channel === "open-game:scene-surface" && typeof message.instanceId === "string" && (message.type === "ready" || message.type === "error" || message.type === "action");
+  return message.channel === "ohmygame:scene-surface" && typeof message.instanceId === "string" && (message.type === "ready" || message.type === "error" || message.type === "action");
 }

@@ -1,6 +1,6 @@
 import type { PluginMention } from "../shared/contracts.js";
 import {
-  OPENGAME_MARKETPLACE,
+  OHMYGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
   isNewerPluginVersion,
   type PluginCatalog,
@@ -130,7 +130,7 @@ export class LocalPluginAdapter implements PluginCatalogAdapter {
 }
 
 export class BundledPluginAdapter implements PluginCatalogAdapter {
-  readonly marketplace = OPENGAME_MARKETPLACE;
+  readonly marketplace = OHMYGAME_MARKETPLACE;
 
   constructor(private readonly plugins: { list(): PluginDetail[]; read(id: string): PluginDetail | undefined }) {}
 
@@ -144,7 +144,7 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
 }
 
 export class RemotePluginAdapter implements PluginCatalogAdapter {
-  readonly marketplace = OPENGAME_MARKETPLACE;
+  readonly marketplace = OHMYGAME_MARKETPLACE;
   readonly #plugins = new Map<string, import("../shared/publish-v1.js").PublishExplorePlugin>();
 
   constructor(private readonly publisher: Pick<RemotePublisher, "explorePlugins" | "explorePlugin">) {}
@@ -152,15 +152,15 @@ export class RemotePluginAdapter implements PluginCatalogAdapter {
   async list(): Promise<PluginCatalogResult> {
     const plugins = await this.publisher.explorePlugins();
     this.#plugins.clear();
-    for (const plugin of plugins) this.#plugins.set(`opengame:${plugin.name}`, plugin);
+    for (const plugin of plugins) this.#plugins.set(`ohmygame:${plugin.name}`, plugin);
     return { plugins: plugins.map(remotePluginSummary) };
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {
-    if (!id.startsWith("opengame:")) return undefined;
+    if (!id.startsWith("ohmygame:")) return undefined;
     try {
       const cached = this.#plugins.get(id) ?? (await this.publisher.explorePlugins())
-        .find((plugin) => `opengame:${plugin.name}` === id);
+        .find((plugin) => `ohmygame:${plugin.name}` === id);
       if (!cached) return undefined;
       return remotePluginDetail(await this.publisher.explorePlugin(cached.id));
     } catch (cause) {
@@ -265,13 +265,13 @@ function sameCatalogPlugin(left: Pick<PluginSummary, "source" | "catalog">, righ
 function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginSummary {
   const manifest = plugin.manifest;
   return {
-    id: `opengame:${plugin.name}`,
+    id: `ohmygame:${plugin.name}`,
     name: plugin.name,
     displayName: manifest.interface?.displayName ?? displayName(plugin.name),
     description: manifest.interface?.shortDescription ?? manifest.description,
     version: plugin.version,
     latestVersion: plugin.version,
-    marketplace: OPENGAME_MARKETPLACE,
+    marketplace: OHMYGAME_MARKETPLACE,
     source: { type: "catalog", pluginId: plugin.id, releaseId: plugin.releaseId },
     installed: false,
     enabled: false,
@@ -288,7 +288,7 @@ function remotePluginDetail(plugin: import("../shared/publish-v1.js").PublishExp
     ...summary,
     longDescription: plugin.manifest.interface?.longDescription,
     skills: (plugin.skills ?? []).map((skill) => ({ ...skill, enabled: true })),
-    connections: (plugin.manifest.connections ?? []).map((id) => ({ id, name: displayName(id.replace(/^opengame-/, "")), enabled: true })),
+    connections: (plugin.manifest.connections ?? []).map((id) => ({ id, name: displayName(id.replace(/^ohmygame-/, "")), enabled: true })),
     defaultPrompts: plugin.manifest.interface?.defaultPrompt,
     projectTypes: plugin.manifest.interface?.projectTypes,
   };

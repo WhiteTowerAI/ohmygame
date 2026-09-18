@@ -20,17 +20,17 @@ import {
   updateOpenAIEndpointSettings,
 } from "./api.js";
 import { useAuth } from "./auth.js";
-import openGameLogo from "../../build/logo.svg";
+import ohMyGameLogo from "../../build/logo.svg";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "opengame"];
+const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "ohmygame"];
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   const openProvider = (provider: ProviderSummary): void => {
-    if (provider.kind === "portal") {
-      void openExternal("https://portal.open-game.ai");
+    if (provider.kind === "account") {
+      void openExternal("https://account.ohmygame.ai");
       return;
     }
     onViewChange({ page: "provider", provider });
@@ -38,7 +38,7 @@ export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onVie
   if (view.page === "providers") {
     return <ProviderList onProvider={openProvider} />;
   }
-  if (view.provider.kind === "portal") return <ProviderList onProvider={openProvider} />;
+  if (view.provider.kind === "account") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
@@ -65,12 +65,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     provider.name,
     providerDescription(provider),
   ].some((value) => value.toLowerCase().includes(normalizedQuery))) : providers;
-  const portalProviders = visibleProviders.filter((provider) => provider.kind === "portal");
+  const accountProviders = visibleProviders.filter((provider) => provider.kind === "account");
   const popularProviders = visibleProviders
-    .filter((provider) => provider.kind !== "portal" && POPULAR_PROVIDER_IDS.includes(provider.id))
+    .filter((provider) => provider.kind !== "account" && POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
-  const moreProviders = visibleProviders.filter((provider) => provider.kind !== "portal" && !POPULAR_PROVIDER_IDS.includes(provider.id));
-  const portalAccount = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
+  const moreProviders = visibleProviders.filter((provider) => provider.kind !== "account" && !POPULAR_PROVIDER_IDS.includes(provider.id));
+  const accountDetail = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
   return (
     <section className="settings-panel settings-overview-panel">
       <header className="settings-panel-header">
@@ -84,7 +84,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
         {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match your search.</p> : null}
-        {portalProviders.length ? <ProviderGroup title="OpenGame" providers={portalProviders} featured detail={portalAccount} onProvider={onProvider} /> : null}
+        {accountProviders.length ? <ProviderGroup title="OhMyGame" providers={accountProviders} featured detail={accountDetail} onProvider={onProvider} /> : null}
         {popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
         {moreProviders.length ? (
           <section className="settings-provider-group">
@@ -121,14 +121,14 @@ function ProviderRow({ detail, featured = false, onProvider, provider }: { detai
         <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
       </span>
       {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
-      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.kind !== "portal" && provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
+      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.kind !== "account" && provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
     </div>
   );
 }
 
 function ProviderMark({ provider }: { provider: ProviderSummary }) {
-  if (provider.kind === "portal") {
-    return <span className="settings-provider-mark is-opengame" aria-hidden="true"><img src={openGameLogo} alt="" /></span>;
+  if (provider.kind === "account") {
+    return <span className="settings-provider-mark is-ohmygame" aria-hidden="true"><img src={ohMyGameLogo} alt="" /></span>;
   }
   const icon = PROVIDER_ICONS[provider.id];
   if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
@@ -182,7 +182,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
     }
   }
   const displayedError = error ?? endpoint.error;
-  const managedByOpenGameAccount = provider.id === "opengame";
+  const managedByOhMyGameAccount = provider.id === "ohmygame";
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={onBack} />
@@ -197,12 +197,12 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
         </form>
       ) : null}
       <div className="settings-form-actions">
-        {managedByOpenGameAccount ? (
-          <span className="settings-managed-label">Managed by your OpenGame account</span>
+        {managedByOhMyGameAccount ? (
+          <span className="settings-managed-label">Managed by your OhMyGame account</span>
         ) : provider.credentialType ? (
           <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
         ) : (
-          <span className="settings-managed-label">Managed outside OpenGame</span>
+          <span className="settings-managed-label">Managed outside OhMyGame</span>
         )}
       </div>
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
@@ -368,7 +368,7 @@ function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) 
 }
 
 function providerDescription(provider: ProviderSummary): string {
-  if (provider.kind === "portal") return "Unified access to OpenGame models";
+  if (provider.kind === "account") return "Unified access to OhMyGame models";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";
@@ -384,7 +384,7 @@ function providerStatus(provider: ProviderSummary): string {
 }
 
 function providerAction(provider: ProviderSummary): string {
-  if (provider.kind === "portal") return "Open Portal";
+  if (provider.kind === "account") return "Open account";
   if (provider.status === "connected") return "Manage";
   if (provider.status === "connecting") return "Checking…";
   if (provider.status === "error") return "Retry";
@@ -406,8 +406,8 @@ function authExternalTarget(notification: ModelAuthNotification | undefined): st
 }
 
 async function openExternal(url: string): Promise<void> {
-  if (window.openGameDesktop?.openExternal) {
-    await window.openGameDesktop.openExternal(url);
+  if (window.ohMyGameDesktop?.openExternal) {
+    await window.ohMyGameDesktop.openExternal(url);
   } else {
     window.open(url, "_blank", "noopener,noreferrer");
   }

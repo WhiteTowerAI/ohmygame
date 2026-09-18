@@ -6,7 +6,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 
 describe("AssetLibrary", () => {
   it("stores one global asset for a stable source and restores it", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-library-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-"));
     const library = new AssetLibrary(dataDirectory);
     await library.load();
 
@@ -25,7 +25,7 @@ describe("AssetLibrary", () => {
   });
 
   it("renames metadata without moving content and deletes the asset", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-library-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-"));
     const library = new AssetLibrary(dataDirectory);
     await library.load();
     const asset = await library.add("model.glb", Buffer.from("model"));
@@ -39,7 +39,7 @@ describe("AssetLibrary", () => {
   });
 
   it("rejects unsupported files and invalid names", async () => {
-    const library = new AssetLibrary(await mkdtemp(path.join(tmpdir(), "open-game-library-")));
+    const library = new AssetLibrary(await mkdtemp(path.join(tmpdir(), "ohmygame-library-")));
     await library.load();
     await expect(library.add("notes.txt", Buffer.from("notes"))).rejects.toThrow("supported media");
     const asset = await library.add("image.webp", Buffer.from("image"));
@@ -47,7 +47,7 @@ describe("AssetLibrary", () => {
   });
 
   it("rejects invalid stored metadata instead of hiding it as an empty Library", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "open-game-library-"));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-"));
     await mkdir(path.join(dataDirectory, "library"), { recursive: true });
     await writeFile(path.join(dataDirectory, "library", "assets.json"), JSON.stringify({ version: 1, assets: "invalid", sources: {} }));
 

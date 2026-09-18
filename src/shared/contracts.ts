@@ -41,7 +41,7 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
-export type ProviderKind = "pi" | "portal";
+export type ProviderKind = "pi" | "account";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video";
 

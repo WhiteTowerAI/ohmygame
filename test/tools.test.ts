@@ -640,7 +640,7 @@ describe("tool runner", () => {
 });
 
 function temporaryData(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), "open-game-tools-"));
+  return mkdtemp(path.join(tmpdir(), "ohmygame-tools-"));
 }
 
 function fakeGenerator(): ImageGenerator {

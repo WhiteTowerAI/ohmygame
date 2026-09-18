@@ -45,7 +45,7 @@ describe("remote publish", () => {
     ]);
     expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Cinematic Shot", source: "catalog", releaseId: published.json().release.id, hasCover: true }),
-      expect.objectContaining({ id: "general-image", source: "catalog", author: { id: "opengame", displayName: "OpenGame" } }),
+      expect.objectContaining({ id: "general-image", source: "catalog", author: { id: "ohmygame", displayName: "OhMyGame" } }),
     ]));
     const localCover = await runtime.daemon.inject({ method: "GET", url: `/asset-templates/${saved.json().id}/cover` });
     expect(localCover.statusCode).toBe(200);
@@ -72,11 +72,11 @@ describe("remote publish", () => {
 
   it("publishes, installs, and updates a Catalog Plugin without re-enabling it", async () => {
     const runtime = await testRuntime();
-    const source = await temporary("open-game-published-plugin-");
-    await mkdir(path.join(source, ".opengame-plugin"));
+    const source = await temporary("ohmygame-published-plugin-");
+    await mkdir(path.join(source, ".ohmygame-plugin"));
     await mkdir(path.join(source, "skills", "levels"), { recursive: true });
     await writeFile(path.join(source, "skills", "levels", "SKILL.md"), "---\nname: levels\ndescription: Build levels.\n---\n");
-    const writeManifest = (version: string) => writeFile(path.join(source, ".opengame-plugin", "plugin.json"), JSON.stringify({
+    const writeManifest = (version: string) => writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "level-tools", version, description: "Level workflows", skills: "./skills",
       interface: { displayName: "Level Tools", defaultPrompt: ["Build a level"] },
     }));
@@ -94,7 +94,7 @@ describe("remote publish", () => {
       id: "personal:level-tools",
       installed: true,
       catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
-      author: { id: "publisher", displayName: "OpenGame Creator" },
+      author: { id: "publisher", displayName: "OhMyGame Creator" },
     });
     expect(publisherCatalog.explore).toEqual([
       expect.objectContaining({ id: "personal:level-tools", installed: true }),
@@ -117,36 +117,36 @@ describe("remote publish", () => {
       payload: { accessToken: token, status: "listed" },
     })).statusCode).toBe(200);
 
-    const consumer = createApp({ dataDirectory: await temporary("open-game-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
+    const consumer = createApp({ dataDirectory: await temporary("ohmygame-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
     apps.push(consumer);
     await consumer.ready();
     const catalog = await consumer.inject({ method: "GET", url: "/plugins" });
     expect(catalog.json().plugins).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "opengame:level-tools", installed: false, version: "1.0.0" }),
+      expect.objectContaining({ id: "ohmygame:level-tools", installed: false, version: "1.0.0" }),
     ]));
-    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json()).toMatchObject({
+    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json()).toMatchObject({
       installed: false,
       skills: [{ name: "Levels", enabled: true }],
     });
     expect((await consumer.inject({
-      method: "GET", url: "/plugins/opengame%3Alevel-tools/skill-content?id=skills%2Flevels%2FSKILL.md",
+      method: "GET", url: "/plugins/ohmygame%3Alevel-tools/skill-content?id=skills%2Flevels%2FSKILL.md",
     })).json()).toEqual({
       id: "skills/levels/SKILL.md",
       content: "---\nname: levels\ndescription: Build levels.\n---\n",
     });
-    const installed = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    const installed = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
     expect(installed.statusCode, installed.body).toBe(201);
     expect(installed.json()).toMatchObject({
-      id: "opengame:level-tools", version: "1.0.0", installed: true, enabled: true,
+      id: "ohmygame:level-tools", version: "1.0.0", installed: true, enabled: true,
       source: { type: "catalog" },
-      author: { id: "publisher", displayName: "OpenGame Creator" },
+      author: { id: "publisher", displayName: "OhMyGame Creator" },
       stats: { likes: 0, uses: 0 },
     });
     expect((await consumer.inject({ method: "GET", url: "/plugins" })).json().explore).toEqual([
-      expect.objectContaining({ id: "opengame:level-tools", installed: true }),
+      expect.objectContaining({ id: "ohmygame:level-tools", installed: true }),
     ]);
     await consumer.inject({
-      method: "PUT", url: "/plugins/opengame%3Alevel-tools/settings", payload: { enabled: false, components: {} },
+      method: "PUT", url: "/plugins/ohmygame%3Alevel-tools/settings", payload: { enabled: false, components: {} },
     });
 
     await writeManifest("1.1.0");
@@ -156,19 +156,19 @@ describe("remote publish", () => {
     });
     expect(secondPublished.statusCode).toBe(201);
     const update = (await consumer.inject({ method: "GET", url: "/plugins" })).json().plugins
-      .find((plugin: { id: string }) => plugin.id === "opengame:level-tools");
+      .find((plugin: { id: string }) => plugin.id === "ohmygame:level-tools");
     expect(update).toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
-    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
+    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json())
       .toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
-    const updated = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    const updated = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
     expect(updated.statusCode).toBe(201);
-    expect((await consumer.inject({ method: "GET", url: "/plugins/opengame%3Alevel-tools" })).json())
+    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json())
       .toMatchObject({ version: "1.1.0", enabled: false, source: { type: "catalog", releaseId: secondPublished.json().release.id } });
   });
 
   it("publishes and installs a Claude marketplace Plugin without rewriting its manifest", async () => {
     const runtime = await testRuntime();
-    const source = await temporary("open-game-claude-plugin-");
+    const source = await temporary("ohmygame-claude-plugin-");
     await mkdir(path.join(source, ".claude-plugin"));
     await mkdir(path.join(source, "skills", "levels"), { recursive: true });
     await writeFile(path.join(source, ".claude-plugin", "marketplace.json"), JSON.stringify({
@@ -204,16 +204,16 @@ describe("remote publish", () => {
       installed: true,
       catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
       origin: { type: "claude-marketplace", marketplace: "Game Skills" },
-      author: { id: "publisher", displayName: "OpenGame Creator" },
+      author: { id: "publisher", displayName: "OhMyGame Creator" },
     });
 
-    const consumer = createApp({ dataDirectory: await temporary("open-game-claude-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
+    const consumer = createApp({ dataDirectory: await temporary("ohmygame-claude-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
     apps.push(consumer);
     await consumer.ready();
-    const catalogInstall = await consumer.inject({ method: "POST", url: "/plugins/opengame%3Alevel-tools/install" });
+    const catalogInstall = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
     expect(catalogInstall.statusCode, catalogInstall.body).toBe(201);
     expect(catalogInstall.json()).toMatchObject({
-      id: "opengame:level-tools",
+      id: "ohmygame:level-tools",
       version: "0.1.0",
       skills: [{ name: "Levels" }],
     });
@@ -288,7 +288,7 @@ describe("remote publish", () => {
   });
 
   it("publishes a generated Asset directly from tool history", async () => {
-    const dataDirectory = await temporary("open-game-tool-publish-");
+    const dataDirectory = await temporary("ohmygame-tool-publish-");
     const runtime = await testRuntime(dataDirectory, undefined, {
       generate: async () => ({ bytes: Buffer.from("generated-image"), mediaType: "image/webp" }),
     });
@@ -353,7 +353,7 @@ describe("remote publish", () => {
       publishedAt: new Date(0).toISOString(),
     };
     const daemon = createApp({
-      dataDirectory: await temporary("open-game-daemon-"),
+      dataDirectory: await temporary("ohmygame-daemon-"),
       publishApiUrl: "https://publish.example",
       publishFetch: async (input) => String(input).endsWith("/content")
         ? new Response("fake", { headers: { "content-type": "image/png" } })
@@ -402,7 +402,7 @@ describe("remote publish", () => {
     expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, PUBLISH_GAME_COVER_PATH))).toEqual(cover);
     expect(await readdir(path.join(runtime.publishData, "artifacts", published.deployment.id))).not.toContain(".env");
     expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([
-      { ...published.game, author: { id: "publisher", displayName: "OpenGame Creator" }, stats: { likes: 0, uses: 0 } },
+      { ...published.game, author: { id: "publisher", displayName: "OhMyGame Creator" }, stats: { likes: 0, uses: 0 } },
     ]);
   });
 
@@ -435,7 +435,7 @@ describe("remote publish", () => {
     expect(published.statusCode, published.body).toBe(201);
     const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
     expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
-    expect(await readFile(path.join(output, "scene-surface.html"), "utf8")).toContain("open-game:scene-surface");
+    expect(await readFile(path.join(output, "scene-surface.html"), "utf8")).toContain("ohmygame:scene-surface");
     const publishedStory = JSON.parse(await readFile(path.join(output, "story.json"), "utf8"));
     const persistedStory = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     const { editorLayout: _editorLayout, ...runtimeStory } = persistedStory;
@@ -484,7 +484,7 @@ describe("remote publish", () => {
   });
 
   it("reuses the remote Game and persists its latest publication across restarts", async () => {
-    const dataDirectory = await temporary("open-game-daemon-");
+    const dataDirectory = await temporary("ohmygame-daemon-");
     const runtime = await testRuntime(dataDirectory);
     const project = await createProject(runtime.daemon, "Persistent");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
@@ -699,7 +699,7 @@ describe("remote publish", () => {
     const games = [communityGame("game-1"), communityGame("game-2")];
     const publishFetch = vi.fn(async () => Response.json(games));
     const daemon = createApp({
-      dataDirectory: await temporary("open-game-daemon-"),
+      dataDirectory: await temporary("ohmygame-daemon-"),
       publishApiUrl: "https://publish.example",
       publishFetch,
     });
@@ -716,7 +716,7 @@ describe("remote publish", () => {
     const game = communityGame("game 1");
     const publishFetch = vi.fn(async () => Response.json(game));
     const daemon = createApp({
-      dataDirectory: await temporary("open-game-daemon-"),
+      dataDirectory: await temporary("ohmygame-daemon-"),
       publishApiUrl: "https://publish.example",
       publishFetch,
     });
@@ -736,7 +736,7 @@ describe("remote publish", () => {
     const cover = Buffer.from("cover");
     const publishFetch = vi.fn(async () => new Response(cover, { headers: { "content-type": "image/webp" } }));
     const daemon = createApp({
-      dataDirectory: await temporary("open-game-daemon-"),
+      dataDirectory: await temporary("ohmygame-daemon-"),
       publishApiUrl: "https://publish.example",
       publishFetch,
     });
@@ -793,7 +793,7 @@ function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>):
 }
 
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
-  const publishData = await temporary("open-game-publish-server-");
+  const publishData = await temporary("ohmygame-publish-server-");
   const publishServer = createPublishApp({
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
@@ -801,12 +801,12 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   });
   apps.push(publishServer);
   const apiUrl = await publishServer.listen({ host: "127.0.0.1", port: 0 });
-  const playerDirectory = await temporary("open-game-player-");
+  const playerDirectory = await temporary("ohmygame-player-");
   await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
   await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
-  await writeFile(path.join(playerDirectory, "scene-surface.html"), "open-game:scene-surface");
+  await writeFile(path.join(playerDirectory, "scene-surface.html"), "ohmygame:scene-surface");
   const daemon = createApp({
-    dataDirectory: dataDirectory ?? await temporary("open-game-daemon-"),
+    dataDirectory: dataDirectory ?? await temporary("ohmygame-daemon-"),
     publishApiUrl: apiUrl,
     publishFetch,
     imageGenerator,

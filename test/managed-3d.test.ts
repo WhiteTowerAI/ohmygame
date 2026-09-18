@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Model3DGenerationError } from "../src/daemon/model3d.js";
-import { Portal3DGenerator, type Model3DSource } from "../src/daemon/portal-3d.js";
+import { Managed3DGenerator, type Model3DSource } from "../src/daemon/managed-3d.js";
 
-describe("Portal 3D adapter", () => {
+describe("managed 3D adapter", () => {
   it("creates a Meshy T2 task and downloads its authenticated GLB", async () => {
     const request = completedRequest();
-    const generator = new Portal3DGenerator(source, request, 0);
+    const generator = new Managed3DGenerator(source, request, 0);
 
     await expect(generator.generate({
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
@@ -31,14 +31,14 @@ describe("Portal 3D adapter", () => {
     });
     expect(request).toHaveBeenNthCalledWith(
       3,
-      "https://api.open-game.test/v1/3d/generations/task_public/content",
+      "https://api.ohmygame.test/v1/3d/generations/task_public/content",
       expect.objectContaining({ headers: { authorization: "Bearer secret" } }),
     );
   });
 
   it("maps Meshy 7 text generation to one public New API task", async () => {
     const request = completedRequest();
-    await new Portal3DGenerator(source, request, 0).generate({
+    await new Managed3DGenerator(source, request, 0).generate({
       prompt: "  A wooden knight  ",
       model: "meshy-7",
       quality: "ultra",
@@ -60,7 +60,7 @@ describe("Portal 3D adapter", () => {
 
   it("maps 1-4 Meshy 7 views to image and images inputs", async () => {
     const request = completedRequest();
-    await new Portal3DGenerator(source, request, 0).generate({
+    await new Managed3DGenerator(source, request, 0).generate({
       model: "meshy-7",
       images: [
         { mediaType: "image/png", data: "ZnJvbnQ=" },
@@ -90,16 +90,16 @@ describe("Portal 3D adapter", () => {
 
   it("requires the selected model to be available from New API", async () => {
     const t2Only = (): Model3DSource => ({ ...source(), modelIds: ["meshy-t2"] });
-    await expect(new Portal3DGenerator(t2Only, vi.fn()).generate({
+    await expect(new Managed3DGenerator(t2Only, vi.fn()).generate({
       prompt: "A chest",
       model: "meshy-7",
     })).rejects.toEqual(
-      new Model3DGenerationError("Meshy 7 is not available through OpenGame Portal", 503),
+      new Model3DGenerationError("Meshy 7 is not available through OhMyGame account", 503),
     );
   });
 
   it("rejects model-specific invalid inputs before submitting", async () => {
-    const generator = new Portal3DGenerator(source, vi.fn());
+    const generator = new Managed3DGenerator(source, vi.fn());
     await expect(generator.generate({
       prompt: "A chest",
       model: "meshy-t2",
@@ -115,7 +115,7 @@ describe("Portal 3D adapter", () => {
     );
   });
 
-  it("never sends the Portal credential to an artifact on another origin", async () => {
+  it("never sends the Account credential to an artifact on another origin", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(Response.json({ id: "task_public", status: "queued" }))
       .mockResolvedValueOnce(Response.json({
@@ -123,7 +123,7 @@ describe("Portal 3D adapter", () => {
         status: "completed",
         artifacts: [{ kind: "model", format: "glb", content_url: "https://cdn.example/model.glb" }],
       }));
-    await expect(new Portal3DGenerator(source, request, 0).generate({
+    await expect(new Managed3DGenerator(source, request, 0).generate({
       prompt: "A chest",
     })).rejects.toEqual(new Model3DGenerationError("3D artifact URL is not trusted"));
     expect(request).toHaveBeenCalledTimes(2);
@@ -137,7 +137,7 @@ describe("Portal 3D adapter", () => {
         status: "failed",
         error: { message: "3D generation failed" },
       }));
-    await expect(new Portal3DGenerator(source, failed, 0).generate({
+    await expect(new Managed3DGenerator(source, failed, 0).generate({
       prompt: "A chest",
     })).rejects.toEqual(new Model3DGenerationError("3D generation failed", 400));
 
@@ -147,7 +147,7 @@ describe("Portal 3D adapter", () => {
         new Promise<Response>((_resolve, reject) => {
           init.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
         }));
-    await expect(new Portal3DGenerator(source, pending, 0, 10).generate({
+    await expect(new Managed3DGenerator(source, pending, 0, 10).generate({
       prompt: "A chest",
     })).rejects.toEqual(new Model3DGenerationError("3D generation timed out", 504));
   });
@@ -155,7 +155,7 @@ describe("Portal 3D adapter", () => {
 
 function source(): Model3DSource {
   return {
-    baseUrl: "https://api.open-game.test/v1",
+    baseUrl: "https://api.ohmygame.test/v1",
     apiKey: "secret",
     modelIds: ["meshy-7", "meshy-t2"],
   };
