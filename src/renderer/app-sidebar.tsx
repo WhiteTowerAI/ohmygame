@@ -4,6 +4,7 @@ import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import brandMark from "../shared/assets/opengame-mark.svg";
 
 interface AppSidebarProps {
   active: SidebarPage;
@@ -106,6 +107,10 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <span className="home-sidebar-traffic-red" />
         <span className="home-sidebar-traffic-yellow" />
         <span className="home-sidebar-traffic-green" />
+      </div>
+      <div className="home-sidebar-brand">
+        <img src={brandMark} alt="OpenGame" />
+        <span>omg</span>
       </div>
       <nav aria-label="Main navigation">
         <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
