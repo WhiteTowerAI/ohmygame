@@ -13266,7 +13266,7 @@ button {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: transparent;
   color: #cdd0d5;
   cursor: pointer;
 }
@@ -13329,7 +13329,7 @@ button {
   overflow: visible;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--surface-raised);
+  background: transparent;
 }
 
 .preview-location:hover,
@@ -15291,7 +15291,7 @@ button {
 
 :root[data-appearance="light"] .workspace-tabs {
   border-color: var(--border);
-  background: var(--home-surface);
+  background: transparent;
 }
 
 :root[data-appearance="light"] .workspace-tab {
