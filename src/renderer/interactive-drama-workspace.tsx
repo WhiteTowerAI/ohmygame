@@ -20,6 +20,7 @@ import {
   Layers3,
   Maximize,
   Minus,
+  Monitor,
   Music2,
   MousePointer2,
   Pause,
@@ -124,6 +125,8 @@ import { StorySceneSurface as SceneCodeSurface, type StoryNodeSurfaceAction } fr
 import { StoryEditorPresentationSurface, type StoryEditorCommand, type StoryEditorPresentationNode, type StoryEditorPresentationRegion } from "./story-editor-presentation-surface.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { storyViewportRatio } from "../shared/story-formats.js";
+import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -372,6 +375,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
   const canvas = useRef<HTMLDivElement>(null);
@@ -725,7 +729,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
     if (type === "start" && nodes.some((node) => node.type === "start")) return;
-    const node = { ...createFlowNode(type, position, imageModels, defaultTextModel), selected: true };
+    const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
   }
@@ -1293,6 +1297,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
+        <button className="interactive-drama-canvas-format" type="button" title="Canvas format" onClick={() => setCanvasSettingsOpen(true)}>
+          <Monitor size={14} />
+          <span>{storyViewportRatio(playerViewport)}</span>
+        </button>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
           <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
@@ -1449,6 +1457,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         onPlaytest={() => void startPlaytest()}
         onClose={() => setOpenedNodeId(undefined)}
       /> : null}
+      {canvasSettingsOpen ? <StoryCanvasSettingsDialog viewport={player.viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={(viewport) => setPlayer((current) => ({ ...current, viewport }))} /> : null}
       {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
       {document && !useDefaultEditor ? <ProjectEditorWorkspace onRegionsChange={(regions) => setEditorPresentationRegions((current) => current.join("\0") === regions.join("\0") ? current : regions)} /> : null}
     </section>
@@ -3705,7 +3714,7 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], viewport: StoryPlayerConfig["viewport"], defaultTextModel?: AgentModelRef): StoryFlowNode {
   const id = crypto.randomUUID();
   if (type === "start") return { id, type, position, data: {} };
   if (type === "project-state") return { id, type, position, data: { title: "Project State", actions: [] } };
@@ -3731,7 +3740,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   }
   if (type === "image") {
     const model = imageModels[0];
-    const option = preferredImageOption(model);
+    const option = preferredImageOption(model, storyViewportRatio(viewport));
     return {
       id,
       type,
@@ -3745,19 +3754,23 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
       },
     };
   }
-  if (type === "video") return {
-    id,
-    type,
-    position,
-    data: {
-      prompt: "",
-      videoModel: VIDEO_MODEL,
-      videoResolution: "720p",
-      videoAspectRatio: "adaptive",
-      duration: 6,
-      references: [],
-    },
-  };
+  if (type === "video") {
+    const projectRatio = storyViewportRatio(viewport);
+    const aspectRatio = VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? "adaptive";
+    return {
+      id,
+      type,
+      position,
+      data: {
+        prompt: "",
+        videoModel: VIDEO_MODEL,
+        videoResolution: "720p",
+        videoAspectRatio: aspectRatio,
+        duration: 6,
+        references: [],
+      },
+    };
+  }
   return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
 
@@ -4015,8 +4028,10 @@ function connectionRelation(
     : undefined;
 }
 
-function preferredImageOption(model?: ImageModel): ImageModel["generationOptions"][number] | undefined {
-  return model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === "1:1")
+function preferredImageOption(model?: ImageModel, preferredAspectRatio = "1:1"): ImageModel["generationOptions"][number] | undefined {
+  return model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === preferredAspectRatio)
+    ?? model?.generationOptions.find((option) => option.aspectRatio === preferredAspectRatio)
+    ?? model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === "1:1")
     ?? model?.generationOptions[0];
 }
 

@@ -4,6 +4,8 @@ import type { CreateProjectRequest, ProjectState, ProjectType } from "../shared/
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createProject } from "./api.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
+import { storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
+import { StoryFormatOptions } from "./story-format-options.js";
 
 export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClose, onCreated }: {
   initialType?: ProjectType;
@@ -19,6 +21,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
   const [name, setName] = useState("");
   const [type, setType] = useState<ProjectType>(fixedType ?? initialType);
   const [templateId, setTemplateId] = useState<CreateProjectRequest["templateId"]>();
+  const [storyFormat, setStoryFormat] = useState<StoryFormatPresetId>("landscape");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   creatingRef.current = creating;
@@ -59,6 +62,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
         name: name.trim() || (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)),
         type,
         ...(type === "interactive-drama" && templateId ? { templateId } : {}),
+        ...(type === "interactive-drama" && !templateId ? { storyViewport: storyFormatPreset(storyFormat).viewport } : {}),
       });
       onCreated(project);
     } catch (cause) {
@@ -93,17 +97,23 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
             </fieldset>
           ) : null}
           {type === "interactive-drama" ? (
-            <fieldset className="project-create-templates">
-              <legend>Start from</legend>
-              <button className={templateId === undefined ? "is-active" : undefined} type="button" aria-pressed={templateId === undefined} disabled={creating} onClick={() => setTemplateId(undefined)}>
-                <span className="project-create-template-icon"><Plus size={17} /></span>
-                <span><strong>Blank project</strong><small>Empty canvas</small></span>
-              </button>
-              <button className={templateId === INTERACTIVE_DRAMA_STARTER.id ? "is-active" : undefined} type="button" aria-pressed={templateId === INTERACTIVE_DRAMA_STARTER.id} disabled={creating} onClick={() => setTemplateId(INTERACTIVE_DRAMA_STARTER.id)}>
-                <span className="project-create-template-icon"><Clapperboard size={17} /></span>
-                <span><strong>Sample project</strong><small>Complete interactive drama</small></span>
-              </button>
-            </fieldset>
+            <>
+              <fieldset className="project-create-templates">
+                <legend>Start from</legend>
+                <button className={templateId === undefined ? "is-active" : undefined} type="button" aria-pressed={templateId === undefined} disabled={creating} onClick={() => setTemplateId(undefined)}>
+                  <span className="project-create-template-icon"><Plus size={17} /></span>
+                  <span><strong>Blank project</strong><small>Empty canvas</small></span>
+                </button>
+                <button className={templateId === INTERACTIVE_DRAMA_STARTER.id ? "is-active" : undefined} type="button" aria-pressed={templateId === INTERACTIVE_DRAMA_STARTER.id} disabled={creating} onClick={() => setTemplateId(INTERACTIVE_DRAMA_STARTER.id)}>
+                  <span className="project-create-template-icon"><Clapperboard size={17} /></span>
+                  <span><strong>Sample project</strong><small>Complete interactive drama</small></span>
+                </button>
+              </fieldset>
+              {!templateId ? <fieldset className="project-create-format">
+                <legend>Canvas format</legend>
+                <StoryFormatOptions value={storyFormat} disabled={creating} onChange={setStoryFormat} />
+              </fieldset> : null}
+            </>
           ) : null}
           {error ? <p className="project-create-error" role="alert">{error}</p> : null}
           <footer>

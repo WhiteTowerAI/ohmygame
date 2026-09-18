@@ -10,6 +10,7 @@ import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
+import { createStoryDocument } from "../shared/story.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -92,6 +93,15 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
+      storyViewport: {
+        type: "object",
+        additionalProperties: false,
+        required: ["width", "height"],
+        properties: {
+          width: { type: "integer", minimum: 320, maximum: 4096 },
+          height: { type: "integer", minimum: 320, maximum: 4096 },
+        },
+      },
     },
   },
 } as const;
@@ -1133,11 +1143,22 @@ export function createApp(options: AppOptions = {}) {
     if (request.body?.templateId && request.body.type !== "interactive-drama") {
       return reply.code(400).send({ error: "Project templates require a matching project type" });
     }
+    if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
+      return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
+    }
+    if (request.body?.storyViewport && request.body.templateId) {
+      return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
+    }
     if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
       const project = await createInteractiveDramaStarterProject(interactiveDramaExamplesDirectory, projects, library, request.body.name);
       return reply.code(201).send(project);
     }
     const project = await projects.create(request.body?.name, request.body?.type);
+    if (project.type === "interactive-drama" && request.body?.storyViewport) {
+      const story = createStoryDocument();
+      story.player.viewport = request.body.storyViewport;
+      await projects.setStory(project.id, story);
+    }
     return reply.code(201).send(project);
   });
 

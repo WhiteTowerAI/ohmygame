@@ -39,6 +39,55 @@ describe("daemon", () => {
     expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
   });
 
+  it("accepts a custom story viewport only for blank Interactive Drama projects", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-viewport-")),
+      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
+    });
+    apps.push(app);
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        storyViewport: { width: 720, height: 1280 },
+      },
+    });
+    const webProject = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "web-game",
+        storyViewport: { width: 1280, height: 720 },
+      },
+    });
+    const template = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        templateId: "night-train",
+        storyViewport: { width: 720, height: 1280 },
+      },
+    });
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        storyViewport: { width: 100, height: 720 },
+      },
+    });
+
+    expect(valid.statusCode).toBe(201);
+    const story = (await app.inject({ method: "GET", url: `/projects/${valid.json().id}/story` })).json();
+    expect(story.player.viewport).toEqual({ width: 720, height: 1280 });
+    expect(webProject.statusCode).toBe(400);
+    expect(template.statusCode).toBe(400);
+    expect(invalid.statusCode).toBe(400);
+  });
+
   it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),

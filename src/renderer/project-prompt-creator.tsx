@@ -1,4 +1,4 @@
-import { Check, ChevronDown, LoaderCircle, SendArrow } from "./icons.js";
+import { Check, ChevronDown, LoaderCircle, Monitor, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -12,6 +12,7 @@ import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
+import { STORY_FORMAT_PRESETS, storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
@@ -36,6 +37,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
+  const [storyFormat, setStoryFormat] = useState<StoryFormatPresetId>("landscape");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
@@ -77,7 +79,12 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
     setCreating(true);
     setError(undefined);
     try {
-      const project = await createProject({ type: projectType });
+      const project = await createProject({
+        type: projectType,
+        ...(projectType === "interactive-drama"
+          ? { storyViewport: storyFormatPreset(storyFormat).viewport }
+          : {}),
+      });
       const conversation = await createConversation(project.id);
       onCreate(
         project.id,
@@ -251,6 +258,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
             {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} onChange={onProjectTypeChange} /> : null}
+            {projectType === "interactive-drama" ? <StoryFormatSelector disabled={creating} value={storyFormat} onChange={setStoryFormat} /> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
           </>
         )}
@@ -268,6 +276,120 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
       />
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
     </>
+  );
+}
+
+function StoryFormatSelector({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: StoryFormatPresetId;
+  disabled?: boolean;
+  onChange: (value: StoryFormatPresetId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const current = storyFormatPreset(value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }, [open]);
+
+  return (
+    <div className="home-project-type-selector" ref={root}>
+      <button
+        ref={trigger}
+        className="home-project-type-trigger"
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={disabled}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      >
+        <Monitor size={14} />
+        <span>{current.ratio}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={menu}
+          className="home-project-type-menu home-story-format-menu"
+          id={menuId}
+          role="menu"
+          aria-label="Canvas format"
+          onKeyDown={(event) => {
+            if (event.key === "Tab") {
+              setOpen(false);
+              return;
+            }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+            const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[nextIndex]?.focus();
+          }}
+        >
+          {STORY_FORMAT_PRESETS.map((preset) => {
+            const selected = preset.id === value;
+            return (
+              <button
+                className={selected ? "is-active" : undefined}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                key={preset.id}
+                onClick={() => {
+                  onChange(preset.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <span
+                  className={`story-format-frame story-format-frame-${preset.id}`}
+                  aria-hidden="true"
+                />
+                <span>{preset.label}</span>
+                <small>{preset.ratio}</small>
+                {selected ? <Check size={13} aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -2216,6 +2216,20 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 
+.home-story-format-menu {
+  width: 210px;
+}
+.home-story-format-menu button {
+  grid-template-columns: 26px minmax(0, 1fr) auto 14px;
+}
+.home-story-format-menu button > .story-format-frame {
+  justify-self: center;
+}
+.home-story-format-menu button > small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
 .home-notice {
   margin: 10px 2px 0;
   color: var(--danger);
@@ -2795,7 +2809,8 @@ button.home-nav-item-active:hover {
 }
 .project-create-dialog {
   width: min(430px, 100%);
-  overflow: hidden;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   outline: 0;
@@ -2969,6 +2984,88 @@ button.home-nav-item-active:hover {
     var(--border-strong)
   );
   background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+}
+.project-create-format {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-create-format legend {
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.story-format-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.story-format-options > button {
+  display: flex;
+  min-width: 0;
+  height: 70px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #1b1c21;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+}
+.story-format-options > button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.story-format-options > button.is-active {
+  border-color: color-mix(
+    in srgb,
+    var(--composer-accent) 45%,
+    var(--border-strong)
+  );
+  background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+}
+.story-format-options > button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.story-format-options > button > span:last-child {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+}
+.story-format-options strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.story-format-options small {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+.story-format-frame {
+  display: block;
+  width: 25px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+.story-format-frame-portrait {
+  width: 11px;
+  height: 20px;
+}
+.story-format-frame-square {
+  width: 17px;
+  height: 17px;
 }
 .project-create-error {
   margin: -6px 0 0;
@@ -3170,6 +3267,31 @@ button.home-nav-item-active:hover {
   opacity: 0.45;
 }
 
+.story-canvas-settings-dialog {
+  width: min(460px, 100%);
+}
+.story-canvas-settings-dialog header p {
+  margin: 3px 0 0;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.story-canvas-settings-content {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.story-format-warning {
+  margin: 0;
+  padding: 10px;
+  border-left: 2px solid #d3a64a;
+  background: rgb(211 166 74 / 8%);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.story-canvas-settings-dialog > footer {
+  padding: 0 18px 18px;
+}
 .library-filters {
   display: flex;
   gap: 8px;
@@ -7654,6 +7776,30 @@ button {
   grid-row: 1;
   justify-self: end;
   gap: 8px;
+}
+
+.interactive-drama-canvas-format {
+  display: inline-flex;
+  height: 30px;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  app-region: no-drag;
+}
+.interactive-drama-canvas-format:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .interactive-drama-action {
@@ -15206,13 +15352,13 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(.project-create-types, .project-create-templates)
+  :is(.project-create-types, .project-create-templates, .story-format-options)
   button {
   background: var(--surface);
 }
 
 :root[data-appearance="light"]
-  :is(.project-create-types, .project-create-templates)
+  :is(.project-create-types, .project-create-templates, .story-format-options)
   button.is-active {
   background: color-mix(in srgb, var(--composer-accent) 9%, #fff);
 }
