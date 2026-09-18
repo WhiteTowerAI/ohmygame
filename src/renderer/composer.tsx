@@ -1,7 +1,7 @@
-import { ArrowUp, Square } from "./icons.js";
+import { SendArrow, Square } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
-import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
+import { ImageAttachmentStrip, ImagePickerButton, promptImages, readImageFiles, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox } from "./prompt-box.js";
@@ -171,6 +171,16 @@ export function Composer({
   function clearSelectedPlugin(): void {
     setSelectedPlugin(undefined);
     setPluginMentions((current) => activePluginMentions(formatSkillInvocation(selectedSkill, prompt), current));
+  }
+
+  function addImageFiles(files: File[]): void {
+    setAttachmentError(undefined);
+    void readImageFiles(files).then((next) => {
+      setImages((items) => [...items, ...next]);
+      textarea.current?.focus();
+    }).catch((error) => {
+      setAttachmentError(error instanceof Error ? error.message : String(error));
+    });
   }
 
   function selectMention(mention: ComposerMention) {
@@ -366,7 +376,7 @@ export function Composer({
               </button>
             ) : (
               <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && images.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
-                <ArrowUp size={17} />
+                <SendArrow size={15} />
               </button>
             )}
           </>
@@ -408,6 +418,7 @@ export function Composer({
         onCommandKeyDown={handleCommandKeyDown}
         onHistoryNext={() => browseHistory("next")}
         onHistoryPrevious={() => browseHistory("previous")}
+        onDropFiles={inputDisabled ? undefined : addImageFiles}
         onSubmit={submitOrRunCommand}
         overlay={mentions.length ? (
           <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />

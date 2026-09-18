@@ -285,17 +285,10 @@ body {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   min-height: 40px;
   margin-top: auto;
-  padding: 0 11px;
-  border-radius: 6px;
-  transition: background-color 120ms ease;
-}
-
-.home-sidebar-account:hover,
-.home-sidebar-account:focus-within {
-  background: var(--home-sidebar-hover);
+  padding: 4px 7px;
 }
 
 .home-sidebar-sign-in-main,
@@ -304,14 +297,24 @@ body {
   min-width: 0;
   flex: 1;
   align-items: center;
-  gap: 12px;
-  align-self: stretch;
-  padding: 0;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 4px;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.home-sidebar-sign-in-main:hover:not(:disabled),
+.home-sidebar-sign-in-main:focus-visible,
+.home-sidebar-account-main:hover,
+.home-sidebar-account-main:focus-visible {
+  background: var(--home-sidebar-hover);
+  outline: 0;
 }
 
 .home-sidebar-update {
@@ -363,9 +366,9 @@ body {
 
 .home-sidebar-signed-out-icon {
   display: grid;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border-radius: 50%;
   background: #1f2127;
@@ -387,6 +390,9 @@ body {
 }
 
 .home-sidebar-avatar {
+  flex-basis: 28px;
+  width: 28px;
+  height: 28px;
   color: #fff;
 }
 
@@ -401,8 +407,8 @@ body {
 
 .home-sidebar-account-menu {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   margin-left: auto;
   padding: 0;
   place-items: center;
@@ -413,8 +419,10 @@ body {
   cursor: pointer;
 }
 
-.home-sidebar-account-menu:hover {
+.home-sidebar-account-menu:hover,
+.home-sidebar-account-menu:focus-visible {
   background: var(--surface-hover);
+  outline: 0;
 }
 
 .home-sidebar-account-popover {
@@ -11390,8 +11398,17 @@ button {
 }
 
 .work-summary-thinking {
+  grid-template-columns: 14px minmax(0, 1fr);
   border-bottom-color: transparent;
   color: var(--text-faint);
+}
+
+.work-summary-thinking > span,
+.thinking-activity .tool-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .work-summary::-webkit-details-marker {
@@ -11568,12 +11585,13 @@ button {
 }
 
 .timeline-event {
-  display: flex;
+  display: grid;
   min-height: 28px;
-  align-items: flex-start;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
   gap: 7px;
-  margin: 0 0 4px;
-  padding: 6px 7px;
+  margin: 0;
+  padding: 0;
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.5;
@@ -11581,7 +11599,41 @@ button {
 
 .timeline-event svg {
   flex: 0 0 auto;
-  margin-top: 1px;
+  justify-self: center;
+}
+
+.timeline-event-expandable {
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.image-read-details {
+  margin: 0;
+}
+
+.image-read-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.image-read-details[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.image-read-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 5px 0 0 21px;
+}
+
+.image-read-previews img {
+  display: block;
+  width: 88px;
+  height: 88px;
+  border-radius: 6px;
+  background: var(--surface-raised);
+  object-fit: cover;
 }
 
 .timeline-event-error {
@@ -11864,6 +11916,24 @@ button {
 
 .thinking-activity {
   color: var(--text-faint);
+}
+
+.model-change-event {
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 18px;
+  color: var(--text-faint);
+  font-size: 10px;
+  text-align: center;
+}
+
+.model-change-event::before,
+.model-change-event::after {
+  height: 1px;
+  background: var(--border);
+  content: "";
 }
 
 .markdown-content > :first-child {
@@ -12402,6 +12472,25 @@ button {
   text-align: left;
 }
 
+.prompt-box-drop-overlay {
+  position: absolute;
+  z-index: 4;
+  inset: 5px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed color-mix(in srgb, var(--composer-accent) 72%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--composer-surface) 88%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.prompt-box-drop-active {
+  border-color: color-mix(in srgb, var(--composer-accent) 70%, var(--composer-border));
+}
+
 .composer-reference {
   position: relative;
   min-width: 0;
@@ -12826,6 +12915,8 @@ button {
 .prompt-box-home .send-button,
 .prompt-box-project .send-button,
 .prompt-box-project .stop-button {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border-color: transparent;
   background: var(--composer-accent);
@@ -12887,8 +12978,7 @@ button {
   font-size: 10px;
 }
 
-.model-selector-current,
-.model-selector-model-copy {
+.model-selector-current {
   display: grid;
   min-width: 0;
   gap: 1px;
@@ -12902,8 +12992,7 @@ button {
   white-space: nowrap;
 }
 
-.model-selector-current small,
-.model-selector-model-copy small {
+.model-selector-current small {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 10px;
@@ -12936,16 +13025,16 @@ button {
 
 .model-selector-popover {
   position: absolute;
-  z-index: 20;
+  z-index: 40;
   right: 0;
   bottom: calc(100% + 8px);
-  width: 180px;
+  width: 200px;
 }
 
 .model-selector-menu,
 .model-selector-submenu {
   display: flex;
-  width: 180px;
+  width: 200px;
   flex-direction: column;
   padding: 4px;
   border: 1px solid var(--menu-border);
@@ -12954,21 +13043,37 @@ button {
 }
 
 .model-selector-submenu {
-  position: absolute;
-  top: 0;
-  left: calc(100% + 2px);
-  max-height: min(200px, calc(100dvh - 32px));
-  overflow-y: scroll;
+  position: relative;
+  gap: 2px;
+  max-height: min(220px, calc(100dvh - 32px));
+  overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 
+.model-selector-menu {
+  overflow: hidden;
+}
+
+.model-selector-model-list {
+  display: flex;
+  gap: 2px;
+  max-height: min(210px, calc(100dvh - 72px));
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.model-selector-model-list::-webkit-scrollbar,
 .model-selector-submenu::-webkit-scrollbar {
   width: 8px;
 }
 
+.model-selector-model-list::-webkit-scrollbar-thumb,
 .model-selector-submenu::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
@@ -12999,12 +13104,12 @@ button {
 .model-selector-submenu button {
   display: flex;
   width: 100%;
-  height: 36px;
-  flex: 0 0 36px;
+  height: 30px;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 6px;
+  padding: 0 7px;
   overflow: hidden;
   border: 0;
   border-radius: 5px;
@@ -13017,10 +13122,23 @@ button {
   text-align: left;
 }
 
+.model-selector-submenu .model-selector-back {
+  justify-content: flex-start;
+  gap: 7px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--menu-border);
+  border-radius: 0;
+  color: var(--text);
+}
+
 .model-selector-submenu button {
-  height: 32px;
-  flex-basis: 32px;
   color: var(--text-muted);
+}
+
+.model-selector-menu .model-selector-reasoning {
+  margin-top: 2px;
+  border-top: 1px solid var(--menu-border);
+  border-radius: 0 0 4px 4px;
 }
 
 .model-selector-menu button:hover,
@@ -13045,7 +13163,7 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   color: #b1b3bc;
 }
 
@@ -13904,10 +14022,10 @@ button {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin: 10px;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid #1f2227;
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: 0;
   background: var(--canvas);
 }
 
@@ -14659,18 +14777,6 @@ button {
     width: min(230px, calc(100vw - 150px));
   }
 
-  .model-selector-submenu {
-    top: auto;
-    right: 0;
-    bottom: calc(100% + 2px);
-    left: auto;
-  }
-
-  .prompt-box-home .model-selector-submenu {
-    top: calc(100% + 2px);
-    bottom: auto;
-  }
-
   .workspace-tab-active {
     width: 38px;
     flex-basis: 38px;
@@ -15388,6 +15494,13 @@ button {
     .file-tree-node
   ) {
   color: var(--text-secondary);
+}
+
+:root[data-appearance="light"] .prompt-box-home .send-button:disabled,
+:root[data-appearance="light"] .prompt-box-project .send-button:disabled {
+  background: var(--surface-hover);
+  color: var(--text-faint);
+  opacity: 1;
 }
 
 :root[data-appearance="light"] :is(.composer-image button, .message-queue) {

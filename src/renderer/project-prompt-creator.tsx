@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, LoaderCircle } from "./icons.js";
+import { Check, ChevronDown, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -214,7 +214,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
               title="Create project"
               aria-label="Create project"
             >
-              {creating ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={17} />}
+              {creating ? <LoaderCircle className="spin" size={15} /> : <SendArrow size={15} />}
             </button>
           </>
         )}

@@ -75,6 +75,30 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   let lastTimestamp: number | undefined;
 
   for (const entry of entries) {
+    if (entry.type === "compaction") {
+      const compactedAt = Date.parse(entry.timestamp);
+      items.push({
+        id: entry.id,
+        turnId: entry.id,
+        type: "contextCompaction",
+        status: "completed",
+        ...(Number.isFinite(compactedAt) ? { timestamp: compactedAt } : {}),
+      });
+      continue;
+    }
+    if (entry.type === "model_change") {
+      if (turnId) {
+        const modelChangedAt = Date.parse(entry.timestamp);
+        items.push({
+          id: entry.id,
+          turnId: entry.id,
+          type: "modelChange",
+          model: { provider: entry.provider, id: entry.modelId },
+          ...(Number.isFinite(modelChangedAt) ? { timestamp: modelChangedAt } : {}),
+        });
+      }
+      continue;
+    }
     if (entry.type !== "message") continue;
     const message = entry.message;
     const timestamp = messageTime(entry);
@@ -84,7 +108,10 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnFinished = false;
       const parsed = parseUserPrompt(textContent(message.content));
       const images = imageContent(message.content);
-      if (parsed.text || images.length > 0) items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(parsed.mentions.length ? { mentions: parsed.mentions } : {}), ...(images.length ? { images } : {}), timestamp });
+      if (parsed.text || images.length > 0) {
+        items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(parsed.mentions.length ? { mentions: parsed.mentions } : {}), ...(images.length ? { images } : {}), timestamp });
+        if (images.length) items.push({ id: `${entry.id}:images`, turnId, type: "imageRead", count: images.length, status: "completed", timestamp });
+      }
       continue;
     }
     if (message.role === "assistant") {
@@ -872,6 +899,7 @@ export class AgentManager {
   activeItems(projectId: string, conversationId: string): ThreadItem[] {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return [];
+    const timestamp = active.startedAt === undefined ? {} : { timestamp: active.startedAt };
     return [{
       id: `${active.turnId}:user`,
       turnId: active.turnId,
@@ -879,8 +907,15 @@ export class AgentManager {
       text: active.prompt,
       ...(active.mentions.length ? { mentions: active.mentions } : {}),
       ...(active.images.length ? { images: active.images } : {}),
-      ...(active.startedAt === undefined ? {} : { timestamp: active.startedAt }),
-    }, ...active.items.values()];
+      ...timestamp,
+    }, ...(active.images.length ? [{
+      id: `${active.turnId}:images`,
+      turnId: active.turnId,
+      type: "imageRead" as const,
+      count: active.images.length,
+      status: "completed" as const,
+      ...timestamp,
+    }] : []), ...active.items.values()];
   }
 
   activeTurnId(projectId: string, conversationId: string): string | undefined {

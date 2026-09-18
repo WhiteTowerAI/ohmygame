@@ -96,6 +96,10 @@ export const Square = forwardRef<SVGSVGElement, IconProps>(function Square({ siz
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props }, createElement("rect", { x: "3.5", y: "3.5", width: "17", height: "17", rx: "1.5", fill: "currentColor" }));
 });
 
+export const SendArrow = forwardRef<SVGSVGElement, IconProps>(function SendArrow({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M12 18V6M7.5 10.5L12 6L16.5 10.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+});
+
 export const MoreHorizontal = forwardRef<SVGSVGElement, IconProps>(function MoreHorizontal({ size = 24, ...props }, ref) {
   return createElement(
     "svg",

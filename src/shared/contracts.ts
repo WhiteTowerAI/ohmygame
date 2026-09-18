@@ -387,6 +387,7 @@ export type PromptImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "
 export interface PromptImage {
   mediaType: PromptImageMediaType;
   data: string;
+  name?: string;
 }
 
 export interface PendingPrompt {
@@ -434,6 +435,8 @@ export interface PlanState {
 
 export type ThreadItem = (
   | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[] }
+  | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
+  | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
       id: string;
       turnId: string;
@@ -824,6 +827,7 @@ export interface AddedProjectAsset {
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
+  "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };
@@ -850,6 +854,7 @@ export type RuntimeEventType = keyof RuntimeEventData;
 
 export const RUNTIME_EVENT_TYPES = [
   "conversation.renamed",
+  "conversation.model.changed",
   "project.renamed",
   "preview.starting",
   "preview.ready",

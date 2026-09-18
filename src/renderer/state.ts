@@ -65,14 +65,25 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const agentEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.");
-  if (agentEvent && (!conversation || event.conversationId !== conversation.id)) return next;
+  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "conversation.model.changed";
+  if (conversationScopedEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
     case "conversation.renamed":
       return conversation?.id === event.data.conversation.id
         ? { ...next, conversation: event.data.conversation }
         : next;
+    case "conversation.model.changed":
+      if (!conversation) return next;
+      return {
+        ...next,
+        turns: [...state.turns, {
+          id: event.data.item.turnId,
+          conversationId: conversation.id,
+          status: "completed",
+          items: [{ ...event.data.item, timestamp: eventTime(event) }],
+        }],
+      };
     case "project.renamed":
       return project?.id === event.data.project.id
         ? { ...next, project: event.data.project }
@@ -102,7 +113,14 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           ...(event.data.mentions?.length ? { mentions: event.data.mentions } : {}),
           ...(event.data.images?.length ? { images: event.data.images } : {}),
           timestamp: eventTime(event),
-        }],
+        }, ...(event.data.images?.length ? [{
+          id: `${event.turnId}:images`,
+          turnId: event.turnId,
+          type: "imageRead" as const,
+          count: event.data.images.length,
+          status: "completed" as const,
+          timestamp: eventTime(event),
+        }] : [])],
       };
       return {
         ...next,
