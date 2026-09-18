@@ -2134,7 +2134,6 @@ export function createApp(options: AppOptions = {}) {
       };
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
-      const restoreActiveItems = Boolean(activeItems.find((item) => item.type === "userMessage")?.images?.length);
       const loadedItems = [
         ...loadConversation(
           project,
@@ -2142,7 +2141,9 @@ export function createApp(options: AppOptions = {}) {
           currentRun?.timestamp,
           !currentRun,
         ),
-        ...(restoreActiveItems ? activeItems : []),
+        // A reset must be a complete snapshot. Replaying from the active turn's
+        // start is unsafe once a chat produces more events than the replay buffer.
+        ...(currentRun ? activeItems : []),
       ];
       return {
         conversation: conversation.summary,
@@ -2154,7 +2155,7 @@ export function createApp(options: AppOptions = {}) {
           loadedItems,
           agents.activeTurnId(project.id, conversation.summary.id),
         ),
-        cursor: !currentRun ? events.cursor() : restoreActiveItems ? currentRun.id : currentRun.id - 1,
+        cursor: events.cursor(),
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
       } satisfies ConversationDetail;
     },

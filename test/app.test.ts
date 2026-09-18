@@ -853,7 +853,7 @@ describe("daemon", () => {
           { type: "imageRead", count: 1, status: "completed", turnId: turn.json().turnId },
         ],
       }],
-      cursor: 1,
+      cursor: 2,
     });
     finishPrompt();
   });
@@ -1538,7 +1538,7 @@ describe("daemon", () => {
     });
   });
 
-  it("replays only the active turn from SSE when conversation is loaded mid-run", async () => {
+  it("snapshots the active turn at the latest cursor when conversation is loaded mid-run", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-active-conversation-"));
     let finishPrompt!: () => void;
     const session: CodingSession = {
@@ -1561,7 +1561,7 @@ describe("daemon", () => {
       sessionEntry("old-assistant", "old-user", oldTimestamp, { role: "assistant", content: [{ type: "text", text: "Answer" }], stopReason: "stop", timestamp: 1 }),
       sessionEntry("current-user", "old-assistant", currentTimestamp, { role: "user", content: "Current", timestamp: 2 }),
     ].join("\n") + "\n");
-    await app.inject({
+    const turn = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/session-1/turns`,
       payload: { prompt: "Current" },
@@ -1579,8 +1579,14 @@ describe("daemon", () => {
           { id: "old-user", turnId: "old-user", type: "userMessage", text: "Current" },
           { id: "old-assistant:assistant:0", turnId: "old-user", type: "agentMessage", text: "Answer", status: "completed" },
         ],
+      }, {
+        id: turn.json().turnId,
+        status: "inProgress",
+        items: [
+          { turnId: turn.json().turnId, type: "userMessage", text: "Current" },
+        ],
       }],
-      cursor: 0,
+      cursor: 1,
     });
     finishPrompt();
   });
