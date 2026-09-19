@@ -38,6 +38,7 @@ import {
   type ToolRun,
   type UpdateImageGenerationSettings,
   type PromptImage,
+  type PromptAttachment,
   type PluginMention,
   type PromptMode,
   type PromptReference,
@@ -89,6 +90,7 @@ declare global {
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
+      selectProjectDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       openPlaytest: (projectId: string, chapterId: string) => Promise<void>;
       updates: {
@@ -677,11 +679,29 @@ export async function sendPrompt(
   images: PromptImage[] = [],
   mode: PromptMode = "normal",
   mentions: PluginMention[] = [],
+  attachments: PromptAttachment[] = [],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}) }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}) }),
   });
+}
+
+export async function uploadProjectAttachment(
+  projectId: string,
+  batchId: string,
+  file: File,
+  relativePath?: string,
+): Promise<PromptAttachment> {
+  const query = new URLSearchParams({ batchId, name: file.name });
+  if (relativePath) query.set("relativePath", relativePath);
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/attachments?${query}`), {
+    method: "POST",
+    headers: { "content-type": "application/vnd.ohmygame.attachment", ...runtimeHeaders() },
+    body: file,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<PromptAttachment>;
 }
 
 export async function compactConversation(projectId: string, conversationId: string, instructions?: string): Promise<void> {

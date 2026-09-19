@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -15,10 +15,14 @@ interface ProjectMetadata {
   name: string;
   type: ProjectType;
   updatedAt: string;
+  /** Present only when the user chose a workspace outside OhMyGame storage. */
+  workspacePath?: string;
   publication?: PublicationState;
 }
 
 export class ProjectStoryReferenceError extends Error {}
+
+export class ProjectWorkspaceError extends Error {}
 
 export class ProjectAssetError extends Error {
   constructor(message: string, readonly statusCode: number) {
@@ -49,34 +53,40 @@ export class ProjectManager {
     for (const entry of entries) {
       if (!entry.isDirectory() || !isProjectId(entry.name)) continue;
       const projectDirectory = path.join(this.#projectsDirectory, entry.name);
-      const workspacePath = path.join(projectDirectory, "workspace");
-      if (!await exists(workspacePath)) continue;
       const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
+      const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
+      const workspaceAvailable = await isDirectory(workspacePath);
       const project = projectState(
         workspacePath,
         metadata,
         await isRunnableWorkspace(workspacePath),
+        projectDirectory,
+        workspaceAvailable,
       );
       this.#projects.set(project.id, project);
       if (missing) await writeMetadata(projectDirectory, metadata);
     }
   }
 
-  async create(name?: string, type: ProjectType = "web-game"): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
-    const workspacePath = path.join(projectDirectory, "workspace");
+    const hasExternalWorkspace = selectedWorkspacePath !== undefined;
+    const workspacePath = hasExternalWorkspace
+      ? await this.#validateExternalWorkspace(selectedWorkspacePath)
+      : path.join(projectDirectory, "workspace");
     const metadata: ProjectMetadata = {
       version: 1,
       id,
       name: name?.trim() || defaultProjectName(type),
       type,
       updatedAt: new Date().toISOString(),
+      ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
     await mkdir(projectDirectory, { recursive: true });
-    await mkdir(workspacePath, { recursive: true });
+    if (!hasExternalWorkspace) await mkdir(workspacePath, { recursive: true });
     await writeMetadata(projectDirectory, metadata);
-    const project = projectState(workspacePath, metadata, false);
+    const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath), projectDirectory, true);
     this.#projects.set(id, project);
     return project;
   }
@@ -93,6 +103,7 @@ export class ProjectManager {
   async syncLibraryAssets(): Promise<void> {
     if (!this.assetLibrary) return;
     for (const project of this.#projects.values()) {
+      if (project.workspaceAvailable === false) continue;
       const files = (await listWorkspaceFiles(project.workspacePath)).filter((file) => (
         file.mediaType && (!file.libraryAssetId || !this.assetLibrary!.get(file.libraryAssetId))
       ));
@@ -160,9 +171,12 @@ export class ProjectManager {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
         recursive: true,
         errorOnExist: true,
-        filter: (sourcePath) => path.basename(sourcePath) !== "node_modules",
+        filter: (sourcePath) => {
+          const relative = path.relative(source.workspacePath, sourcePath).replaceAll(path.sep, "/");
+          return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
+        },
       });
-      await copyFile(projectCoverPath(source.workspacePath), path.join(duplicateDirectory, PROJECT_COVER_FILE)).catch((error) => {
+      await copyFile(projectCoverPath(this.#projectDirectory(source.id)), path.join(duplicateDirectory, PROJECT_COVER_FILE)).catch((error) => {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       });
       await writeMetadata(duplicateDirectory, metadata);
@@ -170,7 +184,8 @@ export class ProjectManager {
       await rm(duplicateDirectory, { recursive: true, force: true });
       throw error;
     }
-    const project = projectState(path.join(duplicateDirectory, "workspace"), metadata, await isRunnableWorkspace(path.join(duplicateDirectory, "workspace")));
+    const workspacePath = path.join(duplicateDirectory, "workspace");
+    const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath), duplicateDirectory, true);
     this.#projects.set(project.id, project);
     return project;
   }
@@ -178,7 +193,10 @@ export class ProjectManager {
   async delete(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    await rm(path.dirname(project.workspacePath), { recursive: true, force: false });
+    if (project.workspaceLocation === "external") {
+      await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+    }
+    await rm(this.#projectDirectory(id), { recursive: true, force: false });
     this.#projects.delete(id);
     return project;
   }
@@ -193,7 +211,7 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) return undefined;
     try {
-      return await readFile(projectCoverPath(project.workspacePath));
+      return await readFile(projectCoverPath(this.#projectDirectory(id)));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
@@ -203,7 +221,7 @@ export class ProjectManager {
   async setCover(id: string, contents: Uint8Array): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    const destination = projectCoverPath(project.workspacePath);
+    const destination = projectCoverPath(this.#projectDirectory(id));
     const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, contents, { flag: "wx" });
@@ -437,6 +455,7 @@ export class ProjectManager {
   async referencesLibraryAsset(assetId: string): Promise<ProjectState[]> {
     const references: ProjectState[] = [];
     for (const project of this.#projects.values()) {
+      if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
       if (Object.values(metadata.libraryAssets).includes(assetId)) {
         references.push(project);
@@ -532,11 +551,43 @@ export class ProjectManager {
     changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "publication">>,
   ): Promise<void> {
     const metadata = { ...metadataFor(project), ...changes };
-    await writeMetadata(path.dirname(project.workspacePath), metadata);
+    await writeMetadata(this.#projectDirectory(project.id), metadata);
     project.name = metadata.name;
     project.updatedAt = metadata.updatedAt;
     if (metadata.publication) project.publication = metadata.publication;
     else delete project.publication;
+  }
+
+  async #validateExternalWorkspace(selectedWorkspacePath: string): Promise<string> {
+    if (!path.isAbsolute(selectedWorkspacePath)) throw new ProjectWorkspaceError("Workspace path must be absolute");
+    let entry: Awaited<ReturnType<typeof lstat>>;
+    let workspacePath: string;
+    try {
+      entry = await lstat(selectedWorkspacePath);
+      workspacePath = await realpath(selectedWorkspacePath);
+    } catch {
+      throw new ProjectWorkspaceError("Selected workspace folder is not available");
+    }
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new ProjectWorkspaceError("Selected workspace must be a directory, not a symbolic link");
+    }
+    if (path.parse(workspacePath).root === workspacePath) {
+      throw new ProjectWorkspaceError("The filesystem root cannot be used as a workspace");
+    }
+    if (pathsOverlap(workspacePath, this.#projectsDirectory)) {
+      throw new ProjectWorkspaceError("OhMyGame's project storage cannot be used as a workspace");
+    }
+    for (const project of this.#projects.values()) {
+      const existingWorkspace = path.resolve(project.workspacePath);
+      if (pathsOverlap(workspacePath, existingWorkspace)) {
+        throw new ProjectWorkspaceError("This folder overlaps with another OhMyGame workspace");
+      }
+    }
+    return workspacePath;
+  }
+
+  #projectDirectory(id: string): string {
+    return path.join(this.#projectsDirectory, id);
   }
 
 }
@@ -554,14 +605,16 @@ function removePresentationAssetReferences(presentation: StoryNodePresentation, 
   };
 }
 
-function projectCoverPath(workspacePath: string): string {
-  return path.join(path.dirname(workspacePath), PROJECT_COVER_FILE);
+function projectCoverPath(projectDirectory: string): string {
+  return path.join(projectDirectory, PROJECT_COVER_FILE);
 }
 
 function projectState(
   workspacePath: string,
   metadata: ProjectMetadata,
   runnable: boolean,
+  storagePath: string,
+  workspaceAvailable: boolean,
 ): ProjectState {
   return {
     id: metadata.id,
@@ -569,20 +622,46 @@ function projectState(
     type: metadata.type,
     updatedAt: metadata.updatedAt,
     workspacePath,
+    storagePath,
+    workspaceLocation: metadata.workspacePath ? "external" : "managed",
+    workspaceAvailable,
     preview: { status: runnable ? "stopped" : "waiting" },
     ...(metadata.publication ? { publication: metadata.publication } : {}),
   };
 }
 
 export async function isRunnableWorkspace(workspacePath: string): Promise<boolean> {
+  return (await previewWorkspaceStatus(workspacePath)).runnable;
+}
+
+export interface PreviewWorkspaceStatus {
+  runnable: boolean;
+  error?: string;
+}
+
+export async function previewWorkspaceStatus(workspacePath: string): Promise<PreviewWorkspaceStatus> {
   try {
     const packageJson = JSON.parse(await readFile(path.join(workspacePath, "package.json"), "utf8")) as {
       scripts?: { dev?: unknown };
     };
-    return typeof packageJson.scripts?.dev === "string" && packageJson.scripts.dev.trim().length > 0;
+    const command = packageJson.scripts?.dev;
+    if (typeof command !== "string" || !command.trim()) {
+      return { runnable: false, error: "This folder has no dev script that starts a preview server." };
+    }
+    if (isNonServerDevCommand(command)) {
+      return {
+        runnable: false,
+        error: `This folder's dev script runs a non-server task: ${command.trim()}`,
+      };
+    }
+    return { runnable: true };
   } catch {
-    return false;
+    return { runnable: false, error: "This folder has no package.json dev script that starts a preview server." };
   }
+}
+
+function isNonServerDevCommand(command: string): boolean {
+  return /(?:^|[\s/])(?:build|check|eslint|fmt|format|lint|prettier|test|typecheck)(?:$|[\s./:])/.test(command.toLowerCase());
 }
 
 async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
@@ -591,12 +670,14 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
       (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama") &&
+      (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
       const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
         ? parsed.updatedAt
         : fallbackUpdatedAt;
       const type = parsed.type ?? "web-game";
+      const workspacePath = parsed.workspacePath;
       return {
         metadata: {
           version: 1,
@@ -604,9 +685,10 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           name: parsed.name.trim(),
           type,
           updatedAt,
+          ...(workspacePath ? { workspacePath } : {}),
           ...(parsed.publication ? { publication: parsed.publication } : {}),
         },
-        missing: parsed.updatedAt !== updatedAt || parsed.type !== type,
+        missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.workspacePath !== workspacePath,
       };
     }
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
@@ -623,6 +705,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     name: project.name,
     type: project.type,
     updatedAt: project.updatedAt,
+    ...(project.workspaceLocation === "external" ? { workspacePath: project.workspacePath } : {}),
     ...(project.publication ? { publication: project.publication } : {}),
   };
 }
@@ -645,6 +728,23 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function isDirectory(target: string): Promise<boolean> {
+  try {
+    return (await lstat(target)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  return pathContains(left, right) || pathContains(right, left);
+}
+
+function pathContains(parent: string, child: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
 async function ensureDirectory(target: string, create = false): Promise<void> {

@@ -40,9 +40,12 @@ list. The desktop app opens OAuth in the system browser and receives the result
 through a temporary loopback server; Google and GitHub use the same Supabase
 configuration as Web.
 
-Projects, workspaces, and Pi sessions are stored under the daemon data
-directory. Restarting the daemon restores the same project, Pi context, and
-conversation shown in the Project Shell.
+By default, projects, workspaces, and Pi sessions are stored under the daemon
+data directory. In the desktop app, a new project can instead use a selected
+existing folder as its workspace; OhMyGame keeps that project's metadata and Pi
+sessions in the daemon data directory, and never deletes the selected folder
+when the project is removed. Restarting the daemon restores the same project,
+Pi context, and conversation shown in the Project Shell.
 
 ## Publishing
 

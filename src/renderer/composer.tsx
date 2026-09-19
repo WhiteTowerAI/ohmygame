@@ -1,10 +1,11 @@
 import { SendArrow, Square } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
-import { ImageAttachmentStrip, ImagePickerButton, promptImages, readImageFiles, type ComposerImage } from "./image-attachments.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
+import { AttachmentPickerButton, AttachmentStrip, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
+import { uploadProjectAttachment } from "./api.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
-import { PromptBox } from "./prompt-box.js";
+import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
@@ -13,7 +14,12 @@ import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 
+const MAX_ATTACHMENTS = 1_000;
+const MAX_ATTACHMENT_TOTAL_BYTES = 1024 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
+
 interface ComposerProps {
+  projectId?: string;
   conversationReady: boolean;
   running: boolean;
   stopping: boolean;
@@ -30,7 +36,7 @@ interface ComposerProps {
   capabilities: ConversationCapabilities;
   initialDraft?: ComposerDraft;
   onInitialDraftHandled?: () => void;
-  onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => Promise<boolean>;
+  onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
   onContextUsage: () => Promise<number | undefined>;
   onCancelPlan: () => Promise<boolean>;
@@ -50,6 +56,7 @@ export interface ComposerDraft {
 }
 
 export function Composer({
+  projectId,
   conversationReady,
   running,
   stopping,
@@ -85,8 +92,9 @@ export function Composer({
   const [selectedSkill, setSelectedSkill] = useState(initialSkill?.name);
   const [selectedPlugin, setSelectedPlugin] = useState(initialPlugin.mention);
   const [pluginMentions, setPluginMentions] = useState<PluginMention[]>(initialDraft?.mentions ?? []);
-  const [images, setImages] = useState<ComposerImage[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
   const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
   const [planning, setPlanning] = useState(planMode === "planning");
@@ -103,7 +111,7 @@ export function Composer({
     planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
     activeMention,
   ) : [];
-  const dirty = Boolean(prompt || selectedSkill || selectedPlugin || images.length || reference);
+  const dirty = Boolean(prompt || selectedSkill || selectedPlugin || attachments.length || reference);
 
   useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
   useEffect(() => {
@@ -126,19 +134,33 @@ export function Composer({
 
   async function submit() {
     const value = formatComposerPrompt(selectedSkill, selectedPlugin, prompt.trim());
-    if (!conversationReady || (!value && images.length === 0) || stopping) return;
-    const submitted = await onSubmit(value, activePluginMentions(value, pluginMentions), promptImages(images), planning ? "planning" : "normal");
-    if (submitted) {
-      setHistory((current) => recordPrompt(current, value));
-      setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
-      setPrompt("");
-      setSelectedSkill(undefined);
-      setSelectedPlugin(undefined);
-      setPluginMentions([]);
-      setMentionCursor(0);
-      setImages([]);
-      setAttachmentError(undefined);
-      textarea.current?.focus();
+    if (!conversationReady || (!value && attachments.length === 0) || stopping || submitting || !projectId) return;
+    setAttachmentError(undefined);
+    setSubmitting(true);
+    try {
+      const batchId = crypto.randomUUID();
+      let uploaded: PromptAttachment[];
+      try {
+        uploaded = await uploadAttachments(projectId, batchId, attachments);
+      } catch (error) {
+        setAttachmentError(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      const submitted = await onSubmit(value, activePluginMentions(value, pluginMentions), [], planning ? "planning" : "normal", uploaded);
+      if (submitted) {
+        setHistory((current) => recordPrompt(current, value));
+        setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
+        setPrompt("");
+        setSelectedSkill(undefined);
+        setSelectedPlugin(undefined);
+        setPluginMentions([]);
+        setMentionCursor(0);
+        setAttachments([]);
+        setAttachmentError(undefined);
+        textarea.current?.focus();
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -173,14 +195,33 @@ export function Composer({
     setPluginMentions((current) => activePluginMentions(formatSkillInvocation(selectedSkill, prompt), current));
   }
 
-  function addImageFiles(files: File[]): void {
+  function addAttachments(next: ComposerAttachment[]): void {
     setAttachmentError(undefined);
-    void readImageFiles(files).then((next) => {
-      setImages((items) => [...items, ...next]);
-      textarea.current?.focus();
-    }).catch((error) => {
-      setAttachmentError(error instanceof Error ? error.message : String(error));
-    });
+    if (next.some((attachment) => attachment.file.size > MAX_ATTACHMENT_BYTES)) {
+      setAttachmentError("An attachment cannot exceed 500 MB");
+      return;
+    }
+    const existingPaths = new Set(attachments.map((attachment) => attachment.relativePath));
+    const duplicate = next.find((attachment) => existingPaths.has(attachment.relativePath));
+    if (duplicate) {
+      setAttachmentError(`“${duplicate.relativePath}” is already attached`);
+      return;
+    }
+    const combined = [...attachments, ...next];
+    if (combined.length > MAX_ATTACHMENTS) {
+      setAttachmentError("Attach at most 1,000 files at a time");
+      return;
+    }
+    if (combined.reduce((total, attachment) => total + attachment.file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES) {
+      setAttachmentError("Attached files cannot exceed 1 GB in total");
+      return;
+    }
+    setAttachments(combined);
+    textarea.current?.focus();
+  }
+
+  function addFiles(files: DroppedFile[]): void {
+    addAttachments(attachmentFiles(files));
   }
 
   function selectMention(mention: ComposerMention) {
@@ -229,13 +270,13 @@ export function Composer({
     });
   }
 
-  const showStop = running && !selectedSkill && !prompt.trim() && images.length === 0;
+  const showStop = running && !selectedSkill && !prompt.trim() && attachments.length === 0;
   const awaitingApproval = planMode === "awaiting_approval";
   const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
   const showPlanCommand = !selectedSkill && !selectedPlugin && canTogglePlanning && matchesPlanCommand(prompt);
   const showCompactCommand = !selectedSkill && !selectedPlugin && conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
-  const inputDisabled = !conversationReady || planInputLocked;
+  const inputDisabled = !conversationReady || planInputLocked || submitting;
 
   useEffect(() => {
     if (showPlanCommand) setSelectedCommand("plan");
@@ -375,7 +416,7 @@ export function Composer({
                 <Square size={14} fill="currentColor" />
               </button>
             ) : (
-              <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && images.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
+              <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
                 <SendArrow size={15} />
               </button>
             )}
@@ -387,7 +428,7 @@ export function Composer({
             <div className="composer-reference-text">{reference.text}</div>
             <button type="button" className="composer-reference-remove" onClick={onClearReference} aria-label="Remove selected text">×</button>
           </div> : null}
-          <ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />
+          <AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />
         </>}
         disabled={inputDisabled}
         prefix={<ComposerCapabilityReferences
@@ -404,10 +445,9 @@ export function Composer({
         />}
         leading={(
           <>
-            <ImagePickerButton
+            <AttachmentPickerButton
               disabled={inputDisabled}
-              onImages={(next) => { setAttachmentError(undefined); setImages((items) => [...items, ...next]); }}
-              onError={setAttachmentError}
+              onFiles={addAttachments}
             />
             {planning ? (
               <PlanModeIndicator disabled={running || stopping} onExit={() => { void togglePlanning(); }} />
@@ -418,7 +458,8 @@ export function Composer({
         onCommandKeyDown={handleCommandKeyDown}
         onHistoryNext={() => browseHistory("next")}
         onHistoryPrevious={() => browseHistory("previous")}
-        onDropFiles={inputDisabled ? undefined : addImageFiles}
+        onDropFiles={inputDisabled ? undefined : addFiles}
+        onDropError={(error) => setAttachmentError(`Could not read dropped folder: ${error.message}`)}
         onSubmit={submitOrRunCommand}
         overlay={mentions.length ? (
           <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />
@@ -448,4 +489,17 @@ export function Composer({
 
 function formatComposerPrompt(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
   return formatComposerInvocation(skill, plugin, prompt);
+}
+
+async function uploadAttachments(projectId: string, batchId: string, attachments: ComposerAttachment[]): Promise<PromptAttachment[]> {
+  const uploaded = new Array<PromptAttachment>(attachments.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, attachments.length) }, async () => {
+    while (next < attachments.length) {
+      const index = next++;
+      const attachment = attachments[index]!;
+      uploaded[index] = await uploadProjectAttachment(projectId, batchId, attachment.file, attachment.relativePath);
+    }
+  }));
+  return uploaded;
 }

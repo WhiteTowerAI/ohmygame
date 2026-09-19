@@ -4,6 +4,7 @@ import type { ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
@@ -71,7 +72,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   }
 
   function remove(project: ProjectState): void {
-    if (!window.confirm(`Delete “${project.name}”? This cannot be undone.`)) return;
+    if (!window.confirm(projectDeletionConfirmation(project))) return;
     void runAction(() => deleteProject(project.id));
   }
 

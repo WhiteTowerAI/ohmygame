@@ -17,11 +17,12 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
+import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
@@ -200,6 +201,8 @@ function formatResponseTime(timestamp: number): string {
 
 function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
   if (!item) return null;
+  const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
+  const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -212,6 +215,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
           {item.images.map((image, index) => <img key={`${image.mediaType}:${index}`} src={imageSource(image)} alt={`Attached image ${index + 1}`} />)}
         </div>
       ) : null}
+      {attachments.length ? <UserAttachments attachments={attachments} /> : null}
       {controls.editing ? (
         <div className="user-message-editor">
           <textarea
@@ -248,6 +252,16 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
       ) : null}
     </div>
   );
+}
+
+function UserAttachments({ attachments }: { attachments: ConversationAttachment[] }) {
+  return <div className="user-message-attachments" aria-label="Attached files">
+    {attachments.map((attachment, index) => <div className="user-message-attachment" key={`${attachment.relativePath}:${index}`} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
+      <FileText size={13} />
+      <span>{attachment.relativePath}</span>
+      <small>{attachment.kind}</small>
+    </div>)}
+  </div>;
 }
 
 function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
@@ -356,8 +370,29 @@ function turnDuration(display: TurnDisplay): string {
 }
 
 function activeTurnDuration(display: TurnDisplay, now: number): string {
-  const startedAt = display.user?.timestamp ?? now;
+  const workTimestamps = display.work.flatMap((item) => item.kind === "item"
+    ? [item.item.timestamp]
+    : item.tools.map((tool) => tool.timestamp));
+  const startedAt = [display.user?.timestamp, ...workTimestamps]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    .reduce((earliest, value) => Math.min(earliest, value), now);
   return formatDuration(Math.max(0, now - startedAt));
+}
+
+function compactionStats(tokensBefore: number, estimatedTokensAfter?: number): string {
+  const formatter = new Intl.NumberFormat();
+  const before = formatter.format(tokensBefore);
+  return estimatedTokensAfter === undefined
+    ? `Compacted from ${before} tokens`
+    : `Compacted from ${before} to approximately ${formatter.format(estimatedTokensAfter)} tokens`;
+}
+
+function compactionLabel(item: Extract<ThreadItem, { type: "contextCompaction" }>): string {
+  if (item.error) return item.error.message;
+  if (item.status === "completed") return "Context compacted";
+  if (item.status === "cancelled") return "Context compaction stopped";
+  if (item.status === "failed") return "Context compaction failed";
+  return "Compacting context";
 }
 
 function formatDuration(milliseconds: number): string {
@@ -432,10 +467,27 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
     />;
   }
   if (item.type === "contextCompaction") {
+    const label = compactionLabel(item);
+    const icon = item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    if (item.status === "completed" && item.summary) {
+      return (
+        <details className="compaction-details">
+          <summary className="timeline-event timeline-event-expandable">
+            {icon}
+            <span>{label}</span>
+            <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
+          </summary>
+          <div className="compaction-content">
+            {item.tokensBefore !== undefined ? <p className="compaction-stats">{compactionStats(item.tokensBefore, item.estimatedTokensAfter)}</p> : null}
+            <MarkdownContent text={item.summary} />
+          </div>
+        </details>
+      );
+    }
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
-        {item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />}
-        <span>{item.error?.message ?? (item.status === "completed" ? "Context compacted" : "Compacting context")}</span>
+        {icon}
+        <span>{label}</span>
       </div>
     );
   }

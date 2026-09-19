@@ -5,6 +5,7 @@ import { deleteProject, duplicateProject, listProjects, renameProject, waitForRu
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -58,7 +59,7 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
   }
 
   function remove(project: ProjectState): void {
-    if (!window.confirm(`Delete “${project.name}”? This cannot be undone.`)) return;
+    if (!window.confirm(projectDeletionConfirmation(project))) return;
     void runAction(() => deleteProject(project.id));
   }
 

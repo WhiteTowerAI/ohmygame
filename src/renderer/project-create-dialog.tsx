@@ -18,6 +18,8 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
   const onCloseRef = useRef(onClose);
   const [name, setName] = useState("");
   const [type, setType] = useState<ProjectType>(fixedType ?? initialType);
+  const [workspacePath, setWorkspacePath] = useState<string>();
+  const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [templateId, setTemplateId] = useState<CreateProjectRequest["templateId"]>();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
@@ -59,12 +61,38 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
         name: name.trim() || (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)),
         type,
         ...(type === "interactive-drama" && templateId ? { templateId } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
       });
       onCreated(project);
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
     }
+  }
+
+  async function chooseWorkspace(): Promise<void> {
+    if (creating || selectingWorkspace) return;
+    const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
+    if (!selectDirectory) {
+      setError("Restart the OhMyGame desktop app to enable folder selection.");
+      return;
+    }
+    setSelectingWorkspace(true);
+    setError(undefined);
+    try {
+      const selected = await selectDirectory();
+      if (!selected) return;
+      setWorkspacePath(selected);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSelectingWorkspace(false);
+    }
+  }
+
+  function clearWorkspace(): void {
+    setWorkspacePath(undefined);
+    setError(undefined);
   }
 
   return (
@@ -81,6 +109,18 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
             <span>Name</span>
             <input ref={nameInput} value={name} maxLength={120} disabled={creating} placeholder={templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)} onChange={(event) => setName(event.target.value)} />
           </label>
+          <fieldset className="project-create-workspace">
+            <legend>Workspace</legend>
+            <div className="project-create-workspace-selection">
+              {workspacePath ? <span className="is-selected" title={workspacePath}>{workspacePath}</span> : null}
+              <div>
+                <button type="button" disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
+                  {selectingWorkspace ? "Opening…" : workspacePath ? "Choose another…" : "Choose folder…"}
+                </button>
+                {workspacePath ? <button type="button" disabled={creating || selectingWorkspace} onClick={clearWorkspace}>Clear</button> : null}
+              </div>
+            </div>
+          </fieldset>
           {!fixedType ? (
             <fieldset className="project-create-types">
               <legend>Type</legend>
