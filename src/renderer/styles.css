@@ -8811,7 +8811,6 @@ button {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
 }
 .story-open-ui-node-surface {
   position: absolute;
@@ -8982,7 +8981,6 @@ button {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
 }
 .story-scene-node-poster > video {
   z-index: 1;
@@ -9515,7 +9513,17 @@ button {
 .story-media-stage > video {
   width: 100%;
   height: 100%;
+}
+
+:is(.story-generation-media-node, .story-library-asset-node)
+  > .story-media-stage
+  > :is(img, video) {
   object-fit: contain;
+}
+
+:is(.story-open-ui-node-preview, .story-inherited-scene-poster)
+  > :is(img, video) {
+  object-fit: cover;
 }
 
 .story-canvas-video {

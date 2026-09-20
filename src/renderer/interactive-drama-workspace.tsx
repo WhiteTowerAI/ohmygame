@@ -2022,7 +2022,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
   const label = kind === "image" ? "Image" : "Video";
   const mediaLayout = useMediaNodeLayout(preview.url, aspectRatio);
   return (
-    <div className={`story-node story-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
+    <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
       <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
