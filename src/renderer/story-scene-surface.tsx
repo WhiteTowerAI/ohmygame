@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
+import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 export interface StorySceneSurfaceContext {
   node?: Record<string, unknown>;
@@ -31,12 +32,13 @@ interface SceneSurfaceMessage {
   message?: string;
 }
 
-export function StorySceneSurface({ files, context, mode, title, className, onAction, onError }: {
+export function StorySceneSurface({ files, context, mode, title, className, viewport, onAction, onError }: {
   files: StorySurfaceFiles;
   context: StorySceneSurfaceContext;
   mode: "preview" | "runtime";
   title: string;
   className?: string;
+  viewport: { width: number; height: number };
   onAction?: (action: StoryNodeSurfaceAction) => void;
   onError?: (message?: string) => void;
 }) {
@@ -74,7 +76,7 @@ export function StorySceneSurface({ files, context, mode, title, className, onAc
     if (!loaded || !ready) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "update", context, mode }, "*");
   }, [context, instanceId, loaded, mode, ready]);
-  return <iframe ref={iframe} className={className} title={title} sandbox="allow-scripts" src="scene-surface.html" onLoad={() => setLoaded(true)} />;
+  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="scene-surface.html" onLoad={() => setLoaded(true)} />;
 }
 
 function isSceneSurfaceMessage(value: unknown): value is SceneSurfaceMessage {

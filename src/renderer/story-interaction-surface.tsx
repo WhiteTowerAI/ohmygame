@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { StoryInteractionCommand, StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
+import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 export interface StoryInteractionRuntimeContext {
   variables: Record<string, StoryVariableValue>;
@@ -14,12 +15,13 @@ interface EventSurfaceMessage {
   message?: string;
 }
 
-export function StoryInteractionSurface({ files, mode, context, title, className, onComplete, onError }: {
+export function StoryInteractionSurface({ files, mode, context, title, className, viewport, onComplete, onError }: {
   files: StorySurfaceFiles;
   mode: "preview" | "runtime";
   context?: StoryInteractionRuntimeContext;
   title: string;
   className?: string;
+  viewport: { width: number; height: number };
   onComplete?: (result: string, commands: StoryInteractionCommand[]) => void;
   onError?: (message: string) => void;
 }) {
@@ -43,7 +45,7 @@ export function StoryInteractionSurface({ files, mode, context, title, className
     if (!loaded) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files, mode, context }, "*");
   }, [context, files.css, files.html, files.javascript, instanceId, loaded, mode]);
-  return <iframe ref={iframe} className={className} title={title} sandbox="allow-scripts" src="interaction-surface.html" onLoad={() => setLoaded(true)} />;
+  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="interaction-surface.html" onLoad={() => setLoaded(true)} />;
 }
 
 function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
