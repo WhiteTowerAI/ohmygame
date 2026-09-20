@@ -11871,6 +11871,12 @@ button {
   list-style: none;
 }
 
+.connection-activity.tool-row-expandable {
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, auto) 14px;
+}
+
 .connection-activity-details > summary::-webkit-details-marker {
   display: none;
 }
@@ -11972,7 +11978,7 @@ button {
   transition: transform 120ms ease;
 }
 
-.tool-activity-details .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-details) .tool-detail-chevron {
   opacity: 0;
   transition:
     color 120ms ease,
@@ -11980,13 +11986,13 @@ button {
     transform 120ms ease;
 }
 
-.tool-activity-details > summary:hover .tool-detail-chevron,
-.tool-activity-details > summary:focus-visible .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-details) > summary:hover .tool-detail-chevron,
+:is(.tool-activity-details, .connection-activity-details) > summary:focus-visible .tool-detail-chevron {
   opacity: 1;
 }
 
-.tool-activity-details > summary:hover .tool-label,
-.tool-activity-details > summary:focus-visible .tool-label {
+:is(.tool-activity-details, .connection-activity-details) > summary:hover .tool-label,
+:is(.tool-activity-details, .connection-activity-details) > summary:focus-visible .tool-label {
   color: var(--text);
 }
 

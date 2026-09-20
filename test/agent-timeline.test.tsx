@@ -402,10 +402,12 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Reconnecting 1/3");
     expect(html.match(/OpenAI Responses stream ended before a terminal response event/g)).toHaveLength(1);
     expect(html.match(/connection-activity-details/g)).toHaveLength(1);
-    expect(html).toContain("solar-refresh-linear spin");
+    expect(html).toContain("tool-detail-chevron");
+    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain("activity-shimmer");
   });
 
-  it("stops animating reconnecting after later activity appears", () => {
+  it("keeps reconnecting static after later activity appears", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "retry",
       turnId: "turn-1",
@@ -419,7 +421,9 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Reconnecting 1/3");
     expect(html).toContain('Reconnecting 1/3</span><svg');
-    expect(html).toContain('<span class="tool-result"></span>');
+    expect(html).toContain('<span class="tool-label">Reconnecting 1/3</span>');
+    expect(html).not.toContain("solar-refresh-linear spin");
+    expect(html).not.toContain('class="tool-label activity-shimmer">Reconnecting');
   });
 
   it("does not present an intermediate stream failure as a final connection error", () => {
