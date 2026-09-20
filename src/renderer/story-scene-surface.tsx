@@ -47,7 +47,7 @@ export function StorySceneSurface({ files, context, mode, title, className, view
   const surfaceFiles = transparentStorySurfaceFiles(files);
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
-  const [loaded, setLoaded] = useState(false);
+  const [loadRevision, setLoadRevision] = useState(0);
   const [ready, setReady] = useState(false);
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
@@ -75,15 +75,15 @@ export function StorySceneSurface({ files, context, mode, title, className, view
     return () => window.removeEventListener("message", receive);
   }, [instanceId]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loadRevision) return;
     setReady(false);
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "init", files: surfaceFiles, context: contextRef.current, mode }, "*");
-  }, [instanceId, loaded, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
+  }, [instanceId, loadRevision, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
   useEffect(() => {
-    if (!loaded || !ready) return;
+    if (!loadRevision || !ready) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "update", context, mode }, "*");
-  }, [context, instanceId, loaded, mode, ready]);
-  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="scene-surface.html" onLoad={() => setLoaded(true)} />;
+  }, [context, instanceId, loadRevision, mode, ready]);
+  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="scene-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
 }
 
 function isSceneSurfaceMessage(value: unknown): value is SceneSurfaceMessage {

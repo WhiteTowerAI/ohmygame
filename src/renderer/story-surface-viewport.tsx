@@ -10,6 +10,7 @@ export function StorySurfaceViewport({ iframeRef, viewport, className, title, sr
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [colorScheme, setColorScheme] = useState<"light" | "dark">(() => resolvedColorScheme());
 
   useLayoutEffect(() => {
     const element = container.current;
@@ -21,12 +22,19 @@ export function StorySurfaceViewport({ iframeRef, viewport, className, title, sr
     return () => observer.disconnect();
   }, [viewport.height, viewport.width]);
 
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => setColorScheme(resolvedColorScheme()));
+    observer.observe(root, { attributes: true, attributeFilter: ["data-appearance"] });
+    return () => observer.disconnect();
+  }, []);
+
   return <div ref={container} className={`story-surface-viewport${className ? ` ${className}` : ""}`}>
     <iframe
       ref={iframeRef}
       title={title}
       sandbox="allow-scripts"
-      src={src}
+      src={`${src}?color-scheme=${colorScheme}`}
       onLoad={onLoad}
       style={{
         position: "absolute",
@@ -41,4 +49,8 @@ export function StorySurfaceViewport({ iframeRef, viewport, className, title, sr
       }}
     />
   </div>;
+}
+
+function resolvedColorScheme(): "light" | "dark" {
+  return document.documentElement.dataset.appearance === "light" ? "light" : "dark";
 }
