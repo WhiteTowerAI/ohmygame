@@ -10336,7 +10336,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: 0;
-  background: #111216;
+  background: var(--surface-raised);
   color: var(--text);
 }
 
@@ -10449,7 +10449,7 @@ button {
   place-items: center;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: #181a20;
+  background: var(--surface-hover);
   color: var(--text-muted);
 }
 .story-video-picker-list > button > span:nth-child(2) {
