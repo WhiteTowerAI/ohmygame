@@ -8774,9 +8774,6 @@ button {
 .story-node-scene {
   width: var(--story-media-width, 440px);
 }
-.story-node-interaction-flow {
-  width: 320px;
-}
 .story-interaction-flow-preview {
   position: relative;
   display: grid;

@@ -144,6 +144,10 @@ const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
 const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
+const STORY_CANVAS_MEDIA_STYLE = {
+  "--story-media-width": "var(--story-canvas-stage-width, 440px)",
+  "--story-media-height": "var(--story-canvas-stage-height, 248px)",
+} as CSSProperties;
 type InteractionMode = "pointer" | "pan";
 type StoryWorkspaceView = "canvas" | "code";
 type InteractionTemplate = "blank" | StoryInteractionBehavior["type"];
@@ -1426,7 +1430,6 @@ function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [currentMs, setCurrentMs] = useState(0);
-  const mediaStyle = { "--story-media-width": "var(--story-canvas-stage-width, 440px)", "--story-media-height": "var(--story-canvas-stage-height, 248px)" } as CSSProperties;
   const asset = useWorkspaceAssetUrl(undefined, "", 0, assetId);
 
   useEffect(() => {
@@ -1438,7 +1441,7 @@ function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
     else video.current?.pause();
   }, [asset.url, playing]);
 
-  return <div className={`story-node story-media-node story-node-scene story-node-open-ui${selected ? " is-selected" : ""}`} style={mediaStyle}>
+  return <div className={`story-node story-media-node story-node-scene story-node-open-ui${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       <PanelToggle size={14} />
@@ -1501,9 +1504,8 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const mediaCount = data.presentation?.media.mode === "own" ? data.presentation.media.items.length : 0;
   const preview = data.scenePreview;
   const totalDurationMs = Math.max(1, preview?.totalDurationMs ?? 0);
-  const mediaStyle = { "--story-media-width": "var(--story-canvas-stage-width, 440px)", "--story-media-height": "var(--story-canvas-stage-height, 248px)" } as CSSProperties;
   return (
-    <div className={`story-node story-media-node story-node-scene${selected ? " is-selected" : ""}`} style={mediaStyle}>
+    <div className={`story-node story-media-node story-node-scene${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <div className="story-media-node-label story-scene-node-label">
         <Clapperboard size={14} />
@@ -1521,7 +1523,7 @@ function InteractionNode({ data, selected }: NodeProps<StoryFlowNode>) {
   const behavior = data.behavior;
   const outcomes = behavior ? storyInteractionNodeOutcomes(behavior) : [];
   const label = behavior?.type === "qte" ? "QTE" : behavior?.type === "hotspot" ? "Hotspot" : behavior?.type === "continue" ? "Continue" : "Action";
-  return <div className={`story-node story-media-node story-node-interaction-flow${selected ? " is-selected" : ""}`}>
+  return <div className={`story-node story-media-node story-node-interaction-flow${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>{label}</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
     <InheritedScenePoster preview={data.inheritedScenePreview} className="story-interaction-flow-preview">
@@ -1658,8 +1660,7 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, 
 
 function ChoiceNode({ data, selected }: NodeProps<StoryFlowNode>) {
   const options = data.options ?? [];
-  const mediaStyle = { "--story-media-width": "var(--story-canvas-stage-width, 440px)", "--story-media-height": "var(--story-canvas-stage-height, 248px)" } as CSSProperties;
-  return <div className={`story-node story-media-node story-node-choice-player${selected ? " is-selected" : ""}`} style={mediaStyle}>
+  return <div className={`story-node story-media-node story-node-choice-player${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       <GitBranch size={14} />
@@ -1685,8 +1686,7 @@ function ChoiceNode({ data, selected }: NodeProps<StoryFlowNode>) {
 }
 
 function EndingNode({ data, selected }: NodeProps<StoryFlowNode>) {
-  const mediaStyle = { "--story-media-width": "var(--story-canvas-stage-width, 440px)", "--story-media-height": "var(--story-canvas-stage-height, 248px)" } as CSSProperties;
-  return <div className={`story-node story-media-node story-node-ending-player${selected ? " is-selected" : ""}`} style={mediaStyle}>
+  return <div className={`story-node story-media-node story-node-ending-player${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       <CircleStop size={14} />
