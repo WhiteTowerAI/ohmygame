@@ -591,8 +591,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        project.type === "interactive-drama" ? undefined : () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
-        project.type === "interactive-drama" ? "interactive-drama" : "default",
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -605,7 +604,7 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project.workspacePath,
         conversations.open(project, conversation),
-        project.type === "interactive-drama" ? [] : createAgentTools(
+        createAgentTools(
           project,
           tools,
           projects,
@@ -619,13 +618,12 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        project.type === "interactive-drama" ? undefined : () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
-        project.type === "interactive-drama" ? "interactive-drama" : "default",
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
       );
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(project.type, mode, tools.list().map((tool) => tool.id), registered);
+      return projectPiToolNames(mode, tools.list().map((tool) => tool.id), registered);
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -2192,7 +2190,6 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (project.type === "interactive-drama") return { plugins: [], skills: [] } satisfies ConversationCapabilities;
       const [catalog, skills] = await Promise.all([
         plugins.list(),
         agents.skills(project, conversation),

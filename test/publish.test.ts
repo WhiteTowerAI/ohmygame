@@ -781,7 +781,8 @@ describe("remote publish", () => {
 
     expect(metadata).not.toContain(token);
     expect(artifact).not.toContain(token);
-    expect(await readdir(project.workspacePath)).toEqual(["index.html"]);
+    expect(await readdir(project.workspacePath)).toEqual(["AGENTS.md", "index.html"]);
+    await expect(readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "AGENTS.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

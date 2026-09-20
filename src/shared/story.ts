@@ -685,9 +685,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
 function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryNode {
   if (!isRecord(value) || !nonEmptyString(value.id) || typeof value.type !== "string" ||
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data) ||
-    !hasOnlyKeys(value, ["id", "type", "position", "data", "editor"])) return false;
-  if (value.editor !== undefined && (!isRecord(value.editor) || !nonEmptyString(value.editor.kind) || value.editor.kind.length > 80 ||
-    (value.editor.properties !== undefined && !isRecord(value.editor.properties)) || !hasOnlyKeys(value.editor, ["kind", "properties"]))) return false;
+    !hasOnlyKeys(value, ["id", "type", "position", "data"])) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
   if (value.type === "project-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
@@ -766,8 +764,7 @@ function isEditorLayout(value: unknown): boolean {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.nodes) || !isRecord(value.viewport) ||
     (value.view !== "canvas" && value.view !== "code") || !isCoordinates(value.viewport) ||
     typeof value.viewport.zoom !== "number" || !Number.isFinite(value.viewport.zoom) || value.viewport.zoom <= 0 ||
-    (value.extensions !== undefined && !isRecord(value.extensions)) ||
-    !hasOnlyKeys(value, ["version", "nodes", "viewport", "view", "extensions"]) ||
+    !hasOnlyKeys(value, ["version", "nodes", "viewport", "view"]) ||
     !hasOnlyKeys(value.viewport, ["x", "y", "zoom"])) return false;
   return Object.values(value.nodes).every(isPosition);
 }

@@ -40,7 +40,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -93,7 +93,6 @@ import {
   type StoryAssetReference,
   type StoryNode,
   type StoryNodePresentation,
-  type StoryNodeEditorMetadata,
   type StoryNodeType,
   type StoryPlayerConfig,
   type StoryOpenUiAction,
@@ -111,7 +110,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, getWorkspaceFile, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
+import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -122,7 +121,6 @@ import { createStoryInteractionFiles } from "../shared/story-interaction-code.js
 import { StoryInteractionSurface } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface as SceneCodeSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
-import { StoryEditorPresentationSurface, type StoryEditorCommand, type StoryEditorPresentationNode, type StoryEditorPresentationRegion } from "./story-editor-presentation-surface.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
@@ -252,14 +250,12 @@ type StoryFlowData = {
   playerConfig?: StoryPlayerConfig;
   openUiPreview?: { assetId?: string; mediaType?: "image" | "video"; durationMs: number };
   variables?: StoryVariable[];
-  editorPresentationSource?: string;
-  editorMetadata?: StoryNodeEditorMetadata["editor"];
   previewValues?: Record<string, StoryVariableValue>;
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
   textRuntime?: TextNodeRuntime;
 };
-type StoryFlowNode = Node<StoryFlowData, StoryNodeType> & StoryNodeEditorMetadata;
+type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
 type StoryCanvasNode = StoryFlowNode;
 
 interface MediaNodeRuntime {
@@ -310,26 +306,18 @@ interface MediaReferenceView {
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
-  "open-ui": CustomOpenUiNode,
-  start: CustomStartNode,
-  "project-state": CustomProjectStateNode,
-  scene: CustomSceneNode,
-  interaction: CustomInteractionNode,
-  choice: CustomChoiceNode,
-  ending: CustomEndingNode,
-  text: CustomTextNode,
-  image: CustomImageNode,
-  video: CustomVideoNode,
-  asset: CustomAssetNode,
+  "open-ui": OpenUiNode,
+  start: StartNode,
+  "project-state": ProjectStateNode,
+  scene: SceneNode,
+  interaction: InteractionNode,
+  choice: ChoiceNode,
+  ending: EndingNode,
+  text: TextNode,
+  image: ImageNode,
+  video: VideoNode,
+  asset: AssetNode,
 };
-
-const EditorPresentationContext = createContext<{
-  source?: string;
-  styles?: string;
-  context?: Record<string, unknown>;
-  onCommand?: (command: StoryEditorCommand) => Promise<unknown> | unknown;
-  regions?: StoryEditorPresentationRegion[];
-}>({});
 
 export function InteractiveDramaWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
   project: ProjectState;
@@ -356,10 +344,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     view: "canvas",
   });
   const [codeRevision, setCodeRevision] = useState(0);
-  const [editorPresentationSource, setEditorPresentationSource] = useState<string>();
-  const [editorPresentationStyles, setEditorPresentationStyles] = useState<string>();
-  const [editorPresentationRegions, setEditorPresentationRegions] = useState<StoryEditorPresentationRegion[]>([]);
-  const [useDefaultEditor, setUseDefaultEditor] = useState(false);
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
@@ -406,12 +390,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(async ([story, assets, models]) => {
-      if (disposed) return;
-      const [presentation, presentationStyles] = await Promise.all([
-        getWorkspaceFile(projectId, "editor/presentation.js").catch(() => undefined),
-        getWorkspaceFile(projectId, "editor/style.css").catch(() => undefined),
-      ]);
+    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(([story, assets, models]) => {
       if (disposed) return;
       const firstChapter = story.chapters[0];
       if (!firstChapter) throw new Error("Story has no chapters");
@@ -428,10 +407,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       queuedStory.current = JSON.stringify(story);
       setLibraryAssets(assets);
       setImageModels(models);
-      setEditorPresentationSource(presentation?.binary ? undefined : presentation?.content);
-      setEditorPresentationStyles(presentationStyles?.binary ? undefined : presentationStyles?.content);
-      setEditorPresentationRegions([]);
-      setUseDefaultEditor(false);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -488,7 +463,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     historyPendingBase.current = undefined;
     editorRedoHistory.current.push(structuredClone(document));
     observeHistoryDocument(next);
-    applyEditorStory(next, false);
+    applyEditorStory(next);
     updateHistoryControls();
     return true;
   }
@@ -499,7 +474,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     if (!next) return false;
     pushUndoSnapshot(document);
     observeHistoryDocument(next);
-    applyEditorStory(next, false);
+    applyEditorStory(next);
     updateHistoryControls();
     return true;
   }
@@ -1042,7 +1017,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         ...node,
         data: {
           ...node.data,
-          editorPresentationSource,
           variables,
           previewValues: Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue])),
           scenePreview: {
@@ -1055,23 +1029,22 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     }
     if (node.type === "project-state") return {
       ...node,
-      data: { ...node.data, editorPresentationSource, variables },
+      data: { ...node.data, variables },
     };
     if (node.type === "open-ui") {
       const item = node.data.presentation?.media.mode === "own" ? node.data.presentation.media.items[0] : undefined;
       const assetId = item ? resolveStoryAssetId(activeChapter ?? { id: "", title: "", nodes: [], edges: [] }, item.source) : undefined;
       const asset = libraryAssets.find((candidate) => candidate.id === assetId);
       const mediaType: "image" | "video" | undefined = asset?.mediaType === "video" ? "video" : asset?.mediaType === "image" ? "image" : undefined;
-      return { ...node, data: { ...node.data, editorPresentationSource, playerConfig: player, openUiPreview: { assetId, mediaType, durationMs: Math.max(0, Math.round((asset?.duration ?? 0) * 1_000)) } } };
+      return { ...node, data: { ...node.data, playerConfig: player, openUiPreview: { assetId, mediaType, durationMs: Math.max(0, Math.round((asset?.duration ?? 0) * 1_000)) } } };
     }
     if (node.type === "choice" || node.type === "interaction" || node.type === "ending") return {
       ...node,
       data: {
         ...node.data,
-        editorPresentationSource,
         variables,
         previewValues: Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue])),
-        inheritedScenePreview: resolvedEditorPresentationPreview(node, nodes, edges, libraryAssets),
+        inheritedScenePreview: resolvedPresentationPreview(node, nodes, edges, libraryAssets),
       },
     };
     if (node.type === "asset") return {
@@ -1080,7 +1053,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         const asset = libraryAssets.find((candidate) => candidate.id === node.data.assetId);
         return {
           ...node.data,
-          editorPresentationSource,
           name: asset?.name ?? "Missing asset",
           contentType: asset?.contentType,
           assetDuration: asset?.duration,
@@ -1091,7 +1063,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       ...node,
       data: {
           ...node.data,
-          editorPresentationSource,
         textRuntime: {
           models: textModelCatalog.models,
           modelStatus: textModelCatalog.status,
@@ -1107,7 +1078,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         },
       },
     };
-    if (!isMediaNodeType(node.type)) return { ...node, data: { ...node.data, editorPresentationSource } };
+    if (!isMediaNodeType(node.type)) return node;
     const linkedPrompt = resolveLinkedPrompt(node, nodes);
     const runtime: MediaNodeRuntime = {
       generating: generatingNodeId === node.id,
@@ -1146,8 +1117,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     return {
       ...node,
       data: node.type === "image"
-        ? { ...node.data, editorPresentationSource, imageRuntime: { ...referenceRuntime, models: imageModels } satisfies ImageNodeRuntime }
-        : { ...node.data, editorPresentationSource, videoRuntime: referenceRuntime },
+        ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels } satisfies ImageNodeRuntime }
+        : { ...node.data, videoRuntime: referenceRuntime },
     };
   });
 
@@ -1213,15 +1184,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     return onPublish(details);
   }
 
-  function applyEditorStory(next: StoryDocument, recordHistory: boolean): void {
+  function applyEditorStory(next: StoryDocument): void {
     if (!isStoryDocument(next)) throw new Error("The editor change did not produce a valid Interactive Drama story");
     const firstChapter = next.chapters[0];
     if (!firstChapter) throw new Error("The story must contain a chapter");
-    if (recordHistory && document) {
-      commitPendingHistory();
-      pushUndoSnapshot(document);
-      editorRedoHistory.current = [];
-    }
     observeHistoryDocument(next);
     setChapter({ id: firstChapter.id, title: firstChapter.title });
     setVariables(next.variables ?? []);
@@ -1236,64 +1202,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setSelectedId((current) => current && firstChapter.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
-  async function handleEditorCommand(command: StoryEditorCommand): Promise<unknown> {
-    if (JSON.stringify(command.payload ?? null).length > 2_000_000) throw new Error("Editor command payload exceeds 2 MB");
-    const payload = recordValue(command.payload);
-    if (command.type === "replace-story") {
-      const next = payload?.story;
-      if (!isStoryDocument(next)) throw new Error("editor.replaceStory requires a complete valid story");
-      applyEditorStory(structuredClone(next), true);
-      return { applied: true };
-    }
-    if (command.type === "set-view") {
-      const view = payload?.view;
-      if (view !== "canvas" && view !== "code") throw new Error(`Unknown editor view: ${String(view)}`);
-      const normalizedView = view;
-      setWorkspaceView(view === "code" ? "code" : "canvas");
-      setEditorLayout((current) => ({ ...current, view: normalizedView }));
-      return { view: normalizedView };
-    }
-    if (command.type === "set-layout-state") {
-      const key = payload?.key;
-      if (typeof key !== "string" || !key || key.length > 80 || ["__proto__", "prototype", "constructor"].includes(key)) throw new Error("Invalid editor layout state key");
-      setEditorLayout((current) => ({ ...current, extensions: { ...(current.extensions ?? {}), [key]: structuredClone(payload?.value) } }));
-      return { key };
-    }
-    if (command.type === "open-node") {
-      const nodeId = payload?.nodeId;
-      if (typeof nodeId !== "string") throw new Error("editor.openNode requires a node ID");
-      const node = nodes.find((candidate) => candidate.id === nodeId);
-      if (!node) throw new Error(`Node ${nodeId} was not found`);
-      if (!hasNodeEditor(node)) throw new Error(`${titleCase(node.type)} nodes are edited on the canvas`);
-      setOpenedNodeId(nodeId);
-      return { nodeId };
-    }
-    if (command.type === "close-node") {
-      setOpenedNodeId(undefined);
-      return { closed: true };
-    }
-    if (command.type === "playtest") {
-      await startPlaytest();
-      return { started: true };
-    }
-    if (command.type === "undo" || command.type === "redo") {
-      return { applied: command.type === "undo" ? undoEditorChange() : redoEditorChange() };
-    }
-    if (command.type === "use-default-editor") {
-      setUseDefaultEditor(true);
-      return { applied: true };
-    }
-    throw new Error(`Unsupported editor command: ${command.type}`);
-  }
-
   return (
-    <EditorPresentationContext.Provider value={{
-      source: editorPresentationSource,
-      styles: editorPresentationStyles,
-      context: { project: { id: project.id, name: project.name }, story: document, layout: editorLayout, selection: selectedId, variables },
-      onCommand: handleEditorCommand,
-      regions: editorPresentationRegions,
-    }}>
     <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
@@ -1305,7 +1214,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
           <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
         </nav>
-        <CustomizableEditorRegion region="toolbar" node={{ id: "workspace-toolbar", type: "toolbar", data: {} }} fallback={<div className="interactive-drama-header-actions">
+        <div className="interactive-drama-header-actions">
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
@@ -1318,7 +1227,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
             <span>{building ? "Building" : "Build game"}</span>
           </button>
-        </div>} />
+        </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
         <div className="interactive-drama-canvas" ref={canvas}>
@@ -1327,7 +1236,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           {phase === "ready" ? (
             <ReactFlow<StoryCanvasNode>
               className={`story-canvas story-canvas-${interactionMode}`}
-              nodes={renderedNodes.map((node) => ({ ...node, data: { ...node.data, ...(node.editor ? { editorMetadata: node.editor } : {}) } }))}
+              nodes={renderedNodes}
               edges={[...edges.map((edge) => ({ ...edge, ...storyEdgeStateLabel(edge, nodes, variables) })), ...assetEdges]}
               nodeTypes={STORY_NODE_TYPES}
               onInit={(instance) => { reactFlow.current = instance; }}
@@ -1459,9 +1368,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog viewport={player.viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={(viewport) => setPlayer((current) => ({ ...current, viewport }))} /> : null}
       {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
-      {document && !useDefaultEditor ? <ProjectEditorWorkspace onRegionsChange={(regions) => setEditorPresentationRegions((current) => current.join("\0") === regions.join("\0") ? current : regions)} /> : null}
     </section>
-    </EditorPresentationContext.Provider>
   );
 }
 
@@ -1501,127 +1408,6 @@ function StateInspector({ variables, onChange, hideHeader = false }: { variables
       </section>
     </div>
   </aside>;
-}
-
-function ProjectEditorWorkspace({ onRegionsChange }: { onRegionsChange: (regions: StoryEditorPresentationRegion[]) => void }) {
-  const { source, styles, context, onCommand } = useContext(EditorPresentationContext);
-  const [replaced, setReplaced] = useState(false);
-  const story = recordValue(context?.story);
-  const signature = JSON.stringify({ story, layout: context?.layout, selection: context?.selection });
-  const node = useMemo<StoryEditorPresentationNode>(() => ({ id: "workspace", type: "workspace", data: { story: story ?? {} } }), [signature]);
-  useEffect(() => setReplaced(false), [signature, source, styles]);
-  if (!source) return null;
-  return <div className={`story-project-editor-workspace${replaced ? " is-active" : " is-probing"}`}>
-    <StoryEditorPresentationSurface
-      source={source}
-      styles={styles}
-      region="workspace"
-      node={node}
-      context={context}
-      interactive
-      className="story-project-editor-workspace-surface"
-      onCommand={onCommand}
-      onResult={(result) => {
-        setReplaced(result.rendered && result.replace);
-        if (result.regions) onRegionsChange(result.regions);
-      }}
-    />
-    {replaced ? <button className="story-project-editor-default" type="button" title="Return to the default editor" aria-label="Return to the default editor" onClick={() => void onCommand?.({ id: crypto.randomUUID(), type: "use-default-editor" })}><PanelToggle size={15} /></button> : null}
-  </div>;
-}
-
-function CustomOpenUiNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<OpenUiNode {...props} />} />;
-}
-
-function CustomStartNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<StartNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomProjectStateNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<ProjectStateNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomSceneNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<SceneNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomInteractionNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<InteractionNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomChoiceNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<ChoiceNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomEndingNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<EndingNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomTextNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<TextNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomImageNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<ImageNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomVideoNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<VideoNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomAssetNode(props: NodeProps<StoryCanvasNode>) {
-  return <CustomizableStoryNode props={props} fallback={<AssetNode {...props as unknown as NodeProps<StoryFlowNode>} />} />;
-}
-
-function CustomizableStoryNode({ props, fallback }: { props: NodeProps<StoryCanvasNode>; fallback: ReactNode }) {
-  const [replaced, setReplaced] = useState(false);
-  const source = props.data.editorPresentationSource;
-  const editorPresentation = useContext(EditorPresentationContext);
-  const model = useMemo(() => presentationNode(props.id, props.type, props.data, props.data.editorMetadata), [props.data, props.id, props.type]);
-  const context = useMemo(() => ({ ...(editorPresentation.context ?? {}), selected: props.selected }), [editorPresentation.context, props.selected]);
-  useEffect(() => setReplaced(false), [model, source]);
-  if (!source || !editorPresentation.regions?.includes("node")) return fallback;
-  return <div className={`story-custom-node-host is-${props.type}${props.selected ? " is-selected" : ""}${replaced ? " is-replaced" : ""}`}>
-    {!replaced ? fallback : <StoryCustomNodeHandles type={props.type} data={props.data} />}
-    <StoryEditorPresentationSurface
-      source={source}
-      styles={editorPresentation.styles}
-      region="node"
-      node={model}
-      context={context}
-      className={`story-editor-presentation-node${replaced ? " is-active" : " is-probing"}`}
-      onCommand={editorPresentation.onCommand}
-      onResult={(result) => setReplaced(result.rendered && result.replace)}
-    />
-  </div>;
-}
-
-function StoryCustomNodeHandles({ type, data }: { type: StoryCanvasNode["type"]; data: StoryFlowData }) {
-  if (type === "start") return <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />;
-  if (type === "project-state") return <><Handle type="target" position={Position.Left} /><Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
-  if (type === "ending") return <Handle className="story-media-input-handle" type="target" position={Position.Left} />;
-  if (type === "choice") return <>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    {(data.options ?? []).map((option, index, options) => <Handle className="story-choice-output-handle" id={option.id} key={option.id} type="source" position={Position.Right} style={{ top: `${Math.min(88, 42 + (index + 1) * (48 / (options.length + 1)))}%` }} />)}
-  </>;
-  if (type === "scene") return <>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-  </>;
-  if (type === "interaction") return <>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    {storyInteractionNodeOutcomes(data.behavior ?? { type: "continue", label: "Continue" }).map((outcome, index, outcomes) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
-  </>;
-  if (type === "open-ui") return <><Handle className="story-media-input-handle" type="target" position={Position.Left} /><Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
-  if (type === "image" || type === "video") return <><Handle className="story-media-input-handle" type="target" position={Position.Left} /><Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} /></>;
-  if (type === "text" || type === "asset") return <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />;
-  return null;
-}
-
-function presentationNode(id: string, type: string, data: StoryFlowData, editor?: StoryNodeEditorMetadata["editor"]): StoryEditorPresentationNode {
-  const serialized = JSON.stringify(data, (key, value) => key === "editorPresentationSource" || key === "editorMetadata" || typeof value === "function" ? undefined : value);
-  return { id, type, data: JSON.parse(serialized) as Record<string, unknown>, ...(editor ? { editor } : {}) };
 }
 
 function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
@@ -2493,12 +2279,11 @@ function StoryEditorBreadcrumb({ label, onClose }: { label: string; onClose: () 
   return <nav className="story-node-editor-breadcrumb" aria-label="Breadcrumb"><button type="button" onClick={onClose}>Canvas</button><ChevronRight size={12} aria-hidden="true" /><strong>{label}</strong></nav>;
 }
 
-function NodeWorkbenchLayout({ className, preview, inspector, timeline, presentation }: {
+function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
   className: string;
   preview: React.ReactNode;
   inspector: React.ReactNode;
   timeline: React.ReactNode;
-  presentation?: StoryEditorPresentationNode;
 }) {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorWidth, setInspectorWidth] = useState(340);
@@ -2528,7 +2313,7 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline, presenta
     style={{ "--story-workbench-inspector-width": `${inspectorWidth}px` } as CSSProperties}
   >
     <div className="story-node-workbench-stage">
-      <div className="story-node-workbench-preview">{presentation ? <CustomizableEditorRegion region="preview" node={presentation} fallback={preview} /> : preview}</div>
+      <div className="story-node-workbench-preview">{preview}</div>
       {inspectorOpen ? <div
         className="story-node-workbench-resizer"
         role="separator"
@@ -2558,7 +2343,7 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline, presenta
           resize.current = undefined;
         }}
       /> : null}
-      {inspectorOpen ? <div className="story-node-workbench-inspector">{presentation ? <CustomizableEditorRegion region="inspector" node={presentation} fallback={inspector} /> : inspector}</div> : null}
+      {inspectorOpen ? <div className="story-node-workbench-inspector">{inspector}</div> : null}
       <button
         className="story-node-workbench-inspector-toggle"
         type="button"
@@ -2568,30 +2353,7 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline, presenta
         onClick={() => setInspectorOpen((open) => !open)}
       ><PanelToggle size={15} /></button>
     </div>
-    {timeline ? <div className="story-node-workbench-timeline">{presentation ? <CustomizableEditorRegion region="timeline" node={presentation} fallback={timeline} /> : timeline}</div> : null}
-  </div>;
-}
-
-function CustomizableEditorRegion({ region, node, fallback }: { region: Exclude<StoryEditorPresentationRegion, "workspace" | "node">; node: StoryEditorPresentationNode; fallback: ReactNode }) {
-  const { source, styles, context, onCommand, regions } = useContext(EditorPresentationContext);
-  const [replaced, setReplaced] = useState(false);
-  const signature = JSON.stringify(node);
-  const stableNode = useMemo(() => node, [signature]);
-  useEffect(() => setReplaced(false), [region, signature, source, styles]);
-  if (!source || !regions?.includes(region)) return fallback;
-  return <div className={`story-custom-editor-region is-${region}${replaced ? " is-replaced" : ""}`}>
-    {!replaced ? fallback : null}
-    <StoryEditorPresentationSurface
-      source={source}
-      styles={styles}
-      region={region}
-      node={stableNode}
-      context={context}
-      interactive={region !== "preview"}
-      className={`story-editor-presentation-region${replaced ? " is-active" : " is-probing"}`}
-      onCommand={onCommand}
-      onResult={(result) => setReplaced(result.rendered && result.replace)}
-    />
+    {timeline ? <div className="story-node-workbench-timeline">{timeline}</div> : null}
   </div>;
 }
 
@@ -2603,7 +2365,7 @@ function InteractionWorkbench({ node, nodes, edges, libraryAssets, variables, on
   variables: StoryVariable[];
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const preview = resolvedEditorPresentationPreview(node, nodes, edges, libraryAssets);
+  const preview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
   const files = node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES;
   const design = <section className="story-choice-ending-preview" aria-label="Interaction live preview">
     <div className="story-choice-ending-frame">
@@ -2613,7 +2375,7 @@ function InteractionWorkbench({ node, nodes, edges, libraryAssets, variables, on
     </div>
   </section>;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
-  return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} presentation={presentationNode(node.id, node.type, node.data, node.editor)} />;
+  return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} />;
 }
 
 function ChoiceWorkbench({ node, nodes, edges, libraryAssets, variables, onChange }: {
@@ -2627,7 +2389,7 @@ function ChoiceWorkbench({ node, nodes, edges, libraryAssets, variables, onChang
   const options = node.data.options ?? [];
   const [selectedOptionId, setSelectedOptionId] = useState(options[0]?.id);
   const selectedOption = options.find((option) => option.id === selectedOptionId) ?? options[0];
-  const inheritedPreview = resolvedEditorPresentationPreview(node, nodes, edges, libraryAssets);
+  const inheritedPreview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
   const previewValues = Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue]));
 
   useEffect(() => {
@@ -2643,7 +2405,7 @@ function ChoiceWorkbench({ node, nodes, edges, libraryAssets, variables, onChang
   </section>;
 
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} selectedChoiceOptionId={selectedOption?.id} hideHeader hideDelete onSelectChoiceOption={setSelectedOptionId} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
-  return <NodeWorkbenchLayout className="story-choice-workbench" preview={preview} inspector={inspector} timeline={null} presentation={presentationNode(node.id, node.type, node.data, node.editor)} />;
+  return <NodeWorkbenchLayout className="story-choice-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
 function EndingWorkbench({ node, nodes, edges, libraryAssets, variables, onChange, onPlaytest }: {
@@ -2655,7 +2417,7 @@ function EndingWorkbench({ node, nodes, edges, libraryAssets, variables, onChang
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onPlaytest: () => void;
 }) {
-  const inheritedPreview = resolvedEditorPresentationPreview(node, nodes, edges, libraryAssets);
+  const inheritedPreview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
   const previewValues = Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue]));
   const preview = <section className="story-choice-ending-preview" aria-label="Ending live preview">
     <header><strong>Live Preview</strong><button type="button" onClick={onPlaytest}><Play size={12} fill="currentColor" />Playtest</button></header>
@@ -2666,7 +2428,7 @@ function EndingWorkbench({ node, nodes, edges, libraryAssets, variables, onChang
     </div>
   </section>;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
-  return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} presentation={presentationNode(node.id, node.type, node.data, node.editor)} />;
+  return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
 function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, hasMedia = false, stageClassName, children }: {
@@ -2783,7 +2545,6 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlayte
     preview={preview}
     inspector={inspector}
     timeline={null}
-    presentation={presentationNode(node.id, "open-ui", node.data, node.editor)}
   />;
 }
 
@@ -2817,14 +2578,14 @@ function sceneTimelineSegments(items: readonly StorySceneMedia[], nodes: readonl
   });
 }
 
-function resolvedEditorPresentationPreview(node: StoryFlowNode, nodes: readonly StoryFlowNode[], edges: readonly Edge[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
+function resolvedPresentationPreview(node: StoryFlowNode, nodes: readonly StoryFlowNode[], edges: readonly Edge[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
   const presentation = flowNodePresentation(node);
   if (presentation.media.mode === "none") return {};
-  if (presentation.media.mode === "own") return editorPresentationItemPreview(presentation.media.items.at(-1), nodes, libraryAssets);
-  return inheritedEditorPresentationPreview(node.id, nodes, edges, libraryAssets);
+  if (presentation.media.mode === "own") return presentationItemPreview(presentation.media.items.at(-1), nodes, libraryAssets);
+  return inheritedPresentationPreview(node.id, nodes, edges, libraryAssets);
 }
 
-function inheritedEditorPresentationPreview(nodeId: string, nodes: readonly StoryFlowNode[], edges: readonly Edge[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
+function inheritedPresentationPreview(nodeId: string, nodes: readonly StoryFlowNode[], edges: readonly Edge[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const visited = new Set<string>([nodeId]);
   let frontier = [nodeId];
@@ -2838,7 +2599,7 @@ function inheritedEditorPresentationPreview(nodeId: string, nodes: readonly Stor
         if (!source || !isVisiblePresentationFlowNode(source)) continue;
         const media = flowNodePresentation(source).media;
         if (media.mode === "own") {
-          const preview = editorPresentationItemPreview(media.items.at(-1), nodes, libraryAssets);
+          const preview = presentationItemPreview(media.items.at(-1), nodes, libraryAssets);
           if (preview.assetId) return preview;
           continue;
         }
@@ -2850,7 +2611,7 @@ function inheritedEditorPresentationPreview(nodeId: string, nodes: readonly Stor
   return {};
 }
 
-function editorPresentationItemPreview(item: StorySceneMedia | undefined, nodes: readonly StoryFlowNode[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
+function presentationItemPreview(item: StorySceneMedia | undefined, nodes: readonly StoryFlowNode[], libraryAssets: readonly LibraryAsset[]): InheritedScenePreviewData {
   if (!item) return {};
   const source = item.source;
   const assetId = source.type === "library"
@@ -2898,7 +2659,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
       }} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
-  return <NodeWorkbenchLayout className="story-scene-workbench" preview={preview} inspector={inspector} timeline={null} presentation={presentationNode(node.id, node.type, node.data, node.editor)} />;
+  return <NodeWorkbenchLayout className="story-scene-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
 function StoryPresentationCodeWorkbench({ node }: {
@@ -3669,13 +3430,12 @@ function ZoomControls() {
 function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   if (node.type === "project-state" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
-  if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, ...(node.editor ? { editor: node.editor } : {}), deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
-  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, ...(node.editor ? { editor: node.editor } : {}), deletable: true, data: { title: node.data.title, behavior: node.data.behavior, presentation: node.data.presentation } };
+  if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
+  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, behavior: node.data.behavior, presentation: node.data.presentation } };
   if (node.type === "text") return {
     id: node.id,
     type: "text",
     position: node.position,
-    ...(node.editor ? { editor: node.editor } : {}),
     deletable: true,
     data: {
       text: node.data.text,
@@ -3687,7 +3447,6 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
     id: node.id,
     type: "video",
     position: node.position,
-    ...(node.editor ? { editor: node.editor } : {}),
     deletable: true,
     data: {
       prompt: node.data.prompt,
@@ -3829,29 +3588,25 @@ function normalizeVariableValue(value: StoryVariableValue, type: StoryVariableTy
 }
 
 function toStoryNode(node: StoryFlowNode): StoryNode {
-  const editor = node.editor ? { editor: node.editor } : {};
-  if (node.type === "start") return { id: node.id, type: "start", position: node.position, data: {}, ...editor };
-  if (node.type === "project-state") return { id: node.id, type: "project-state", position: node.position, data: { title: node.data.title ?? "Project State", actions: node.data.actions ?? [] }, ...editor };
-  if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } }, ...editor };
+  if (node.type === "start") return { id: node.id, type: "start", position: node.position, data: {} };
+  if (node.type === "project-state") return { id: node.id, type: "project-state", position: node.position, data: { title: node.data.title ?? "Project State", actions: node.data.actions ?? [] } };
+  if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
     position: node.position,
-    ...editor,
     data: { assetId: node.data.assetId ?? "", mediaType: node.data.mediaType ?? "image" },
   };
   if (node.type === "choice") return {
     id: node.id,
     type: "choice",
     position: node.position,
-    ...editor,
     data: { title: node.data.title ?? "", options: node.data.options ?? [], ...(node.data.timeout ? { timeout: node.data.timeout } : {}), presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } } },
   };
   if (node.type === "interaction") return {
     id: node.id,
     type: "interaction",
     position: node.position,
-    ...editor,
     data: {
       title: node.data.title ?? "",
       behavior: node.data.behavior ?? { type: "continue", label: "Continue" },
@@ -3862,7 +3617,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "scene",
     position: node.position,
-    ...editor,
     data: {
       title: node.data.title ?? "",
       presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
@@ -3872,7 +3626,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "text",
     position: node.position,
-    ...editor,
     data: {
       text: node.data.text ?? "",
       instruction: node.data.instruction ?? "",
@@ -3883,7 +3636,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "image",
     position: node.position,
-    ...editor,
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
@@ -3898,7 +3650,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "video",
     position: node.position,
-    ...editor,
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
@@ -3914,7 +3665,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: node.type,
     position: node.position,
-    ...editor,
     data: { title: node.data.title ?? "", description: node.data.description ?? "", presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
   };
 }
@@ -3922,10 +3672,6 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
 function inspectorTitle(node: StoryFlowNode): string {
   if (node.type === "start") return "Chapter entry";
   return node.data.title || (node.type === "choice" ? "Make a choice" : `Untitled ${node.type}`);
-}
-
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function imageModelKey(model: ImageModelRef): string {

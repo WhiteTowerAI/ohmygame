@@ -630,11 +630,10 @@ export class AgentManager {
     active.startedAt = Date.parse(started.timestamp);
     const mentionedPrompt = serializePluginMentions(prompt, mentions);
     const invocation = mode === "normal" ? skillInvocationPrompt(mentionedPrompt) : mentionedPrompt;
-    const structuredPlanTools = project.type !== "interactive-drama";
     const wirePrompt = mode === "planning"
-      ? planningPrompt(promptWithReferences(invocation, references), structuredPlanTools)
+      ? planningPrompt(promptWithReferences(invocation, references))
       : mode === "executing"
-        ? executionPrompt(promptWithReferences(invocation, references), active.plan, structuredPlanTools)
+        ? executionPrompt(promptWithReferences(invocation, references), active.plan)
         : promptWithReferences(invocation, references);
     const execution = this.#runPrompt(project, conversation, wirePrompt, images, active);
     let run: Promise<AgentRunResult>;
@@ -1756,12 +1755,7 @@ function stringify(value: unknown): string {
   }
 }
 
-function planningPrompt(prompt: string, structuredPlanTools = true): string {
-  if (!structuredPlanTools) return `[PLAN MODE]
-Explore the project using read-only file tools and produce a concise, concrete implementation plan in your final response.
-Do not modify files, run commands, or begin implementation.
-
-${prompt}`;
+function planningPrompt(prompt: string): string {
   return `[PLAN MODE]
 Explore the project and produce a concrete implementation plan. You may only read files and update the structured plan.
 Ask up to three concise questions with questionnaire only when a high-impact choice cannot be resolved from the project or user request.
@@ -1864,9 +1858,9 @@ function questionnaireResult(message: unknown): QuestionnaireResult | undefined 
   return { cancelled: details.cancelled, answers };
 }
 
-function executionPrompt(prompt: string, plan?: PlanState, updatePlan = true): string {
+function executionPrompt(prompt: string, plan?: PlanState): string {
   const steps = plan?.steps.map((item, index) => `${index + 1}. [${item.status}] ${item.step}`).join("\n") ?? "";
-  return `${prompt}\n\nApproved plan:\n${steps}\n\nExecute the plan${updatePlan ? " and keep update_plan current as steps complete" : ""}.`;
+  return `${prompt}\n\nApproved plan:\n${steps}\n\nExecute the plan and keep update_plan current as steps complete.`;
 }
 
 function appendPlanState(sessionManager: CodingSession["sessionManager"], state: PlanSessionState): void {
@@ -1878,8 +1872,6 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
-export type PiSessionProfile = "default" | "interactive-drama";
-
 export async function createPiSession(
   workspacePath: string,
   sessionManager: SessionManager,
@@ -1888,10 +1880,9 @@ export async function createPiSession(
   model?: RuntimeModel,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
-  profile: PiSessionProfile = "default",
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills, profile);
+  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
   const { session } = await createAgentSession({
     cwd: workspacePath,
     agentDir,
@@ -1912,9 +1903,8 @@ export async function loadPiSkills(
   workspacePath: string,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
-  profile: PiSessionProfile = "default",
 ): Promise<SkillCatalogItem[]> {
-  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills, profile);
+  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
   return skillCatalog(resourceLoader.getSkills().skills, pluginSkills);
 }
 
@@ -1937,29 +1927,20 @@ async function createPiResourceLoader(
   workspacePath: string,
   agentDir: string,
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
-  profile: PiSessionProfile = "default",
 ): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
-  const minimal = profile === "interactive-drama";
-  if (!minimal) await ensureOhMyGamePiEnvironment(agentDir);
+  await ensureOhMyGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
-  sessionSettings.setPackages(minimal ? [] : withRequiredPiPackages(sessionSettings.getPackages()));
-  const pluginSkills = minimal ? [] : await resolvePluginSkills?.() ?? [];
+  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
+  const pluginSkills = await resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
-    noExtensions: minimal,
-    noSkills: minimal,
-    noPromptTemplates: minimal,
-    noThemes: minimal,
-    appendSystemPrompt: minimal ? [] : [
-      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
-      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
-      "Do not leave a long-running development server active; the host starts the preview after your turn. " +
-      "Make every game responsive inside an iframe of any size, with no fixed-width layout or horizontal overflow.",
+    appendSystemPrompt: [
+      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code.",
       "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
       "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
       "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +

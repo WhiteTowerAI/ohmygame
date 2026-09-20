@@ -2,76 +2,56 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VIDEO_MODEL, type StoryDocument, type StoryEditorLayout, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StorySourceFiles } from "../shared/contracts.js";
+import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } from "../shared/story.js";
+import { STORY_CODEBASE_SCHEMA } from "../shared/story-schema.js";
 
 const STORY_FILE = "story.json";
 const PROJECT_FILE = "project.json";
-const EDITOR_LAYOUT_FILE = "editor-layout.json";
-const EDITOR_PRESENTATION_FILE = "editor/presentation.js";
-const EDITOR_STYLE_FILE = "editor/style.css";
+const EDITOR_LAYOUT_FILE = "editor/layout.json";
 const EDITOR_DOCUMENTATION_FILE = "editor/README.md";
+const STORY_SCHEMA_FILE = "schemas/story.schema.json";
+const EDITOR_LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
 const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
-const DEFAULT_EDITOR_PRESENTATION = `/**
- * Optional project-local editor presentation.
- *
- * Return { replace: true } after rendering into root to replace OhMyGame's
- * default node card or Inspector body. Return false to keep the default UI.
- * This module runs in a sandbox and cannot access the editor DOM or files.
- */
-export const regions = [];
+const PROJECT_MANIFEST = {
+  version: 1,
+  type: "interactive-drama",
+  story: STORY_FILE,
+  storySchema: STORY_SCHEMA_FILE,
+  editorLayout: EDITOR_LAYOUT_FILE,
+  editorLayoutSchema: EDITOR_LAYOUT_SCHEMA_FILE,
+  editorDocs: EDITOR_DOCUMENTATION_FILE,
+} as const;
+const DEFAULT_EDITOR_DOCUMENTATION = `# Interactive Drama Project Guide
 
-export function renderNode({ node, context, root }) {
-  return false;
-}
+## Story format
 
-export function renderInspector({ node, context, root }) {
-  return false;
-}
+\`schemas/story.schema.json\` and \`schemas/editor-layout.schema.json\` are the machine-readable definitions of the persisted \`story.json\` and \`editor/layout.json\` formats. Read the corresponding schema before editing either file; field names and enum values are exact, and objects reject undocumented properties.
 
-export function renderPreview({ node, context, root }) {
-  return false;
-}
+The schema checks the shape of one JSON document. OhMyGame additionally validates relationships that JSON Schema cannot fully express:
 
-export function renderTimeline({ node, context, root }) {
-  return false;
-}
+- node IDs are unique across the document;
+- edges reference nodes in the same chapter;
+- Choice handles match option IDs;
+- each chapter has at most one Start node;
+- IDs for chapters, nodes, edges, Choice options, and presentation media are unique in their scope;
+- Choice timeouts reference an option in the same Choice;
+- actions and conditions reference compatible declared Variables;
+- Hotspot rectangles fit completely inside the normalized viewport;
+- \`editor/layout.json\` contains exactly one position for every Story node;
+- referenced source files exist and stay inside the workspace.
 
-export function renderToolbar({ context, editor, root }) {
-  return false;
-}
+Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
 
-export function renderWorkspace({ context, editor, root }) {
-  return false;
-}
-`;
-const DEFAULT_EDITOR_STYLE = `/* Styles in this file are scoped to sandboxed project editor surfaces. */
-`;
-const DEFAULT_EDITOR_DOCUMENTATION = `# Project Editor Extension
+The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the existing view and viewport unless the user explicitly asks to change them.
 
-This directory customizes the Interactive Drama editor for this project using ordinary JavaScript and CSS.
+## Runtime surfaces
 
-## Presentation exports
+Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries contain an \`action\` string; call \`actions.run(button.action)\`.
 
-\`presentation.js\` exports a \`regions\` array containing the enabled regions: \`workspace\`, \`toolbar\`, \`node\`, \`inspector\`, \`preview\`, and \`timeline\`. Only enabled regions create sandbox surfaces.
-It may export the matching \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\` functions.
-Each function receives \`{ node, context, editor, root }\`. Render into \`root\` and return \`{ replace: true }\` to replace that default region. Return \`false\` to keep OhMyGame's UI.
+Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
 
-\`context\` contains the project, complete hydrated story, editor layout, current selection, and Variables. A node may use \`node.editor.kind\` and \`node.editor.properties\` for project-specific presentation while retaining its standard runtime \`node.type\`.
-
-## Editor SDK
-
-- \`editor.story()\` returns a cloned Story document.
-- \`editor.transaction(change)\` applies one validated, undoable Story transaction.
-- \`editor.replaceStory(story)\` validates and replaces the complete Story document.
-- \`editor.updateNode\` and \`updatePlayer\` update Story nodes and Open UI.
-- \`editor.createNode\`, \`deleteNode\`, \`connect\`, and \`disconnect\` are validated graph convenience operations.
-- \`editor.setView(view)\` selects a built-in view.
-- \`editor.setLayoutState(key, value)\` persists project-specific editor state in \`editor-layout.json\`.
-- \`editor.openNode(nodeId)\`, \`closeNode()\`, and \`playtest()\` invoke stable platform navigation.
-- \`editor.undo()\` and \`redo()\` operate on project-editor transactions.
-- \`editor.useDefaultEditor()\` exits a custom full-workspace editor.
-
-All changes cross the sandbox boundary and are validated by OhMyGame. Extension code cannot access the host DOM, filesystem, or network. Missing exports, \`false\` returns, and runtime errors fall back to the default editor.
+Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`.
 `;
 const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
@@ -81,41 +61,47 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 - \`project.json\` identifies the workspace and its primary files.
 - \`story.json\` contains the story graph, content, stable IDs, declared runtime behavior, and references to source files.
-- \`editor-layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
-- \`editor/presentation.js\` optionally customizes node-card and Inspector content without replacing the editor shell.
-- \`editor/style.css\` styles project editor surfaces inside their sandbox.
+- \`editor/layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
+- \`schemas/story.schema.json\` defines the exact persisted \`story.json\` structure. Read it before editing Story data; do not guess field names.
+- \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
+- \`editor/README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
-- Every player-visible Story node owns \`data.presentation\`: a media strategy (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
+- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
 - An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
 - Open UI is an ordinary Story node that owns its media, content, and code.
-- \`node.editor.kind\` and optional \`node.editor.properties\` identify project-specific editor nodes while \`node.type\` retains stable runtime semantics.
 - Keep \`story.json\` valid JSON and preserve \`codebase.version\`.
 
-## Runtime interfaces
-
-Open UI JavaScript exports \`render({ content, actions, root })\`. Call \`actions.run(action)\` for a declared action.
-
-Scene, Choice, and Ending JavaScript export \`render({ node, scene, game, variables, actions, mode, root })\` and may export \`update(...)\`. They can emit semantic actions such as \`actions.choose(optionId)\`, \`actions.restart()\`, and \`actions.menu()\`; they cannot navigate to arbitrary node IDs.
-
-Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`. Declarative behavior applies variable actions and Story edges perform the transition.
-
-Editor presentation JavaScript may export \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\`. Return \`{ replace: true }\` to use the rendered content, or \`false\` to retain OhMyGame's default UI. Use the provided \`editor\` SDK for validated project changes; the module runs in a sandbox without host DOM, filesystem, or network access.
+Use \`editor/README.md\` as the source of truth for runtime and editor JavaScript interfaces.
 `;
-const AGENT_INSTRUCTIONS = `${BASE_AGENT_INSTRUCTIONS}
-## Fast path for simple canvas edits
+const WORKING_BOUNDARY_INSTRUCTIONS = `## Working boundary
+
+Work only inside the current project workspace. Use relative workspace paths.
+Do not use absolute paths or paths containing \`..\`.
+
+Do not inspect parent directories, other projects, user directories, package installations, the OhMyGame source repository, or OhMyGame tests. Do not search outside this workspace for examples, schemas, validators, or runtime implementation details.
+
+Treat this file, \`schemas/story.schema.json\`, \`schemas/editor-layout.schema.json\`, \`editor/README.md\`, \`story.json\`, \`editor/layout.json\`, and the current node source files as the complete project contract. If a capability is not documented here, use the smallest structure already present in this project instead of reverse-engineering the OhMyGame application.
+
+An exception applies only when the user explicitly provides an external file path and asks to import that file: read only that exact file and copy it into this workspace. Do not inspect its parent directory.
+
+`;
+const FAST_PATH_INSTRUCTIONS = `## Fast path for simple canvas edits
 
 For a request that only creates, updates, moves, or deletes standard Story nodes:
 
-1. Read only \`story.json\` and \`editor-layout.json\` unless the requested node owns source files.
+1. Read only the contract files relevant to the change:
+   - moving nodes or changing the canvas view: \`schemas/editor-layout.schema.json\` and \`editor/layout.json\`;
+   - creating, updating, deleting, or connecting nodes: both schema files, \`story.json\`, and \`editor/layout.json\`;
+   - changing player-facing HTML, CSS, or JavaScript: also read \`editor/README.md\` and that node's source files.
 2. Do not inspect Git, the OhMyGame application source, Godot, MCP servers, or unrelated files.
 3. Make the smallest possible edits and preserve every unrelated field.
-4. Keep node IDs unique and stable. Every node ID in \`story.json\` must have exactly one position in \`editor-layout.json\`, and the layout must not contain extra node IDs.
-5. Validate both JSON files once, then stop. Do not run a development server or build for a simple canvas edit.
+4. Keep node IDs unique and stable. Every node ID in \`story.json\` must have exactly one position in \`editor/layout.json\`, and the layout must not contain extra node IDs.
+5. Parse each changed JSON file, then check every changed object against the relevant schema's \`required\`, \`additionalProperties\`, type, and enum constraints. Parsing alone checks syntax, not the schema. Check the cross-file rules below once, then stop. Do not search for or install a schema validator, and do not run a development server or build for a simple canvas edit.
 
-Canvas node positions live only in \`editor-layout.json\`; never add \`position\` to a persisted \`story.json\` node. Place a new node near the visible group of existing nodes, or at \`{ "x": 80, "y": 180 }\` when the canvas is empty.
+Canvas node positions live only in \`editor/layout.json\`; never add \`position\` to a persisted \`story.json\` node. Place a new node near the visible group of existing nodes, or at \`{ "x": 80, "y": 180 }\` when the canvas is empty.
 
 ### Empty generation nodes
 
@@ -152,7 +138,25 @@ The minimal persisted Video node is:
 \`\`\`
 
 Do not generate media when the user asks for an empty generation node.
+
 `;
+const BASIC_TEMPLATE_INSTRUCTIONS = `## Basic template path
+
+When the user asks for a basic Interactive Drama template, create only this minimal playable loop unless they ask for more:
+
+\`start -> open-ui -> scene -> choice -> ending-a / ending-b\`
+
+Use six runtime nodes and five edges: one Start, one Open UI title, one Scene, one Choice with two options, and two Endings. Preserve existing Image, Video, and other asset nodes without changing their configuration. Do not add variables, interactions, extra scenes, or media generation unless requested.
+
+For a Choice, each option has a stable \`id\` and the matching outgoing edge uses that option ID as \`sourceHandle\`. For all other standard flow edges, use the node's default outgoing handle. Every edge source and target must reference a node in the same chapter.
+
+Follow \`schemas/story.schema.json\` exactly for every node. Each presentation source uses the keys \`html\`, \`css\`, and \`javascript\`. Follow \`editor/README.md\` for JavaScript exports and action APIs.
+
+Keep the visual implementation minimal. Do not create a design system or elaborate custom editor presentation for a basic template.
+
+After writing a template, perform one local check of the changed objects against both schemas, then check unique node IDs, exact story/layout ID correspondence, valid edge endpoints, and existence of referenced source files. Do not search for or install a schema validator, invoke an OhMyGame source parser, search the application repository, run a development server, or claim that the story was playtested unless you actually opened the Player and completed the flow.
+`;
+const AGENT_INSTRUCTIONS = `${BASE_AGENT_INSTRUCTIONS}\n${WORKING_BOUNDARY_INSTRUCTIONS}${FAST_PATH_INSTRUCTIONS}${BASIC_TEMPLATE_INSTRUCTIONS}`;
 type UnknownRecord = Record<string, unknown>;
 
 /**
@@ -180,7 +184,7 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
   ]);
   const layout = editorLayoutFromStory(normalized);
   await Promise.all([
-    writeJsonAtomic(workspacePath, PROJECT_FILE, { version: 1, type: "interactive-drama", story: STORY_FILE, editorLayout: EDITOR_LAYOUT_FILE, editorPresentation: EDITOR_PRESENTATION_FILE, editorStyle: EDITOR_STYLE_FILE, editorDocs: EDITOR_DOCUMENTATION_FILE }),
+    writeJsonAtomic(workspacePath, PROJECT_FILE, PROJECT_MANIFEST),
     writeJsonAtomic(workspacePath, STORY_FILE, dehydrateStory(normalized)),
     writeJsonAtomic(workspacePath, EDITOR_LAYOUT_FILE, layout),
   ]);
@@ -192,12 +196,11 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
 }
 
 export async function ensureStoryCodebaseInstructions(workspacePath: string): Promise<void> {
-  await Promise.all([ensureEditorPresentation(workspacePath), ensureEditorStyle(workspacePath), ensureEditorDocumentation(workspacePath), ensureProjectManifest(workspacePath)]);
+  await Promise.all([ensureEditorDocumentation(workspacePath), ensureStorySchema(workspacePath), ensureEditorLayoutSchema(workspacePath), ensureProjectManifest(workspacePath)]);
   const destination = path.join(workspacePath, AGENT_INSTRUCTIONS_FILE);
   try {
     const current = await readFile(destination, "utf8");
     if (current === AGENT_INSTRUCTIONS) return;
-    if (current === BASE_AGENT_INSTRUCTIONS) await writeFile(destination, AGENT_INSTRUCTIONS, "utf8");
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     await writeFile(destination, AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
@@ -209,20 +212,36 @@ async function ensureProjectManifest(workspacePath: string): Promise<void> {
   try {
     const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
     if (!isRecord(parsed)) throw new Error(`Invalid ${PROJECT_FILE}`);
-    if (parsed.version === 1 && parsed.type === "interactive-drama" && parsed.story === STORY_FILE &&
-      parsed.editorLayout === EDITOR_LAYOUT_FILE && parsed.editorPresentation === EDITOR_PRESENTATION_FILE && parsed.editorStyle === EDITOR_STYLE_FILE && parsed.editorDocs === EDITOR_DOCUMENTATION_FILE) return;
+    const entries = Object.entries(PROJECT_MANIFEST);
+    if (Object.keys(parsed).length === entries.length && entries.every(([key, value]) => parsed[key] === value)) return;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
-  await writeJsonAtomic(workspacePath, PROJECT_FILE, {
-    version: 1,
-    type: "interactive-drama",
-    story: STORY_FILE,
-    editorLayout: EDITOR_LAYOUT_FILE,
-    editorPresentation: EDITOR_PRESENTATION_FILE,
-    editorStyle: EDITOR_STYLE_FILE,
-    editorDocs: EDITOR_DOCUMENTATION_FILE,
-  });
+  await writeJsonAtomic(workspacePath, PROJECT_FILE, PROJECT_MANIFEST);
+}
+
+async function ensureStorySchema(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, STORY_SCHEMA_FILE);
+  const expected = `${JSON.stringify(STORY_CODEBASE_SCHEMA, null, 2)}\n`;
+  await mkdir(path.dirname(destination), { recursive: true });
+  try {
+    if (await readFile(destination, "utf8") === expected) return;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+  await writeJsonAtomic(workspacePath, STORY_SCHEMA_FILE, STORY_CODEBASE_SCHEMA);
+}
+
+async function ensureEditorLayoutSchema(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, EDITOR_LAYOUT_SCHEMA_FILE);
+  const expected = `${JSON.stringify(EDITOR_LAYOUT_SCHEMA, null, 2)}\n`;
+  await mkdir(path.dirname(destination), { recursive: true });
+  try {
+    if (await readFile(destination, "utf8") === expected) return;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+  await writeJsonAtomic(workspacePath, EDITOR_LAYOUT_SCHEMA_FILE, EDITOR_LAYOUT_SCHEMA);
 }
 
 async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
@@ -230,26 +249,6 @@ async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
   await mkdir(path.dirname(destination), { recursive: true });
   try {
     await writeFile(destination, DEFAULT_EDITOR_DOCUMENTATION, { encoding: "utf8", flag: "wx" });
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
-  }
-}
-
-async function ensureEditorStyle(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_STYLE_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    await writeFile(destination, DEFAULT_EDITOR_STYLE, { encoding: "utf8", flag: "wx" });
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
-  }
-}
-
-async function ensureEditorPresentation(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_PRESENTATION_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    await writeFile(destination, DEFAULT_EDITOR_PRESENTATION, { encoding: "utf8", flag: "wx" });
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
   }
@@ -377,15 +376,13 @@ function editorLayoutFromStory(story: StoryDocument): StoryEditorLayout {
     nodes,
     viewport: prior.viewport,
     view: prior.view,
-    ...(prior.extensions ? { extensions: prior.extensions } : {}),
   };
 }
 
 function isEditorLayout(value: unknown): value is StoryEditorLayout {
   return isRecord(value) && value.version === 1 && isRecord(value.nodes) && Object.values(value.nodes).every(isPosition) &&
     isViewport(value.viewport) &&
-    (value.view === "canvas" || value.view === "code") &&
-    (value.extensions === undefined || isRecord(value.extensions));
+    (value.view === "canvas" || value.view === "code");
 }
 
 function isPosition(value: unknown): value is { x: number; y: number } {
@@ -515,6 +512,7 @@ async function writeJsonAtomic(workspacePath: string, relativePath: string, valu
   const destination = path.join(workspacePath, relativePath);
   const temporary = await atomicTemporary(workspacePath);
   try {
+    await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {

@@ -29,19 +29,17 @@ describe("agent tools", () => {
     )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin"]);
   });
 
-  it("keeps Interactive Drama on Pi's built-in file tools", () => {
+  it("uses the shared Pi tools for every project type", () => {
     expect(projectPiToolNames(
-      "interactive-drama",
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["read", "write", "edit", "bash", "grep", "find", "ls"]);
+    )).toEqual(["mcp", "web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
-      "interactive-drama",
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
-    )).toEqual(["read", "grep", "find", "ls"]);
+    )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
   });
 
   it("installs a plugin only from inside the current workspace", async () => {

@@ -241,7 +241,7 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
 }
 
 function ignored(name: string, relative: string, plugin: boolean): boolean {
-  if (name === "node_modules" || name === ".git" || name === ".data") return true;
+  if (name === "node_modules" || name === ".git" || name === ".data" || (!plugin && name === "AGENTS.md")) return true;
   if (!name.startsWith(".")) return false;
   return !(plugin && !relative && PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(name));
 }

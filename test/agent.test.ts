@@ -28,8 +28,8 @@ describe("skillInvocationPrompt", () => {
   });
 });
 
-describe("Interactive Drama Pi profile", () => {
-  it("does not load global or Plugin skills", async () => {
+describe("Pi skills", () => {
+  it("loads global and plugin skills consistently for every project type", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-workspace-"));
     const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-dir-"));
     const skillDirectory = path.join(agentDir, "skills", "review");
@@ -45,10 +45,9 @@ describe("Interactive Drama Pi profile", () => {
       workspace,
       agentDir,
       resolvePluginSkills,
-      "interactive-drama",
-    )).resolves.toEqual([]);
-    expect(resolvePluginSkills).not.toHaveBeenCalled();
-  });
+    )).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ name: "review" })]));
+    expect(resolvePluginSkills).toHaveBeenCalledOnce();
+  }, 15_000);
 });
 
 describe("conversationItems", () => {
@@ -1293,19 +1292,21 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("does not instruct Interactive Drama to use unavailable planning tools", async () => {
+  it("uses the shared planning tools for Interactive Drama", async () => {
     const session = new FakeSession();
     const manager = new AgentManager(new RuntimeEventBus(), {
       createSession: async () => session,
-      activeToolNames: (_project, mode) => mode === "planning" ? ["read"] : ["read", "write", "edit"],
+      activeToolNames: (_project, mode) => mode === "planning"
+        ? ["read", "update_plan"]
+        : ["read", "write", "edit", "update_plan"],
     });
     const project = { ...createProject(), type: "interactive-drama" as const };
     const conversation = createConversation(project);
 
     await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;
-    expect(session.prompt.mock.calls[0]?.[0]).toContain("produce a concise, concrete implementation plan in your final response");
-    expect(session.prompt.mock.calls[0]?.[0]).not.toContain("questionnaire");
-    expect(session.prompt.mock.calls[0]?.[0]).not.toContain("update_plan");
+    expect(session.prompt.mock.calls[0]?.[0]).toContain("structured plan");
+    expect(session.prompt.mock.calls[0]?.[0]).toContain("questionnaire");
+    expect(session.prompt.mock.calls[0]?.[0]).toContain("update the structured plan");
 
     const executionConversation = createConversation(project, "conversation-2");
     manager.restorePlanState(executionConversation, {
@@ -1314,7 +1315,7 @@ describe("AgentManager", () => {
     });
     await (await manager.approvePlan(project, executionConversation)).result;
     expect(session.prompt.mock.calls[1]?.[0]).toContain("Approved plan:");
-    expect(session.prompt.mock.calls[1]?.[0]).not.toContain("update_plan");
+    expect(session.prompt.mock.calls[1]?.[0]).toContain("update_plan");
     await manager.close();
   });
 

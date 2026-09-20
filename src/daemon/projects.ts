@@ -33,6 +33,16 @@ interface LoadedMetadata {
 
 const PROJECT_COVER_FILE = "cover.webp";
 const STORY_FILE = "story.json";
+const WEB_GAME_AGENT_INSTRUCTIONS = `# Web Game Project
+
+This workspace is the source of truth for an OhMyGame browser game.
+
+When the user asks to build or modify the game, keep it as a complete Vite-based browser project. Its \`package.json\` must have non-empty \`scripts.dev\` and \`scripts.build\` commands, and the build must produce a static \`dist/index.html\`.
+
+Make the game responsive inside an iframe of any size, without a fixed-width layout or horizontal overflow. Do not leave a development server running; OhMyGame starts the preview after the agent turn.
+
+For requests unrelated to building the game, follow the user's request without creating application files unnecessarily.
+`;
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
@@ -75,6 +85,7 @@ export class ProjectManager {
     };
     await mkdir(projectDirectory, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
+    if (type === "web-game") await writeFile(path.join(workspacePath, "AGENTS.md"), WEB_GAME_AGENT_INSTRUCTIONS, "utf8");
     await writeMetadata(projectDirectory, metadata);
     const project = projectState(workspacePath, metadata, false);
     this.#projects.set(id, project);
@@ -407,7 +418,7 @@ export class ProjectManager {
     } catch (error) {
       const fileError = error as NodeJS.ErrnoException;
       if (fileError.code !== "ENOENT" || path.resolve(String(fileError.path)) !== path.resolve(destination)) {
-        throw new Error(`Invalid story document: ${destination}`, { cause: error });
+        throw error;
       }
       const story = createStoryDocument();
       await writeStoryCodebase(project.workspacePath, story);

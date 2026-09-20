@@ -12,7 +12,7 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
-  it("creates an isolated empty project", async () => {
+  it("creates an isolated project with Web Game instructions", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } });
@@ -20,7 +20,7 @@ describe("daemon", () => {
     const project = response.json();
     expect(project.name).toBe("First");
     expect(project.type).toBe("web-game");
-    expect(await readdir(project.workspacePath)).toEqual([]);
+    expect(await readdir(project.workspacePath)).toEqual(["AGENTS.md"]);
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
@@ -282,7 +282,7 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect(await readdir(duplicated.json().workspacePath)).toEqual(["AGENTS.md", "index.html"]);
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -302,6 +302,7 @@ describe("daemon", () => {
     const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
 
     expect(files.json()).toEqual([
+      { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
       { path: "hello world.txt", size: 6 },
     ]);
@@ -445,7 +446,7 @@ describe("daemon", () => {
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     await app.inject({ method: "GET", url: `/projects/${storyProject.id}/story` });
-    await rm(path.join(storyProject.workspacePath, "editor-layout.json"));
+    await rm(path.join(storyProject.workspacePath, "editor/layout.json"));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
@@ -701,7 +702,7 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
   });
 
-  it("does not expose Plugins or Skills to Interactive Drama conversations", async () => {
+  it("exposes the shared Plugins and Skills to Interactive Drama conversations", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
       createSession: async () => ({
@@ -723,7 +724,7 @@ describe("daemon", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ plugins: [], skills: [] });
+    expect(response.json().skills).toEqual([{ name: "godot", description: "Control Godot" }]);
   });
 
   it("makes OhMyGame media generation available without a Plugin", async () => {
@@ -799,9 +800,9 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
       expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
     ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
-    ]);
+    ]));
   });
 
   it("restores an active image prompt without replaying its base64 event", async () => {
