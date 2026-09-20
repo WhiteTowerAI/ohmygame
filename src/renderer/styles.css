@@ -87,6 +87,7 @@
   .asset-template-actions > div,
   .asset-template-dialog form,
   .story-add-node-menu,
+  .story-add-node-submenu,
   .project-switcher-popover,
   .conversation-popover,
   .selected-text-menu,
@@ -10589,7 +10590,8 @@ button {
 }
 
 .story-canvas-context-menu,
-.story-canvas-context-submenu {
+.story-canvas-context-submenu,
+.story-canvas-context-branch-menu {
   width: 196px;
   padding: 4px;
   border: 1px solid var(--menu-border);
@@ -10673,18 +10675,29 @@ button {
 .story-canvas-context-submenu-root {
   position: relative;
 }
-.story-canvas-context-submenu {
+.story-canvas-context-add-menu {
   position: absolute;
   top: -4px;
   left: calc(100% + 5px);
+  width: 196px;
+}
+.story-canvas-context-submenu {
   max-height: min(420px, calc(100vh - 12px));
   overflow-y: auto;
 }
-.story-canvas-context-menu.opens-left .story-canvas-context-submenu {
+.story-canvas-context-branch-menu {
+  position: absolute;
+  left: calc(100% + 5px);
+}
+.story-canvas-context-menu.opens-left .story-canvas-context-add-menu {
   right: calc(100% + 5px);
   left: auto;
 }
-.story-canvas-context-menu.opens-up .story-canvas-context-submenu {
+.story-canvas-context-menu.opens-left .story-canvas-context-branch-menu {
+  right: calc(100% + 5px);
+  left: auto;
+}
+.story-canvas-context-menu.opens-up .story-canvas-context-add-menu {
   top: auto;
   bottom: -4px;
 }
@@ -10694,11 +10707,15 @@ button {
   display: grid;
 }
 
-.story-add-node-menu {
+.story-add-node-menu-shell {
   position: absolute;
   bottom: 46px;
   left: 0;
   width: 220px;
+}
+
+.story-add-node-menu,
+.story-add-node-submenu {
   max-height: calc(100vh - 72px);
   overflow-y: auto;
   padding: 5px;
@@ -10707,7 +10724,14 @@ button {
   background: var(--menu-surface);
 }
 
-.story-canvas-toolbar .story-add-node-menu button {
+.story-add-node-submenu {
+  position: absolute;
+  left: calc(100% + 5px);
+  width: 220px;
+}
+
+.story-canvas-toolbar .story-add-node-menu button,
+.story-canvas-toolbar .story-add-node-submenu button {
   display: flex;
   width: 100%;
   height: auto;
@@ -10718,11 +10742,13 @@ button {
   text-align: left;
 }
 
-.story-add-node-menu button > svg {
+.story-add-node-menu button > svg,
+.story-add-node-submenu button > svg {
   margin-top: 2px;
 }
 
-.story-add-node-menu button > span {
+.story-add-node-menu button > span,
+.story-add-node-submenu button > span {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -10736,13 +10762,15 @@ button {
   color: var(--text-faint);
 }
 
-.story-add-node-menu strong {
+.story-add-node-menu strong,
+.story-add-node-submenu strong {
   color: var(--text);
   font-size: 11px;
   font-weight: 600;
 }
 
-.story-add-node-menu small {
+.story-add-node-menu small,
+.story-add-node-submenu small {
   color: var(--text-muted);
   font-size: 10px;
 }

@@ -161,6 +161,10 @@ interface CanvasNodeCreationBranch {
   icon: IconComponent;
   children: CanvasNodeCreationLeaf[];
 }
+interface OpenCanvasNodeCreationBranch {
+  branch: CanvasNodeCreationBranch;
+  top: number;
+}
 type CanvasNodeCreationItem = CanvasNodeCreationLeaf | CanvasNodeCreationBranch;
 interface CanvasNodeCreationGroup {
   label: string;
@@ -3119,7 +3123,7 @@ function CanvasToolbar({
   onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
-  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
+  const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -3170,24 +3174,32 @@ function CanvasToolbar({
     <Panel className="story-canvas-toolbar" position="bottom-center">
       <div ref={addMenu} className="story-add-node">
         {addOpen ? (
-          <div className="story-add-node-menu" role="menu" aria-label="Add node">
-            {creationBranch ? <>
-              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span><strong>{creationBranch.label}</strong><small>All node types</small></span></button>
-              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
-            </> : <>
+          <div className="story-add-node-menu-shell">
+            <div className="story-add-node-menu" role="menu" aria-label="Add node">
               {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
                 <span className="story-add-node-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  if (!isCanvasNodeCreationLeaf(item)) return <button
+                    type="button"
+                    role="menuitem"
+                    key={item.label}
+                    aria-haspopup="menu"
+                    aria-expanded={openCreationBranch?.branch === item}
+                    onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
+                    onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
+                  ><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
                   const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
                   const description = disabled ? "Only one Start node is allowed" : item.description;
-                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
+                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
                 })}
               </Fragment>)}
-              <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
-            </>}
+              <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? "Uploading..." : "Upload"}</strong><small>Add files from this device</small></span></button>
+              <button type="button" role="menuitem" onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => { setAddOpen(false); setLibraryOpen(true); }}><Folder size={15} /><span><strong>From Library</strong><small>Use an existing asset</small></span></button>
+            </div>
+            {openCreationBranch ? <div className="story-add-node-submenu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
+              {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => addItem(child)}><ChildIcon size={15} /><span><strong>{child.label}</strong><small>{child.description}</small></span></button>; })}
+            </div> : null}
           </div>
         ) : null}
         <input
@@ -3203,7 +3215,7 @@ function CanvasToolbar({
             setAddOpen(false);
           }}
         />
-        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => { setCreationBranch(undefined); setAddOpen((open) => !open); }}>
+        <button className={addOpen ? "is-active" : undefined} type="button" title="Add node" aria-label="Add node" aria-expanded={addOpen} onClick={() => { setOpenCreationBranch(undefined); setAddOpen((open) => !open); }}>
           <Plus size={18} />
         </button>
       </div>
@@ -3263,9 +3275,9 @@ function StoryCanvasContextMenu({
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [creationBranch, setCreationBranch] = useState<CanvasNodeCreationBranch>();
+  const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [position, setPosition] = useState(menu.screenPosition);
-  const opensLeft = menu.screenPosition.x > window.innerWidth - 430;
+  const opensLeft = menu.screenPosition.x > window.innerWidth - 600;
   const opensUp = menu.screenPosition.y > window.innerHeight / 2;
 
   useLayoutEffect(() => {
@@ -3315,19 +3327,29 @@ function StoryCanvasContextMenu({
         <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>Paste</span></button>
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
           <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
-          {addOpen ? <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
-            {creationBranch ? <>
-              <button type="button" role="menuitem" onClick={() => setCreationBranch(undefined)}><ChevronLeft size={15} /><span>{creationBranch.label}</span></button>
-              {creationBranch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
-            </> : CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
-              <span className="story-canvas-context-menu-label">{group.label}</span>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                if (!isCanvasNodeCreationLeaf(item)) return <button type="button" role="menuitem" key={item.label} aria-haspopup="menu" onClick={() => setCreationBranch(item)}><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
-                const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
-                return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? "Only one Start node is allowed" : undefined} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
-              })}
-            </Fragment>)}
+          {addOpen ? <div className="story-canvas-context-add-menu">
+            <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
+              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+                <span className="story-canvas-context-menu-label">{group.label}</span>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  if (!isCanvasNodeCreationLeaf(item)) return <button
+                    type="button"
+                    role="menuitem"
+                    key={item.label}
+                    aria-haspopup="menu"
+                    aria-expanded={openCreationBranch?.branch === item}
+                    onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
+                    onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
+                  ><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
+                  const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
+                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? "Only one Start node is allowed" : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
+                })}
+              </Fragment>)}
+            </div>
+            {openCreationBranch ? <div className="story-canvas-context-branch-menu" role="menu" aria-label={openCreationBranch.branch.label} style={{ top: openCreationBranch.top }}>
+              {openCreationBranch.branch.children.map((child) => { const ChildIcon = child.icon; return <button type="button" role="menuitem" key={child.label} onClick={() => run(() => onAdd(child))}><ChildIcon size={15} /><span>{child.label}</span></button>; })}
+            </div> : null}
           </div> : null}
         </div>
         <button type="button" role="menuitem" disabled={importing} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span>{importing ? "Uploading..." : "Upload"}</span></button>
