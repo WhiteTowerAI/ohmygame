@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { StorySurfaceFiles, StoryOpenUiAction } from "../shared/contracts.js";
+import { transparentStorySurfaceFiles } from "../shared/story.js";
 import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 interface ScreenSurfaceMessage {
@@ -20,6 +21,7 @@ export function StoryScreenSurface({ files, content, mode, title, className, vie
   onAction?: (action: StoryOpenUiAction) => void;
   onError?: (message: string) => void;
 }) {
+  const surfaceFiles = transparentStorySurfaceFiles(files, ".open-ui");
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
@@ -38,8 +40,8 @@ export function StoryScreenSurface({ files, content, mode, title, className, vie
   }, [instanceId]);
   useEffect(() => {
     if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files, content, mode }, "*");
-  }, [content, files.css, files.html, files.javascript, instanceId, loaded, mode]);
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files: surfaceFiles, content, mode }, "*");
+  }, [content, instanceId, loaded, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
   return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="screen-surface.html" onLoad={() => setLoaded(true)} />;
 }
 

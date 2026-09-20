@@ -8,8 +8,8 @@ export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
   <div class="actions" data-content="buttons"></div>
 </main>`,
     css: `* { box-sizing: border-box; }
-body { margin: 0; color: #fff; font-family: Inter, system-ui, sans-serif; background: #090b0d; }
-.open-ui { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 18px; padding: 48px; text-align: center; background: radial-gradient(circle at 50% 20%, #203236, #090b0d 70%); }
+body { margin: 0; color: #fff; font-family: Inter, system-ui, sans-serif; }
+.open-ui { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 18px; padding: 48px; text-align: center; }
 h1 { margin: 0; font-size: clamp(42px, 8vw, 88px); line-height: 1; }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 button { margin-top: 18px; padding: 12px 22px; border: 1px solid #44d6b2; border-radius: 7px; background: rgb(68 214 178 / 14%); color: inherit; font: inherit; cursor: pointer; }
@@ -66,9 +66,9 @@ export function openUiRuntimeContent(content: StoryOpenUiContent, hasCheckpoint:
   };
 }
 
-export function openUiSurfaceFiles(presentation: StoryNodePresentation, transparent: boolean): StorySurfaceFiles {
-  const files = presentation.surface.files;
-  return transparent ? { ...files, css: `${files.css}\nhtml,body,body>*{background:transparent!important}` } : files;
+export function transparentStorySurfaceFiles(files: StorySurfaceFiles, rootSelector?: string): StorySurfaceFiles {
+  const selectors = rootSelector ? `html,body,${rootSelector}` : "html,body";
+  return { ...files, css: `${files.css}\n${selectors}{background:transparent!important}` };
 }
 
 export const DEFAULT_SCENE_SURFACE_FILES: StorySurfaceFiles = {

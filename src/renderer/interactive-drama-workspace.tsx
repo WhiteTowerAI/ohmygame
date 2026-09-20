@@ -108,7 +108,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, openUiSurfaceFiles, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -138,6 +138,7 @@ const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
 const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
+const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
@@ -211,8 +212,9 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
 
 interface SceneCanvasPreviewData {
   assetId?: string;
+  mediaType?: StorySceneMedia["type"];
   totalDurationMs: number;
-  segments: Array<{ assetId?: string; durationMs: number }>;
+  segments: Array<{ assetId?: string; type: StorySceneMedia["type"]; durationMs: number }>;
 }
 
 interface InheritedScenePreviewData {
@@ -722,19 +724,24 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setSelectedId(node.id);
   }
 
+  async function uploadAssetFile(file: File): Promise<LibraryAsset> {
+    const mediaType = libraryUploadMediaType(file);
+    if (!mediaType) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, WebM, MP3, or WAV file.");
+    if (file.size > 200 * 1024 * 1024) throw new Error("The upload must be no larger than 200 MB.");
+    const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
+    const duration = kind ? await readMediaFileDuration(file, kind) : undefined;
+    const uploaded = await uploadLibraryAsset(file, mediaType, duration);
+    const asset: LibraryAsset = { ...uploaded, assetId: uploaded.id, path: uploaded.name };
+    setLibraryAssets((current) => [asset, ...current]);
+    return asset;
+  }
+
   async function importAssetFile(file: File, position: { x: number; y: number }): Promise<void> {
     if (importingAssets) return;
     setImportingAssets(true);
     setNotice(undefined);
     try {
-      const mediaType = libraryUploadMediaType(file);
-      if (!mediaType) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, WebM, MP3, or WAV file.");
-      if (file.size > 200 * 1024 * 1024) throw new Error("The upload must be no larger than 200 MB.");
-      const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
-      const duration = kind ? await readMediaFileDuration(file, kind) : undefined;
-      const uploaded = await uploadLibraryAsset(file, mediaType, duration);
-      const asset: LibraryAsset = { ...uploaded, assetId: uploaded.id, path: uploaded.name };
-      setLibraryAssets((current) => [asset, ...current]);
+      const asset = await uploadAssetFile(file);
       addAssetNode(asset, position);
     } catch (error) {
       setNotice(`Could not upload asset: ${errorMessage(error)}`);
@@ -1010,7 +1017,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     if (node.type === "scene") {
       const media = node.data.presentation?.media;
       const segments = sceneTimelineSegments(media?.mode === "own" ? media.items : [], nodes, libraryAssets);
-      const previewAssetId = segments.find((segment) => segment.assetId)?.assetId;
+      const previewSegment = segments[0];
       return {
         ...node,
         data: {
@@ -1019,9 +1026,9 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           variables,
           previewValues: Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue])),
           scenePreview: {
-            ...(previewAssetId ? { assetId: previewAssetId } : {}),
+            ...(previewSegment?.assetId ? { assetId: previewSegment.assetId, mediaType: previewSegment.item.type } : {}),
             totalDurationMs: segments.reduce((total, segment) => total + segment.durationMs, 0),
-            segments: segments.map((segment) => ({ ...(segment.assetId ? { assetId: segment.assetId } : {}), durationMs: segment.durationMs })),
+            segments: segments.map((segment) => ({ ...(segment.assetId ? { assetId: segment.assetId } : {}), type: segment.item.type, durationMs: segment.durationMs })),
           },
         },
       };
@@ -1359,6 +1366,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         edges={edges}
         libraryAssets={libraryAssets}
         variables={variables}
+        onUploadAsset={uploadAssetFile}
         onVariablesChange={updateVariables}
         onNodeChange={updateSelected}
         onPlaytest={() => void startPlaytest()}
@@ -1440,8 +1448,8 @@ function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
     <div data-alignment-frame className="story-media-stage story-open-ui-node-preview">
       {asset.url && mediaType === "image" ? <img src={asset.url} alt="" /> : null}
       {asset.url && mediaType === "video" ? <video ref={video} src={asset.url} muted={muted} playsInline onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={() => { setCurrentMs(totalMs); setPlaying(false); }} /> : null}
-      <OpenUiCanvasSurface data={data} viewport={config.viewport} transparent={Boolean(asset.url)} />
-      {assetId && mediaType === "video" ? <InlineVideoControls
+      <OpenUiCanvasSurface data={data} viewport={config.viewport} />
+      {asset.url && mediaType === "video" ? <InlineVideoControls
         label="Open UI preview"
         playing={playing}
         currentMs={currentMs}
@@ -1463,11 +1471,10 @@ function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   </div>;
 }
 
-function OpenUiCanvasSurface({ data, viewport, transparent, runtime = false, onAction }: { data: StoryFlowData; viewport: StoryPlayerConfig["viewport"]; transparent: boolean; runtime?: boolean; onAction?: (action: StoryOpenUiAction) => void }) {
+function OpenUiCanvasSurface({ data, viewport, runtime = false, onAction }: { data: StoryFlowData; viewport: StoryPlayerConfig["viewport"]; runtime?: boolean; onAction?: (action: StoryOpenUiAction) => void }) {
   const presentation = data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
-  const files = openUiSurfaceFiles(presentation, transparent);
   const content = openUiRuntimeContent(data.content ?? DEFAULT_OPEN_UI_CONTENT, false);
-  return <StoryScreenSurface files={files} content={content} mode={runtime ? "runtime" : "preview"} title="Open UI preview" className="story-open-ui-node-surface" viewport={viewport} onAction={onAction} />;
+  return <StoryScreenSurface files={presentation.surface.files} content={content} mode={runtime ? "runtime" : "preview"} title="Open UI preview" className="story-open-ui-node-surface" viewport={viewport} onAction={onAction} />;
 }
 
 function ProjectStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
@@ -1503,7 +1510,7 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
         <span><b>Scene</b><strong>{data.title || "Untitled scene"}</strong></span>
         {preview?.totalDurationMs ? <time>{formatCompactDuration(preview.totalDurationMs)}</time> : null}
       </div>
-      <SceneNodePoster sceneId={id} preview={preview} surfaceFiles={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} variables={data.variables ?? []} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={data.title || "Untitled scene"} empty={!mediaCount} />
+      <SceneNodePoster sceneId={id} preview={preview} surfaceFiles={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} variables={data.variables ?? []} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} videoFit={data.playerConfig?.videoFit ?? DEFAULT_STORY_PLAYER_CONFIG.videoFit} title={data.title || "Untitled scene"} />
       <footer className="story-scene-node-meta">{mediaCount ? <span>{mediaCount} {mediaCount === 1 ? "media item" : "media items"}</span> : <span className="is-placeholder">Add media</span>}</footer>
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -1526,14 +1533,14 @@ function InteractionNode({ data, selected }: NodeProps<StoryFlowNode>) {
   </div>;
 }
 
-function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, title, empty }: {
+function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, videoFit, title }: {
   sceneId: string;
   preview?: SceneCanvasPreviewData;
   surfaceFiles: StorySurfaceFiles;
   variables: StoryVariable[];
   viewport: StoryPlayerConfig["viewport"];
+  videoFit: StoryPlayerConfig["videoFit"];
   title: string;
-  empty: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -1568,15 +1575,22 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, 
     let disposed = false;
     setPoster(undefined);
     if (!posterAsset.url) return;
-    void getTimelineFrames(posterAsset.url, 1).then((frames) => { if (!disposed) setPoster(frames[0]); }).catch(() => {});
+    if (preview?.mediaType === "image") {
+      setPoster(posterAsset.url);
+      return;
+    }
+    void getVideoPosterFrame(posterAsset.url).then((frame) => { if (!disposed) setPoster(frame); }).catch(() => {});
     return () => { disposed = true; };
-  }, [posterAsset.url]);
+  }, [posterAsset.url, preview?.mediaType]);
   useEffect(() => {
     const element = video.current;
-    if (!element || !activeAsset.url) return;
+    if (!element || !activeAsset.url || activeSegment?.type !== "video") return;
     if (playing) void element.play().catch(() => setPlaying(false));
     else element.pause();
-  }, [activeAsset.url, playing]);
+  }, [activeAsset.url, activeSegment?.type, playing]);
+  useEffect(() => {
+    if (activeSegment?.type !== "video") setPlaying(false);
+  }, [activeSegment?.type]);
   function seek(nextMs: number): void {
     const bounded = Math.max(0, Math.min(totalMs, nextMs));
     setCurrentMs(bounded);
@@ -1585,22 +1599,27 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, 
     if (nextIndex === activeIndex && video.current) video.current.currentTime = Math.max(0, (bounded - segmentStartMs) / 1_000);
   }
   function togglePlayback(): void {
-    if (!activeSegment?.assetId) return;
+    if (!activeAsset.url || activeSegment?.type !== "video") return;
     if (currentMs >= totalMs) seek(0);
     setPlaying((current) => !current);
   }
-  return <div ref={container} data-alignment-frame className={`story-media-stage story-scene-node-poster${poster ? " has-poster" : ""}`}>
-    {poster ? <img src={poster} alt="" /> : <div className="story-scene-node-empty"><Film size={22} /><span>{empty ? "Add video" : preview?.assetId ? "Loading preview" : title}</span></div>}
-    {activeAsset.url && (playing || currentMs > 0) ? <video
+  return <div ref={container} data-alignment-frame className="story-media-stage story-scene-node-poster">
+    {poster ? <img src={poster} alt="" style={{ objectFit: videoFit }} /> : null}
+    {activeAsset.url && activeSegment?.type === "image" && activeSegment.assetId !== preview?.assetId ? <img src={activeAsset.url} alt="" style={{ objectFit: videoFit }} /> : null}
+    {activeAsset.url && activeSegment?.type === "video" && (playing || currentMs > 0) ? <video
       ref={video}
       src={activeAsset.url}
       muted={muted}
       playsInline
+      style={{ objectFit: videoFit }}
       onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.max(0, (currentMs - segmentStartMs) / 1_000); if (playing) void event.currentTarget.play(); }}
       onTimeUpdate={(event) => setCurrentMs(Math.min(totalMs, segmentStartMs + event.currentTarget.currentTime * 1_000))}
       onEnded={() => {
         const nextStartMs = segmentStartMs + (activeSegment?.durationMs ?? 0);
-        if (activeIndex < segments.length - 1) setCurrentMs(nextStartMs);
+        if (activeIndex < segments.length - 1) {
+          setCurrentMs(nextStartMs);
+          if (segments[activeIndex + 1]?.type !== "video") setPlaying(false);
+        }
         else { setCurrentMs(totalMs); setPlaying(false); }
       }}
     /> : null}
@@ -1624,13 +1643,12 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, 
       title={`${title} code preview`}
       className="story-scene-code-surface"
     /> : null}
-    {!empty ? <InlineVideoControls
+    {activeAsset.url && activeSegment?.type === "video" ? <InlineVideoControls
       label="Scene preview"
       playing={playing}
       currentMs={currentMs}
       totalMs={totalMs}
       muted={muted}
-      disabled={!activeSegment?.assetId}
       onToggle={togglePlayback}
       onSeek={seek}
       onToggleMuted={() => setMuted((current) => !current)}
@@ -2236,13 +2254,14 @@ function VariableValueInput({ variable, value, label, onChange }: { variable: St
   return <input aria-label={label} type={variable.type === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(variable.type === "number" ? Number(event.target.value) : event.target.value)} />;
 }
 
-function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, onVariablesChange, onNodeChange, onPlaytest, onClose }: {
+function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, onUploadAsset, onVariablesChange, onNodeChange, onPlaytest, onClose }: {
   node?: StoryFlowNode;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   edges: Edge[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onVariablesChange: (variables: StoryVariable[]) => void;
   onNodeChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onPlaytest: () => void;
@@ -2265,7 +2284,7 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
         <button type="button" className={sceneMode === "code" ? "is-active" : ""} aria-pressed={sceneMode === "code"} onClick={() => setSceneMode("code")}>Code</button>
       </div> : null}
     </header>
-    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} config={config} libraryAssets={libraryAssets} onChange={onNodeChange} onPlaytest={onPlaytest} />
+    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} config={config} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
       : node?.type === "project-state" ? <StateEditorPage node={node} variables={variables} onVariablesChange={onVariablesChange} onNodeChange={onNodeChange} />
       : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
@@ -2435,11 +2454,10 @@ function EndingWorkbench({ node, nodes, edges, viewport, libraryAssets, variable
   return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
-function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, hasMedia = false, stageClassName, children }: {
+function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, stageClassName, children }: {
   label?: string;
   ariaLabel: string;
   viewport: StoryPlayerConfig["viewport"];
-  hasMedia?: boolean;
   stageClassName?: string;
   children: ReactNode;
 }) {
@@ -2462,26 +2480,30 @@ function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, ha
   return <section className="story-workbench-preview" aria-label={ariaLabel}>
     <header><strong>{label}</strong><span>{viewport.width} x {viewport.height}</span></header>
     <div ref={frame} className="story-workbench-preview-frame">
-      <div className={`story-workbench-preview-stage${hasMedia ? " has-media" : ""}${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
+      <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
         {children}
       </div>
     </div>
   </section>;
 }
 
-function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlaytest }: {
+function OpenUiWorkbench({ mode, node, config, libraryAssets, onUploadAsset, onChange, onPlaytest }: {
   mode: "design" | "code";
   node: StoryFlowNode;
   config: StoryPlayerConfig;
   libraryAssets: LibraryAsset[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
   onPlaytest: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string>();
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [currentMs, setCurrentMs] = useState(0);
   const previewVideo = useRef<HTMLVideoElement>(null);
+  const uploadInput = useRef<HTMLInputElement>(null);
   const presentation = node.data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   const mediaItem = presentation.media.mode === "own" ? presentation.media.items[0] : undefined;
   const mediaAssetId = mediaItem?.source.type === "library" ? mediaItem.source.assetId : undefined;
@@ -2511,13 +2533,32 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlayte
     setPlaying(nextPlaying);
   }
 
+  function selectBackground(asset: LibraryAsset): void {
+    if (asset.mediaType !== "image" && asset.mediaType !== "video") return;
+    onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [{ id: crypto.randomUUID(), type: asset.mediaType, source: { type: "library", assetId: asset.id } }] } } });
+  }
+
+  async function uploadBackground(file: File): Promise<void> {
+    setUploading(true);
+    setUploadError(undefined);
+    try {
+      const mediaType = libraryUploadMediaType(file);
+      if (!mediaType?.startsWith("image/") && !mediaType?.startsWith("video/")) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, or WebM file.");
+      selectBackground(await onUploadAsset(file));
+    } catch (error) {
+      setUploadError(errorMessage(error));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
-  const preview = <StoryWorkbenchPreview ariaLabel="Open UI live preview" viewport={config.viewport} hasMedia={Boolean(selectedBackground)} stageClassName="story-open-ui-stage">
+  const preview = <StoryWorkbenchPreview ariaLabel="Open UI live preview" viewport={config.viewport} stageClassName="story-open-ui-stage">
           {previewAsset.url && selectedImage ? <img src={previewAsset.url} alt="" /> : null}
           {previewAsset.url && selectedVideo ? <video ref={previewVideo} src={previewAsset.url} muted={muted} playsInline preload="auto" onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={() => { setCurrentMs(totalMs); setPlaying(false); }} /> : null}
-          <OpenUiCanvasSurface data={node.data} viewport={config.viewport} transparent={Boolean(previewAsset.url)} onAction={(action) => { if (action === "enter-game") onPlaytest(); }} />
-          {selectedVideo ? <InlineVideoControls
+          <OpenUiCanvasSurface data={node.data} viewport={config.viewport} onAction={(action) => { if (action === "enter-game") onPlaytest(); }} />
+          {previewAsset.url && selectedVideo ? <InlineVideoControls
             label="Open UI preview"
             playing={playing}
             currentMs={currentMs}
@@ -2536,11 +2577,21 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onChange, onPlayte
           <section className="story-open-ui-inspector-section story-open-ui-background">
             <h3>Background</h3>
             {selectedBackground ? <div className="story-open-ui-background-row"><span>{selectedVideo ? <Film size={15} /> : <ImageIcon size={15} />}</span><div><strong>{selectedBackground.name}</strong><small>{selectedVideo ? "Video" : "Image"} · Library</small></div><button type="button" title="Remove background" aria-label="Remove background" onClick={() => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [] } } })}><X size={13} /></button></div> : <p>No background selected</p>}
-            {!selectedBackground ? <button className="story-field-add" type="button" onClick={() => setPickerOpen(true)}><Plus size={14} />Add background</button> : null}
+            {!selectedBackground ? <div className="story-open-ui-background-actions">
+              <button className="story-field-add" type="button" disabled={uploading} onClick={() => uploadInput.current?.click()}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}{uploading ? "Uploading..." : "Upload"}</button>
+              <button className="story-field-add" type="button" disabled={uploading} onClick={() => setPickerOpen(true)}><Folder size={14} />From Library</button>
+              <input ref={uploadInput} hidden type="file" accept={STORY_VISUAL_ASSET_ACCEPT} onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void uploadBackground(file);
+              }} />
+            </div> : null}
+            {uploadError ? <p className="story-open-ui-background-error" role="alert">{uploadError}</p> : null}
           </section>
         </div>
         {pickerOpen ? <StoryAssetPicker title="Choose background" assets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
-          if (asset.mediaType === "image" || asset.mediaType === "video") onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [{ id: crypto.randomUUID(), type: asset.mediaType, source: { type: "library", assetId: asset.id } }] } } });
+          selectBackground(asset);
+          setUploadError(undefined);
           setPickerOpen(false);
         }} /> : null}
       </aside>;
@@ -2646,6 +2697,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
   const localTimeMs = active ? Math.max(0, currentMs - active.startMs) : 0;
   const surfaceVariables = Object.fromEntries(variables.flatMap((variable) => [[variable.id, variable.initialValue], [variable.name, variable.initialValue]]));
   useEffect(() => { setCurrentMs((current) => Math.min(current, totalMs)); }, [totalMs]);
+  useEffect(() => { if (active?.item.type !== "video") setPlaying(false); }, [active?.item.type]);
 
   function changePlaying(nextPlaying: boolean): void {
     if (currentMs >= totalMs) {
@@ -2654,11 +2706,14 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
     setPlaying(nextPlaying);
   }
 
-  const preview = <SceneWorkbenchVideo assetId={active?.assetId} sceneId={node.id} title={active?.name ?? node.data.title ?? "Scene"} sceneTitle={node.data.title ?? "Scene"} viewport={viewport} videoFit={videoFit} mediaIndex={active?.index ?? -1} mediaCount={items.length} surfaceFiles={node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} surfaceVariables={surfaceVariables} localTimeMs={localTimeMs} playing={playing} currentMs={currentMs} totalMs={totalMs} onPlayingChange={changePlaying} onSeek={setCurrentMs} onTime={(timeMs) => {
+  const preview = <SceneWorkbenchMedia assetId={active?.assetId} mediaType={active?.item.type} sceneId={node.id} sceneTitle={node.data.title ?? "Scene"} viewport={viewport} videoFit={videoFit} mediaIndex={active?.index ?? -1} mediaCount={items.length} surfaceFiles={node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} surfaceVariables={surfaceVariables} localTimeMs={localTimeMs} playing={playing} currentMs={currentMs} totalMs={totalMs} onPlayingChange={changePlaying} onSeek={setCurrentMs} onTime={(timeMs) => {
         setCurrentMs(Math.min(totalMs, (active?.startMs ?? 0) + timeMs));
       }} onEnded={() => {
         const next = active ? segments[active.index + 1] : undefined;
-        if (next) setCurrentMs(next.startMs);
+        if (next) {
+          setCurrentMs(next.startMs);
+          if (next.item.type !== "video") setPlaying(false);
+        }
         else { setCurrentMs(totalMs); setPlaying(false); }
       }} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
@@ -2698,42 +2753,41 @@ function StoryPresentationCodeWorkbench({ node }: {
   </div>;
 }
 
-function SceneWorkbenchVideo({ assetId, sceneId, title, sceneTitle, viewport, videoFit, mediaIndex, mediaCount, surfaceFiles, surfaceVariables, localTimeMs, playing, currentMs, totalMs, onPlayingChange, onSeek, onTime, onEnded }: { assetId?: string; sceneId: string; title: string; sceneTitle: string; viewport: StoryPlayerConfig["viewport"]; videoFit: StoryPlayerConfig["videoFit"]; mediaIndex: number; mediaCount: number; surfaceFiles: StorySurfaceFiles; surfaceVariables: Record<string, StoryVariableValue>; localTimeMs: number; playing: boolean; currentMs: number; totalMs: number; onPlayingChange: (playing: boolean) => void; onSeek: (timeMs: number) => void; onTime: (timeMs: number) => void; onEnded: () => void }) {
+function SceneWorkbenchMedia({ assetId, mediaType, sceneId, sceneTitle, viewport, videoFit, mediaIndex, mediaCount, surfaceFiles, surfaceVariables, localTimeMs, playing, currentMs, totalMs, onPlayingChange, onSeek, onTime, onEnded }: { assetId?: string; mediaType?: StorySceneMedia["type"]; sceneId: string; sceneTitle: string; viewport: StoryPlayerConfig["viewport"]; videoFit: StoryPlayerConfig["videoFit"]; mediaIndex: number; mediaCount: number; surfaceFiles: StorySurfaceFiles; surfaceVariables: Record<string, StoryVariableValue>; localTimeMs: number; playing: boolean; currentMs: number; totalMs: number; onPlayingChange: (playing: boolean) => void; onSeek: (timeMs: number) => void; onTime: (timeMs: number) => void; onEnded: () => void }) {
   const asset = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   const video = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(false);
   useEffect(() => { if (video.current && Math.abs(video.current.currentTime * 1_000 - localTimeMs) > 250) video.current.currentTime = localTimeMs / 1_000; }, [assetId, localTimeMs]);
   useEffect(() => { if (!video.current) return; if (playing) void video.current.play().catch(() => onPlayingChange(false)); else video.current.pause(); }, [asset.url, onPlayingChange, playing]);
-  return <StoryWorkbenchPreview ariaLabel="Scene live preview" viewport={viewport} hasMedia={Boolean(assetId)} stageClassName="story-scene-media">
-      {asset.url ? <video key={assetId} ref={video} src={asset.url} muted={muted} playsInline style={{ objectFit: videoFit }} onClick={() => onPlayingChange(!playing)} onTimeUpdate={(update) => onTime(Math.round(update.currentTarget.currentTime * 1_000))} onEnded={onEnded} /> : <div className="story-scene-empty"><Film size={28} /><strong>{title}</strong><span>{assetId ? "Loading media..." : "Add media to preview this scene"}</span></div>}
+  return <StoryWorkbenchPreview ariaLabel="Scene live preview" viewport={viewport} stageClassName="story-scene-media">
+      {asset.url && mediaType === "image" ? <img key={assetId} src={asset.url} alt="" style={{ objectFit: videoFit }} /> : null}
+      {asset.url && mediaType === "video" ? <video key={assetId} ref={video} src={asset.url} muted={muted} playsInline style={{ objectFit: videoFit }} onClick={() => onPlayingChange(!playing)} onTimeUpdate={(update) => onTime(Math.round(update.currentTarget.currentTime * 1_000))} onEnded={onEnded} /> : null}
       <SceneCodeSurface key={sceneId} files={surfaceFiles} context={{ scene: { id: sceneId, title: sceneTitle, mediaIndex, mediaCount, timeMs: localTimeMs, durationMs: totalMs, playing }, variables: surfaceVariables }} mode="preview" viewport={viewport} title={`${sceneTitle} code`} className="story-scene-code-surface" />
-      <InlineVideoControls
+      {asset.url && mediaType === "video" ? <InlineVideoControls
         label="Scene preview"
         playing={playing}
         currentMs={currentMs}
         totalMs={totalMs}
         muted={muted}
-        disabled={!assetId}
         onToggle={() => onPlayingChange(!playing)}
         onSeek={onSeek}
         onToggleMuted={() => setMuted((current) => !current)}
-      />
+      /> : null}
   </StoryWorkbenchPreview>;
 }
 
-const timelineFrameCache = new Map<string, Promise<string[]>>();
+const videoPosterFrameCache = new Map<string, Promise<string>>();
 const videoEndFrameCache = new Map<string, Promise<string>>();
 
-function getTimelineFrames(url: string, count: number): Promise<string[]> {
-  const key = `${url}#${count}`;
-  const cached = timelineFrameCache.get(key);
+function getVideoPosterFrame(url: string): Promise<string> {
+  const cached = videoPosterFrameCache.get(url);
   if (cached) return cached;
-  const pending = captureTimelineFrames(url, count).catch((error) => {
-    timelineFrameCache.delete(key);
+  const pending = captureVideoPosterFrame(url).catch((error) => {
+    videoPosterFrameCache.delete(url);
     throw error;
   });
-  timelineFrameCache.set(key, pending);
-  if (timelineFrameCache.size > 24) timelineFrameCache.delete(timelineFrameCache.keys().next().value!);
+  videoPosterFrameCache.set(url, pending);
+  if (videoPosterFrameCache.size > 24) videoPosterFrameCache.delete(videoPosterFrameCache.keys().next().value!);
   return pending;
 }
 
@@ -2773,7 +2827,7 @@ async function captureVideoEndFrame(url: string): Promise<string> {
   }
 }
 
-async function captureTimelineFrames(url: string, count: number): Promise<string[]> {
+async function captureVideoPosterFrame(url: string): Promise<string> {
   const video = document.createElement("video");
   video.preload = "auto";
   video.muted = true;
@@ -2781,19 +2835,16 @@ async function captureTimelineFrames(url: string, count: number): Promise<string
   video.src = url;
   try {
     await waitForVideoEvent(video, "loadedmetadata");
+    if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) throw new Error("Video has no readable frame");
+    video.currentTime = Math.min(0.05, video.duration / 2);
+    await waitForVideoEvent(video, "seeked");
     const canvas = document.createElement("canvas");
-    canvas.width = 240;
-    canvas.height = 135;
+    canvas.width = 440;
+    canvas.height = Math.max(1, Math.round(canvas.width * video.videoHeight / video.videoWidth));
     const context = canvas.getContext("2d");
-    if (!context || !Number.isFinite(video.duration) || video.duration <= 0) return [];
-    const frames: string[] = [];
-    for (let index = 0; index < count; index += 1) {
-      video.currentTime = Math.min(Math.max(0, video.duration - 0.05), video.duration * (index + 0.5) / count);
-      await waitForVideoEvent(video, "seeked");
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push(canvas.toDataURL("image/jpeg", 0.82));
-    }
-    return frames;
+    if (!context) throw new Error("Could not create video preview canvas");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.86);
   } finally {
     video.removeAttribute("src");
     video.load();

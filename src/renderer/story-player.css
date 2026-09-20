@@ -40,9 +40,8 @@ button { font: inherit; }
 .story-player-choice { position: relative; z-index: 2; }
 .story-player-scene { position: relative; display: grid; width: min(1080px, 100%); }
 .story-player-video { display: grid; width: 100%; place-items: center; overflow: hidden; border: 1px solid rgb(255 255 255 / 14%); border-radius: 7px; background: #090a0c; color: color-mix(in srgb, var(--story-player-text) 65%, transparent); box-shadow: 0 14px 40px rgb(0 0 0 / 28%); }
-.story-player-video > video, .story-player-video > img, .story-player-video > span { width: 100%; aspect-ratio: var(--story-viewport-ratio, 16 / 9); }
+.story-player-video > video, .story-player-video > img { width: 100%; aspect-ratio: var(--story-viewport-ratio, 16 / 9); }
 .story-player-video > img { object-fit: cover; }
-.story-player-video > span { display: grid; place-items: center; }
 .story-player-video > div { display: flex; max-width: 420px; aspect-ratio: var(--story-viewport-ratio, 16 / 9); align-items: center; flex-direction: column; gap: 8px; padding: 24px; text-align: center; }
 .story-player-video > div button { height: 30px; margin-top: 6px; padding: 0 11px; border: 1px solid #51545c; border-radius: 6px; background: #202228; color: #fff; cursor: pointer; }
 .story-player-video > footer { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border-top: 1px solid rgb(255 255 255 / 12%); background: #111216; }

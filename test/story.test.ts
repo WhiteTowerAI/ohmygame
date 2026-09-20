@@ -6,6 +6,7 @@ import {
   getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
+  transparentStorySurfaceFiles,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
@@ -50,6 +51,15 @@ describe("canonical Interactive Drama story", () => {
 
     expect(isEntryOpenUiNode(chapter, entry.id)).toBe(true);
     expect(isEntryOpenUiNode(chapter, midFlow.id)).toBe(false);
+  });
+
+  it("keeps presentation surfaces transparent", () => {
+    const files = { html: "<main></main>", css: "main { background: red; }", javascript: "export function render() {}" };
+    const result = transparentStorySurfaceFiles(files);
+
+    expect(result).not.toBe(files);
+    expect(result.css).toBe(`${files.css}\nhtml,body{background:transparent!important}`);
+    expect(transparentStorySurfaceFiles(files, ".open-ui").css).toBe(`${files.css}\nhtml,body,.open-ui{background:transparent!important}`);
   });
 
   it("allows incomplete editing state but rejects more than one Start", () => {

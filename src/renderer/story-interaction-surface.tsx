@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { StoryInteractionCommand, StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
+import { transparentStorySurfaceFiles } from "../shared/story.js";
 import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 export interface StoryInteractionRuntimeContext {
@@ -25,6 +26,7 @@ export function StoryInteractionSurface({ files, mode, context, title, className
   onComplete?: (result: string, commands: StoryInteractionCommand[]) => void;
   onError?: (message: string) => void;
 }) {
+  const surfaceFiles = transparentStorySurfaceFiles(files);
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
@@ -43,8 +45,8 @@ export function StoryInteractionSurface({ files, mode, context, title, className
   }, [instanceId]);
   useEffect(() => {
     if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files, mode, context }, "*");
-  }, [context, files.css, files.html, files.javascript, instanceId, loaded, mode]);
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files: surfaceFiles, mode, context }, "*");
+  }, [context, instanceId, loaded, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
   return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="interaction-surface.html" onLoad={() => setLoaded(true)} />;
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
+import { transparentStorySurfaceFiles } from "../shared/story.js";
 import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 export interface StorySceneSurfaceContext {
@@ -42,6 +43,7 @@ export function StorySceneSurface({ files, context, mode, title, className, view
   onAction?: (action: StoryNodeSurfaceAction) => void;
   onError?: (message?: string) => void;
 }) {
+  const surfaceFiles = transparentStorySurfaceFiles(files);
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
@@ -70,8 +72,8 @@ export function StorySceneSurface({ files, context, mode, title, className, view
   useEffect(() => {
     if (!loaded) return;
     setReady(false);
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "init", files, context: contextRef.current, mode }, "*");
-  }, [files.css, files.html, files.javascript, instanceId, loaded, mode]);
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "init", files: surfaceFiles, context: contextRef.current, mode }, "*");
+  }, [instanceId, loaded, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
   useEffect(() => {
     if (!loaded || !ready) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "update", context, mode }, "*");
