@@ -2000,8 +2000,13 @@ function questionnaireAnswers(
   });
 }
 
-function itemError(message: string, code?: string): ThreadItemError {
-  return { message, ...(code ? { code } : {}) };
+function itemError(message: string, code?: ThreadItemError["code"]): ThreadItemError {
+  const resolvedCode = code ?? threadItemErrorCode(message);
+  return { message, ...(resolvedCode ? { code: resolvedCode } : {}) };
+}
+
+function threadItemErrorCode(message: string): ThreadItemError["code"] {
+  return /^No API key(?: found for the selected model)?\b/i.test(message) ? "model_not_configured" : undefined;
 }
 
 function questionnaireThreadItem(

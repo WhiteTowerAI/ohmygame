@@ -4,7 +4,6 @@ import {
   FolderPlus,
   FolderOpen,
   GitBranch,
-  Heart,
   LoaderCircle,
   Package,
   Plus,
@@ -504,7 +503,6 @@ function PluginCard({ plugin, viewerId, onOpen }: { plugin: PluginSummary; viewe
       <span className="plugin-card-copy">
         <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}{viewerId && plugin.author?.id === viewerId ? <small className="plugin-yours-badge">Yours</small> : null}<ExplorePluginStatus plugin={plugin} /></span>
         <span className="plugin-card-description">{plugin.description}</span>
-        <PluginCardMeta plugin={plugin} />
       </span>
     </button>
   </article>;
@@ -512,8 +510,7 @@ function PluginCard({ plugin, viewerId, onOpen }: { plugin: PluginSummary; viewe
 
 function ExplorePluginStatus({ plugin }: { plugin: PluginSummary }): ReactNode {
   if (plugin.updateAvailable) return <small className="plugin-explore-status is-update">Update available</small>;
-  if (!plugin.installed) return null;
-  return <small className="plugin-explore-status">{plugin.enabled ? "Installed" : "Disabled"}</small>;
+  return plugin.installed && !plugin.enabled ? <small className="plugin-explore-status">Disabled</small> : null;
 }
 
 function PluginDetailView({ phase, plugin, publication, updating, error, notice, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onInstall, onPublish, onSetPublicationStatus, onTry }: {
@@ -800,31 +797,12 @@ function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id
   return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
 }
 
-function PluginCardMeta({ plugin }: { plugin: PluginSummary }): ReactNode {
-  if (!plugin.author || !plugin.stats || !pluginCatalogId(plugin)) {
-    return <small className="plugin-card-marketplace">{pluginSourceLabel(plugin)}</small>;
-  }
-  return <span className="plugin-card-community">
-    <CommunityAuthorView author={plugin.author} prefix="Shared by" />
-    <span className="plugin-card-stats"><span><Heart size={11} />{plugin.stats.likes}</span><span>{plugin.stats.uses} installs</span></span>
-  </span>;
-}
-
 function pluginCatalogId(plugin: Pick<PluginSummary, "source" | "catalog">): string | undefined {
   return plugin.catalog?.pluginId ?? (plugin.source.type === "catalog" ? plugin.source.pluginId : undefined);
 }
 
 function pluginSearchText(plugin: PluginSummary): string {
   return `${plugin.name} ${plugin.displayName} ${plugin.description} ${plugin.marketplace.displayName}`.toLowerCase();
-}
-
-function pluginSourceLabel(plugin: Pick<PluginSummary, "marketplace" | "origin" | "curation">): string {
-  if (plugin.origin?.type === "github") {
-    return `${plugin.curation === "featured" ? "Featured · " : ""}GitHub · ${plugin.origin.repository}`;
-  }
-  return plugin.marketplace.id === "ohmygame" || plugin.marketplace.id === "personal"
-    ? plugin.marketplace.displayName
-    : `Marketplace · ${plugin.marketplace.displayName}`;
 }
 
 function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, onToggle, onSetPublicationStatus }: {

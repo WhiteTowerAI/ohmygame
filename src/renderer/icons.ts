@@ -33,6 +33,7 @@ import {
   HeartIcon,
   HomeIcon,
   InfoCircleIcon,
+  LaptopMinimalisticIcon,
   LayersIcon,
   LightbulbIcon,
   Logout2Icon,
@@ -98,7 +99,7 @@ export const Square = forwardRef<SVGSVGElement, IconProps>(function Square({ siz
 });
 
 export const SendArrow = forwardRef<SVGSVGElement, IconProps>(function SendArrow({ size = 24, ...props }, ref) {
-  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M12 18V6M7.5 10.5L12 6L16.5 10.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M12 18V6M7.5 10.5L12 6L16.5 10.5", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }));
 });
 
 export const MoreHorizontal = forwardRef<SVGSVGElement, IconProps>(function MoreHorizontal({ size = 24, ...props }, ref) {
@@ -161,6 +162,7 @@ export {
   HomeIcon as House,
   InfoCircleIcon as InfoCircle,
   LayersIcon as Layers3,
+  LaptopMinimalisticIcon as LaptopMinimalistic,
   LightbulbIcon as Lightbulb,
   Logout2Icon as LogOut,
   MaximizeIcon as Maximize,

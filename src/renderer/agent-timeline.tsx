@@ -17,7 +17,7 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -323,7 +323,7 @@ function WorkItems({ items, images, active = false, failed = false }: { items: T
     const hasFailedRetry = items.some((item) => item.kind === "item" && item.item.type === "retry" && item.item.status === "failed");
     const error = items.flatMap((item) => item.kind === "item" && item.item.type === "agentMessage" && item.item.error ? [item.item] : []).at(-1);
     if (!hasFailedRetry && error?.type === "agentMessage" && error.error) {
-      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error.message} failed />);
+      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error} failed />);
     }
   }
   return rendered;
@@ -457,7 +457,7 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
   if (item.type === "retry") {
     return <ConnectionActivity
       title={item.status === "failed" ? "Connection error" : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
-      error={item.error.message}
+      error={item.error}
       retrying={retrying}
       failed={item.status === "failed"}
     />;
@@ -501,26 +501,37 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
     return (
       <>
         {message}
-        <ConnectionActivity title="Connection error" error={item.error.message} failed />
+        <ConnectionActivity title="Connection error" error={item.error} failed />
       </>
     );
   }
   return null;
 }
 
-function ConnectionActivity({ title, error, retrying = false, failed = false }: { title: string; error: string; retrying?: boolean; failed?: boolean }) {
+function ConnectionActivity({ title, error, retrying = false, failed = false }: { title: string; error: ThreadItemError; retrying?: boolean; failed?: boolean }) {
   const Icon = failed ? WifiOff : Wifi;
+  const presentation = connectionErrorPresentation(title, error);
   return (
     <details className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`}>
       <summary className="tool-activity tool-row tool-row-expandable timeline-activity connection-activity" role={failed ? "alert" : undefined}>
         <Icon size={13} aria-hidden="true" />
-        <span className="tool-label">{title}</span>
+        <span className="tool-label">{presentation.title}</span>
         <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
         <span className="tool-result">{retrying ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : null}</span>
       </summary>
-      <div className="connection-activity-error">{error}</div>
+      <div className="connection-activity-error">{presentation.message}</div>
     </details>
   );
+}
+
+function connectionErrorPresentation(title: string, error: ThreadItemError): { title: string; message: string } {
+  if (error.code === "model_not_configured") {
+    return {
+      title: "Model setup required",
+      message: "The selected model isn't configured. Choose an available model or connect its provider in Settings, then try again.",
+    };
+  }
+  return { title, message: error.message };
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {

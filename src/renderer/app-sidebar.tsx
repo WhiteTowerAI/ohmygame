@@ -110,7 +110,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       </div>
       <div className="home-sidebar-brand">
         <img src={brandMark} alt="OhMyGame" />
-        <span>omg</span>
+        <span>OhMyGame</span>
       </div>
       <nav aria-label="Main navigation">
         <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />

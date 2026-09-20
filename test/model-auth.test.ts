@@ -42,6 +42,23 @@ describe("model provider authentication", () => {
     expect(JSON.stringify(events)).not.toContain("secret-value");
   });
 
+  it("marks the GitHub Copilot enterprise domain prompt as optional", async () => {
+    const login = vi.fn(async (_providerId: string, _method: string, interaction: PiInteraction) => {
+      await interaction.prompt({ type: "text", message: "Enterprise domain" });
+      return { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000 };
+    });
+    const manager = new ModelAuthManager(async () => runtime({ providerId: "github-copilot", login }));
+
+    const operationId = await manager.start("github-copilot", "oauth");
+    await tick();
+
+    expect(manager.eventsSince(operationId, 0)).toContainEqual(expect.objectContaining({
+      type: "prompt",
+      prompt: expect.objectContaining({ type: "text", optional: true }),
+    }));
+    manager.close();
+  });
+
   it("uses Pi logout for stored credentials", async () => {
     const logout = vi.fn(async () => undefined);
     const manager = new ModelAuthManager(async () => runtime({ logout }));
@@ -69,13 +86,14 @@ describe("model provider authentication", () => {
 type PiInteraction = Parameters<ModelRuntime["login"]>[2];
 
 function runtime(options: {
+  providerId?: string;
   configured?: boolean;
   credentialType?: "api_key" | "oauth";
   login?: (...args: any[]) => Promise<any>;
   logout?: (...args: any[]) => Promise<any>;
 } = {}): ModelRuntime {
   const provider = {
-    id: "test-provider",
+    id: options.providerId ?? "test-provider",
     name: "Test Provider",
     auth: {
       oauth: { name: "Test OAuth", loginLabel: "Sign in with Test" },
