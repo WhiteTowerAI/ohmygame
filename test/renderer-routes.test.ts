@@ -1,16 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { conversationHash, gameHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityHash, conversationHash, gameHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "plugins", "interactive-drama", "asset-studio", "games", "assets"] as const) {
+    for (const page of ["projects", "library", "plugins", "interactive-drama", "asset-studio"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
     }
     expect(sidebarHash("home")).toBe("#/");
+    expect(sidebarHash("community")).toBe("#/community/games");
+    expect(parseAppRoute("#/community")).toEqual({ page: "community", section: "games" });
+    expect(parseAppRoute("#/community/games")).toEqual({ page: "community", section: "games" });
+    expect(parseAppRoute("#/community/images")).toEqual({ page: "community", section: "images" });
+    expect(parseAppRoute("#/community/videos")).toEqual({ page: "community", section: "videos" });
+    expect(parseAppRoute("#/community/audio")).toEqual({ page: "community", section: "audio" });
+    expect(parseAppRoute("#/community/models")).toEqual({ page: "community", section: "models" });
+    expect(communityHash()).toBe("#/community/games");
+    expect(communityHash("images")).toBe("#/community/images");
     expect(parseAppRoute("#/tools")).toEqual({ page: "home" });
   });
 
@@ -47,8 +56,8 @@ describe("renderer routes", () => {
   });
 
   it("parses and formats game routes", () => {
-    expect(parseAppRoute("#/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
-    expect(gameHash("game 1")).toBe("#/games/game%201");
+    expect(parseAppRoute("#/community/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
+    expect(gameHash("game 1")).toBe("#/community/games/game%201");
   });
 
   it("parses and formats playtest routes", () => {
@@ -69,6 +78,10 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/projects/%")).toEqual({ page: "home" });
     expect(parseAppRoute("#/games/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/games/%")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/community/games/%")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/games")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/assets")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/community/assets")).toEqual({ page: "home" });
     expect(parseAppRoute("#/playtest/project/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/playtest/%/chapter")).toEqual({ page: "home" });
   });

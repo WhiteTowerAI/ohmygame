@@ -136,99 +136,88 @@ function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type:
 
 export function createStoryDocument(): StoryDocument {
   return {
-    version: 10,
-    codebase: { version: 3 },
+    version: 1,
     editorLayout: { version: 1, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" },
     variables: [],
     player: structuredClone(DEFAULT_STORY_PLAYER_CONFIG),
-    chapters: [{ id: crypto.randomUUID(), title: "Untitled", nodes: [], edges: [] }],
+    chapter: { id: crypto.randomUUID(), title: "Untitled", nodes: [], edges: [] },
   };
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
-  if (!isRecord(value) || value.version !== 10 || !Array.isArray(value.chapters) || value.chapters.length === 0) return false;
-  if (!hasOnlyKeys(value, ["version", "codebase", "editorLayout", "player", "variables", "chapters"])) return false;
-  if (!isRecord(value.codebase) || value.codebase.version !== 3 || !hasOnlyKeys(value.codebase, ["version"])) return false;
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.chapter)) return false;
+  if (!hasOnlyKeys(value, ["version", "editorLayout", "player", "variables", "chapter"])) return false;
   if (!isEditorLayout(value.editorLayout) || !isPlayerConfig(value.player) || !isVariables(value.variables)) return false;
   const variables = new Map(value.variables.map((variable) => [variable.id, variable]));
-  const sourcePaths = [
-    ...storyRecords(value.chapters).flatMap((chapter) => storyRecords(chapter.nodes).flatMap((node) => {
-      const data = isRecord(node.data) ? node.data : undefined;
-      const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
-      const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
-      const source = surface && isRecord(surface.source) ? surface.source : undefined;
-      return ["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
-        ? [source.html, source.css, source.javascript]
-        : [];
-    })),
-  ];
+  const sourcePaths = storyRecords(value.chapter.nodes).flatMap((node) => {
+    const data = isRecord(node.data) ? node.data : undefined;
+    const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
+    const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
+    const source = surface && isRecord(surface.source) ? surface.source : undefined;
+    return ["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
+      ? [source.html, source.css, source.javascript]
+      : [];
+  });
   if (new Set(sourcePaths).size !== sourcePaths.length) return false;
-  const chapterIds = new Set<string>();
-  const documentNodeIds = new Set<string>();
-  const validChapters = value.chapters.every((chapter) => {
-    if (!isRecord(chapter) || !hasOnlyKeys(chapter, ["id", "title", "nodes", "edges"]) || !nonEmptyString(chapter.id) || chapterIds.has(chapter.id) || typeof chapter.title !== "string" ||
-      !Array.isArray(chapter.nodes) || !Array.isArray(chapter.edges)) return false;
-    chapterIds.add(chapter.id);
-    const nodes = chapter.nodes as unknown[];
-    const nodeIds = new Set<string>();
-    const nodeById = new Map<string, StoryNode>();
-    for (const node of nodes) {
-      if (!isStoryNode(node, variables) || nodeIds.has(node.id) || documentNodeIds.has(node.id)) return false;
-      nodeIds.add(node.id);
-      documentNodeIds.add(node.id);
-      nodeById.set(node.id, node);
+  const chapter = value.chapter;
+  if (!hasOnlyKeys(chapter, ["id", "title", "nodes", "edges"]) || !nonEmptyString(chapter.id) || typeof chapter.title !== "string" ||
+    !Array.isArray(chapter.nodes) || !Array.isArray(chapter.edges)) return false;
+  const nodes = chapter.nodes as unknown[];
+  const nodeIds = new Set<string>();
+  const nodeById = new Map<string, StoryNode>();
+  for (const node of nodes) {
+    if (!isStoryNode(node, variables) || nodeIds.has(node.id)) return false;
+    nodeIds.add(node.id);
+    nodeById.set(node.id, node);
+  }
+  for (const node of nodeById.values()) {
+    if (node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
+      const presentation = node.data.presentation;
+      if (presentation?.media.mode === "own") {
+        for (const item of presentation.media.items) {
+          if (item.source.type !== "node") continue;
+          if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
+        }
+      }
     }
-    for (const node of nodeById.values()) {
-      if (node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
-        const presentation = node.data.presentation;
-        if (presentation?.media.mode === "own") {
-          for (const item of presentation.media.items) {
-            if (item.source.type !== "node") continue;
-            if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
-          }
-        }
+    if (node.type === "image") {
+      for (const image of node.data.images) {
+        if (image.type === "node" && (image.nodeId === node.id || !isImageSourceNode(nodeById.get(image.nodeId)))) return false;
       }
-      if (node.type === "image") {
-        for (const image of node.data.images) {
-          if (image.type === "node" && (image.nodeId === node.id || !isImageSourceNode(nodeById.get(image.nodeId)))) return false;
-        }
-      }
-      if (node.type === "video") {
-        for (const reference of node.data.references) {
-          if (reference.type === "node" && (reference.nodeId === node.id || !isVideoReferenceSourceNode(nodeById.get(reference.nodeId)))) return false;
-        }
-      }
-      if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
-        nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
     }
-    if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1) return false;
-    const edgeIds = new Set<string>();
-    const outputs = new Set<string>();
-    const validEdges = (chapter.edges as unknown[]).every((edge) => {
-      if (!isRecord(edge) || !nonEmptyString(edge.id) || edgeIds.has(edge.id) ||
-        typeof edge.source !== "string" || typeof edge.target !== "string" ||
-        !nodeIds.has(edge.source) || !nodeIds.has(edge.target) ||
-        (edge.sourceHandle !== undefined && typeof edge.sourceHandle !== "string") ||
-        !hasOnlyKeys(edge, ["id", "source", "target", "sourceHandle"])) return false;
-      const output = `${edge.source}\0${edge.sourceHandle ?? "out"}`;
-      if (outputs.has(output)) return false;
-      const source = nodeById.get(edge.source);
-      const target = nodeById.get(edge.target);
-      if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
-      const handle = edge.sourceHandle ?? "out";
-      if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
-        : source.type === "interaction" ? !storyInteractionNodeOutcomes(source.data.behavior).includes(handle)
-        : handle !== "out") return false;
-      edgeIds.add(edge.id);
-      outputs.add(output);
-      return true;
-    });
-    if (!validEdges) return false;
+    if (node.type === "video") {
+      for (const reference of node.data.references) {
+        if (reference.type === "node" && (reference.nodeId === node.id || !isVideoReferenceSourceNode(nodeById.get(reference.nodeId)))) return false;
+      }
+    }
+    if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
+      nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
+  }
+  if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1) return false;
+  const edgeIds = new Set<string>();
+  const outputs = new Set<string>();
+  const validEdges = (chapter.edges as unknown[]).every((edge) => {
+    if (!isRecord(edge) || !nonEmptyString(edge.id) || edgeIds.has(edge.id) ||
+      typeof edge.source !== "string" || typeof edge.target !== "string" ||
+      !nodeIds.has(edge.source) || !nodeIds.has(edge.target) ||
+      (edge.sourceHandle !== undefined && typeof edge.sourceHandle !== "string") ||
+      !hasOnlyKeys(edge, ["id", "source", "target", "sourceHandle"])) return false;
+    const output = `${edge.source}\0${edge.sourceHandle ?? "out"}`;
+    if (outputs.has(output)) return false;
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
+    const handle = edge.sourceHandle ?? "out";
+    if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
+      : source.type === "interaction" ? !storyInteractionNodeOutcomes(source.data.behavior).includes(handle)
+      : handle !== "out") return false;
+    edgeIds.add(edge.id);
+    outputs.add(output);
     return true;
   });
-  if (!validChapters) return false;
+  if (!validEdges) return false;
   const layoutIds = Object.keys((value.editorLayout as StoryEditorLayout).nodes);
-  return layoutIds.length === documentNodeIds.size && layoutIds.every((id) => documentNodeIds.has(id));
+  return layoutIds.length === nodeIds.size && layoutIds.every((id) => nodeIds.has(id));
 }
 
 function isPresentationMediaSourceNode(node: StoryNode | undefined, type: StorySceneMedia["type"]): boolean {
@@ -326,7 +315,7 @@ export type PlayingRuntimeState = Extract<PlayerRuntimeState, { mode: "playing" 
 
 export interface StorySaveDataV1 {
   version: 1;
-  storyVersion: 10;
+  storyVersion: 1;
   storySignature: string;
   savedAt: string;
   checkpoint: PlayingRuntimeState;
@@ -335,7 +324,7 @@ export interface StorySaveDataV1 {
 export function createStoryCheckpoint(storySignature: string, state: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
   if (!storySignature) throw new Error("Story signature is required");
   if (state.mode !== "playing") throw new Error("Only a playing state can be saved");
-  return { version: 1, storyVersion: 10, storySignature, savedAt, checkpoint: clonePlayingState(state) };
+  return { version: 1, storyVersion: 1, storySignature, savedAt, checkpoint: clonePlayingState(state) };
 }
 
 export function restoreStoryCheckpoint(
@@ -344,7 +333,7 @@ export function restoreStoryCheckpoint(
   chapter: StoryChapter,
   variables: readonly StoryVariable[],
 ): PlayingRuntimeState | undefined {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 10 || value.storySignature !== storySignature ||
+  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 1 || value.storySignature !== storySignature ||
     typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)) || !isRecord(value.checkpoint)) return undefined;
   const checkpoint = value.checkpoint;
   if (checkpoint.mode !== "playing" || checkpoint.chapterId !== chapter.id || !nonEmptyString(checkpoint.nodeId) ||
@@ -685,9 +674,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
 function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryNode {
   if (!isRecord(value) || !nonEmptyString(value.id) || typeof value.type !== "string" ||
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data) ||
-    !hasOnlyKeys(value, ["id", "type", "position", "data", "editor"])) return false;
-  if (value.editor !== undefined && (!isRecord(value.editor) || !nonEmptyString(value.editor.kind) || value.editor.kind.length > 80 ||
-    (value.editor.properties !== undefined && !isRecord(value.editor.properties)) || !hasOnlyKeys(value.editor, ["kind", "properties"]))) return false;
+    !hasOnlyKeys(value, ["id", "type", "position", "data"])) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
   if (value.type === "project-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
@@ -766,8 +753,7 @@ function isEditorLayout(value: unknown): boolean {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.nodes) || !isRecord(value.viewport) ||
     (value.view !== "canvas" && value.view !== "code") || !isCoordinates(value.viewport) ||
     typeof value.viewport.zoom !== "number" || !Number.isFinite(value.viewport.zoom) || value.viewport.zoom <= 0 ||
-    (value.extensions !== undefined && !isRecord(value.extensions)) ||
-    !hasOnlyKeys(value, ["version", "nodes", "viewport", "view", "extensions"]) ||
+    !hasOnlyKeys(value, ["version", "nodes", "viewport", "view"]) ||
     !hasOnlyKeys(value.viewport, ["x", "y", "zoom"])) return false;
   return Object.values(value.nodes).every(isPosition);
 }

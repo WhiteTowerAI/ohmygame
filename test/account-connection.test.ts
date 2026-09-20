@@ -36,6 +36,14 @@ describe("accountModels", () => {
       .toMatchObject([{ id: "known-model", contextWindow: 100_000 }]);
   });
 
+  it("returns models in reverse Pi catalog order", () => {
+    const older = { ...knownModel, id: "older-model", name: "Older Model" };
+    const newer = { ...knownModel, id: "newer-model", name: "Newer Model" };
+
+    expect(accountModels([older, newer] as never, [older.id, newer.id]))
+      .toMatchObject([{ id: newer.id }, { id: older.id }]);
+  });
+
   it("uses a non-OpenAI definition when all matching providers agree", () => {
     const anthropic = { ...knownModel, provider: "anthropic", id: "claude-known" };
     const gateway = { ...anthropic, provider: "cloudflare-ai-gateway" };

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { activePiToolNames, createAgentTools, planningPiToolNames } from "../src/daemon/agent-tools.js";
+import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
@@ -27,6 +27,19 @@ describe("agent tools", () => {
       [],
       ["read", "generate_image", "web_search"],
     )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+  });
+
+  it("uses the shared Pi tools for every project type", () => {
+    expect(projectPiToolNames(
+      "normal",
+      ["generate-image", "generate-video"],
+      ["read", "mcp", "web_search", "generate_image"],
+    )).toEqual(["mcp", "web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    expect(projectPiToolNames(
+      "planning",
+      ["generate-image"],
+      ["mcp", "questionnaire"],
+    )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
   });
 
   it("installs a plugin only from inside the current workspace", async () => {

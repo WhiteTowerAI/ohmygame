@@ -5,18 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import { isDefaultProjectName } from "../shared/project-names.js";
+import { createStoryDocument } from "../shared/story.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
-import { activePiToolNames, createAgentTools, planningPiToolNames } from "./agent-tools.js";
+import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
-import { generateConversationTitle, generateProjectTitle, type TitleGenerator } from "./title-generation.js";
 import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
@@ -69,8 +69,6 @@ export interface AppOptions {
   model3DGenerator?: Model3DGenerator;
   videoGenerator?: VideoGenerator;
   createModelRuntime?: () => Promise<ModelRuntime>;
-  generateConversationTitle?: TitleGenerator;
-  generateProjectTitle?: TitleGenerator;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
@@ -96,6 +94,15 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
+      storyViewport: {
+        type: "object",
+        additionalProperties: false,
+        required: ["width", "height"],
+        properties: {
+          width: { type: "integer", minimum: 320, maximum: 4096 },
+          height: { type: "integer", minimum: 320, maximum: 4096 },
+        },
+      },
       workspacePath: { type: "string", minLength: 1, maxLength: 4096 },
     },
   },
@@ -511,7 +518,6 @@ export function createApp(options: AppOptions = {}) {
   const projects = new ProjectManager(dataDirectory, library);
   const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
-  const projectsBeingNamed = new Set<string>();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
@@ -539,18 +545,6 @@ export function createApp(options: AppOptions = {}) {
     if (baseUrl) runtime.registerProvider("openai", { baseUrl });
     return runtime;
   })();
-  const generateConversationName = options.generateConversationTitle ?? (async (model, prompt) =>
-    generateConversationTitle(await getModelRuntime(), model, prompt));
-  const generateProjectName = options.generateProjectTitle ?? (async (model, prompt) =>
-    generateProjectTitle(await getModelRuntime(), model, prompt));
-  const conversationModel = (project: ProjectState, conversation: StoredConversation) => {
-    const selected = conversations.model(project, conversation);
-    if (selected) return selected;
-    const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
-    const provider = settings.getDefaultProvider();
-    const id = settings.getDefaultModel();
-    return provider && id ? { provider, id } : undefined;
-  };
   const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
     events.publish(
       conversation.projectId,
@@ -645,8 +639,7 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      if (mode === "planning") return planningPiToolNames();
-      return activePiToolNames(tools.list().map((tool) => tool.id), registered);
+      return projectPiToolNames(mode, tools.list().map((tool) => tool.id), registered);
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -1169,6 +1162,12 @@ export function createApp(options: AppOptions = {}) {
       if (request.body?.templateId && request.body.type !== "interactive-drama") {
         return reply.code(400).send({ error: "Project templates require a matching project type" });
       }
+      if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
+      }
+      if (request.body?.storyViewport && request.body.templateId) {
+        return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
+      }
       if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
         const project = await createInteractiveDramaStarterProject(
           interactiveDramaExamplesDirectory,
@@ -1180,6 +1179,11 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(201).send(project);
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
+      if (project.type === "interactive-drama" && request.body?.storyViewport) {
+        const story = createStoryDocument();
+        story.player.viewport = request.body.storyViewport;
+        await projects.setStory(project.id, story);
+      }
       return reply.code(201).send(project);
     } catch (cause) {
       if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
@@ -1897,10 +1901,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/models", async () => {
     const runtime = await getModelRuntime();
     const models = await runtime.getAvailable();
-    const piSettings = SettingsManager.create(dataDirectory, piAgentDirectory);
-    const defaultProvider = piSettings.getDefaultProvider();
-    const defaultId = piSettings.getDefaultModel();
-    const defaultModel = models.find(({ provider, id }) => provider === defaultProvider && id === defaultId);
+    const defaultModel = findAgentModel(models, configuredDefaultModel(dataDirectory, piAgentDirectory));
     return {
       models: models.map((model) => ({
         provider: model.provider,
@@ -1910,8 +1911,28 @@ export function createApp(options: AppOptions = {}) {
         reasoningLevels: supportedReasoningLevels(model),
       })),
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
-      defaultReasoningLevel: parseReasoningLevel(piSettings.getDefaultThinkingLevel()) ?? "medium",
+      defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
+  });
+
+  app.put<{ Body: UpdateAgentDefaultsRequest }>("/models/default", async (request, reply) => {
+    if (!isUpdateAgentDefaultsRequest(request.body)) {
+      return reply.code(400).send({ error: "Invalid agent defaults" });
+    }
+    const runtime = await getModelRuntime();
+    const model = (await runtime.getAvailable(request.body.model.provider))
+      .find((candidate) => candidate.id === request.body.model.id);
+    if (!model) return reply.code(400).send({ error: "Model is not available" });
+    if (!supportedReasoningLevels(model).includes(request.body.reasoningLevel)) {
+      return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+    }
+    const settings = SettingsManager.create(dataDirectory, piAgentDirectory);
+    settings.setDefaultModelAndProvider(model.provider, model.id);
+    settings.setDefaultThinkingLevel(request.body.reasoningLevel);
+    await settings.flush();
+    const failure = settings.drainErrors()[0];
+    if (failure) throw failure.error;
+    return reply.code(204).send();
   });
 
   app.get("/account/connection", async () => accountConnection.get());
@@ -2115,15 +2136,29 @@ export function createApp(options: AppOptions = {}) {
       if (!isCreateConversationRequest(request.body)) {
         return reply.code(400).send({ error: "Invalid conversation request" });
       }
-      const model = request.body?.model;
-      const selectedModel = model ? await availableModel(getModelRuntime, model.provider, model.id) : undefined;
-      if (model && !selectedModel) {
+      const requestedModel = request.body?.model;
+      let selectedModel: RuntimeModel | undefined;
+      if (requestedModel) {
+        selectedModel = await availableModel(getModelRuntime, requestedModel.provider, requestedModel.id);
+      } else {
+        const runtime = await getModelRuntime();
+        selectedModel = preferredAgentModel(
+          await runtime.getAvailable(),
+          undefined,
+          configuredDefaultModel(dataDirectory, piAgentDirectory),
+        );
+      }
+      if (requestedModel && !selectedModel) {
         return reply.code(400).send({ error: "Model is not available" });
       }
       if (request.body?.reasoningLevel && selectedModel && !supportedReasoningLevels(selectedModel).includes(request.body.reasoningLevel)) {
         return reply.code(400).send({ error: "Reasoning level is not available for this model" });
       }
-      const conversation = await conversations.create(project, model, request.body?.reasoningLevel);
+      const model = selectedModel ? { provider: selectedModel.provider, id: selectedModel.id } : undefined;
+      const reasoningLevel = request.body?.reasoningLevel ?? (!requestedModel && selectedModel
+        ? effectiveReasoningLevel(selectedModel, undefined, defaultReasoningLevel(dataDirectory, piAgentDirectory))
+        : undefined);
+      const conversation = await conversations.create(project, model, reasoningLevel);
       return reply.code(201).send(conversation.summary);
     },
   );
@@ -2403,47 +2438,8 @@ export function createApp(options: AppOptions = {}) {
           return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
         }
       }
-      const provisional = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
-      if (provisional) publishConversationRenamed(provisional);
-      const expectedProjectName = isDefaultProjectName(project) && !projectsBeingNamed.has(project.id)
-        ? project.name
-        : undefined;
-      if (provisional || expectedProjectName) {
-        const model = conversationModel(project, conversation);
-        if (model) {
-          if (expectedProjectName) projectsBeingNamed.add(project.id);
-          void (async () => {
-            await turn.result?.catch(() => undefined);
-            if (provisional) {
-              try {
-                const title = await generateConversationName(model, request.body.prompt);
-                if (title) {
-                  const updated = await conversations.renameIfCurrent(
-                    project,
-                    conversation.summary.id,
-                    provisional.title,
-                    title,
-                  );
-                  if (updated) publishConversationRenamed(updated);
-                }
-              } catch (cause) {
-                request.log.debug({ err: cause }, "conversation title generation failed");
-              }
-            }
-            if (!expectedProjectName) return;
-            try {
-              const name = await generateProjectName(model, request.body.prompt);
-              if (!name) return;
-              const updated = await projects.renameIfCurrent(project.id, expectedProjectName, name);
-              if (updated) publishProjectRenamed(updated);
-            } catch (cause) {
-              request.log.debug({ err: cause }, "project title generation failed");
-            } finally {
-              projectsBeingNamed.delete(project.id);
-            }
-          })();
-        }
-      }
+      const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
+      if (titled) publishConversationRenamed(titled);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
   );
@@ -2856,8 +2852,19 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
   if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel")) return false;
   if (body.reasoningLevel !== undefined && !AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel)) return false;
   if (body.model === undefined) return true;
-  if (!body.model || typeof body.model !== "object" || Array.isArray(body.model)) return false;
-  const model = body.model as Record<string, unknown>;
+  return isAgentModelRef(body.model);
+}
+
+function isUpdateAgentDefaultsRequest(value: unknown): value is UpdateAgentDefaultsRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel") &&
+    isAgentModelRef(body.model) && AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel);
+}
+
+function isAgentModelRef(value: unknown): value is AgentModelRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const model = value as Record<string, unknown>;
   return Object.keys(model).every((key) => key === "provider" || key === "id") &&
     typeof model.provider === "string" && model.provider.length > 0 && model.provider.length <= 100 &&
     typeof model.id === "string" && model.id.length > 0 && model.id.length <= 200;
@@ -2882,6 +2889,13 @@ function effectiveReasoningLevel(
 
 function defaultReasoningLevel(cwd: string, agentDir: string): AgentReasoningLevel {
   return parseReasoningLevel(SettingsManager.create(cwd, agentDir).getDefaultThinkingLevel()) ?? "medium";
+}
+
+function configuredDefaultModel(cwd: string, agentDir: string): AgentModelRef | undefined {
+  const settings = SettingsManager.create(cwd, agentDir);
+  const provider = settings.getDefaultProvider();
+  const id = settings.getDefaultModel();
+  return provider && id ? { provider, id } : undefined;
 }
 
 function publishOrigin(bundle: InstalledPluginBundle): PublishPluginOrigin | undefined {

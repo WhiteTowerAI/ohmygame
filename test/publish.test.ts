@@ -45,7 +45,6 @@ describe("remote publish", () => {
     ]);
     expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "Cinematic Shot", source: "catalog", releaseId: published.json().release.id, hasCover: true }),
-      expect.objectContaining({ id: "general-image", source: "catalog", author: { id: "ohmygame", displayName: "OhMyGame" } }),
     ]));
     const localCover = await runtime.daemon.inject({ method: "GET", url: `/asset-templates/${saved.json().id}/cover` });
     expect(localCover.statusCode).toBe(200);
@@ -417,7 +416,7 @@ describe("remote publish", () => {
       payload: videoContents,
     })).json();
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0];
+    const chapter = story.chapter;
     chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
@@ -456,7 +455,7 @@ describe("remote publish", () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0];
+    const chapter = story.chapter;
     const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
     expect(initialState).toBeDefined();
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
@@ -467,21 +466,6 @@ describe("remote publish", () => {
     expect(built.statusCode, built.body).toBe(200);
     expect(built.rawPayload.length).toBeGreaterThan(25 * 1024 * 1024);
   }, 15_000);
-
-  it("rejects a multi-chapter Interactive Drama until chapter transitions are supported", async () => {
-    const runtime = await testRuntime();
-    const project = await createProject(runtime.daemon, "Chapters", "interactive-drama");
-    const story = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    const second = createPlayableStoryDocument().chapters[0]!;
-    story.chapters.push({ ...second, title: "Chapter 2" });
-    syncStoryLayout(story);
-    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
-
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
-
-    expect(built.statusCode).toBe(409);
-    expect(built.json()).toEqual({ error: "Build and publish currently support one chapter per Interactive Drama." });
-  });
 
   it("reuses the remote Game and persists its latest publication across restarts", async () => {
     const dataDirectory = await temporary("ohmygame-daemon-");
@@ -782,14 +766,13 @@ describe("remote publish", () => {
 
     expect(metadata).not.toContain(token);
     expect(artifact).not.toContain(token);
-    expect(await readdir(project.workspacePath)).toEqual(["index.html"]);
+    expect(await readdir(project.workspacePath)).toEqual(["AGENTS.md", "index.html"]);
+    await expect(readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "AGENTS.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
 function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>): void {
-  story.editorLayout.nodes = Object.fromEntries([
-    ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
-  ]);
+  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
 }
 
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {

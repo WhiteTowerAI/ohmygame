@@ -697,31 +697,6 @@ export class PublishStore {
     return template;
   }
 
-  seedTemplate(template: StoredTemplate, release: StoredTemplateRelease, publisher: CommunityAuthor): void {
-    this.#transaction(() => {
-      this.ensurePublisher(publisher, template.createdAt);
-      this.#database.prepare(`
-        INSERT INTO templates (id, publisher_id, name, current_release_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
-      `).run(template.id, template.publisherId, template.name, release.id, template.createdAt, release.publishedAt);
-      this.#database.prepare(`
-        INSERT INTO template_releases (id, template_id, definition_json, has_cover, published_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
-      `).run(release.id, release.templateId, JSON.stringify(release.definition), Number(release.hasCover), release.publishedAt);
-      this.#database.prepare(`
-        UPDATE templates SET name = ?, current_release_id = ?, updated_at = ?
-        WHERE id = ? AND publisher_id = ?
-      `).run(template.name, release.id, release.publishedAt, template.id, publisher.id);
-      this.#database.prepare(`
-        INSERT INTO template_listings (template_id, status, listed_at, updated_at)
-        VALUES (?, 'listed', ?, ?)
-        ON CONFLICT(template_id) DO NOTHING
-      `).run(template.id, release.publishedAt, release.publishedAt);
-    });
-  }
-
   template(publisherId: string, templateId: string): StoredTemplate | undefined {
     return templateFrom(this.#database.prepare(`
       SELECT * FROM templates WHERE id = ? AND publisher_id = ?

@@ -1,109 +1,151 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { StoryDocument, StoryEditorLayout, StorySurfaceFiles, StoryNode, StoryNodePresentation, StorySourceFiles } from "../shared/contracts.js";
+import { VIDEO_MODEL, type StoryDocument, type StoryEditorLayout, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StorySourceFiles } from "../shared/contracts.js";
+import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } from "../shared/story.js";
+import { STORY_CODEBASE_SCHEMA } from "../shared/story-schema.js";
 
 const STORY_FILE = "story.json";
-const PROJECT_FILE = "project.json";
-const EDITOR_LAYOUT_FILE = "editor-layout.json";
-const EDITOR_PRESENTATION_FILE = "editor/presentation.js";
-const EDITOR_STYLE_FILE = "editor/style.css";
-const EDITOR_DOCUMENTATION_FILE = "editor/README.md";
+const EDITOR_LAYOUT_FILE = "editor/layout.json";
+const DOCUMENTATION_FILE = "README.md";
+const STORY_SCHEMA_FILE = "schemas/story.schema.json";
+const EDITOR_LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
 const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
-const DEFAULT_EDITOR_PRESENTATION = `/**
- * Optional project-local editor presentation.
- *
- * Return { replace: true } after rendering into root to replace OhMyGame's
- * default node card or Inspector body. Return false to keep the default UI.
- * This module runs in a sandbox and cannot access the editor DOM or files.
- */
-export const regions = [];
+const DEFAULT_EDITOR_DOCUMENTATION = `# Interactive Drama Project Guide
 
-export function renderNode({ node, context, root }) {
-  return false;
-}
+## Story format
 
-export function renderInspector({ node, context, root }) {
-  return false;
-}
+\`schemas/story.schema.json\` and \`schemas/editor-layout.schema.json\` are the machine-readable definitions of the persisted \`story.json\` and \`editor/layout.json\` formats. Read the corresponding schema before editing either file; field names and enum values are exact, and objects reject undocumented properties.
 
-export function renderPreview({ node, context, root }) {
-  return false;
-}
+The schema checks the shape of one JSON document. OhMyGame additionally validates relationships that JSON Schema cannot fully express:
 
-export function renderTimeline({ node, context, root }) {
-  return false;
-}
+- node IDs are unique;
+- edges reference nodes in the same chapter;
+- Choice handles match option IDs;
+- the chapter has at most one Start node;
+- IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
+- Choice timeouts reference an option in the same Choice;
+- actions and conditions reference compatible declared Variables;
+- Hotspot rectangles fit completely inside the normalized viewport;
+- \`editor/layout.json\` contains exactly one position for every Story node;
+- referenced source files exist and stay inside the workspace.
 
-export function renderToolbar({ context, editor, root }) {
-  return false;
-}
+Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
 
-export function renderWorkspace({ context, editor, root }) {
-  return false;
-}
+The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the existing view and viewport unless the user explicitly asks to change them.
+
+## Runtime surfaces
+
+Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries contain an \`action\` string; call \`actions.run(button.action)\`.
+
+Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
+
+Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`.
 `;
-const DEFAULT_EDITOR_STYLE = `/* Styles in this file are scoped to sandboxed project editor surfaces. */
-`;
-const DEFAULT_EDITOR_DOCUMENTATION = `# Project Editor Extension
-
-This directory customizes the Interactive Drama editor for this project using ordinary JavaScript and CSS.
-
-## Presentation exports
-
-\`presentation.js\` exports a \`regions\` array containing the enabled regions: \`workspace\`, \`toolbar\`, \`node\`, \`inspector\`, \`preview\`, and \`timeline\`. Only enabled regions create sandbox surfaces.
-It may export the matching \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\` functions.
-Each function receives \`{ node, context, editor, root }\`. Render into \`root\` and return \`{ replace: true }\` to replace that default region. Return \`false\` to keep OhMyGame's UI.
-
-\`context\` contains the project, complete hydrated story, editor layout, current selection, and Variables. A node may use \`node.editor.kind\` and \`node.editor.properties\` for project-specific presentation while retaining its standard runtime \`node.type\`.
-
-## Editor SDK
-
-- \`editor.story()\` returns a cloned Story document.
-- \`editor.transaction(change)\` applies one validated, undoable Story transaction.
-- \`editor.replaceStory(story)\` validates and replaces the complete Story document.
-- \`editor.updateNode\` and \`updatePlayer\` update Story nodes and Open UI.
-- \`editor.createNode\`, \`deleteNode\`, \`connect\`, and \`disconnect\` are validated graph convenience operations.
-- \`editor.setView(view)\` selects a built-in view.
-- \`editor.setLayoutState(key, value)\` persists project-specific editor state in \`editor-layout.json\`.
-- \`editor.openNode(nodeId)\`, \`closeNode()\`, and \`playtest()\` invoke stable platform navigation.
-- \`editor.undo()\` and \`redo()\` operate on project-editor transactions.
-- \`editor.useDefaultEditor()\` exits a custom full-workspace editor.
-
-All changes cross the sandbox boundary and are validated by OhMyGame. Extension code cannot access the host DOM, filesystem, or network. Missing exports, \`false\` returns, and runtime errors fall back to the default editor.
-`;
-const AGENT_INSTRUCTIONS = `# Interactive Drama Project
+const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
 This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 ## Contract
 
-- \`project.json\` identifies the workspace and its primary files.
 - \`story.json\` contains the story graph, content, stable IDs, declared runtime behavior, and references to source files.
-- \`editor-layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
-- \`editor/presentation.js\` optionally customizes node-card and Inspector content without replacing the editor shell.
-- \`editor/style.css\` styles project editor surfaces inside their sandbox.
+- \`editor/layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
+- \`schemas/story.schema.json\` defines the exact persisted \`story.json\` structure. Read it before editing Story data; do not guess field names.
+- \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
+- \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
-- Every player-visible Story node owns \`data.presentation\`: a media strategy (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
+- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
 - An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
 - Open UI is an ordinary Story node that owns its media, content, and code.
-- \`node.editor.kind\` and optional \`node.editor.properties\` identify project-specific editor nodes while \`node.type\` retains stable runtime semantics.
-- Keep \`story.json\` valid JSON and preserve \`codebase.version\`.
+- Keep \`story.json\` valid JSON and preserve its \`version\`.
 
-## Runtime interfaces
-
-Open UI JavaScript exports \`render({ content, actions, root })\`. Call \`actions.run(action)\` for a declared action.
-
-Scene, Choice, and Ending JavaScript export \`render({ node, scene, game, variables, actions, mode, root })\` and may export \`update(...)\`. They can emit semantic actions such as \`actions.choose(optionId)\`, \`actions.restart()\`, and \`actions.menu()\`; they cannot navigate to arbitrary node IDs.
-
-Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`. Declarative behavior applies variable actions and Story edges perform the transition.
-
-Editor presentation JavaScript may export \`renderWorkspace\`, \`renderToolbar\`, \`renderNode\`, \`renderInspector\`, \`renderPreview\`, and \`renderTimeline\`. Return \`{ replace: true }\` to use the rendered content, or \`false\` to retain OhMyGame's default UI. Use the provided \`editor\` SDK for validated project changes; the module runs in a sandbox without host DOM, filesystem, or network access.
+Use \`README.md\` as the source of truth for runtime JavaScript interfaces.
 `;
+const WORKING_BOUNDARY_INSTRUCTIONS = `## Working boundary
+
+Work only inside the current project workspace. Use relative workspace paths.
+Do not use absolute paths or paths containing \`..\`.
+
+Do not inspect parent directories, other projects, user directories, package installations, the OhMyGame source repository, or OhMyGame tests. Do not search outside this workspace for examples, schemas, validators, or runtime implementation details.
+
+Treat this file, \`README.md\`, both files in \`schemas/\`, \`story.json\`, \`editor/layout.json\`, and the current node source files as the complete project contract. If a capability is not documented here, use the smallest structure already present in this project instead of reverse-engineering the OhMyGame application.
+
+An exception applies only when the user explicitly provides an external file path and asks to import that file: read only that exact file and copy it into this workspace. Do not inspect its parent directory.
+
+`;
+const FAST_PATH_INSTRUCTIONS = `## Fast path for simple canvas edits
+
+For a request that only creates, updates, moves, or deletes standard Story nodes:
+
+1. Read only the contract files relevant to the change:
+   - moving nodes or changing the canvas view: \`schemas/editor-layout.schema.json\` and \`editor/layout.json\`;
+   - creating, updating, deleting, or connecting nodes: both schema files, \`story.json\`, and \`editor/layout.json\`;
+   - changing player-facing HTML, CSS, or JavaScript: also read \`README.md\` and that node's source files.
+2. Do not inspect Git, the OhMyGame application source, Godot, MCP servers, or unrelated files.
+3. Make the smallest possible edits and preserve every unrelated field.
+4. Keep node IDs unique and stable. Every node ID in \`story.json\` must have exactly one position in \`editor/layout.json\`, and the layout must not contain extra node IDs.
+5. Parse each changed JSON file, then check every changed object against the relevant schema's \`required\`, \`additionalProperties\`, type, and enum constraints. Parsing alone checks syntax, not the schema. Check the cross-file rules below once, then stop. Do not search for or install a schema validator, and do not run a development server or build for a simple canvas edit.
+
+Canvas node positions live only in \`editor/layout.json\`; never add \`position\` to a persisted \`story.json\` node. Place a new node near the visible group of existing nodes, or at \`{ "x": 80, "y": 180 }\` when the canvas is empty.
+
+### Empty generation nodes
+
+Use the project Player viewport ratio when it is supported: \`1280 x 720\` uses \`16:9\`, \`720 x 1280\` uses \`9:16\`, and \`1080 x 1080\` uses \`1:1\`. The minimal persisted Image node is:
+
+\`\`\`json
+{
+  "id": "image-<unique-id>",
+  "type": "image",
+  "data": {
+    "prompt": "",
+    "resolution": "1K",
+    "aspectRatio": "16:9",
+    "images": []
+  }
+}
+\`\`\`
+
+The minimal persisted Video node is:
+
+\`\`\`json
+{
+  "id": "video-<unique-id>",
+  "type": "video",
+  "data": {
+    "prompt": "",
+    "model": "${VIDEO_MODEL}",
+    "resolution": "720p",
+    "aspectRatio": "16:9",
+    "duration": 6,
+    "references": []
+  }
+}
+\`\`\`
+
+Do not generate media when the user asks for an empty generation node.
+
+`;
+const BASIC_TEMPLATE_INSTRUCTIONS = `## Basic template path
+
+When the user asks for a basic Interactive Drama template without specifying its structure, create a compact playable story that demonstrates the standard Story capabilities:
+
+\`start -> open-ui -> scene -> choice -> project-state -> scene -> interaction -> ending-a / ending-b\`
+
+Declare at least one Variable and use it through a Project State action, Choice action or condition, or Interaction outcome. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
+
+For a Choice, each option has a stable \`id\` and the matching outgoing edge uses that option ID as \`sourceHandle\`. For all other standard flow edges, use the node's default outgoing handle. Every edge source and target must reference a node in the same chapter.
+
+Follow \`schemas/story.schema.json\` exactly for every node. Each presentation source uses the keys \`html\`, \`css\`, and \`javascript\`. Follow \`README.md\` for JavaScript exports and action APIs.
+
+Keep the visual implementation minimal. Do not create a design system or elaborate custom editor presentation for a basic template.
+
+After writing a template, perform one local check of the changed objects against both schemas, then check unique node IDs, exact story/layout ID correspondence, valid edge endpoints, and existence of referenced source files. Do not search for or install a schema validator, invoke an OhMyGame source parser, search the application repository, run a development server, or claim that the story was playtested unless you actually opened the Player and completed the flow.
+`;
+const AGENT_INSTRUCTIONS = `${BASE_AGENT_INSTRUCTIONS}\n${WORKING_BOUNDARY_INSTRUCTIONS}${FAST_PATH_INSTRUCTIONS}${BASIC_TEMPLATE_INSTRUCTIONS}`;
 type UnknownRecord = Record<string, unknown>;
 
 /**
@@ -124,14 +166,11 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
   const normalized = withStableSources(story);
   const previousSources = await persistedSourcePaths(workspacePath);
   const preserve = options.preserveExistingSources ?? false;
-  await Promise.all([
-    ...normalized.chapters.flatMap((chapter) => chapter.nodes.flatMap((node) => isPresentationNode(node) && node.data.presentation?.surface.source
-      ? [writeSourceFiles(workspacePath, node.data.presentation.surface.source, node.data.presentation.surface.files, preserve)]
-      : [])),
-  ]);
+  await Promise.all(normalized.chapter.nodes.flatMap((node) => isPresentationNode(node) && node.data.presentation?.surface.source
+    ? [writeSourceFiles(workspacePath, node.data.presentation.surface.source, node.data.presentation.surface.files, preserve)]
+    : []));
   const layout = editorLayoutFromStory(normalized);
   await Promise.all([
-    writeJsonAtomic(workspacePath, PROJECT_FILE, { version: 1, type: "interactive-drama", story: STORY_FILE, editorLayout: EDITOR_LAYOUT_FILE, editorPresentation: EDITOR_PRESENTATION_FILE, editorStyle: EDITOR_STYLE_FILE, editorDocs: EDITOR_DOCUMENTATION_FILE }),
     writeJsonAtomic(workspacePath, STORY_FILE, dehydrateStory(normalized)),
     writeJsonAtomic(workspacePath, EDITOR_LAYOUT_FILE, layout),
   ]);
@@ -143,38 +182,43 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
 }
 
 export async function ensureStoryCodebaseInstructions(workspacePath: string): Promise<void> {
-  await Promise.all([ensureEditorPresentation(workspacePath), ensureEditorStyle(workspacePath), ensureEditorDocumentation(workspacePath), ensureProjectManifest(workspacePath)]);
+  await Promise.all([ensureDocumentation(workspacePath), ensureStorySchema(workspacePath), ensureEditorLayoutSchema(workspacePath)]);
+  const destination = path.join(workspacePath, AGENT_INSTRUCTIONS_FILE);
   try {
-    await writeFile(path.join(workspacePath, AGENT_INSTRUCTIONS_FILE), AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
+    const current = await readFile(destination, "utf8");
+    if (current === AGENT_INSTRUCTIONS) return;
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    await writeFile(destination, AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
   }
 }
 
-async function ensureProjectManifest(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, PROJECT_FILE);
+async function ensureStorySchema(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, STORY_SCHEMA_FILE);
+  const expected = `${JSON.stringify(STORY_CODEBASE_SCHEMA, null, 2)}\n`;
+  await mkdir(path.dirname(destination), { recursive: true });
   try {
-    const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-    if (!isRecord(parsed)) throw new Error(`Invalid ${PROJECT_FILE}`);
-    if (parsed.version === 1 && parsed.type === "interactive-drama" && parsed.story === STORY_FILE &&
-      parsed.editorLayout === EDITOR_LAYOUT_FILE && parsed.editorPresentation === EDITOR_PRESENTATION_FILE && parsed.editorStyle === EDITOR_STYLE_FILE && parsed.editorDocs === EDITOR_DOCUMENTATION_FILE) return;
+    if (await readFile(destination, "utf8") === expected) return;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
-  await writeJsonAtomic(workspacePath, PROJECT_FILE, {
-    version: 1,
-    type: "interactive-drama",
-    story: STORY_FILE,
-    editorLayout: EDITOR_LAYOUT_FILE,
-    editorPresentation: EDITOR_PRESENTATION_FILE,
-    editorStyle: EDITOR_STYLE_FILE,
-    editorDocs: EDITOR_DOCUMENTATION_FILE,
-  });
+  await writeJsonAtomic(workspacePath, STORY_SCHEMA_FILE, STORY_CODEBASE_SCHEMA);
 }
 
-async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_DOCUMENTATION_FILE);
+async function ensureEditorLayoutSchema(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, EDITOR_LAYOUT_SCHEMA_FILE);
+  const expected = `${JSON.stringify(EDITOR_LAYOUT_SCHEMA, null, 2)}\n`;
   await mkdir(path.dirname(destination), { recursive: true });
+  try {
+    if (await readFile(destination, "utf8") === expected) return;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+  await writeJsonAtomic(workspacePath, EDITOR_LAYOUT_SCHEMA_FILE, EDITOR_LAYOUT_SCHEMA);
+}
+
+async function ensureDocumentation(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, DOCUMENTATION_FILE);
   try {
     await writeFile(destination, DEFAULT_EDITOR_DOCUMENTATION, { encoding: "utf8", flag: "wx" });
   } catch (cause) {
@@ -182,33 +226,13 @@ async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
   }
 }
 
-async function ensureEditorStyle(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_STYLE_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    await writeFile(destination, DEFAULT_EDITOR_STYLE, { encoding: "utf8", flag: "wx" });
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
-  }
-}
-
-async function ensureEditorPresentation(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_PRESENTATION_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    await writeFile(destination, DEFAULT_EDITOR_PRESENTATION, { encoding: "utf8", flag: "wx" });
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
-  }
-}
-
 export function isCanonicalStoryCodebase(value: unknown): boolean {
-  if (!isRecord(value) || value.version !== 10 || !isRecord(value.codebase) || value.codebase.version !== 3) return false;
-  if (records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => isRecord(node.position)))) return false;
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.chapter)) return false;
+  if (records(value.chapter.nodes).some((node) => isRecord(node.position))) return false;
   if (["characters", "overlays", "interactions", "playerViews", "screens"].some((key) => key in value)) return false;
   if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
-  return !records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => {
+  return !records(value.chapter.nodes).some((node) => {
     if (!["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
@@ -217,17 +241,13 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
       (data.presentation.media.mode === "own" && !Array.isArray(data.presentation.media.items)) ||
       ["clips", "events", "media", "surface", "overlayIds"].some((key) => key in data);
     return node.type === "interaction" && (!isRecord(data.behavior) || "event" in data || "interactionId" in data);
-  }));
+  });
 }
 
 function withStableSources(story: StoryDocument): StoryDocument {
   return {
     ...story,
-    codebase: { version: 3 },
-    chapters: story.chapters.map((chapter) => ({
-      ...chapter,
-      nodes: chapter.nodes.map(withNodePresentationSource),
-    })),
+    chapter: { ...story.chapter, nodes: story.chapter.nodes.map(withNodePresentationSource) },
   };
 }
 
@@ -255,9 +275,9 @@ function withNodePresentationSource(node: StoryNode): StoryNode {
 function dehydrateStory(story: StoryDocument): unknown {
   const value = structuredClone(story) as unknown as UnknownRecord;
   delete value.editorLayout;
-  value.chapters = records(value.chapters).map((chapter) => ({
-    ...chapter,
-    nodes: records(chapter.nodes).map(({ position: _position, ...node }) => {
+  value.chapter = {
+    ...record(value.chapter),
+    nodes: records(record(value.chapter)?.nodes).map(({ position: _position, ...node }) => {
       if (!isRecord(node.data)) return node;
       const presentation = isRecord(node.data.presentation) && isRecord(node.data.presentation.surface)
         ? {
@@ -267,23 +287,24 @@ function dehydrateStory(story: StoryDocument): unknown {
         : undefined;
       return { ...node, data: { ...node.data, ...(presentation ? { presentation } : {}) } };
     }),
-  }));
+  };
   return value;
 }
 
 async function hydrateSourceFiles(workspacePath: string, input: unknown): Promise<unknown> {
   if (!isRecord(input)) return input;
   const value = structuredClone(input) as UnknownRecord;
-  value.chapters = await Promise.all(records(value.chapters).map(async (chapter) => ({
+  const chapter = record(value.chapter);
+  value.chapter = {
     ...chapter,
-    nodes: await Promise.all(records(chapter.nodes).map(async (node) => {
+    nodes: await Promise.all(records(chapter?.nodes).map(async (node) => {
       if (!isRecord(node.data)) return node;
       const presentation = isRecord(node.data.presentation) && isRecord(node.data.presentation.surface) && isSourceReference(node.data.presentation.surface.source)
         ? { ...node.data.presentation, surface: { ...node.data.presentation.surface, files: await readSourceFiles(workspacePath, node.data.presentation.surface.source) } }
         : node.data.presentation;
       return { ...node, data: { ...node.data, ...(presentation ? { presentation } : {}) } };
     })),
-  })));
+  };
   return value;
 }
 
@@ -295,44 +316,42 @@ async function readEditorLayout(workspacePath: string): Promise<StoryEditorLayou
 
 function hydrateLayout(input: unknown, layout: StoryEditorLayout): unknown {
   if (!isRecord(input)) return input;
-  const expectedIds = new Set(records(input.chapters).flatMap((chapter) => records(chapter.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : [])));
+  const chapter = record(input.chapter);
+  const expectedIds = new Set(records(chapter?.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : []));
   const layoutIds = Object.keys(layout.nodes);
   if (layoutIds.length !== expectedIds.size || layoutIds.some((id) => !expectedIds.has(id))) {
     throw new Error(`Invalid ${EDITOR_LAYOUT_FILE}: node positions do not match story.json`);
   }
   return {
     ...input,
-    codebase: { version: 3 },
     editorLayout: layout,
-    chapters: records(input.chapters).map((chapter) => ({
+    chapter: {
       ...chapter,
-      nodes: records(chapter.nodes).map((node) => ({
+      nodes: records(chapter?.nodes).map((node) => ({
         ...node,
         position: typeof node.id === "string" ? layout.nodes[node.id] : undefined,
       })),
-    })),
+    },
   };
 }
 
 function editorLayoutFromStory(story: StoryDocument): StoryEditorLayout {
   const prior = story.editorLayout;
-  const currentIds = new Set(story.chapters.flatMap((chapter) => chapter.nodes.map((node) => node.id)));
+  const currentIds = new Set(story.chapter.nodes.map((node) => node.id));
   const nodes = Object.fromEntries(Object.entries(prior.nodes).filter(([id]) => currentIds.has(id)));
-  for (const chapter of story.chapters) for (const node of chapter.nodes) nodes[node.id] = node.position;
+  for (const node of story.chapter.nodes) nodes[node.id] = node.position;
   return {
     version: 1,
     nodes,
     viewport: prior.viewport,
     view: prior.view,
-    ...(prior.extensions ? { extensions: prior.extensions } : {}),
   };
 }
 
 function isEditorLayout(value: unknown): value is StoryEditorLayout {
   return isRecord(value) && value.version === 1 && isRecord(value.nodes) && Object.values(value.nodes).every(isPosition) &&
     isViewport(value.viewport) &&
-    (value.view === "canvas" || value.view === "code") &&
-    (value.extensions === undefined || isRecord(value.extensions));
+    (value.view === "canvas" || value.view === "code");
 }
 
 function isPosition(value: unknown): value is { x: number; y: number } {
@@ -399,7 +418,7 @@ function sourcePaths(value: unknown): Set<string> {
     if (!isSourceReference(source)) return;
     paths.add(source.html); paths.add(source.css); paths.add(source.javascript);
   };
-  for (const chapter of records(value.chapters)) for (const node of records(chapter.nodes)) {
+  for (const node of records(record(value.chapter)?.nodes)) {
     if (isRecord(node.data) && isRecord(node.data.presentation) && isRecord(node.data.presentation.surface)) add(node.data.presentation.surface.source);
   }
   return paths;
@@ -454,6 +473,10 @@ function records(value: unknown): UnknownRecord[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
+function record(value: unknown): UnknownRecord | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -462,6 +485,7 @@ async function writeJsonAtomic(workspacePath: string, relativePath: string, valu
   const destination = path.join(workspacePath, relativePath);
   const temporary = await atomicTemporary(workspacePath);
   try {
+    await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     await rename(temporary, destination);
   } finally {

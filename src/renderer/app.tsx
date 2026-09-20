@@ -6,7 +6,7 @@ import { LibraryPage } from "./library.js";
 import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { conversationHash, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, conversationHash, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type CommunitySection, type SettingsSection } from "./routes.js";
 import { AssetStudioPage } from "./asset-studio.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
@@ -37,8 +37,11 @@ export function App() {
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
-  if (route.page === "games") return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
-  if (route.page === "assets") return <ExploreAssetsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "community") {
+    return route.section === "games"
+      ? <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} onSectionChange={navigateToCommunitySection} />
+      : <ExploreAssetsPage section={route.section} onNavigate={navigateToSidebarPage} onOpenProject={openProject} onSectionChange={navigateToCommunitySection} />;
+  }
   if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
@@ -120,8 +123,16 @@ export function App() {
   }
 
   function goToGames(): void {
-    window.history.replaceState(null, "", sidebarHash("games"));
-    setRoute({ page: "games" });
+    const hash = communityHash("games");
+    window.history.replaceState(null, "", hash);
+    setRoute({ page: "community", section: "games" });
+  }
+
+  function navigateToCommunitySection(section: CommunitySection): void {
+    const hash = communityHash(section);
+    if (window.location.hash === hash) return;
+    window.history.pushState(null, "", hash);
+    setRoute({ page: "community", section });
   }
 
   function navigateToSidebarPage(page: AppNavigationTarget): void {
@@ -129,6 +140,10 @@ export function App() {
       const hash = settingsHash("account");
       window.history.pushState({ ...historyState(), settingsEntry: true }, "", hash);
       setRoute({ page: "settings", section: "account" });
+      return;
+    }
+    if (page === "community") {
+      navigateToCommunitySection("games");
       return;
     }
     const hash = sidebarHash(page);

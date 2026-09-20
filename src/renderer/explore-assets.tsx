@@ -1,26 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { ExploreAsset, ProjectState } from "../shared/contracts.js";
 import type { CommunityStats } from "../shared/publish-v1.js";
 import { addExploreAssetToProject, listExploreAssets, listProjects, waitForRuntime } from "./api.js";
-import { AssetToolbar, fileName, fileSize, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
+import { fileName, fileSize, mediaTypeLabel } from "./asset-browser.js";
 import { Box, Check, Film, Image as ImageIcon, LoaderCircle, Music2, Plus, RefreshCw, Search, X } from "./icons.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
-import type { AppNavigationTarget } from "./routes.js";
+import type { AppNavigationTarget, CommunitySection } from "./routes.js";
+import { CommunityCategories } from "./community.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { useExploreAssetUrl } from "./use-explore-asset-url.js";
 import { CommunityAuthorView, CommunityLikeButton, CommunityMeta, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 
-export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
+type AssetCommunitySection = Exclude<CommunitySection, "games">;
+
+const COMMUNITY_MEDIA_TYPE: Record<AssetCommunitySection, ExploreAsset["mediaType"]> = {
+  images: "image",
+  videos: "video",
+  audio: "audio",
+  models: "model",
+};
+
+export function ExploreAssetsPage({ section, onNavigate, onOpenProject, onSectionChange }: {
+  section: AssetCommunitySection;
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string) => void;
+  onSectionChange: (section: CommunitySection) => void;
 }) {
   const [assets, setAssets] = useState<ExploreAsset[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
-  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
+  const searchId = `community-search-${useId()}`;
+  const mediaType = COMMUNITY_MEDIA_TYPE[section];
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -38,9 +51,9 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   useEffect(() => { void load(); }, []);
   const normalized = query.trim().toLowerCase();
   const visible = useMemo(() => assets.filter((asset) => (
-    (mediaFilter === "all" || asset.mediaType === mediaFilter) &&
+    asset.mediaType === mediaType &&
     (!normalized || `${asset.title} ${asset.description} ${asset.fileName}`.toLowerCase().includes(normalized))
-  )), [assets, mediaFilter, normalized]);
+  )), [assets, mediaType, normalized]);
   const selected = assets.find((asset) => asset.id === selectedId);
 
   function updateStats(id: string, stats: CommunityStats): void {
@@ -48,9 +61,15 @@ export function ExploreAssetsPage({ onNavigate, onOpenProject }: {
   }
 
   return (
-    <SidebarPageLayout active="assets" onNavigate={onNavigate}>
-      <SidebarPageHeader title="Assets">
-        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery} />
+    <SidebarPageLayout active="community" onNavigate={onNavigate}>
+      <SidebarPageHeader title="Community">
+        <div className="library-toolbar">
+          <CommunityCategories active={section} onChange={onSectionChange} />
+          <label className="library-search" htmlFor={searchId}>
+            <Search size={14} aria-hidden="true" />
+            <input id={searchId} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${section}`} />
+          </label>
+        </div>
       </SidebarPageHeader>
       {phase === "loading" && !assets.length ? <ExploreState><LoaderCircle className="spin" size={18} />Loading assets</ExploreState> : null}
       {phase === "error" ? <ExploreState><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></ExploreState> : null}

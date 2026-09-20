@@ -226,8 +226,6 @@ export interface StoryEditorLayout {
   nodes: Record<string, StoryPosition>;
   viewport: { x: number; y: number; zoom: number };
   view: "canvas" | "code";
-  /** Project editor state, isolated from runtime story data. */
-  extensions?: Record<string, unknown>;
 }
 
 export type StoryAssetReference =
@@ -247,11 +245,6 @@ export interface StoryTextGenerationRequest {
 export interface StoryTextGenerationResponse {
   text: string;
   model: AgentModelRef;
-}
-
-export interface StoryNodeEditorMetadata {
-  /** Project-defined editor identity layered on top of a stable runtime node type. */
-  editor?: { kind: string; properties?: Record<string, unknown> };
 }
 
 export type StoryNode = (
@@ -297,7 +290,7 @@ export type StoryNode = (
     references: StoryAssetReference[];
     assetId?: string;
   } }
-) & StoryNodeEditorMetadata;
+);
 
 export interface StoryEdge {
   id: string;
@@ -343,13 +336,12 @@ export interface StoryOpenUiContent {
 }
 
 export interface StoryDocument {
-  version: 10;
-  codebase: { version: 3 };
-  /** Hydrated editor-only state. Persisted in editor-layout.json, not story.json. */
+  version: 1;
+  /** Hydrated editor-only state. Persisted in editor/layout.json, not story.json. */
   editorLayout: StoryEditorLayout;
   player: StoryPlayerConfig;
   variables: StoryVariable[];
-  chapters: StoryChapter[];
+  chapter: StoryChapter;
 }
 
 export interface ConversationSummary {
@@ -597,12 +589,17 @@ export interface CreateProjectRequest {
   name?: string;
   type?: ProjectType;
   templateId?: "night-train";
+  storyViewport?: StoryPlayerConfig["viewport"];
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
 }
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+}
+export interface UpdateAgentDefaultsRequest {
+  model: AgentModelRef;
+  reasoningLevel: AgentReasoningLevel;
 }
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;

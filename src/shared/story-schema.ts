@@ -1,0 +1,251 @@
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
+
+const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
+const id = ref("id");
+const sourcePath = ref("sourcePath");
+const model = ref("model");
+const source = ref("source");
+const assetReference = ref("assetReference");
+const action = ref("action");
+const condition = ref("condition");
+const presentation = ref("presentation");
+const singleMediaPresentation = ref("singleMediaPresentation");
+const interactionOutcome = ref("interactionOutcome");
+const interactionBehavior = ref("interactionBehavior");
+
+const idSchema = { type: "string", minLength: 1 } as const;
+const sourcePathSchema = { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$" } as const;
+const modelSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["provider", "id"],
+  properties: { provider: id, id },
+} as const;
+const sourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["html", "css", "javascript"],
+  properties: { html: sourcePath, css: sourcePath, javascript: sourcePath },
+} as const;
+const assetReferenceSchema = {
+  oneOf: [
+    { type: "object", additionalProperties: false, required: ["type", "assetId"], properties: { type: { const: "library" }, assetId: id } },
+    { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+  ],
+} as const;
+const actionSchema = {
+  oneOf: [
+    { type: "object", additionalProperties: false, required: ["type", "variableId", "value"], properties: { type: { const: "set-variable" }, variableId: id, value: {} } },
+    { type: "object", additionalProperties: false, required: ["type", "variableId", "amount"], properties: { type: { const: "increment-variable" }, variableId: id, amount: { type: "number" } } },
+  ],
+} as const;
+const conditionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["variableId", "operator", "value"],
+  properties: {
+    variableId: id,
+    operator: { enum: ["equals", "not-equals", "greater-than", "less-than"] },
+    value: {},
+  },
+} as const;
+function presentationSchema(maxItems?: number) {
+  const items = {
+    type: "array",
+    ...(maxItems === undefined ? {} : { maxItems }),
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id", "type", "source"],
+      properties: { id, type: { enum: ["image", "video"] }, source: assetReference },
+    },
+  } as const;
+  return {
+  type: "object",
+  additionalProperties: false,
+  required: ["media", "surface"],
+  properties: {
+    media: {
+      oneOf: [
+        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "none" } } },
+        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "inherit" } } },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["mode", "items"],
+          properties: {
+            mode: { const: "own" },
+            items,
+          },
+        },
+      ],
+    },
+    surface: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source"],
+      properties: { source },
+    },
+  },
+  } as const;
+}
+function node(type: string, data: object) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "type", "data"],
+    properties: { id, type: { const: type }, data },
+  };
+}
+
+const interactionOutcomeSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["actions"],
+  properties: { actions: { type: "array", items: action } },
+} as const;
+const interactionBehaviorSchema = {
+  oneOf: [
+    { type: "object", additionalProperties: false, required: ["type", "actions"], properties: { type: { const: "actions" }, actions: { type: "array", items: action } } },
+    { type: "object", additionalProperties: false, required: ["type", "label"], properties: { type: { const: "continue" }, label: { type: "string", maxLength: 80 } } },
+    {
+      type: "object", additionalProperties: false,
+      required: ["type", "durationMs", "label", "region", "success", "timeout"],
+      properties: {
+        type: { const: "hotspot" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, label: { type: "string", maxLength: 80 },
+        region: {
+          type: "object", additionalProperties: false, required: ["x", "y", "width", "height"],
+          properties: {
+            x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 },
+            width: { type: "number", exclusiveMinimum: 0, maximum: 1 }, height: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+          },
+        },
+        success: interactionOutcome, timeout: interactionOutcome,
+      },
+    },
+    {
+      type: "object", additionalProperties: false,
+      required: ["type", "durationMs", "prompt", "key", "success", "timeout"],
+      properties: {
+        type: { const: "qte" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, prompt: { type: "string", maxLength: 120 },
+        key: { type: "string", pattern: "^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$" },
+        success: interactionOutcome, timeout: interactionOutcome,
+      },
+    },
+  ],
+} as const;
+
+const nodes = [
+  node("start", { type: "object", additionalProperties: false }),
+  node("project-state", {
+    type: "object", additionalProperties: false, required: ["title", "actions"],
+    properties: { title: { type: "string" }, actions: { type: "array", items: action } },
+  }),
+  node("open-ui", {
+    type: "object", additionalProperties: false, required: ["title", "content", "presentation"],
+    properties: {
+      title: { type: "string" },
+      content: {
+        type: "object", additionalProperties: false, required: ["title", "buttons"],
+        properties: {
+          title: { type: "string", maxLength: 120 },
+          buttons: {
+            type: "array", minItems: 1, maxItems: 8,
+            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { const: "enter-game" } } },
+          },
+        },
+      },
+      presentation: singleMediaPresentation,
+    },
+  }),
+  node("scene", { type: "object", additionalProperties: false, required: ["title", "presentation"], properties: { title: { type: "string" }, presentation } }),
+  node("interaction", { type: "object", additionalProperties: false, required: ["title", "behavior", "presentation"], properties: { title: { type: "string" }, behavior: interactionBehavior, presentation: singleMediaPresentation } }),
+  node("choice", {
+    type: "object", additionalProperties: false, required: ["title", "options", "presentation"],
+    properties: {
+      title: { type: "string" }, presentation: singleMediaPresentation,
+      options: {
+        type: "array", minItems: 1,
+        items: {
+          type: "object", additionalProperties: false, required: ["id", "label"],
+          properties: { id, label: { type: "string" }, condition, actions: { type: "array", items: action } },
+        },
+      },
+      timeout: {
+        type: "object", additionalProperties: false, required: ["durationMs", "defaultOptionId"],
+        properties: { durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, defaultOptionId: id },
+      },
+    },
+  }),
+  node("ending", { type: "object", additionalProperties: false, required: ["title", "description", "presentation"], properties: { title: { type: "string" }, description: { type: "string" }, presentation: singleMediaPresentation } }),
+  node("text", { type: "object", additionalProperties: false, required: ["text", "instruction"], properties: { text: { type: "string" }, instruction: { type: "string" }, model } }),
+  node("image", {
+    type: "object", additionalProperties: false, required: ["prompt", "resolution", "aspectRatio", "images"],
+    properties: {
+      prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } }, model,
+      resolution: { enum: IMAGE_RESOLUTIONS }, aspectRatio: { enum: IMAGE_ASPECT_RATIOS }, images: { type: "array", maxItems: 14, items: assetReference }, assetId: id,
+    },
+  }),
+  node("video", {
+    type: "object", additionalProperties: false, required: ["prompt", "model", "resolution", "aspectRatio", "duration", "references"],
+    properties: {
+      prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+      model: { const: VIDEO_MODEL }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
+      references: { type: "array", maxItems: 15, items: assetReference }, assetId: id,
+    },
+  }),
+  node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio"] } } }),
+];
+
+/** JSON Schema for the persisted story.json file. Cross-file graph rules remain runtime validations. */
+export const STORY_CODEBASE_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $defs: {
+    id: idSchema,
+    sourcePath: sourcePathSchema,
+    model: modelSchema,
+    source: sourceSchema,
+    assetReference: assetReferenceSchema,
+    action: actionSchema,
+    condition: conditionSchema,
+    presentation: presentationSchema(),
+    singleMediaPresentation: presentationSchema(1),
+    interactionOutcome: interactionOutcomeSchema,
+    interactionBehavior: interactionBehaviorSchema,
+  },
+  type: "object",
+  additionalProperties: false,
+  required: ["version", "player", "variables", "chapter"],
+  properties: {
+    version: { const: 1 },
+    player: {
+      type: "object", additionalProperties: false, required: ["title", "viewport", "theme", "videoFit", "choicePosition"],
+      properties: {
+        title: { type: "string", maxLength: 120 },
+        viewport: { type: "object", additionalProperties: false, required: ["width", "height"], properties: { width: { type: "integer", minimum: 240, maximum: 8192 }, height: { type: "integer", minimum: 240, maximum: 8192 } } },
+        theme: { type: "object", additionalProperties: false, required: ["accentColor", "textColor", "font"], properties: { accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, textColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, font: { enum: ["sans", "serif"] } } },
+        videoFit: { enum: ["contain", "cover"] }, choicePosition: { enum: ["center", "bottom"] },
+      },
+    },
+    variables: {
+      type: "array",
+      items: {
+        oneOf: [
+          { type: "object", additionalProperties: false, required: ["id", "name", "type", "initialValue"], properties: { id, name: { type: "string", minLength: 1, maxLength: 80 }, type: { const: "boolean" }, initialValue: { type: "boolean" } } },
+          { type: "object", additionalProperties: false, required: ["id", "name", "type", "initialValue"], properties: { id, name: { type: "string", minLength: 1, maxLength: 80 }, type: { const: "number" }, initialValue: { type: "number" } } },
+          { type: "object", additionalProperties: false, required: ["id", "name", "type", "initialValue"], properties: { id, name: { type: "string", minLength: 1, maxLength: 80 }, type: { const: "text" }, initialValue: { type: "string" } } },
+        ],
+      },
+    },
+    chapter: {
+      type: "object", additionalProperties: false, required: ["id", "title", "nodes", "edges"],
+      properties: {
+        id, title: { type: "string" }, nodes: { type: "array", items: { oneOf: nodes } },
+        edges: {
+          type: "array",
+          items: { type: "object", additionalProperties: false, required: ["id", "source", "target"], properties: { id, source: id, target: id, sourceHandle: { type: "string" } } },
+        },
+      },
+    },
+  },
+} as const;

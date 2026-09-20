@@ -2134,10 +2134,7 @@ async function createPiResourceLoader(
     settingsManager: sessionSettings,
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
     appendSystemPrompt: [
-      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code. " +
-      "When the user asks you to build a game or web app in this workspace, create it as a complete Vite-based browser project whose package.json has non-empty scripts.dev and scripts.build commands, with the build producing a static dist/index.html. " +
-      "Do not leave a long-running development server active; the host starts the preview after your turn. " +
-      "Make every game responsive inside an iframe of any size, with no fixed-width layout or horizontal overflow.",
+      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code.",
       "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
       "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
       "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +

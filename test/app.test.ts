@@ -12,7 +12,7 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
-  it("creates an isolated empty project", async () => {
+  it("creates an isolated project with Web Game instructions", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } });
@@ -20,7 +20,7 @@ describe("daemon", () => {
     const project = response.json();
     expect(project.name).toBe("First");
     expect(project.type).toBe("web-game");
-    expect(await readdir(project.workspacePath)).toEqual([]);
+    expect(await readdir(project.workspacePath)).toEqual(["AGENTS.md"]);
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
@@ -36,7 +36,56 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
     const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
+  });
+
+  it("accepts a custom story viewport only for blank Interactive Drama projects", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-viewport-")),
+      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
+    });
+    apps.push(app);
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        storyViewport: { width: 720, height: 1280 },
+      },
+    });
+    const webProject = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "web-game",
+        storyViewport: { width: 1280, height: 720 },
+      },
+    });
+    const template = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        templateId: "night-train",
+        storyViewport: { width: 720, height: 1280 },
+      },
+    });
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: {
+        type: "interactive-drama",
+        storyViewport: { width: 100, height: 720 },
+      },
+    });
+
+    expect(valid.statusCode).toBe(201);
+    const story = (await app.inject({ method: "GET", url: `/projects/${valid.json().id}/story` })).json();
+    expect(story.player.viewport).toEqual({ width: 720, height: 1280 });
+    expect(webProject.statusCode).toBe(400);
+    expect(template.statusCode).toBe(400);
+    expect(invalid.statusCode).toBe(400);
   });
 
   it("uses a selected non-empty folder as an external workspace without deleting it", async () => {
@@ -149,9 +198,9 @@ describe("daemon", () => {
     const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
     const story = storyJson as StoryDocument;
-    expect(validatePlayableChapter(story.chapters[0], { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
-    const scene = story.chapters[0].nodes.find((node) => node.type === "scene");
-    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapters[0], item.source)!))).toBe(true);
+    expect(validatePlayableChapter(story.chapter, { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
+    const scene = story.chapter.nodes.find((node) => node.type === "scene");
+    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapter, item.source)!))).toBe(true);
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
@@ -171,11 +220,11 @@ describe("daemon", () => {
 
     const assetId = async (projectId: string) => {
       const story = (await app.inject({ method: "GET", url: `/projects/${projectId}/story` })).json() as StoryDocument;
-      const scene = story.chapters[0]!.nodes.find((node) => node.type === "scene");
+      const scene = story.chapter.nodes.find((node) => node.type === "scene");
       if (scene?.type !== "scene") throw new Error("Sample scene not found");
       const media = scene.data.presentation.media;
       if (media.mode !== "own" || !media.items[0]) throw new Error("Sample video not found");
-      return resolveStoryAssetId(story.chapters[0]!, media.items[0].source)!;
+      return resolveStoryAssetId(story.chapter, media.items[0].source)!;
     };
     const firstAssetId = await assetId(firstProject.id);
     const secondAssetId = await assetId(secondProject.id);
@@ -216,14 +265,14 @@ describe("daemon", () => {
 
     const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
     const story = loaded.json();
-    story.chapters[0].title = "The Stopover";
+    story.chapter.title = "The Stopover";
     const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
-      .toMatchObject({ chapters: [{ title: "The Stopover" }] });
+      .toMatchObject({ chapter: { title: "The Stopover" } });
   });
 
   it("generates story text with a selected language model", async () => {
@@ -322,7 +371,7 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
+    expect(await readdir(duplicated.json().workspacePath)).toEqual(["AGENTS.md", "index.html"]);
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -342,6 +391,7 @@ describe("daemon", () => {
     const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
 
     expect(files.json()).toEqual([
+      { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
       { path: "hello world.txt", size: 6 },
     ]);
@@ -391,7 +441,7 @@ describe("daemon", () => {
     expect(content.rawPayload.toString()).toBe("video bytes");
 
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push({
+    story.chapter.nodes.push({
       id: "video",
       type: "video",
       position: { x: 0, y: 0 },
@@ -431,8 +481,8 @@ describe("daemon", () => {
     expect(removed.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
     const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
+    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
+    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
       { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
     ]);
   });
@@ -485,7 +535,7 @@ describe("daemon", () => {
     apps.push(app);
     const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     await app.inject({ method: "GET", url: `/projects/${storyProject.id}/story` });
-    await rm(path.join(storyProject.workspacePath, "editor-layout.json"));
+    await rm(path.join(storyProject.workspacePath, "editor/layout.json"));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
@@ -538,7 +588,7 @@ describe("daemon", () => {
       payload: { name: "Story", type: "interactive-drama" },
     })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push({
+    story.chapter.nodes.push({
       id: "video",
       type: "video",
       position: { x: 100, y: 0 },
@@ -557,7 +607,7 @@ describe("daemon", () => {
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -597,7 +647,7 @@ describe("daemon", () => {
 
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push(
+    story.chapter.nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
       { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
@@ -605,8 +655,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
+    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
   });
 
   it("removes deleted Library assets from image references", async () => {
@@ -619,7 +669,7 @@ describe("daemon", () => {
     })).json();
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push(
+    story.chapter.nodes.push(
       { id: "library-image", type: "asset", position: { x: 100, y: 0 }, data: { assetId: image.id, mediaType: "image" } },
       { id: "generated-image", type: "image", position: { x: 400, y: 0 }, data: { prompt: "Compose", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: image.id }, { type: "node", nodeId: "library-image" }] } },
     );
@@ -629,8 +679,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}?force=true` })).statusCode).toBe(204);
 
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
+    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
   });
 
   it("rejects unsafe workspace file paths", async () => {
@@ -741,6 +791,31 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "review", description: "Review changes" }]);
   });
 
+  it("exposes the shared Plugins and Skills to Interactive Drama conversations", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
+      createSession: async () => ({
+        messages: [],
+        prompt: async () => {},
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        getSkills: () => [{ name: "godot", description: "Control Godot" }],
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${conversation.id}/capabilities`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().skills).toEqual([{ name: "godot", description: "Control Godot" }]);
+  });
+
   it("makes OhMyGame media generation available without a Plugin", async () => {
     const setActiveToolsByName = vi.fn();
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
@@ -814,9 +889,9 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
       expect.objectContaining({ name: "狗大王.png", mediaType: "image" }),
     ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "assets/imported/狗大王.png", mediaType: "image" }),
-    ]);
+    ]));
   });
 
   it("stores dropped files outside the game workspace and gives the agent an attachment manifest", async () => {
@@ -899,9 +974,9 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([
       expect.objectContaining({ name: "hero.png", mediaType: "image" }),
     ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual([
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "assets/imported/hero.png", mediaType: "image" }),
-    ]);
+    ]));
   });
 
   it("rejects unsafe folder paths in agent attachments", async () => {
@@ -1184,7 +1259,7 @@ describe("daemon", () => {
     }
   });
 
-  it("titles a new conversation before Pi produces a response", async () => {
+  it("uses the first prompt as the conversation title without renaming the project", async () => {
     const session: CodingSession = {
       messages: [],
       prompt: async () => { throw new Error("No API key"); },
@@ -1212,137 +1287,12 @@ describe("daemon", () => {
       method: "GET",
       url: `/projects/${project.id}/conversations`,
     });
+    const unchangedProject = await app.inject({ method: "GET", url: `/projects/${project.id}` });
 
     expect(conversations.json()).toEqual([
       expect.objectContaining({ id: conversation.id, title: "Build a small game" }),
     ]);
-  });
-
-  it("generates conversation and project names after the current turn settles", async () => {
-    let finishTurn: (() => void) | undefined;
-    const session: CodingSession = {
-      messages: [],
-      prompt: () => new Promise<void>((_resolve, reject) => {
-        finishTurn = () => reject(new Error("Model request failed"));
-      }),
-      abort: async () => {},
-      dispose: () => {},
-      subscribe: () => () => {},
-    };
-    const generateConversationTitle = vi.fn().mockResolvedValue("Build platform game");
-    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
-    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-generated-title-")),
-      createSession: async () => session,
-      createModelRuntime: async () => fakeModelRuntime([model]),
-      generateConversationTitle,
-      generateProjectTitle,
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const conversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Build a small platform game" },
-    });
-
-    expect(response.statusCode).toBe(202);
-    await vi.waitFor(() => expect(finishTurn).toBeDefined());
-    expect(generateConversationTitle).not.toHaveBeenCalled();
-    finishTurn!();
-    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalled());
-    await vi.waitFor(async () => {
-      const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations` });
-      expect(listed.json()[0].title).toBe("Build platform game");
-      const renamedProject = await app.inject({ method: "GET", url: `/projects/${project.id}` });
-      expect(renamedProject.json().name).toBe("Platform World");
-    });
-    expect(generateConversationTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
-    expect(generateProjectTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
-
-    finishTurn = undefined;
-    const namedProject = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { name: "My game" },
-    })).json();
-    const namedConversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${namedProject.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-    await app.inject({
-      method: "POST",
-      url: `/projects/${namedProject.id}/conversations/${namedConversation.id}/turns`,
-      payload: { prompt: "Add a forest level" },
-    });
-    await vi.waitFor(() => expect(finishTurn).toBeDefined());
-    finishTurn!();
-    await vi.waitFor(() => expect(generateConversationTitle).toHaveBeenCalledTimes(2));
-
-    expect(generateProjectTitle).toHaveBeenCalledTimes(1);
-    expect((await app.inject({ method: "GET", url: `/projects/${namedProject.id}` })).json().name).toBe("My game");
-  });
-
-  it("names an untitled project when its conversation was already named", async () => {
-    const session: CodingSession = {
-      messages: [],
-      prompt: async () => {},
-      abort: async () => {},
-      dispose: () => {},
-      subscribe: () => () => {},
-    };
-    const generateConversationTitle = vi.fn().mockResolvedValue("Generated conversation");
-    const generateProjectTitle = vi.fn().mockResolvedValue("Platform World");
-    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-project-title-")),
-      createSession: async () => session,
-      createModelRuntime: async () => fakeModelRuntime([model]),
-      generateConversationTitle,
-      generateProjectTitle,
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
-    const conversation = (await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations`,
-      payload: { model: { provider: model.provider, id: model.id } },
-    })).json();
-    await app.inject({
-      method: "PATCH",
-      url: `/projects/${project.id}/conversations/${conversation.id}`,
-      payload: { title: "Manual conversation" },
-    });
-
-    await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Build a small platform game" },
-    });
-
-    await vi.waitFor(async () => {
-      const renamed = await app.inject({ method: "GET", url: `/projects/${project.id}` });
-      expect(renamed.json().name).toBe("Platform World");
-    });
-    expect(generateConversationTitle).not.toHaveBeenCalled();
-    expect(generateProjectTitle).toHaveBeenCalledWith(
-      { provider: model.provider, id: model.id },
-      "Build a small platform game",
-    );
+    expect(unchangedProject.json().name).toBe(project.name);
   });
 
   it("lists Pi models and stores a conversation model without starting a session", async () => {
@@ -1357,10 +1307,20 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
 
     const models = await app.inject({ method: "GET", url: "/models" });
+    const defaults = await app.inject({
+      method: "PUT",
+      url: "/models/default",
+      payload: { model: { provider: second.provider, id: second.id }, reasoningLevel: "high" },
+    });
     const created = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations`,
       payload: { model: { provider: first.provider, id: first.id }, reasoningLevel: "medium" },
+    });
+    const createdWithDefaults = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations`,
+      payload: {},
     });
     const changed = await app.inject({
       method: "PUT",
@@ -1370,6 +1330,10 @@ describe("daemon", () => {
     const detail = await app.inject({
       method: "GET",
       url: `/projects/${project.id}/conversations/${created.json().id}`,
+    });
+    const defaultDetail = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/conversations/${createdWithDefaults.json().id}`,
     });
     const reasoning = await app.inject({
       method: "PUT",
@@ -1384,6 +1348,7 @@ describe("daemon", () => {
       ],
       defaultReasoningLevel: "medium",
     });
+    expect(defaults.statusCode).toBe(204);
     expect(created.json()).toMatchObject({ id: expect.any(String), projectId: project.id, title: "New conversation" });
     expect(changed.json()).toEqual({
       model: { provider: second.provider, id: second.id },
@@ -1392,6 +1357,10 @@ describe("daemon", () => {
     expect(reasoning.json()).toEqual({ level: "high" });
     expect(detail.json().settings.model).toEqual({ provider: second.provider, id: second.id });
     expect(detail.json().cursor).toBe(0);
+    expect(defaultDetail.json().settings).toEqual({
+      model: { provider: second.provider, id: second.id },
+      reasoningLevel: "high",
+    });
   });
 
   it("applies an OpenAI-compatible endpoint through Pi", async () => {
@@ -1770,9 +1739,7 @@ describe("daemon", () => {
 });
 
 function syncStoryLayout(story: StoryDocument): void {
-  story.editorLayout.nodes = Object.fromEntries([
-    ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
-  ]);
+  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
 }
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {

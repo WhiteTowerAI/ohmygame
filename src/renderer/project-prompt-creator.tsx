@@ -1,8 +1,9 @@
-import { Check, ChevronDown, LoaderCircle, SendArrow } from "./icons.js";
+import { Check, ChevronDown, LoaderCircle, Monitor, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { createConversation, createProject, getHomeComposerCapabilities, waitForRuntime } from "./api.js";
+import { preferredAgentModel } from "../shared/agent-models.js";
+import { createConversation, createProject, getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
@@ -11,6 +12,7 @@ import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
+import { STORY_FORMAT_PRESETS, storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
@@ -31,12 +33,14 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   const [planning, setPlanning] = useState(false);
   const [images, setImages] = useState<ComposerImage[]>([]);
   const [creating, setCreating] = useState(false);
+  const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
+  const [storyFormat, setStoryFormat] = useState<StoryFormatPresetId>("landscape");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
-  const displayedModel = model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
+  const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
   const candidateMention = mentionQuery(prompt, mentionCursor);
   const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
   const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
@@ -60,18 +64,10 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
   }, [mentionKey]);
 
   useEffect(() => {
-    if (modelCatalog.models.some((candidate) => sameModel(candidate, model))) return;
-    const fallback = modelCatalog.models.find((candidate) => sameModel(candidate, modelCatalog.defaultModel))
-      ?? modelCatalog.models[0];
-    if (!fallback || !sameModel(fallback, model)) setModel(fallback);
-  }, [model, modelCatalog.models, modelCatalog.defaultModel]);
-
-  useEffect(() => {
-    const selected = modelCatalog.models.find((candidate) => sameModel(candidate, model));
-    if (!selected) return;
-    const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selected.reasoningLevels);
+    if (!selectedModel) return;
+    const next = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, selectedModel.reasoningLevels);
     if (next && next !== reasoningLevel) setReasoningLevel(next);
-  }, [model, modelCatalog.models, modelCatalog.defaultReasoningLevel, reasoningLevel]);
+  }, [selectedModel, modelCatalog.defaultReasoningLevel, reasoningLevel]);
 
   async function submit(): Promise<void> {
     if (matchesPlanCommand(prompt)) {
@@ -83,8 +79,13 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
     setCreating(true);
     setError(undefined);
     try {
-      const project = await createProject({ type: projectType });
-      const conversation = await createConversation(project.id, model, reasoningLevel);
+      const project = await createProject({
+        type: projectType,
+        ...(projectType === "interactive-drama"
+          ? { storyViewport: storyFormatPreset(storyFormat).viewport }
+          : {}),
+      });
+      const conversation = await createConversation(project.id);
       onCreate(
         project.id,
         conversation.id,
@@ -97,6 +98,27 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
       setError(errorMessage(cause));
       setCreating(false);
     }
+  }
+
+  async function saveDefaults(nextModel: AgentModelRef, nextReasoningLevel: AgentReasoningLevel): Promise<void> {
+    if (savingDefaults) return;
+    const modelRef = { provider: nextModel.provider, id: nextModel.id };
+    setSavingDefaults(true);
+    setError(undefined);
+    try {
+      await updateAgentDefaults({ model: modelRef, reasoningLevel: nextReasoningLevel });
+      setModel(modelRef);
+      setReasoningLevel(nextReasoningLevel);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSavingDefaults(false);
+    }
+  }
+
+  function changeModel(nextModel: AgentModel): void {
+    const nextReasoningLevel = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, nextModel.reasoningLevels);
+    void saveDefaults(nextModel, nextReasoningLevel);
   }
 
   function togglePlanning(): void {
@@ -201,11 +223,11 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
             <ModelSelector
               models={modelCatalog.models}
               status={modelCatalog.status}
-              value={displayedModel}
+              value={selectedModel}
               reasoningLevel={reasoningLevel}
-              disabled={creating}
-              onChange={setModel}
-              onReasoningChange={setReasoningLevel}
+              disabled={creating || savingDefaults}
+              onChange={changeModel}
+              onReasoningChange={(next) => { if (selectedModel) void saveDefaults(selectedModel, next); }}
             />
             <button
               className="icon-button send-button"
@@ -236,6 +258,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
             {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} onChange={onProjectTypeChange} /> : null}
+            {projectType === "interactive-drama" ? <StoryFormatSelector disabled={creating} value={storyFormat} onChange={setStoryFormat} /> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
           </>
         )}
@@ -253,6 +276,120 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
       />
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
     </>
+  );
+}
+
+function StoryFormatSelector({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: StoryFormatPresetId;
+  disabled?: boolean;
+  onChange: (value: StoryFormatPresetId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const current = storyFormatPreset(value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }, [open]);
+
+  return (
+    <div className="home-project-type-selector" ref={root}>
+      <button
+        ref={trigger}
+        className="home-project-type-trigger"
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={disabled}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      >
+        <Monitor size={14} />
+        <span>{current.ratio}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={menu}
+          className="home-project-type-menu home-story-format-menu"
+          id={menuId}
+          role="menu"
+          aria-label="Canvas format"
+          onKeyDown={(event) => {
+            if (event.key === "Tab") {
+              setOpen(false);
+              return;
+            }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+            const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[nextIndex]?.focus();
+          }}
+        >
+          {STORY_FORMAT_PRESETS.map((preset) => {
+            const selected = preset.id === value;
+            return (
+              <button
+                className={selected ? "is-active" : undefined}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                key={preset.id}
+                onClick={() => {
+                  onChange(preset.id);
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              >
+                <span
+                  className={`story-format-frame story-format-frame-${preset.id}`}
+                  aria-hidden="true"
+                />
+                <span>{preset.label}</span>
+                <small>{preset.ratio}</small>
+                {selected ? <Check size={13} aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -361,10 +498,6 @@ function ProjectTypeSelector({ value, disabled, onChange }: {
       ) : null}
     </div>
   );
-}
-
-function sameModel(model: AgentModel, value?: AgentModelRef): boolean {
-  return Boolean(value && model.provider === value.provider && model.id === value.id);
 }
 
 function errorMessage(cause: unknown): string {

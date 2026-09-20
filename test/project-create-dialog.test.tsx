@@ -7,6 +7,10 @@ describe("project create dialog", () => {
     const html = renderToStaticMarkup(<ProjectCreateDialog fixedType="interactive-drama" onClose={() => undefined} onCreated={() => undefined} />);
     expect(html).toContain("Blank project");
     expect(html).toContain("Sample project");
+    expect(html).toContain("Canvas format");
+    expect(html).toContain("Landscape");
+    expect(html).toContain("Portrait");
+    expect(html).toContain("Square");
     expect(html).toContain('aria-pressed="true"');
   });
 

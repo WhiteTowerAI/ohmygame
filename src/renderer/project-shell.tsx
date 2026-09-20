@@ -16,6 +16,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import { preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -101,6 +102,7 @@ export function ProjectShell({
   const [chatReference, setChatReference] = useState<ChatReference>();
   const [composerDirty, setComposerDirty] = useState(false);
   const modelCatalog = useAgentModels();
+  const effectiveModel = preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
@@ -521,7 +523,7 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id, displayedModel, state.settings.reasoningLevel);
+      const created = await createConversation(project.id);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
@@ -696,7 +698,7 @@ export function ProjectShell({
             notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
             models={modelCatalog.models}
             modelStatus={modelCatalog.status}
-            model={displayedModel}
+            model={effectiveModel}
             reasoningLevel={state.settings.reasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[

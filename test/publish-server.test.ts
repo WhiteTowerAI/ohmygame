@@ -73,12 +73,7 @@ describe("public publish server", () => {
       payload: Buffer.from(await request.arrayBuffer()),
     });
     expect(release.statusCode).toBe(201);
-    const builtIns = (await app.inject({ method: "GET", url: "/v1/explore/templates" })).json();
-    expect(builtIns).toHaveLength(3);
-    expect(builtIns).toContainEqual(expect.objectContaining({
-      id: "general-image", releaseId: "general-image-v1",
-      author: { id: "ohmygame", displayName: "OhMyGame" }, stats: { likes: 0, uses: 0 },
-    }));
+    expect((await app.inject({ method: "GET", url: "/v1/explore/templates" })).json()).toEqual([]);
     expect((await app.inject({
       method: "PUT", url: `/v1/templates/${templateId}/listing`, headers: authorization, payload: { status: "listed" },
     })).statusCode).toBe(200);
@@ -88,16 +83,6 @@ describe("public publish server", () => {
         author: { id: "publisher", displayName: "OhMyGame Creator" }, stats: { likes: 0, uses: 0 },
       }),
     ]));
-  });
-
-  it("records interactions for built-in Asset Templates", async () => {
-    const app = await testApp();
-    expect((await app.inject({
-      method: "PUT", url: "/v1/community/template/general-image/like", headers: authorization,
-    })).json()).toMatchObject({ liked: true, stats: { likes: 1, uses: 0 } });
-    expect((await app.inject({
-      method: "POST", url: "/v1/community/template/general-image/use", headers: authorization,
-    })).json()).toEqual({ likes: 1, uses: 1 });
   });
 
   it("publishes immutable Plugin releases and exposes only the listed version", async () => {

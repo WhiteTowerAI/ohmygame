@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -395,25 +395,31 @@ describe("renderer project API", () => {
     const conversation = { id: "conversation-1", projectId: "project-1", title: "New conversation", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), messageCount: 0 };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(Response.json(conversation, { status: 201 }))
       .mockResolvedValueOnce(Response.json(settings))
       .mockResolvedValueOnce(Response.json({ level: "high" }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(listModels()).resolves.toEqual({ models: [model], defaultModel: model, defaultReasoningLevel: "medium" });
+    await expect(updateAgentDefaults({ model, reasoningLevel: "high" })).resolves.toBeUndefined();
     await createConversation("project-1", model, "medium");
     await setConversationModel("project-1", "conversation-1", model);
     await setConversationReasoning("project-1", "conversation-1", "high");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/models/default", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ model: { provider: model.provider, id: model.id }, reasoningLevel: "high" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ model: { provider: model.provider, id: model.id }, reasoningLevel: "medium" }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project-1/conversations/conversation-1/model", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project-1/conversations/conversation-1/model", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ provider: model.provider, id: model.id }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project-1/conversations/conversation-1/reasoning", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/projects/project-1/conversations/conversation-1/reasoning", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ level: "high" }),
     }));

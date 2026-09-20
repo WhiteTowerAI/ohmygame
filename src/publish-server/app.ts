@@ -39,7 +39,6 @@ import { requirePublisher, type PublisherTokenVerifier } from "./auth.js";
 import { sendPublishError } from "./http.js";
 import { listingBodySchema } from "./listings.js";
 import { seedPreparedPlugins } from "./preinstalled-plugins.js";
-import { seedBuiltInAssetTemplates } from "./built-in-asset-templates.js";
 import { deploymentUrl, gameUrl, playTarget } from "./urls.js";
 import { PublishStore, type StoredAsset, type StoredAssetRelease, type StoredCommunityGame, type StoredDeployment, type StoredExploreAsset, type StoredExplorePlugin, type StoredExploreTemplate, type StoredGame, type StoredPlugin, type StoredPluginRelease, type StoredTemplate, type StoredTemplateRelease } from "./store.js";
 
@@ -120,7 +119,6 @@ export function createPublishApp(options: PublishAppOptions) {
   });
 
   app.addHook("onReady", async () => {
-    seedBuiltInAssetTemplates(store);
     await artifacts.load(new Set([...store.deploymentIds(), ...store.assetReleaseIds(), ...store.pluginReleaseIds(), ...store.templateReleaseIds()]));
     if (options.preinstalledPluginsDirectory) {
       await seedPreparedPlugins(options.preinstalledPluginsDirectory, store, artifacts);
