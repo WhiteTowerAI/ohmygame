@@ -3,6 +3,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
 
+const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
+const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
+
 interface CreateWindowOptions {
   runtime: DaemonRuntime;
   preloadPath: string;
@@ -10,6 +13,26 @@ interface CreateWindowOptions {
   rendererFile?: string;
   rendererHash?: string;
   sidebarVibrancy?: boolean;
+  contentSize?: { width: number; height: number };
+  aspectRatio?: number;
+  minWidth?: number;
+  minHeight?: number;
+}
+
+export function isValidPlaytestViewport(value: unknown): value is { width: number; height: number } {
+  if (!value || typeof value !== "object") return false;
+  const viewport = value as { width?: unknown; height?: unknown };
+  return Number.isInteger(viewport.width) && Number.isInteger(viewport.height) &&
+    Number(viewport.width) >= 240 && Number(viewport.width) <= 8192 &&
+    Number(viewport.height) >= 240 && Number(viewport.height) <= 8192;
+}
+
+export function fitPlaytestContentSize(viewport: { width: number; height: number }): { width: number; height: number } {
+  const scale = Math.min(PLAYTEST_MAX_CONTENT_WIDTH / viewport.width, PLAYTEST_MAX_CONTENT_HEIGHT / viewport.height);
+  return {
+    width: Math.round(viewport.width * scale),
+    height: Math.round(viewport.height * scale),
+  };
 }
 
 export async function createDesktopWindow(options: CreateWindowOptions): Promise<BrowserWindow> {
@@ -38,10 +61,11 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       }
     : {};
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 640,
+    width: options.contentSize?.width ?? 1440,
+    height: options.contentSize?.height ?? 900,
+    minWidth: options.minWidth ?? 960,
+    minHeight: options.minHeight ?? 640,
+    ...(options.contentSize ? { useContentSize: true } : {}),
     backgroundColor: "#171717",
     show: false,
     ...macWindowOptions,
@@ -53,6 +77,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       sandbox: true,
     },
   });
+  if (options.aspectRatio) window.setAspectRatio(options.aspectRatio);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isHttpUrl(url)) void shell.openExternal(url);

@@ -6,7 +6,7 @@ import { app, dialog, ipcMain, nativeTheme, session, shell, type BrowserWindow }
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
-import { createDesktopWindow, waitForRenderer } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -75,13 +75,17 @@ ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
   return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
-ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown) => {
+ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
-  if (!validRouteId(projectId) || !validRouteId(chapterId) || !daemon) throw new Error("Invalid playtest target");
+  if (!validRouteId(projectId) || !validRouteId(chapterId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
+  const size = fitPlaytestContentSize(viewport);
+  const aspectRatio = viewport.width / viewport.height;
   const current = playtestWindows.get(projectId);
   if (current) {
     const existing = await current;
     if (!existing.isDestroyed()) {
+      existing.setAspectRatio(aspectRatio);
+      existing.setContentSize(size.width, size.height);
       existing.focus();
       return;
     }
@@ -93,6 +97,10 @@ ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapt
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     rendererHash: `#/playtest/${encodeURIComponent(projectId)}/${encodeURIComponent(chapterId)}`,
+    contentSize: size,
+    aspectRatio,
+    minWidth: Math.max(1, Math.round(size.width / 2)),
+    minHeight: Math.max(1, Math.round(size.height / 2)),
   });
   playtestWindows.set(projectId, opening);
   try {

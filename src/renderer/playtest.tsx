@@ -268,7 +268,7 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, f
     };
   }, [node.data.behavior, onComplete, paused]);
   if (paused) return null;
-  return <div className="story-player-scene story-player-interaction-node">
+  return <div className="story-player-node story-player-interaction-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} />
     <StoryInteractionSurface files={storyNodePresentation(node).surface.files} mode="runtime" context={context} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onComplete={(result, commands) => { if (resolved.current) return; resolved.current = true; onComplete(result, commands); }} onError={setError} />
     {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
@@ -303,7 +303,7 @@ function PauseMenu({ canRestartCheckpoint, onResume, onRestartCheckpoint, onRest
 
 function StoryEnding({ chapter, node, variables, runtime, viewport, fit, assetUrls, onRestart, onMenu }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "ending" }>; variables: StoryVariable[]; runtime: Extract<PlayerRuntimeState, { mode: "playing" }>; viewport: StoryPlayerConfig["viewport"]; fit: StoryPlayerConfig["videoFit"]; assetUrls?: Readonly<Record<string, string>>; onRestart: () => void; onMenu: () => void }) {
   const context = storyPresentationContext(node, variables, runtime);
-  return <div className="story-player-scene story-player-presentation-node">
+  return <div className="story-player-node story-player-presentation-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} />
     <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" viewport={viewport} title={`${node.data.title || "Ending"} code`} className="story-player-scene-surface" onAction={(action) => {
       if (action.type === "restart") onRestart();
@@ -353,7 +353,7 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, viewport, fit, p
   }
 
   const context = storyPresentationContext(node, variables, runtime, { options: visibleOptions.map(({ id, label }) => ({ id, label })), remainingMs: node.data.timeout ? remainingMs : undefined, durationMs: node.data.timeout?.durationMs });
-  return <div className="story-player-scene story-player-presentation-node">
+  return <div className="story-player-node story-player-presentation-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} />
     <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" viewport={viewport} title={`${node.data.title || "Choice"} code`} className="story-player-scene-surface" onAction={(action) => { if (action.type === "choose") select(action.optionId); }} />
   </div>;
@@ -409,20 +409,20 @@ function StoryScenePlayer({ chapter, variables, node, runtime, viewport, fit, pa
       variables: Object.fromEntries(variables.flatMap((variable) => [[variable.id, runtime.variables[variable.id]], [variable.name, runtime.variables[variable.id]]])),
     };
   }, [items.length, mediaIndex, node.data.title, node.id, paused, playback?.mediaId, playback?.timeMs, runtime.variables, variables]);
-  if (!item) return <div className="story-player-scene">
+  if (!item) return <div className="story-player-node">
     {media.mode === "inherit" ? <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} /> : null}
     <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" viewport={viewport} title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onError={setSurfaceError} />
-    <button className="story-player-scene-continue" type="button" onClick={() => onComplete("scene", 0)}>Continue</button>
+    <button className="story-player-continue" type="button" onClick={() => onComplete("scene", 0)}>Continue</button>
   </div>;
-  return <div className="story-player-scene">
-    {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} index={mediaIndex} count={items.length} title={node.data.title} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onTime={(time) => onTime(item.id, time)} onDuration={(durationMs) => { duration.current = durationMs; }} onEnded={(durationMs) => onComplete(item.id, durationMs)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} /> : null}<button className="story-player-scene-continue" type="button" onClick={() => onComplete(item.id, 0)}>Continue</button></article>}
+  return <div className="story-player-node">
+    {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onTime={(time) => onTime(item.id, time)} onDuration={(durationMs) => { duration.current = durationMs; }} onEnded={(durationMs) => onComplete(item.id, durationMs)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} /> : null}<button className="story-player-continue" type="button" onClick={() => onComplete(item.id, 0)}>Continue</button></article>}
     <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" viewport={viewport} title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onError={setSurfaceError} />
     {surfaceError ? <div className="story-player-scene-error" role="alert">Scene code failed: {surfaceError}</div> : null}
   </div>;
 }
 
-function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTimeMs, assetUrls, onTime, onDuration, onEnded }: {
-  assetId?: string; index: number; count: number; title: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; initialTimeMs: number; assetUrls?: Readonly<Record<string, string>>;
+function StoryVideoPlayer({ assetId, fit, paused, initialTimeMs, assetUrls, onTime, onDuration, onEnded }: {
+  assetId?: string; fit: StoryPlayerConfig["videoFit"]; paused: boolean; initialTimeMs: number; assetUrls?: Readonly<Record<string, string>>;
   onTime: (timeMs: number) => void; onDuration: (durationMs: number) => void; onEnded: (durationMs: number) => void;
 }) {
   const media = useStoryAssetUrl(assetId, assetUrls);
@@ -438,7 +438,6 @@ function StoryVideoPlayer({ assetId, index, count, title, fit, paused, initialTi
     }} onTimeUpdate={(event) => onTime(Math.round(event.currentTarget.currentTime * 1_000))} onEnded={(event) => onEnded(Math.round(event.currentTarget.duration * 1_000))} /> : null}
     {!media.url && !error ? <span>Loading video...</span> : null}
     {error ? <div role="alert"><strong>Could not load video</strong><span>{error}</span><button type="button" onClick={() => onEnded(0)}>Skip media</button></div> : null}
-    <footer><strong>{title || "Untitled scene"}</strong><span>{index + 1} / {count}</span></footer>
   </article>;
 }
 

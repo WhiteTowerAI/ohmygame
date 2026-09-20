@@ -22,8 +22,8 @@ if (process.isMainFrame) {
     selectProjectDirectory: () => ipcRenderer.invoke("ohmygame:select-project-directory") as Promise<string | undefined>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
-    openPlaytest: (projectId: string, chapterId: string) =>
-      ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId) as Promise<void>,
+    openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) =>
+      ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId, viewport) as Promise<void>,
     updates: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:update-state") as Promise<DesktopUpdateState | null>,
       check: () => ipcRenderer.invoke("ohmygame:check-for-update") as Promise<void>,

@@ -1160,7 +1160,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       }
       await save(document);
       if (window.ohMyGameDesktop) {
-        await window.ohMyGameDesktop.openPlaytest(projectId, activeChapter.id);
+        await window.ohMyGameDesktop.openPlaytest(projectId, activeChapter.id, document.player.viewport);
       } else {
         window.open(new URL(playtestHash(projectId, activeChapter.id), window.location.href).href, "ohmygame-playtest");
       }
