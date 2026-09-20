@@ -34,6 +34,8 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 
 Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
 
+Choice and Update State actions use \`type: "update-variable"\` with an \`operator\` of \`"set"\`, \`"add"\`, \`"subtract"\`, \`"multiply"\`, or \`"divide"\`. Only \`"set"\` supports Text and Boolean Variables; arithmetic operators require a Number Variable and numeric \`value\`.
+
 The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the existing view and viewport unless the user explicitly asks to change them.
 
 ## Runtime surfaces
@@ -59,6 +61,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
 - Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
+- \`variables[].initialValue\` is the only source of new-game state. Use an Update State node only for changes that happen while the story is running.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
@@ -136,9 +139,9 @@ const BASIC_TEMPLATE_INSTRUCTIONS = `## Basic template path
 
 When the user asks for a basic Interactive Drama template without specifying its structure, create a compact playable story that demonstrates the standard Story capabilities:
 
-\`start -> open-ui -> scene -> choice -> project-state -> scene -> interaction -> ending-a / ending-b\`
+\`start -> open-ui -> scene -> choice -> update-state -> scene -> interaction -> ending-a / ending-b\`
 
-Declare at least one Variable and use it through a Project State action, Choice action or condition, or Interaction outcome. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
+Declare at least one Variable with its new-game \`initialValue\` and use it through an Update State action, Choice action or condition, or Interaction code. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Add an Update State node only when the story needs a state change at that point in the flow. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
 
 For a Choice, each option has a stable \`id\` and the matching outgoing edge uses that option ID as \`sourceHandle\`. For all other standard flow edges, use the node's default outgoing handle. Every edge source and target must reference a node in the same chapter.
 

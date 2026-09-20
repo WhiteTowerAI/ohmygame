@@ -11,9 +11,10 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   const chapterId = id();
   const startId = id();
   const openUiId = id();
-  const stateId = id();
   const sceneId = id();
   const choiceId = id();
+  const leaveStateId = id();
+  const stayStateId = id();
   const leaveEndingId = id();
   const stayEndingId = id();
   const mediaId = id();
@@ -33,13 +34,14 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       nodes: {
         [startId]: { x: 80, y: 240 },
         [openUiId]: { x: 250, y: 210 },
-        [stateId]: { x: 760, y: 210 },
-        [sceneId]: { x: 1_160, y: 210 },
-        [hotspotId]: { x: 1_660, y: 120 },
-        [qteId]: { x: 2_000, y: 120 },
-        [choiceId]: { x: 2_340, y: 210 },
-        [leaveEndingId]: { x: 2_700, y: 100 },
-        [stayEndingId]: { x: 2_700, y: 340 },
+        [sceneId]: { x: 760, y: 210 },
+        [hotspotId]: { x: 1_260, y: 120 },
+        [qteId]: { x: 1_600, y: 120 },
+        [choiceId]: { x: 1_940, y: 210 },
+        [leaveStateId]: { x: 2_300, y: 120 },
+        [stayStateId]: { x: 2_300, y: 360 },
+        [leaveEndingId]: { x: 2_580, y: 100 },
+        [stayEndingId]: { x: 2_580, y: 340 },
       },
       viewport: { x: 40, y: 90, zoom: 0.45 },
       view: "canvas",
@@ -61,11 +63,10 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
         { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
-        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
         {
           id: sceneId,
           type: "scene",
-          position: { x: 1_160, y: 210 },
+          position: { x: 760, y: 210 },
           data: {
             title: "The empty platform",
             presentation: {
@@ -77,19 +78,19 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         {
           id: hotspotId,
           type: "interaction",
-          position: { x: 1_660, y: 120 },
+          position: { x: 1_260, y: 120 },
           data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: hotspotFiles } } },
         },
         {
           id: qteId,
           type: "interaction",
-          position: { x: 2_000, y: 120 },
+          position: { x: 1_600, y: 120 },
           data: { title: "Board the train", outcomes: ["success", "timeout"], timeout: { durationMs: 2_500, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: qteFiles } } },
         },
         {
           id: choiceId,
           type: "choice",
-          position: { x: 2_340, y: 210 },
+          position: { x: 1_940, y: 210 },
           data: {
             title: "The doors are closing. What will Mara do?",
             options: [
@@ -97,12 +98,10 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
                 id: leaveOptionId,
                 label: "Take the train",
                 condition: { variableId: courageId, operator: "greater-than", value: 2 },
-                actions: [{ type: "increment-variable", variableId: courageId, amount: 1 }],
               },
               {
                 id: stayOptionId,
                 label: "Stay on the platform",
-                actions: [{ type: "increment-variable", variableId: courageId, amount: -1 }],
               },
             ],
             timeout: { durationMs: 6_000, defaultOptionId: stayOptionId },
@@ -110,29 +109,42 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
           },
         },
         {
+          id: leaveStateId,
+          type: "update-state",
+          position: { x: 2_300, y: 120 },
+          data: { title: "Build courage", actions: [{ type: "update-variable", variableId: courageId, operator: "add", value: 1 }] },
+        },
+        {
+          id: stayStateId,
+          type: "update-state",
+          position: { x: 2_300, y: 360 },
+          data: { title: "Lose courage", actions: [{ type: "update-variable", variableId: courageId, operator: "subtract", value: 1 }] },
+        },
+        {
           id: leaveEndingId,
           type: "ending",
-          position: { x: 2_700, y: 100 },
+          position: { x: 2_580, y: 100 },
           data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
         {
           id: stayEndingId,
           type: "ending",
-          position: { x: 2_700, y: 340 },
+          position: { x: 2_580, y: 340 },
           data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
       ],
       edges: [
         { id: id(), source: startId, target: openUiId },
-        { id: id(), source: openUiId, target: stateId },
-        { id: id(), source: stateId, target: sceneId },
+        { id: id(), source: openUiId, target: sceneId },
         { id: id(), source: sceneId, target: hotspotId },
         { id: id(), source: hotspotId, sourceHandle: "success", target: qteId },
         { id: id(), source: hotspotId, sourceHandle: "timeout", target: qteId },
         { id: id(), source: qteId, sourceHandle: "success", target: choiceId },
         { id: id(), source: qteId, sourceHandle: "timeout", target: choiceId },
-        { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveEndingId },
-        { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayEndingId },
+        { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveStateId },
+        { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayStateId },
+        { id: id(), source: leaveStateId, target: leaveEndingId },
+        { id: id(), source: stayStateId, target: stayEndingId },
       ],
     },
   };

@@ -32,10 +32,19 @@ const assetReferenceSchema = {
   ],
 } as const;
 const actionSchema = {
-  oneOf: [
-    { type: "object", additionalProperties: false, required: ["type", "variableId", "value"], properties: { type: { const: "set-variable" }, variableId: id, value: {} } },
-    { type: "object", additionalProperties: false, required: ["type", "variableId", "amount"], properties: { type: { const: "increment-variable" }, variableId: id, amount: { type: "number" } } },
-  ],
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "variableId", "operator", "value"],
+  properties: {
+    type: { const: "update-variable" },
+    variableId: id,
+    operator: { enum: ["set", "add", "subtract", "multiply", "divide"] },
+    value: {},
+  },
+  allOf: [{
+    if: { properties: { operator: { const: "divide" } }, required: ["operator"] },
+    then: { properties: { value: { type: "number", not: { const: 0 } } } },
+  }],
 } as const;
 const conditionSchema = {
   type: "object",
@@ -98,7 +107,7 @@ function node(type: string, data: object) {
 
 const nodes = [
   node("start", { type: "object", additionalProperties: false }),
-  node("project-state", {
+  node("update-state", {
     type: "object", additionalProperties: false, required: ["title", "actions"],
     properties: { title: { type: "string" }, actions: { type: "array", items: action } },
   }),

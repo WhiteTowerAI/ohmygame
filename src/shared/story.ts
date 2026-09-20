@@ -1,6 +1,6 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "project-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
@@ -233,10 +233,6 @@ export function getStartNode(chapter: StoryChapter): StoryNode | undefined {
   return chapter.nodes.find((node) => node.type === "start");
 }
 
-export function getProjectStateNode(chapter: StoryChapter): Extract<StoryNode, { type: "project-state" }> | undefined {
-  return chapter.nodes.find((node): node is Extract<StoryNode, { type: "project-state" }> => node.type === "project-state");
-}
-
 export function isEntryOpenUiNode(chapter: StoryChapter, nodeId: string): boolean {
   const start = getStartNode(chapter);
   return Boolean(start && getNextNode(chapter, start.id)?.id === nodeId);
@@ -337,7 +333,7 @@ export function restoreStoryCheckpoint(
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "project-state" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "update-state" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else {
@@ -433,10 +429,10 @@ function applyStoryInteractionCommands(
     const variable = matches[0]!;
     if (command.type === "increment-variable") {
       if (variable.type !== "number" || typeof command.amount !== "number" || !Number.isFinite(command.amount)) throw new Error(`${variable.name || variable.id} is not a number variable`);
-      next = applyRuntimeActions(next, [{ type: command.type, variableId: variable.id, amount: command.amount }]);
+      next = applyRuntimeActions(next, [{ type: "update-variable", variableId: variable.id, operator: "add", value: command.amount }]);
     } else {
       if (!variableValueMatches(variable.type, command.value)) throw new Error(`Value does not match ${variable.name || variable.id}`);
-      next = applyRuntimeActions(next, [{ type: command.type, variableId: variable.id, value: command.value }]);
+      next = applyRuntimeActions(next, [{ type: "update-variable", variableId: variable.id, operator: "set", value: command.value }]);
     }
   }
   return next;
@@ -473,9 +469,9 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
     presentationMedia,
     scenePlayback: undefined,
   };
-  if (node.type === "project-state") {
+  if (node.type === "update-state") {
     const next = getNextNode(chapter, node.id);
-    if (!next) throw new Error("Project State is not connected");
+    if (!next) throw new Error("Update State is not connected");
     return enterStoryNode(chapter, { ...entered, variables: applyRuntimeActions(entered.variables, node.data.actions) }, next);
   }
   const media = node.type === "scene" ? node.data.presentation.media : undefined;
@@ -525,14 +521,18 @@ export function applyStoryActions(actions: readonly StoryAction[] | undefined, v
 export function applyRuntimeActions(values: Readonly<Record<string, StoryVariableValue>>, actions: readonly StoryAction[] | undefined): Record<string, StoryVariableValue> {
   const variables = { ...values };
   for (const action of actions ?? []) {
-    if (action.type === "set-variable") variables[action.variableId] = action.value;
-    else if (action.type === "increment-variable") {
-      const current = variables[action.variableId];
-      if (typeof current !== "number") throw new Error(`Cannot increment non-number variable: ${action.variableId}`);
-      const incremented = current + action.amount;
-      if (!Number.isFinite(incremented)) throw new Error(`Variable increment is not finite: ${action.variableId}`);
-      variables[action.variableId] = incremented;
+    if (action.operator === "set") {
+      variables[action.variableId] = action.value;
+      continue;
     }
+    const current = variables[action.variableId];
+    if (typeof current !== "number" || typeof action.value !== "number") throw new Error(`Cannot apply ${action.operator} to non-number variable: ${action.variableId}`);
+    const result = action.operator === "add" ? current + action.value
+      : action.operator === "subtract" ? current - action.value
+        : action.operator === "multiply" ? current * action.value
+          : current / action.value;
+    if (!Number.isFinite(result)) throw new Error(`Variable result is not finite: ${action.variableId}`);
+    variables[action.variableId] = result;
   }
   return variables;
 }
@@ -548,24 +548,9 @@ export function resolveStoryChoice(chapter: StoryChapter, state: StoryRuntimeSta
   return { ...state, nodeId: next.id, variables: applyRuntimeActions(state.variables, option.actions) };
 }
 
-export function countStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): number {
-  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + (option.actions ?? []).filter((action) => "variableId" in action && action.variableId === variableId).length, 0);
-}
-
-export function removeStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): StoryChoiceOption[] {
-  return options.map((option) => {
-    const actions = option.actions?.filter((action) => !("variableId" in action) || action.variableId !== variableId);
-    return {
-      ...option,
-      ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
-      ...(actions?.length ? { actions } : { actions: undefined }),
-    };
-  });
-}
-
 export function normalizeStoryVariableReferences(options: readonly StoryChoiceOption[], variables: ReadonlyMap<string, StoryVariable>): StoryChoiceOption[] {
   return options.map((option) => {
-    const actions = normalizeActions(option.actions ?? [], variables);
+    const actions = normalizeStoryActions(option.actions ?? [], variables);
     return {
       ...option,
       ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
@@ -574,13 +559,11 @@ export function normalizeStoryVariableReferences(options: readonly StoryChoiceOp
   });
 }
 
-function normalizeActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
+export function normalizeStoryActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
   return actions.reduce<StoryAction[]>((normalized, action) => {
     const variable = variables.get(action.variableId);
-    if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
-    normalized.push(action.type === "set-variable"
-      ? { ...action, value: variableValue(action.value, variable.type) }
-      : { ...action, amount: Number.isFinite(action.amount) ? action.amount : 0 });
+    if (!variable || (action.operator !== "set" && variable.type !== "number")) return normalized;
+    normalized.push({ ...action, value: variableValue(action.value, variable.type) });
     return normalized;
   }, []);
 }
@@ -650,8 +633,8 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
           ? `Connect the choice "${node.data.options.find((option) => option.id === handle)?.label || "Untitled option"}".`
           : node.type === "interaction" && handle !== "out"
               ? `Connect the ${handle} outcome in "${node.data.title || "Untitled interaction"}".`
-            : node.type === "project-state"
-              ? `Connect ${node.data.title || "Project State"} to the next story node.`
+            : node.type === "update-state"
+              ? `Connect ${node.data.title || "Update State"} to the next story node.`
               : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
       };
       const target = chapter.nodes.find((candidate) => candidate.id === edge.target);
@@ -667,7 +650,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data) ||
     !hasOnlyKeys(value, ["id", "type", "position", "data"])) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
-  if (value.type === "project-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
+  if (value.type === "update-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
   if (["open-ui", "scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "open-ui") {
@@ -845,8 +828,12 @@ function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>)
   if (!nonEmptyString(value.variableId)) return false;
   const variable = variables.get(value.variableId);
   if (!variable) return false;
-  if (value.type === "set-variable") return hasOnlyKeys(value, ["type", "variableId", "value"]) && variableValueMatches(variable.type, value.value);
-  return value.type === "increment-variable" && hasOnlyKeys(value, ["type", "variableId", "amount"]) && variable.type === "number" && typeof value.amount === "number" && Number.isFinite(value.amount);
+  if (value.type !== "update-variable" || !hasOnlyKeys(value, ["type", "variableId", "operator", "value"]) ||
+    !["set", "add", "subtract", "multiply", "divide"].includes(String(value.operator))) return false;
+  return value.operator === "set"
+    ? variableValueMatches(variable.type, value.value)
+    : variable.type === "number" && typeof value.value === "number" && Number.isFinite(value.value) &&
+      (value.operator !== "divide" || value.value !== 0);
 }
 
 function variableValueMatches(type: unknown, value: unknown): boolean {

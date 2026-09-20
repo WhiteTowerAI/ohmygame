@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "project-state" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -157,9 +157,14 @@ export interface StoryVariableCondition {
   value: StoryVariableValue;
 }
 
-export type StoryAction =
-  | { type: "set-variable"; variableId: string; value: StoryVariableValue }
-  | { type: "increment-variable"; variableId: string; amount: number };
+export type StoryVariableOperator = "set" | "add" | "subtract" | "multiply" | "divide";
+
+export interface StoryAction {
+  type: "update-variable";
+  variableId: string;
+  operator: StoryVariableOperator;
+  value: StoryVariableValue;
+}
 
 export interface StoryChoiceTimeout {
   durationMs: number;
@@ -237,7 +242,7 @@ export interface StoryTextGenerationResponse {
 
 export type StoryNode = (
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "project-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
+  | { id: string; type: "update-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
   | { id: string; type: "open-ui"; position: StoryPosition; data: {
     title: string;
     content: StoryOpenUiContent;

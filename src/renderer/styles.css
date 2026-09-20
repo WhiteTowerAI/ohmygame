@@ -3370,6 +3370,57 @@ button.home-nav-item-active:hover {
 .story-canvas-settings-dialog > footer {
   padding: 0 18px 18px;
 }
+.story-variables-dialog {
+  width: min(620px, 100%);
+}
+.story-variables-dialog header p {
+  margin: 3px 0 0;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.story-variables-content {
+  display: grid;
+  max-height: min(60vh, 520px);
+  gap: 8px;
+  overflow-y: auto;
+  padding: 18px;
+}
+.story-variable-headings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px minmax(0, 1fr) 24px;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+.story-variables-empty,
+.story-variables-error,
+.story-variables-note {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.story-variables-empty,
+.story-variables-note {
+  color: var(--text-faint);
+}
+.story-variables-error {
+  color: var(--danger);
+}
+.story-variables-dialog > footer {
+  padding: 0 18px 18px;
+}
+@media (max-width: 640px) {
+  .story-variable-headings {
+    display: none;
+  }
+  .story-state-variable {
+    grid-template-columns: minmax(0, 1fr) 82px 24px;
+  }
+  .story-state-variable > :nth-child(3) {
+    grid-column: 1 / 3;
+  }
+}
 .library-filters {
   display: flex;
   gap: 8px;
@@ -7728,13 +7779,18 @@ button {
   gap: 8px;
 }
 
-.interactive-drama-canvas-format {
+.interactive-drama-project-tools {
   display: inline-flex;
-  height: 30px;
   grid-column: 1;
   grid-row: 1;
-  align-items: center;
   justify-self: start;
+  gap: 6px;
+  app-region: no-drag;
+}
+.interactive-drama-project-tools > button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
   gap: 6px;
   padding: 0 9px;
   border: 1px solid var(--border);
@@ -7745,11 +7801,19 @@ button {
   font: inherit;
   font-size: 10px;
   font-weight: 600;
-  app-region: no-drag;
 }
-.interactive-drama-canvas-format:hover {
+.interactive-drama-project-tools > button:hover {
   border-color: var(--border-strong);
   color: var(--text);
+}
+.interactive-drama-project-tools > button > small {
+  min-width: 15px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-hover);
+  color: var(--text-faint);
+  font-size: 8px;
+  text-align: center;
 }
 
 .interactive-drama-action {
@@ -8606,47 +8670,6 @@ button {
   border-color: #8fa8ff;
 }
 
-.story-state-resource-list {
-  display: grid;
-  gap: 5px;
-}
-.story-state-resource-list > span {
-  display: flex;
-  min-width: 0;
-  justify-content: space-between;
-  gap: 10px;
-}
-.story-state-resource-list > span b {
-  overflow: hidden;
-  color: var(--text);
-  font:
-    500 9px / 1.3 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-state-resource-list > span small {
-  overflow: hidden;
-  color: var(--text-faint);
-  font:
-    8px / 1.3 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-state-resource-list > em {
-  color: var(--text-faint);
-  font-size: 9px;
-  font-style: normal;
-}
 .story-interaction-resource-label {
   display: flex;
   min-width: 0;
@@ -8704,47 +8727,29 @@ button {
   font-weight: 600;
 }
 
-.story-node-initial-state {
-  width: 280px;
+.story-node-update-state {
+  display: flex;
+  width: fit-content;
+  min-width: 112px;
+  max-width: 260px;
+  height: 40px;
+  align-items: center;
+  padding: 0 13px;
   overflow: visible;
-  border-color: #8a7e5f;
+  border-color: var(--border-strong);
   background: var(--surface-raised);
 }
 
-.story-node-initial-state > header {
-  display: flex;
+.story-node-update-state-label {
   min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.story-node-initial-state > header {
-  min-height: 36px;
-  padding: 0 11px;
-  border-bottom: 1px solid var(--border);
-}
-.story-node-initial-state > header > span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  overflow: hidden;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.story-node-initial-state > header > span > svg {
-  color: #b8aa7e;
-}
-.story-node-initial-state > header > small {
-  color: var(--text-faint);
-  font-size: 9px;
-}
-.story-node-initial-state > .story-state-resource-list {
-  display: grid;
-  gap: 5px;
-  padding: 8px 11px;
-}
-.story-node-initial-state.is-selected {
+.story-node-update-state.is-selected {
   border-color: var(--accent);
 }
 
@@ -9834,9 +9839,6 @@ button {
   padding: 16px 14px;
 }
 
-.story-state-inspector .story-inspector-content {
-  gap: 14px;
-}
 .story-state-editor-content {
   display: grid;
   min-height: 0;
@@ -9845,32 +9847,14 @@ button {
   overflow-y: auto;
   padding: 28px;
 }
-.story-state-editor-content > .story-state-inspector {
+.story-state-editor-content > .story-inspector-content {
   width: min(100%, 920px);
-  height: auto;
-  min-height: 0;
-  margin-top: 0;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface);
-}
-.story-state-editor-content > .story-state-inspector .story-inspector-content {
   overflow: visible;
   padding: 20px;
-}
-.story-state-fields {
-  display: grid;
-  gap: 8px;
-}
-.story-state-fields > span {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.story-state-fields > p {
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 10px;
 }
 .story-state-variable {
   display: grid;
@@ -10159,9 +10143,10 @@ button {
 
 .story-choice-action {
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr) 70px 24px;
-  gap: 5px;
+  grid-template-columns: 104px minmax(120px, 320px) minmax(72px, 100px) 28px;
+  gap: 7px;
   align-items: center;
+  justify-content: start;
 }
 
 .story-choice-action :is(input, select),
@@ -10179,10 +10164,22 @@ button {
   font-size: 9px;
 }
 
-.story-inspector-options .story-choice-action > button,
-.story-interaction-editor .story-choice-action > button {
-  width: 24px;
-  height: 24px;
+.story-choice-action > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.story-choice-action > button:hover {
+  background: var(--surface-hover);
+  color: var(--danger);
 }
 
 .story-choice-timeout {

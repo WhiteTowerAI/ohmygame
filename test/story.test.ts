@@ -3,7 +3,7 @@ import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } fr
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
   advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
-  getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
+  getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles,
@@ -28,15 +28,13 @@ describe("canonical Interactive Drama story", () => {
     expect(defaultStoryNodeSource("!!!").html).toMatch(/^nodes\/definition-[a-z0-9]+\/index\.html$/);
   });
 
-  it("creates a complete Start -> Open UI -> Project State -> Ending graph", () => {
+  it("creates a complete Start -> Open UI -> Ending graph", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
     const start = getStartNode(chapter)!;
-    const state = getProjectStateNode(chapter)!;
     const openUi = getNextNode(chapter, start.id)!;
     expect(openUi.type).toBe("open-ui");
-    expect(getNextNode(chapter, openUi.id)?.id).toBe(state.id);
-    expect(getNextNode(chapter, state.id)?.type).toBe("ending");
+    expect(getNextNode(chapter, openUi.id)?.type).toBe("ending");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
   });
@@ -65,10 +63,10 @@ describe("canonical Interactive Drama story", () => {
   it("allows incomplete editing state but rejects more than one Start", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    const state = getProjectStateNode(chapter)!;
-    chapter.nodes = chapter.nodes.filter((node) => node.id !== state.id);
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id && edge.target !== state.id);
-    delete story.editorLayout.nodes[state.id];
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    chapter.nodes = chapter.nodes.filter((node) => node.id !== ending.id);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== ending.id && edge.target !== ending.id);
+    delete story.editorLayout.nodes[ending.id];
     expect(isStoryDocument(story)).toBe(true);
 
     const second = createPlayableStoryDocument();
@@ -91,6 +89,11 @@ describe("canonical Interactive Drama story", () => {
     const ending = story.chapter.nodes.find((node) => node.type === "ending")!;
     ending.data = { ...ending.data, overlayIds: [] } as typeof ending.data;
     expect(isStoryDocument(story)).toBe(false);
+
+    const legacyState = createPlayableStoryDocument();
+    legacyState.chapter.nodes.push({ id: "legacy", type: "project-state", position: { x: 0, y: 0 }, data: { title: "Initial State", actions: [] } } as unknown as StoryNode);
+    legacyState.editorLayout.nodes.legacy = { x: 0, y: 0 };
+    expect(isStoryDocument(legacyState)).toBe(false);
   });
 
   it("requires non-empty unique variable names", () => {
@@ -116,6 +119,16 @@ describe("canonical Interactive Drama story", () => {
     expect("playerViews" in story).toBe(false);
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
     expect(story.chapter.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
+    const stateNodes = story.chapter.nodes.filter((node): node is Extract<StoryNode, { type: "update-state" }> => node.type === "update-state");
+    expect(stateNodes.map((node) => node.data.actions[0])).toEqual([
+      { type: "update-variable", variableId: story.variables[0]!.id, operator: "add", value: 1 },
+      { type: "update-variable", variableId: story.variables[0]!.id, operator: "subtract", value: 1 },
+    ]);
+    const choice = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "choice" }> => node.type === "choice")!;
+    expect(choice.data.options.every((option) => !option.actions)).toBe(true);
+    expect(choice.data.options.map((option) => getNextNode(story.chapter, choice.id, option.id)?.type)).toEqual(["update-state", "update-state"]);
+    expect(stateNodes.map((node) => getNextNode(story.chapter, node.id)?.type)).toEqual(["ending", "ending"]);
+    expect(getNextNode(story.chapter, story.chapter.nodes.find((node) => node.type === "open-ui")!.id)?.type).toBe("scene");
     expect(isStoryDocument(story)).toBe(true);
   });
 
@@ -163,13 +176,19 @@ describe("canonical Interactive Drama story", () => {
     expect(state.variables[story.variables.find((variable) => variable.name === "Courage")!.id]).toBe(3);
   });
 
-  it("applies Project State actions while advancing through the flow", () => {
+  it("applies Update State actions while advancing through the flow", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    const stateNode = getProjectStateNode(chapter)!;
+    const openUi = chapter.nodes.find((node) => node.type === "open-ui")!;
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    const stateNode: StoryNode = { id: "update", type: "update-state", position: { x: 500, y: 0 }, data: { title: "Raise score", actions: [] } };
+    chapter.nodes.push(stateNode);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id);
+    chapter.edges.push({ id: "open-update", source: openUi.id, target: stateNode.id }, { id: "update-ending", source: stateNode.id, target: ending.id });
+    story.editorLayout.nodes[stateNode.id] = stateNode.position;
     const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
     story.variables = [variable];
-    stateNode.data.actions = [{ type: "increment-variable", variableId: variable.id, amount: 2 }];
+    stateNode.data.actions = [{ type: "update-variable", variableId: variable.id, operator: "add", value: 2 }];
 
     let runtime = restartGame(chapter, story.variables);
     runtime = advanceOpenUi(chapter, runtime);
@@ -181,7 +200,7 @@ describe("canonical Interactive Drama story", () => {
   it("carries presentation media along the path actually played", () => {
     const variables: StoryDocument["variables"] = [];
     const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
-    const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
+    const initial: StoryNode = { id: "state", type: "update-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "own", items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: inheritedPresentation().surface } } };
     const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", outcomes: ["continue"], presentation: inheritedPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
@@ -205,13 +224,13 @@ describe("canonical Interactive Drama story", () => {
   it("validates image and video presentation media by their actual type", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    const state = getProjectStateNode(chapter)!;
+    const openUi = chapter.nodes.find((node) => node.type === "open-ui")!;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const image: StoryNode = { id: "image", type: "asset", position: { x: 200, y: 0 }, data: { assetId: "poster", mediaType: "image" } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 300, y: 0 }, data: { title: "Poster", presentation: { media: { mode: "own", items: [{ id: "poster-item", type: "image", source: { type: "node", nodeId: image.id } }] }, surface: inheritedPresentation().surface } } };
     chapter.nodes.push(image, scene);
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id);
-    chapter.edges.push({ id: "state-scene", source: state.id, target: scene.id }, { id: "scene-ending", source: scene.id, target: ending.id });
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id);
+    chapter.edges.push({ id: "open-scene", source: openUi.id, target: scene.id }, { id: "scene-ending", source: scene.id, target: ending.id });
     expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "image"]]) })).toBeUndefined();
     expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "video"]]) })?.nodeId).toBe(scene.id);
   });
@@ -246,21 +265,59 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("normalizes Choice references when variables are removed or retyped", () => {
-    const options = [{ id: "go", label: "Go", condition: { variableId: "score", operator: "greater-than" as const, value: 1 }, actions: [{ type: "increment-variable" as const, variableId: "score", amount: 2 }] }];
+    const options = [{ id: "go", label: "Go", condition: { variableId: "score", operator: "greater-than" as const, value: 1 }, actions: [{ type: "update-variable" as const, variableId: "score", operator: "add" as const, value: 2 }] }];
     expect(normalizeStoryVariableReferences(options, new Map())).toEqual([{ id: "go", label: "Go" }]);
     const normalized = normalizeStoryVariableReferences(options, new Map([["score", { id: "score", name: "score", type: "text", initialValue: "" }]]));
     expect(normalized[0]).toMatchObject({ condition: { operator: "equals", value: "" } });
     expect(normalized[0]!.actions).toBeUndefined();
   });
 
+  it("normalizes Update State actions when variables are removed or retyped", () => {
+    const actions = [
+      { type: "update-variable" as const, variableId: "score", operator: "set" as const, value: 1 },
+      { type: "update-variable" as const, variableId: "score", operator: "add" as const, value: 2 },
+    ];
+    expect(normalizeStoryActions(actions, new Map())).toEqual([]);
+    expect(normalizeStoryActions(actions, new Map([["score", { id: "score", name: "score", type: "text", initialValue: "" }]]))).toEqual([
+      { type: "update-variable", variableId: "score", operator: "set", value: "" },
+    ]);
+  });
+
   it("applies choice actions and follows the selected output", () => {
     const variables = [{ id: "score", name: "score", type: "number" as const, initialValue: 0 }];
-    const choice: StoryNode = { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "increment-variable", variableId: "score", amount: 2 }] }], presentation: inheritedPresentation() } };
+    const choice: StoryNode = { id: "choice", type: "choice", position: { x: 0, y: 0 }, data: { title: "Choose", options: [{ id: "go", label: "Go", actions: [{ type: "update-variable", variableId: "score", operator: "add", value: 2 }] }], presentation: inheritedPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 0, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
     const chapter: StoryChapter = { id: "chapter", title: "Chapter", nodes: [choice, ending], edges: [{ id: "edge", source: "choice", sourceHandle: "go", target: "ending" }] };
     const state = { ...createPlayerState(chapter.id, variables), mode: "playing" as const, nodeId: choice.id };
     expect(chooseOption(chapter, state, "go")).toMatchObject({ nodeId: "ending", variables: { score: 2 } });
     expect(applyStoryActions(choice.data.options[0]!.actions, { score: 1 })).toEqual({ score: 3 });
+  });
+
+  it("applies every Update State operator", () => {
+    expect(applyStoryActions([
+      { type: "update-variable", variableId: "score", operator: "add", value: 3 },
+      { type: "update-variable", variableId: "score", operator: "subtract", value: 1 },
+      { type: "update-variable", variableId: "score", operator: "multiply", value: 4 },
+      { type: "update-variable", variableId: "score", operator: "divide", value: 2 },
+      { type: "update-variable", variableId: "label", operator: "set", value: "ready" },
+    ], { score: 2, label: "waiting" })).toEqual({ score: 8, label: "ready" });
+    expect(() => applyStoryActions([
+      { type: "update-variable", variableId: "score", operator: "divide", value: 0 },
+    ], { score: 2 })).toThrow("Variable result is not finite: score");
+  });
+
+  it("rejects division by zero before playtest", () => {
+    const story = createPlayableStoryDocument();
+    const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
+    story.variables = [variable];
+    story.chapter.nodes.push({
+      id: "invalid-update",
+      type: "update-state",
+      position: { x: 0, y: 0 },
+      data: { title: "Invalid update", actions: [{ type: "update-variable", variableId: variable.id, operator: "divide", value: 0 }] },
+    });
+    story.editorLayout.nodes["invalid-update"] = { x: 0, y: 0 };
+    expect(isStoryDocument(story)).toBe(false);
   });
 
   it("replaces only the matching output edge", () => {

@@ -418,11 +418,11 @@ describe("remote publish", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
     chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
-    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
+    const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
-    if (!initialState || !ending) throw new Error("Playable story fixture is incomplete");
-    chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== initialState.id);
-    chapter.edges.push({ id: "state-scene", source: initialState.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
+    if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");
+    chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== openUi.id);
+    chapter.edges.push({ id: "open-scene", source: openUi.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
     syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
 
@@ -455,9 +455,6 @@ describe("remote publish", () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
     const story = createPlayableStoryDocument();
-    const chapter = story.chapter;
-    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
-    expect(initialState).toBeDefined();
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
