@@ -8753,6 +8753,48 @@ button {
   border-color: var(--accent);
 }
 
+.story-node-condition {
+  position: relative;
+  display: grid;
+  width: 220px;
+  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  overflow: visible;
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+.story-node-condition > svg {
+  color: var(--text-muted);
+}
+.story-node-condition-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-node-condition-outcome {
+  position: absolute;
+  right: 12px;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 600;
+}
+.story-node-condition-true {
+  top: 12px;
+}
+.story-node-condition-false {
+  bottom: 12px;
+}
+.story-node-condition.is-selected {
+  border-color: var(--accent);
+}
+
 .story-node-scene {
   width: var(--story-media-width, 440px);
 }

@@ -3,8 +3,8 @@ import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } fr
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
   advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
-  getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryVariableReferences,
-  parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
+  getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
+  matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
   restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles,
 } from "../src/shared/story.js";
@@ -127,9 +127,39 @@ describe("canonical Interactive Drama story", () => {
     const choice = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "choice" }> => node.type === "choice")!;
     expect(choice.data.options.every((option) => !option.actions)).toBe(true);
     expect(choice.data.options.map((option) => getNextNode(story.chapter, choice.id, option.id)?.type)).toEqual(["update-state", "update-state"]);
-    expect(stateNodes.map((node) => getNextNode(story.chapter, node.id)?.type)).toEqual(["ending", "ending"]);
+    expect(stateNodes.map((node) => getNextNode(story.chapter, node.id)?.type)).toEqual(["condition", "condition"]);
+    const condition = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "condition" }> => node.type === "condition")!;
+    expect(condition.data.condition).toEqual({ variableId: story.variables[0]!.id, operator: "greater-than-or-equal", value: 4 });
+    const trueEnding = getNextNode(story.chapter, condition.id, "true");
+    const falseEnding = getNextNode(story.chapter, condition.id, "false");
+    expect(trueEnding?.type === "ending" ? trueEnding.data.title : undefined).toBe("Into the Dawn");
+    expect(falseEnding?.type === "ending" ? falseEnding.data.title : undefined).toBe("One More Night");
     expect(getNextNode(story.chapter, story.chapter.nodes.find((node) => node.type === "open-ui")!.id)?.type).toBe("scene");
     expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("routes the starter Choice branches through state and Condition nodes", () => {
+    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const chapter = story.chapter;
+    let state = advanceOpenUi(chapter, restartGame(chapter, story.variables));
+    const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
+    state = { ...state, nodeId: getNextNode(chapter, scene.id)!.id, scenePlayback: undefined };
+    state = resolveInteractionNode(chapter, state, "success", [
+      { type: "set-variable", variable: "Found ticket", value: true },
+      { type: "increment-variable", variable: "Courage", amount: 1 },
+    ], story.variables);
+    state = resolveInteractionNode(chapter, state, "success", [
+      { type: "increment-variable", variable: "Courage", amount: 1 },
+    ], story.variables);
+    const choice = chapter.nodes.find((node): node is Extract<StoryNode, { type: "choice" }> => node.id === state.nodeId && node.type === "choice")!;
+    const take = choice.data.options.find((option) => option.label === "Take the train")!;
+    const stay = choice.data.options.find((option) => option.label === "Stay on the platform")!;
+    const takeResult = chooseOption(chapter, state, take.id);
+    const stayResult = chooseOption(chapter, state, stay.id);
+    const takeEnding = chapter.nodes.find((node): node is Extract<StoryNode, { type: "ending" }> => node.id === takeResult.nodeId && node.type === "ending");
+    const stayEnding = chapter.nodes.find((node): node is Extract<StoryNode, { type: "ending" }> => node.id === stayResult.nodeId && node.type === "ending");
+    expect(takeEnding?.data.title).toBe("Into the Dawn");
+    expect(stayEnding?.data.title).toBe("One More Night");
   });
 
   it("requires Interaction nodes to declare unique outcomes instead of a fixed behavior type", () => {
@@ -304,6 +334,78 @@ describe("canonical Interactive Drama story", () => {
     expect(() => applyStoryActions([
       { type: "update-variable", variableId: "score", operator: "divide", value: 0 },
     ], { score: 2 })).toThrow("Variable result is not finite: score");
+  });
+
+  it("follows Condition true and false outcomes automatically", () => {
+    const createConditionalStory = (score: number) => {
+      const story = createPlayableStoryDocument();
+      const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
+      const trueEnding = story.chapter.nodes.find((node) => node.type === "ending")!;
+      const falseEnding: StoryNode = { ...structuredClone(trueEnding), id: "false-ending", data: { ...trueEnding.data, title: "Try again" } };
+      const condition: StoryNode = {
+        id: "score-condition",
+        type: "condition",
+        position: { x: 500, y: 0 },
+        data: { title: "Enough score?", condition: { variableId: "score", operator: "greater-than-or-equal", value: 3 } },
+      };
+      story.variables = [{ id: "score", name: "Score", type: "number", initialValue: score }];
+      story.chapter.nodes.push(condition, falseEnding);
+      story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id);
+      story.chapter.edges.push(
+        { id: "open-condition", source: openUi.id, target: condition.id },
+        { id: "condition-true", source: condition.id, sourceHandle: "true", target: trueEnding.id },
+        { id: "condition-false", source: condition.id, sourceHandle: "false", target: falseEnding.id },
+      );
+      story.editorLayout.nodes[condition.id] = condition.position;
+      story.editorLayout.nodes[falseEnding.id] = falseEnding.position;
+      return story;
+    };
+
+    const passing = createConditionalStory(3);
+    expect(isStoryDocument(passing)).toBe(true);
+    const trueEnding = passing.chapter.nodes.find((node) => node.type === "ending" && node.id !== "false-ending")!;
+    expect(advanceOpenUi(passing.chapter, restartGame(passing.chapter, passing.variables)).nodeId).toBe(trueEnding.id);
+    const failing = createConditionalStory(2);
+    expect(advanceOpenUi(failing.chapter, restartGame(failing.chapter, failing.variables)).nodeId).toBe("false-ending");
+
+    const invalidHandle = structuredClone(passing);
+    invalidHandle.chapter.edges.find((edge) => edge.id === "condition-true")!.sourceHandle = "out";
+    expect(isStoryDocument(invalidHandle)).toBe(false);
+  });
+
+  it("stops automatic Condition and Update State loops", () => {
+    const story = createPlayableStoryDocument();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
+    const ending = story.chapter.nodes.find((node) => node.type === "ending")!;
+    const condition: StoryNode = { id: "loop-condition", type: "condition", position: { x: 400, y: 0 }, data: { title: "Loop?", condition: { variableId: "score", operator: "greater-than-or-equal", value: 0 } } };
+    const update: StoryNode = { id: "loop-update", type: "update-state", position: { x: 600, y: 0 }, data: { title: "Increase", actions: [{ type: "update-variable", variableId: "score", operator: "add", value: 1 }] } };
+    story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
+    story.chapter.nodes.push(condition, update);
+    story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id);
+    story.chapter.edges.push(
+      { id: "open-loop", source: openUi.id, target: condition.id },
+      { id: "loop-true", source: condition.id, sourceHandle: "true", target: update.id },
+      { id: "loop-false", source: condition.id, sourceHandle: "false", target: ending.id },
+      { id: "update-loop", source: update.id, target: condition.id },
+    );
+    story.editorLayout.nodes[condition.id] = condition.position;
+    story.editorLayout.nodes[update.id] = update.position;
+    expect(isStoryDocument(story)).toBe(true);
+    expect(validatePlayableChapter(story.chapter)).toBeUndefined();
+    expect(() => advanceOpenUi(story.chapter, restartGame(story.chapter, story.variables))).toThrow("Story has too many consecutive automatic nodes");
+  });
+
+  it("supports inclusive numeric conditions", () => {
+    expect(matchesStoryCondition({ variableId: "score", operator: "greater-than-or-equal", value: 3 }, { score: 3 })).toBe(true);
+    expect(matchesStoryCondition({ variableId: "score", operator: "less-than-or-equal", value: 3 }, { score: 3 })).toBe(true);
+  });
+
+  it("normalizes Condition references when variables are removed or retyped", () => {
+    const condition = { variableId: "score", operator: "greater-than-or-equal" as const, value: 3 };
+    expect(normalizeStoryCondition(condition)).toBeUndefined();
+    expect(normalizeStoryCondition(condition, { id: "score", name: "Status", type: "text", initialValue: "" })).toEqual({
+      variableId: "score", operator: "equals", value: "",
+    });
   });
 
   it("rejects division by zero before playtest", () => {

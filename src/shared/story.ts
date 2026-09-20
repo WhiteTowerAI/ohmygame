@@ -1,6 +1,7 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "update-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const MAX_AUTOMATIC_STORY_STEPS = 100;
 
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
@@ -210,6 +211,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const handle = edge.sourceHandle ?? "out";
     if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
       : source.type === "interaction" ? !source.data.outcomes.includes(handle)
+      : source.type === "condition" ? handle !== "true" && handle !== "false"
       : handle !== "out") return false;
     edgeIds.add(edge.id);
     outputs.add(output);
@@ -333,7 +335,7 @@ export function restoreStoryCheckpoint(
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "update-state" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else {
@@ -455,30 +457,48 @@ export function completeSceneMedia(chapter: StoryChapter, state: PlayerRuntimeSt
 }
 
 function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & { mode: "playing" }, node: StoryNode): PlayingRuntimeState {
-  const presentation = isPresentationNode(node) ? node.data.presentation : undefined;
-  const ownMedia = presentation?.media.mode === "own" ? presentation.media.items[0] : undefined;
-  const presentationMedia = presentation?.media.mode === "none"
-    ? undefined
-    : ownMedia
-      ? { nodeId: node.id, mediaId: ownMedia.id }
-      : state.presentationMedia;
-  const entered = {
-    ...state,
-    progress: addStoryProgress(state.progress, { nodeId: node.id, endingId: node.type === "ending" ? node.id : undefined }),
-    nodeId: node.id,
-    presentationMedia,
-    scenePlayback: undefined,
-  };
-  if (node.type === "update-state") {
-    const next = getNextNode(chapter, node.id);
-    if (!next) throw new Error("Update State is not connected");
-    return enterStoryNode(chapter, { ...entered, variables: applyRuntimeActions(entered.variables, node.data.actions) }, next);
+  let currentState = state;
+  let currentNode = node;
+  let automaticSteps = 0;
+  while (true) {
+    const presentation = isPresentationNode(currentNode) ? currentNode.data.presentation : undefined;
+    const ownMedia = presentation?.media.mode === "own" ? presentation.media.items[0] : undefined;
+    const presentationMedia = presentation?.media.mode === "none"
+      ? undefined
+      : ownMedia
+        ? { nodeId: currentNode.id, mediaId: ownMedia.id }
+        : currentState.presentationMedia;
+    const entered = {
+      ...currentState,
+      progress: addStoryProgress(currentState.progress, { nodeId: currentNode.id, endingId: currentNode.type === "ending" ? currentNode.id : undefined }),
+      nodeId: currentNode.id,
+      presentationMedia,
+      scenePlayback: undefined,
+    };
+    if (currentNode.type === "update-state") {
+      if (++automaticSteps > MAX_AUTOMATIC_STORY_STEPS) throw new Error("Story has too many consecutive automatic nodes");
+      const next = getNextNode(chapter, currentNode.id);
+      if (!next) throw new Error("Update State is not connected");
+      currentState = { ...entered, variables: applyRuntimeActions(entered.variables, currentNode.data.actions) };
+      currentNode = next;
+      continue;
+    }
+    if (currentNode.type === "condition") {
+      if (++automaticSteps > MAX_AUTOMATIC_STORY_STEPS) throw new Error("Story has too many consecutive automatic nodes");
+      if (!currentNode.data.condition) throw new Error("Condition is not configured");
+      const outcome = matchesStoryCondition(currentNode.data.condition, entered.variables) ? "true" : "false";
+      const next = getNextNode(chapter, currentNode.id, outcome);
+      if (!next) throw new Error(`Condition ${outcome} outcome is not connected`);
+      currentState = entered;
+      currentNode = next;
+      continue;
+    }
+    const media = currentNode.type === "scene" ? currentNode.data.presentation.media : undefined;
+    const firstMedia = media?.mode === "own" ? media.items[0] : undefined;
+    return currentNode.type === "scene" && firstMedia
+      ? { ...entered, scenePlayback: { mediaId: firstMedia.id, timeMs: 0 } }
+      : entered;
   }
-  const media = node.type === "scene" ? node.data.presentation.media : undefined;
-  const firstMedia = media?.mode === "own" ? media.items[0] : undefined;
-  return node.type === "scene" && firstMedia
-    ? { ...entered, scenePlayback: { mediaId: firstMedia.id, timeMs: 0 } }
-    : entered;
 }
 
 export function resolvePresentationMedia(chapter: StoryChapter, state: { presentationMedia?: PresentationMediaState }): StorySceneMedia | undefined {
@@ -511,7 +531,10 @@ export function matchesStoryCondition(condition: StoryVariableCondition | undefi
   if (condition.operator === "equals") return current === condition.value;
   if (condition.operator === "not-equals") return current !== condition.value;
   if (typeof current !== "number" || typeof condition.value !== "number") return false;
-  return condition.operator === "greater-than" ? current > condition.value : current < condition.value;
+  if (condition.operator === "greater-than") return current > condition.value;
+  if (condition.operator === "greater-than-or-equal") return current >= condition.value;
+  if (condition.operator === "less-than") return current < condition.value;
+  return current <= condition.value;
 }
 
 export function applyStoryActions(actions: readonly StoryAction[] | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
@@ -553,7 +576,7 @@ export function normalizeStoryVariableReferences(options: readonly StoryChoiceOp
     const actions = normalizeStoryActions(option.actions ?? [], variables);
     return {
       ...option,
-      ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
+      ...(option.condition ? { condition: normalizeStoryCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
       ...(actions.length ? { actions } : { actions: undefined }),
     };
   });
@@ -622,8 +645,10 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
       if (missing) return { nodeId: node.id, message: `Media used by this ${node.type} is missing from Library or has the wrong type.` };
     }
     if (node.type === "ending") continue;
+    if (node.type === "condition" && !node.data.condition) return { nodeId: node.id, message: `Configure "${node.data.title || "Condition"}" before playtesting.` };
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id)
       : node.type === "interaction" ? node.data.outcomes
+      : node.type === "condition" ? ["true", "false"]
       : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
@@ -633,6 +658,8 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
           ? `Connect the choice "${node.data.options.find((option) => option.id === handle)?.label || "Untitled option"}".`
           : node.type === "interaction" && handle !== "out"
               ? `Connect the ${handle} outcome in "${node.data.title || "Untitled interaction"}".`
+            : node.type === "condition"
+              ? `Connect the ${handle} outcome in "${node.data.title || "Condition"}".`
             : node.type === "update-state"
               ? `Connect ${node.data.title || "Update State"} to the next story node.`
               : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
@@ -652,6 +679,8 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   if (value.type === "start") return Object.keys(value.data).length === 0;
   if (value.type === "update-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
+  if (value.type === "condition") return typeof value.data.title === "string" && (value.data.condition === undefined || isCondition(value.data.condition, variables)) &&
+    hasOnlyKeys(value.data, ["title", "condition"]);
   if (["open-ui", "scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "open-ui") {
     const presentation = value.data.presentation as StoryNodePresentation;
@@ -803,13 +832,13 @@ function isOpenUiAction(value: unknown): value is StoryOpenUiAction {
 }
 
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["variableId", "operator", "value"]) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "less-than"].includes(String(value.operator))) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["variableId", "operator", "value"]) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "greater-than-or-equal", "less-than", "less-than-or-equal"].includes(String(value.operator))) return false;
   const variable = variables.get(value.variableId);
   return Boolean(variable && variableValueMatches(variable.type, value.value) &&
     (variable.type === "number" || value.operator === "equals" || value.operator === "not-equals"));
 }
 
-function normalizeCondition(condition: StoryVariableCondition, variable?: StoryVariable): StoryVariableCondition | undefined {
+export function normalizeStoryCondition(condition: StoryVariableCondition, variable?: StoryVariable): StoryVariableCondition | undefined {
   if (!variable) return undefined;
   const operator = variable.type === "number" || condition.operator === "equals" || condition.operator === "not-equals"
     ? condition.operator

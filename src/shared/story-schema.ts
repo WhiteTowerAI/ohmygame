@@ -52,7 +52,7 @@ const conditionSchema = {
   required: ["variableId", "operator", "value"],
   properties: {
     variableId: id,
-    operator: { enum: ["equals", "not-equals", "greater-than", "less-than"] },
+    operator: { enum: ["equals", "not-equals", "greater-than", "greater-than-or-equal", "less-than", "less-than-or-equal"] },
     value: {},
   },
 } as const;
@@ -110,6 +110,10 @@ const nodes = [
   node("update-state", {
     type: "object", additionalProperties: false, required: ["title", "actions"],
     properties: { title: { type: "string" }, actions: { type: "array", items: action } },
+  }),
+  node("condition", {
+    type: "object", additionalProperties: false, required: ["title"],
+    properties: { title: { type: "string" }, condition },
   }),
   node("open-ui", {
     type: "object", additionalProperties: false, required: ["title", "content", "presentation"],

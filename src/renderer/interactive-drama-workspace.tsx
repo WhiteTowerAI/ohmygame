@@ -108,7 +108,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryActions, normalizeStoryVariableReferences, openUiRuntimeContent, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -197,6 +197,7 @@ const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       ] },
       { label: "Choice", description: "Branch into player options", icon: GitBranch, action: { kind: "node", type: "choice" } },
       { label: "Update State", description: "Apply variable changes in the flow", icon: Wrench, action: { kind: "node", type: "update-state" } },
+      { label: "Condition", description: "Branch automatically by variable value", icon: GitBranch, action: { kind: "node", type: "condition" } },
       { label: "Ending", description: "Finish this story path", icon: CircleStop, action: { kind: "node", type: "ending" } },
     ],
   },
@@ -254,6 +255,7 @@ type StoryFlowData = {
   presentation?: StoryNodePresentation;
   outcomes?: string[];
   actions?: StoryAction[];
+  condition?: StoryVariableCondition;
   content?: StoryOpenUiContent;
   scenePreview?: SceneCanvasPreviewData;
   inheritedScenePreview?: InheritedScenePreviewData;
@@ -319,6 +321,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   "open-ui": OpenUiNode,
   start: StartNode,
   "update-state": UpdateStateNode,
+  condition: ConditionNode,
   scene: SceneNode,
   interaction: InteractionNode,
   choice: ChoiceNode,
@@ -776,6 +779,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const normalizeNode = <T extends StoryFlowNode | StoryNode>(node: T): T => {
       if (node.type === "choice") return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options ?? [], definitions) } } as T;
       if (node.type === "update-state") return { ...node, data: { ...node.data, actions: normalizeStoryActions(node.data.actions ?? [], definitions) } } as T;
+      if (node.type === "condition") return { ...node, data: { ...node.data, condition: node.data.condition ? normalizeStoryCondition(node.data.condition, definitions.get(node.data.condition.variableId)) : undefined } } as T;
       return node;
     };
     setNotice(undefined);
@@ -1041,6 +1045,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       };
     }
     if (node.type === "update-state") return {
+      ...node,
+      data: { ...node.data, variables },
+    };
+    if (node.type === "condition") return {
       ...node,
       data: { ...node.data, variables },
     };
@@ -1392,6 +1400,13 @@ function UpdateStateEditorPage({ node, variables, onNodeChange }: { node: StoryF
   </div></main>;
 }
 
+function ConditionEditorPage({ node, variables, onNodeChange }: { node: StoryFlowNode; variables: StoryVariable[]; onNodeChange: (data: StoryFlowData) => void }) {
+  return <main className="story-state-editor-content"><div className="story-inspector-content">
+    <InspectorField label="Title"><input maxLength={120} value={node.data.title ?? ""} onChange={(event) => onNodeChange({ ...node.data, title: event.target.value })} /></InspectorField>
+    <ChoiceConditionRule variables={variables} value={node.data.condition} label="Condition" emptyLabel="Select variable" onChange={(condition) => onNodeChange({ ...node.data, condition })} />
+  </div></main>;
+}
+
 function OpenUiNode({ data, selected }: NodeProps<StoryCanvasNode>) {
   const config = data.playerConfig ?? DEFAULT_STORY_PLAYER_CONFIG;
   const preview = data.openUiPreview;
@@ -1464,6 +1479,19 @@ function UpdateStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "dat
     <Handle type="target" position={Position.Left} />
     <span className="story-node-update-state-label" title={label}>{label}</span>
     <Handle id={OUTPUT_HANDLE} type="source" position={Position.Right} />
+  </div>;
+}
+
+function ConditionNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
+  const label = data.condition ? storyConditionSummary(data.condition, data.variables ?? []) : data.title?.trim() || "Condition";
+  return <div data-alignment-frame className={`story-node story-node-condition${selected ? " is-selected" : ""}`}>
+    <Handle type="target" position={Position.Left} />
+    <GitBranch size={14} />
+    <span className="story-node-condition-label" title={label}>{label}</span>
+    <span className="story-node-condition-outcome story-node-condition-true">True</span>
+    <Handle className="story-condition-output-handle" id="true" type="source" position={Position.Right} style={{ top: "32%" }} />
+    <span className="story-node-condition-outcome story-node-condition-false">False</span>
+    <Handle className="story-condition-output-handle" id="false" type="source" position={Position.Right} style={{ top: "68%" }} />
   </div>;
 }
 
@@ -2194,7 +2222,7 @@ function ChoiceConditionRule({ variables, value, onChange, label = "Show when", 
     const next = variables.find((candidate) => candidate.id === event.target.value);
     onChange(next ? { variableId: next.id, operator: "equals", value: defaultVariableValue(next.type) } : undefined);
   }}><option value="">{emptyLabel}</option>{variables.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name || "Unnamed variable"}</option>)}</select>{variable && value ? <><select value={value.operator} onChange={(event) => onChange({ ...value, operator: event.target.value as StoryVariableCondition["operator"] })}>
-    <option value="equals">is</option><option value="not-equals">is not</option>{variable.type === "number" ? <><option value="greater-than">is greater than</option><option value="less-than">is less than</option></> : null}
+    <option value="equals">is</option><option value="not-equals">is not</option>{variable.type === "number" ? <><option value="greater-than">is greater than</option><option value="greater-than-or-equal">is at least</option><option value="less-than">is less than</option><option value="less-than-or-equal">is at most</option></> : null}
   </select><VariableValueInput variable={variable} value={value.value} label="Condition value" onChange={(next) => onChange({ ...value, value: next })} /></> : null}</div>;
 }
 
@@ -2286,6 +2314,7 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
     {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} nodes={nodes} config={config} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
       : node?.type === "update-state" ? <UpdateStateEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
+      : node?.type === "condition" ? <ConditionEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
       : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
       : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
       : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
@@ -3553,7 +3582,7 @@ function ZoomControls() {
 }
 
 function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
-  if (node.type === "update-state" || node.type === "open-ui") return { ...node, deletable: true };
+  if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
   if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, ...(node.data.timeout ? { interactionTimeout: node.data.timeout } : {}), presentation: node.data.presentation } };
@@ -3602,6 +3631,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   const id = crypto.randomUUID();
   if (type === "start") return { id, type, position, data: {} };
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
+  if (type === "condition") return { id, type, position, data: { title: "Condition" } };
   if (type === "open-ui") return { id, type, position, data: { title: "Open UI", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (type === "text") return { id, type, position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
   if (type === "choice") return {
@@ -3696,6 +3726,7 @@ function normalizeVariableValue(value: StoryVariableValue, type: StoryVariableTy
 function toStoryNode(node: StoryFlowNode): StoryNode {
   if (node.type === "start") return { id: node.id, type: "start", position: node.position, data: {} };
   if (node.type === "update-state") return { id: node.id, type: "update-state", position: node.position, data: { title: node.data.title ?? "Update State", actions: node.data.actions ?? [] } };
+  if (node.type === "condition") return { id: node.id, type: "condition", position: node.position, data: { title: node.data.title ?? "Condition", ...(node.data.condition ? { condition: node.data.condition } : {}) } };
   if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (node.type === "asset") return {
     id: node.id,
@@ -3900,7 +3931,11 @@ function storyActionSummary(actions: readonly StoryAction[] | undefined, variabl
 function storyConditionSummary(condition: StoryVariableCondition | undefined, variables: readonly StoryVariable[]): string {
   if (!condition) return "Always";
   const name = variables.find((variable) => variable.id === condition.variableId)?.name || "Variable";
-  const operator = condition.operator === "equals" ? "=" : condition.operator === "not-equals" ? "≠" : condition.operator === "greater-than" ? ">" : "<";
+  const operator = condition.operator === "equals" ? "="
+    : condition.operator === "not-equals" ? "≠"
+      : condition.operator === "greater-than" ? ">"
+        : condition.operator === "greater-than-or-equal" ? "≥"
+          : condition.operator === "less-than" ? "<" : "≤";
   return `${name} ${operator} ${String(condition.value)}`;
 }
 
@@ -3919,6 +3954,7 @@ function storyVariableUsageCounts(nodes: readonly StoryFlowNode[]): Record<strin
     if (node.type === "update-state") {
       for (const action of node.data.actions ?? []) add(action.variableId);
     }
+    if (node.type === "condition" && node.data.condition) add(node.data.condition.variableId);
     if (node.type === "choice") {
       for (const option of node.data.options ?? []) {
         if (option.condition) add(option.condition.variableId);
@@ -3939,6 +3975,7 @@ function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
 function hasNodeEditor(node: StoryFlowNode): boolean {
   return node.type === "open-ui"
     || node.type === "update-state"
+    || node.type === "condition"
     || node.type === "scene"
     || node.type === "interaction"
     || node.type === "choice"

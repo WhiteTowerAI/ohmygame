@@ -23,6 +23,7 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 - node IDs are unique;
 - edges reference nodes in the same chapter;
 - Choice handles match option IDs;
+- Condition handles are exactly \`"true"\` and \`"false"\`;
 - the chapter has at most one Start node;
 - IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
 - Choice timeouts reference an option in the same Choice;
@@ -35,6 +36,8 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
 
 Choice and Update State actions use \`type: "update-variable"\` with an \`operator\` of \`"set"\`, \`"add"\`, \`"subtract"\`, \`"multiply"\`, or \`"divide"\`. Only \`"set"\` supports Text and Boolean Variables; arithmetic operators require a Number Variable and numeric \`value\`.
+
+A Condition node reads one declared Variable and immediately follows its \`"true"\` or \`"false"\` edge. Number conditions support equality plus \`"greater-than"\`, \`"greater-than-or-equal"\`, \`"less-than"\`, and \`"less-than-or-equal"\`; Text and Boolean conditions support equality only.
 
 The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the existing view and viewport unless the user explicitly asks to change them.
 
@@ -62,6 +65,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
 - Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
 - \`variables[].initialValue\` is the only source of new-game state. Use an Update State node only for changes that happen while the story is running.
+- Use a Condition node for automatic variable-based branching; its outgoing edges use \`"true"\` and \`"false"\` as \`sourceHandle\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.

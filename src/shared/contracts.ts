@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -153,7 +153,7 @@ export interface StoryVariable {
 
 export interface StoryVariableCondition {
   variableId: string;
-  operator: "equals" | "not-equals" | "greater-than" | "less-than";
+  operator: "equals" | "not-equals" | "greater-than" | "greater-than-or-equal" | "less-than" | "less-than-or-equal";
   value: StoryVariableValue;
 }
 
@@ -243,6 +243,7 @@ export interface StoryTextGenerationResponse {
 export type StoryNode = (
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
   | { id: string; type: "update-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
+  | { id: string; type: "condition"; position: StoryPosition; data: { title: string; condition?: StoryVariableCondition } }
   | { id: string; type: "open-ui"; position: StoryPosition; data: {
     title: string;
     content: StoryOpenUiContent;

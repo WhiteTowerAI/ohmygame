@@ -15,6 +15,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   const choiceId = id();
   const leaveStateId = id();
   const stayStateId = id();
+  const courageConditionId = id();
   const leaveEndingId = id();
   const stayEndingId = id();
   const mediaId = id();
@@ -40,8 +41,9 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         [choiceId]: { x: 1_940, y: 210 },
         [leaveStateId]: { x: 2_300, y: 120 },
         [stayStateId]: { x: 2_300, y: 360 },
-        [leaveEndingId]: { x: 2_580, y: 100 },
-        [stayEndingId]: { x: 2_580, y: 340 },
+        [courageConditionId]: { x: 2_580, y: 210 },
+        [leaveEndingId]: { x: 2_900, y: 100 },
+        [stayEndingId]: { x: 2_900, y: 340 },
       },
       viewport: { x: 40, y: 90, zoom: 0.45 },
       view: "canvas",
@@ -121,15 +123,21 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
           data: { title: "Lose courage", actions: [{ type: "update-variable", variableId: courageId, operator: "subtract", value: 1 }] },
         },
         {
+          id: courageConditionId,
+          type: "condition",
+          position: { x: 2_580, y: 210 },
+          data: { title: "Enough courage?", condition: { variableId: courageId, operator: "greater-than-or-equal", value: 4 } },
+        },
+        {
           id: leaveEndingId,
           type: "ending",
-          position: { x: 2_580, y: 100 },
+          position: { x: 2_900, y: 100 },
           data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
         {
           id: stayEndingId,
           type: "ending",
-          position: { x: 2_580, y: 340 },
+          position: { x: 2_900, y: 340 },
           data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
       ],
@@ -143,8 +151,10 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         { id: id(), source: qteId, sourceHandle: "timeout", target: choiceId },
         { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveStateId },
         { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayStateId },
-        { id: id(), source: leaveStateId, target: leaveEndingId },
-        { id: id(), source: stayStateId, target: stayEndingId },
+        { id: id(), source: leaveStateId, target: courageConditionId },
+        { id: id(), source: stayStateId, target: courageConditionId },
+        { id: id(), source: courageConditionId, sourceHandle: "true", target: leaveEndingId },
+        { id: id(), source: courageConditionId, sourceHandle: "false", target: stayEndingId },
       ],
     },
   };

@@ -129,6 +129,7 @@ describe("Interactive Drama project codebase", () => {
     expect(instructions).toContain("start -> open-ui -> scene -> choice -> update-state -> scene -> interaction -> ending-a / ending-b");
     expect(instructions).toContain("variables[].initialValue");
     expect(instructions).toContain("Update State node only when");
+    expect(instructions).toContain("Condition node for automatic variable-based branching");
     expect(instructions).toContain("Declare at least one Variable");
     expect(instructions).toContain("do not add nodes merely to demonstrate every available feature");
     expect(instructions).toContain("invoke an OhMyGame source parser");
