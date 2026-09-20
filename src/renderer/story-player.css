@@ -18,7 +18,6 @@ button { font: inherit; }
 .story-player-menu { position: relative; place-items: center; overflow: hidden; }
 .story-player-menu-stage { position: relative; width: 100%; height: 100%; overflow: hidden; background-position: center; background-size: cover; }
 .story-player-menu-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.story-player-menu-stage::after { position: absolute; inset: 0; background: rgb(0 0 0 / 42%); content: ""; pointer-events: none; }
 .story-player-menu-screen { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; }
 .story-player-menu-content { position: relative; z-index: 1; display: flex; width: min(620px, calc(100% - 48px)); flex-direction: column; align-items: center; text-align: center; }
 .story-player-menu-content > span, .story-player-pause-layer span { font-size: 11px; font-weight: 700; text-transform: uppercase; }

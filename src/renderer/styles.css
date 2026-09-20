@@ -8075,13 +8075,6 @@ button {
   height: 100%;
   object-fit: cover;
 }
-.story-player-menu-stage::after {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 42%);
-  content: "";
-  pointer-events: none;
-}
 .story-player-menu-screen {
   position: absolute;
   z-index: 1;
