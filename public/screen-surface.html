@@ -37,6 +37,7 @@
             });
             await screenModule.render({ content: Object.freeze(data.content), actions, root: document });
             document.documentElement.dataset.screenSurfaceReady = "ready";
+            post(data.instanceId, "ready");
           } catch (error) {
             post(data.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
           }

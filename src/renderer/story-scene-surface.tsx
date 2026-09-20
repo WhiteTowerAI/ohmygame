@@ -33,13 +33,14 @@ interface SceneSurfaceMessage {
   message?: string;
 }
 
-export function StorySceneSurface({ files, context, mode, title, className, viewport, onAction, onError }: {
+export function StorySceneSurface({ files, context, mode, title, className, viewport, onReady, onAction, onError }: {
   files: StorySurfaceFiles;
   context: StorySceneSurfaceContext;
   mode: "preview" | "runtime";
   title: string;
   className?: string;
   viewport: { width: number; height: number };
+  onReady?: () => void;
   onAction?: (action: StoryNodeSurfaceAction) => void;
   onError?: (message?: string) => void;
 }) {
@@ -48,22 +49,26 @@ export function StorySceneSurface({ files, context, mode, title, className, view
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
   const [ready, setReady] = useState(false);
+  const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
   const onActionRef = useRef(onAction);
   const contextRef = useRef(context);
   contextRef.current = context;
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
-  useEffect(() => { onActionRef.current = onAction; }, [onAction]);
+  onReadyRef.current = onReady;
+  onErrorRef.current = onError;
+  onActionRef.current = onAction;
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isSceneSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
       if (event.data.type === "ready") {
         setReady(true);
         onErrorRef.current?.(undefined);
+        onReadyRef.current?.();
       } else if (event.data.type === "action" && event.data.action) {
         onActionRef.current?.(event.data.action);
       } else {
         onErrorRef.current?.(event.data.message ?? "Scene code failed");
+        onReadyRef.current?.();
       }
     };
     window.addEventListener("message", receive);

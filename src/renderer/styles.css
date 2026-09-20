@@ -8165,6 +8165,24 @@ button {
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
 }
 
+.story-player-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.story-player-frame.is-ready,
+.story-player-frame.is-previous {
+  opacity: 1;
+}
+
+.story-player-frame.is-ready {
+  pointer-events: auto;
+}
+
 .story-player-bottom .story-player-choice {
   align-self: end;
 }

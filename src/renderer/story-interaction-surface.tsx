@@ -10,19 +10,20 @@ export interface StoryInteractionRuntimeContext {
 interface EventSurfaceMessage {
   channel: "ohmygame:interaction-surface";
   instanceId: string;
-  type: "complete" | "error";
+  type: "ready" | "complete" | "error";
   result?: string;
   commands?: StoryInteractionCommand[];
   message?: string;
 }
 
-export function StoryInteractionSurface({ files, mode, context, title, className, viewport, onComplete, onError }: {
+export function StoryInteractionSurface({ files, mode, context, title, className, viewport, onReady, onComplete, onError }: {
   files: StorySurfaceFiles;
   mode: "preview" | "runtime";
   context?: StoryInteractionRuntimeContext;
   title: string;
   className?: string;
   viewport: { width: number; height: number };
+  onReady?: () => void;
   onComplete?: (result: string, commands: StoryInteractionCommand[]) => void;
   onError?: (message: string) => void;
 }) {
@@ -30,15 +31,21 @@ export function StoryInteractionSurface({ files, mode, context, title, className
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
+  const onReadyRef = useRef(onReady);
   const onCompleteRef = useRef(onComplete);
   const onErrorRef = useRef(onError);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  onReadyRef.current = onReady;
+  onCompleteRef.current = onComplete;
+  onErrorRef.current = onError;
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
-      if (event.data.type === "complete") onCompleteRef.current?.(event.data.result ?? "continue", event.data.commands ?? []);
-      else onErrorRef.current?.(event.data.message ?? "Interaction code failed");
+      if (event.data.type === "ready") onReadyRef.current?.();
+      else if (event.data.type === "complete") onCompleteRef.current?.(event.data.result ?? "continue", event.data.commands ?? []);
+      else {
+        onErrorRef.current?.(event.data.message ?? "Interaction code failed");
+        onReadyRef.current?.();
+      }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
@@ -53,5 +60,5 @@ export function StoryInteractionSurface({ files, mode, context, title, className
 function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<EventSurfaceMessage>;
-  return message.channel === "ohmygame:interaction-surface" && typeof message.instanceId === "string" && (message.type === "complete" || message.type === "error");
+  return message.channel === "ohmygame:interaction-surface" && typeof message.instanceId === "string" && (message.type === "ready" || message.type === "complete" || message.type === "error");
 }

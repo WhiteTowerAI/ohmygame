@@ -6,18 +6,19 @@ import { StorySurfaceViewport } from "./story-surface-viewport.js";
 interface ScreenSurfaceMessage {
   channel: "ohmygame:screen-surface";
   instanceId: string;
-  type: "action" | "error";
+  type: "ready" | "action" | "error";
   action?: StoryOpenUiAction;
   message?: string;
 }
 
-export function StoryScreenSurface({ files, content, mode, title, className, viewport, onAction, onError }: {
+export function StoryScreenSurface({ files, content, mode, title, className, viewport, onReady, onAction, onError }: {
   files: StorySurfaceFiles;
   content: unknown;
   mode: "preview" | "runtime";
   title: string;
   className?: string;
   viewport: { width: number; height: number };
+  onReady?: () => void;
   onAction?: (action: StoryOpenUiAction) => void;
   onError?: (message: string) => void;
 }) {
@@ -25,15 +26,21 @@ export function StoryScreenSurface({ files, content, mode, title, className, vie
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loaded, setLoaded] = useState(false);
+  const onReadyRef = useRef(onReady);
   const onActionRef = useRef(onAction);
   const onErrorRef = useRef(onError);
-  useEffect(() => { onActionRef.current = onAction; }, [onAction]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  onReadyRef.current = onReady;
+  onActionRef.current = onAction;
+  onErrorRef.current = onError;
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isScreenSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
-      if (event.data.type === "action" && event.data.action) onActionRef.current?.(event.data.action);
-      else if (event.data.type === "error") onErrorRef.current?.(event.data.message ?? "Screen code failed");
+      if (event.data.type === "ready") onReadyRef.current?.();
+      else if (event.data.type === "action" && event.data.action) onActionRef.current?.(event.data.action);
+      else if (event.data.type === "error") {
+        onErrorRef.current?.(event.data.message ?? "Screen code failed");
+        onReadyRef.current?.();
+      }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
@@ -48,5 +55,5 @@ export function StoryScreenSurface({ files, content, mode, title, className, vie
 function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<ScreenSurfaceMessage>;
-  return message.channel === "ohmygame:screen-surface" && typeof message.instanceId === "string" && (message.type === "action" || message.type === "error");
+  return message.channel === "ohmygame:screen-surface" && typeof message.instanceId === "string" && (message.type === "ready" || message.type === "action" || message.type === "error");
 }

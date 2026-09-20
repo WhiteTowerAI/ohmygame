@@ -28,7 +28,7 @@ function PublishedPlayer() {
   const [story, setStory] = useState<StoryDocument>();
   const [runtime, setRuntime] = useState<PlayerRuntimeState>();
   const [paused, setPaused] = useState(false);
-  const [playerKey, setPlayerKey] = useState(0);
+  const [playbackKey, setPlaybackKey] = useState(0);
   const [hasCheckpoint, setHasCheckpoint] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "error">();
   const [manifest, setManifest] = useState<PublishedStoryManifest>();
@@ -84,7 +84,7 @@ function PublishedPlayer() {
     return () => window.clearTimeout(timeout);
   }, [saveStatus]);
 
-  const resetPlayer = useCallback(() => setPlayerKey((value) => value + 1), []);
+  const resetPlayer = useCallback(() => setPlaybackKey((value) => value + 1), []);
   const startNewGame = useCallback(() => {
     if (!chapter) return;
     if (checkpoint.current && !window.confirm("Start a new game? Your current progress will be replaced.")) return;
@@ -117,8 +117,10 @@ function PublishedPlayer() {
     if (chapter) setRuntime((current) => current ? advanceSceneTime(chapter, current, mediaId, timeMs) : current);
   }, [chapter]);
   const onMediaComplete = useCallback((mediaId: string, durationMs: number) => {
-    if (chapter) setRuntime((current) => current ? completeSceneMedia(chapter, current, mediaId, durationMs) : current);
-  }, [chapter]);
+    if (!chapter) return;
+    setRuntime((current) => current ? completeSceneMedia(chapter, current, mediaId, durationMs) : current);
+    resetPlayer();
+  }, [chapter, resetPlayer]);
   const onChoice = useCallback((optionId: string) => {
     if (!chapter) return;
     setRuntime((current) => current ? chooseOption(chapter, current, optionId) : current);
@@ -140,12 +142,12 @@ function PublishedPlayer() {
   } as CSSProperties;
   const node = chapter.nodes.find((candidate) => candidate.id === runtime.nodeId);
   return <main className="story-playtest-page" style={style}><InteractiveDramaPlayer
-    key={playerKey}
     chapter={chapter}
     variables={variables}
     config={config}
     node={node}
     runtime={runtime}
+    playbackKey={playbackKey}
     progressFacts={checkpoint.current?.progress}
     paused={paused}
     hasCheckpoint={hasCheckpoint}

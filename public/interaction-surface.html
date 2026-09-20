@@ -42,6 +42,7 @@
             const variables = { ...(data.context?.variables || {}) };
             const ui = createUi(document, signal);
             const game = createGame(data.mode, variables, commands);
+            post(data.instanceId, "ready");
             const result = await interactionModule.run({ ui, game, signal });
             post(data.instanceId, "complete", { result: typeof result === "string" ? result : "continue", commands: data.mode === "runtime" ? commands : [] });
           } catch (error) {
