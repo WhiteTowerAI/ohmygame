@@ -6,7 +6,7 @@ export const INTERACTIVE_DRAMA_STARTER = {
   name: "Last Train Home",
 } as const;
 
-export function createInteractiveDramaStarterStory(assets: { videoId: string }, title: string = INTERACTIVE_DRAMA_STARTER.name): StoryDocument {
+export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_DRAMA_STARTER.name): StoryDocument {
   const id = () => crypto.randomUUID();
   const chapterId = id();
   const startId = id();
@@ -18,7 +18,6 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   const courageConditionId = id();
   const leaveEndingId = id();
   const stayEndingId = id();
-  const mediaId = id();
   const hotspotId = id();
   const qteId = id();
   const courageId = id();
@@ -72,7 +71,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
           data: {
             title: "The empty platform",
             presentation: {
-              media: { mode: "own", items: [{ id: mediaId, type: "video", source: { type: "library", assetId: assets.videoId } }] },
+              media: { mode: "own", items: [] },
               surface: { files: starterSceneSurfaceFiles(courageId) },
             },
           },

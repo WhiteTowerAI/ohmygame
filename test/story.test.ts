@@ -112,13 +112,15 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("ships a starter whose visible nodes own media and code", () => {
-    const story = createInteractiveDramaStarterStory({ videoId: "video" }, "Midnight Run");
+    const story = createInteractiveDramaStarterStory("Midnight Run");
     const visible = story.chapter.nodes.filter(isVisibleNode);
     expect("interactions" in story).toBe(false);
     expect("overlays" in story).toBe(false);
     expect("playerViews" in story).toBe(false);
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
     expect(story.chapter.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
+    const scene = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "scene" }> => node.type === "scene")!;
+    expect(scene.data.presentation.media).toEqual({ mode: "own", items: [] });
     const stateNodes = story.chapter.nodes.filter((node): node is Extract<StoryNode, { type: "update-state" }> => node.type === "update-state");
     expect(stateNodes.map((node) => node.data.actions[0])).toEqual([
       { type: "update-variable", variableId: story.variables[0]!.id, operator: "add", value: 1 },
@@ -139,7 +141,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("routes the starter Choice branches through state and Condition nodes", () => {
-    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const story = createInteractiveDramaStarterStory();
     const chapter = story.chapter;
     let state = advanceOpenUi(chapter, restartGame(chapter, story.variables));
     const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
@@ -163,7 +165,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("requires Interaction nodes to declare unique outcomes instead of a fixed behavior type", () => {
-    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const story = createInteractiveDramaStarterStory();
     const interaction = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.type === "interaction")!;
     interaction.data.outcomes = ["custom", "custom"];
     expect(isStoryDocument(story)).toBe(false);
@@ -174,7 +176,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("validates Interaction time limits against their declared outcomes", () => {
-    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const story = createInteractiveDramaStarterStory();
     const interaction = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.type === "interaction")!;
     expect(interaction.data.timeout).toEqual({ durationMs: 3_000, outcome: "timeout" });
     expect(isStoryDocument(story)).toBe(true);
@@ -190,7 +192,7 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("runs Interaction code commands and graph outcomes", () => {
-    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const story = createInteractiveDramaStarterStory();
     const chapter = story.chapter;
     let state = restartGame(chapter, story.variables);
     state = advanceOpenUi(chapter, state);

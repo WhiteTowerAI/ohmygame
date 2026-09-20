@@ -1172,7 +1172,6 @@ export function createApp(options: AppOptions = {}) {
         const project = await createInteractiveDramaStarterProject(
           interactiveDramaExamplesDirectory,
           projects,
-          library,
           request.body.name,
           request.body.workspacePath,
         );
