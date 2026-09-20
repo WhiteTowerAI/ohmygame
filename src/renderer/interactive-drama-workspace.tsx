@@ -83,7 +83,6 @@ import {
   type RunImageToolRequest,
   type RunVideoToolRequest,
   type StoryAction,
-  type StoryChapter,
   type StoryChoiceTimeout,
   type StoryChoiceOption,
   type StoryDocument,
@@ -364,7 +363,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
   const canvas = useRef<HTMLDivElement>(null);
   const reactFlow = useRef<ReactFlowInstance<StoryCanvasNode>>(null);
-  const remainingChapters = useRef<StoryChapter[]>([]);
   const latestStory = useRef<StoryDocument | undefined>(undefined);
   const queuedStory = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
@@ -392,18 +390,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setCopiedNode(undefined);
     void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(([story, assets, models]) => {
       if (disposed) return;
-      const firstChapter = story.chapters[0];
-      if (!firstChapter) throw new Error("Story has no chapters");
-      setChapter({ id: firstChapter.id, title: firstChapter.title });
+      const loadedChapter = story.chapter;
+      setChapter({ id: loadedChapter.id, title: loadedChapter.title });
       setVariables(story.variables);
       setPlayer(story.player);
-      setNodes(firstChapter.nodes.map((node) => toFlowNode(node, models)));
+      setNodes(loadedChapter.nodes.map((node) => toFlowNode(node, models)));
       const loadedLayout = story.editorLayout ?? { version: 1 as const, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" as const };
       const normalizedLayout = loadedLayout;
       setEditorLayout(normalizedLayout);
       setWorkspaceView(normalizedLayout.view === "code" ? "code" : "canvas");
-      setEdges(firstChapter.edges);
-      remainingChapters.current = story.chapters.slice(1);
+      setEdges(loadedChapter.edges);
       queuedStory.current = JSON.stringify(story);
       setLibraryAssets(assets);
       setImageModels(models);
@@ -417,10 +413,9 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }, [projectId, workspaceRevision]);
 
   const document = useMemo(
-    () => chapter ? storyDocument(player, variables, chapter, nodes, edges, remainingChapters.current, {
+    () => chapter ? storyDocument(player, variables, chapter, nodes, edges, {
       ...editorLayout,
       nodes: {
-        ...Object.fromEntries(remainingChapters.current.flatMap((remaining) => remaining.nodes.map((node) => [node.id, node.position]))),
         ...Object.fromEntries(nodes.map((node) => [node.id, node.position])),
       },
       view: workspaceView,
@@ -696,7 +691,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const canInsertCopiedNode = Boolean(copiedNode && (copiedNode.type !== "start" || !nodes.some((node) => node.type === "start")));
   const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
-  const activeChapter = document?.chapters[0];
+  const activeChapter = document?.chapter;
   const playerViewport = player.viewport;
   const playerViewportAspect = playerViewport.width / playerViewport.height;
   const canvasStageWidth = 440 * Math.min(1, playerViewportAspect);
@@ -768,7 +763,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setNotice(undefined);
     setVariables(next.map((variable) => ({ ...variable, name: variable.name.trim() })));
     setNodes((current) => current.map(normalizeNode));
-    remainingChapters.current = remainingChapters.current.map((candidate) => ({ ...candidate, nodes: candidate.nodes.map(normalizeNode) }));
   }
 
   function addInteraction(position: { x: number; y: number }, template: InteractionTemplate = "blank"): void {
@@ -1186,20 +1180,18 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
 
   function applyEditorStory(next: StoryDocument): void {
     if (!isStoryDocument(next)) throw new Error("The editor change did not produce a valid Interactive Drama story");
-    const firstChapter = next.chapters[0];
-    if (!firstChapter) throw new Error("The story must contain a chapter");
+    const nextChapter = next.chapter;
     observeHistoryDocument(next);
-    setChapter({ id: firstChapter.id, title: firstChapter.title });
+    setChapter({ id: nextChapter.id, title: nextChapter.title });
     setVariables(next.variables ?? []);
     setPlayer(next.player);
-    setNodes(firstChapter.nodes.map((node) => toFlowNode(node, imageModels)));
-    setEdges(firstChapter.edges);
-    remainingChapters.current = next.chapters.slice(1);
+    setNodes(nextChapter.nodes.map((node) => toFlowNode(node, imageModels)));
+    setEdges(nextChapter.edges);
     if (next.editorLayout) {
       setEditorLayout(next.editorLayout);
       setWorkspaceView(next.editorLayout.view === "code" ? "code" : "canvas");
     }
-    setSelectedId((current) => current && firstChapter.nodes.some((node) => node.id === current) ? current : undefined);
+    setSelectedId((current) => current && nextChapter.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
   return (
@@ -3539,20 +3531,18 @@ function storyDocument(
   chapter: { id: string; title: string },
   nodes: StoryFlowNode[],
   edges: Edge[],
-  remainingChapters: StoryChapter[],
   editorLayout: StoryEditorLayout,
 ): StoryDocument {
   return {
-    version: 10,
-    codebase: { version: 3 },
+    version: 1,
     editorLayout,
     player,
     variables,
-    chapters: [{
+    chapter: {
       ...chapter,
       nodes: nodes.map(toStoryNode),
       edges: edges.map(({ id, source, target, sourceHandle }) => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })),
-    }, ...remainingChapters],
+    },
   };
 }
 

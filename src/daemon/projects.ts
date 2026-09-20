@@ -451,12 +451,12 @@ export class ProjectManager {
       } catch (cause) {
         throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
-      if (story.chapters.some((chapter) => chapter.nodes.some((node) => (
+      if (story.chapter.nodes.some((node) => (
         ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
         ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
-      )))) references.push(project);
+      ))) references.push(project);
     }
     return references;
   }
@@ -475,47 +475,46 @@ export class ProjectManager {
       }
       if (project.type !== "interactive-drama") continue;
       const current = await readStoryCodebase(project.workspacePath);
+      const chapter = current.chapter;
+      const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
       const story: StoryDocument = {
-          ...current,
-          chapters: current.chapters.map((chapter) => {
-            const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
-            return {
-              ...chapter,
-              nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
-                if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-                if (node.type === "image") {
-                  const images = node.data.images.filter((image) =>
-                    (image.type !== "library" || image.assetId !== assetId) &&
-                    (image.type !== "node" || !removedNodeIds.has(image.nodeId)));
-                  if (node.data.assetId === assetId) {
-                    const { assetId: _, ...data } = node.data;
-                    return { ...node, data: { ...data, images } };
-                  }
-                  if (images.length === node.data.images.length) return node;
-                  return { ...node, data: { ...node.data, images } };
-                }
-                if (node.type === "video") {
-                  const references = node.data.references.filter((reference) =>
-                    (reference.type !== "library" || reference.assetId !== assetId) &&
-                    (reference.type !== "node" || !removedNodeIds.has(reference.nodeId)));
-                  if (node.data.assetId === assetId) {
-                    const { assetId: _, ...data } = node.data;
-                    return { ...node, data: { ...data, references } };
-                  }
-                  if (references.length === node.data.references.length) return node;
-                  return {
-                    ...node,
-                    data: { ...node.data, references },
-                  };
-                }
-                return node;
-              }),
-            };
+        ...current,
+        chapter: {
+          ...chapter,
+          nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
+            if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "image") {
+              const images = node.data.images.filter((image) =>
+                (image.type !== "library" || image.assetId !== assetId) &&
+                (image.type !== "node" || !removedNodeIds.has(image.nodeId)));
+              if (node.data.assetId === assetId) {
+                const { assetId: _, ...data } = node.data;
+                return { ...node, data: { ...data, images } };
+              }
+              if (images.length === node.data.images.length) return node;
+              return { ...node, data: { ...node.data, images } };
+            }
+            if (node.type === "video") {
+              const references = node.data.references.filter((reference) =>
+                (reference.type !== "library" || reference.assetId !== assetId) &&
+                (reference.type !== "node" || !removedNodeIds.has(reference.nodeId)));
+              if (node.data.assetId === assetId) {
+                const { assetId: _, ...data } = node.data;
+                return { ...node, data: { ...data, references } };
+              }
+              if (references.length === node.data.references.length) return node;
+              return {
+                ...node,
+                data: { ...node.data, references },
+              };
+            }
+            return node;
           }),
+        },
       };
       await writeStoryCodebase(project.workspacePath, story);
       await this.touch(project.id);

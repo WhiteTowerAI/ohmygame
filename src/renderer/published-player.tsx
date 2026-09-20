@@ -35,7 +35,7 @@ function PublishedPlayer() {
   const [error, setError] = useState<string>();
   const progress = useRef<{ key: string; signature: string } | undefined>(undefined);
   const checkpoint = useRef<PlayingRuntimeState | undefined>(undefined);
-  const chapter = story?.chapters[0];
+  const chapter = story?.chapter;
   const variables = useMemo(() => story?.variables ?? [], [story]);
 
   useEffect(() => {
@@ -46,10 +46,10 @@ function PublishedPlayer() {
     ]).then(async ([manifestValue, storyValue]) => {
       const loadedManifest = manifestValue as PublishedStoryManifest;
       const loadedStory = storyValue as StoryDocument;
-      if (loadedManifest.version !== 1 || loadedManifest.story !== "story.json" || !loadedStory.chapters[0]) throw new Error("The published game is invalid.");
+      if (loadedManifest.version !== 1 || loadedManifest.story !== "story.json" || !loadedStory.chapter) throw new Error("The published game is invalid.");
       const signature = await storySignature(loadedStory);
       if (disposed) return;
-      const chapter = loadedStory.chapters[0];
+      const chapter = loadedStory.chapter;
       const key = storyProgressKey(loadedManifest.scope, chapter.id);
       const saved = loadStoryProgress(localStorage, key, signature, chapter, loadedStory.variables ?? []);
       progress.current = { key, signature };

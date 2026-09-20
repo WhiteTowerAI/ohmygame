@@ -13,13 +13,13 @@ export function createPlayableStoryDocument(): StoryDocument {
     [stateId]: { x: 760, y: 210 },
     [endingId]: { x: 1_120, y: 210 },
   };
-  story.chapters[0]!.nodes = [
+  story.chapter.nodes = [
     { id: startId, type: "start", position: { x: 80, y: 180 }, data: {} },
     { id: openUiId, type: "open-ui", position: { x: 240, y: 210 }, data: { title: "Untitled Story", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
     { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
     { id: endingId, type: "ending", position: { x: 1_120, y: 210 }, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } },
   ];
-  story.chapters[0]!.edges = [
+  story.chapter.edges = [
     { id: crypto.randomUUID(), source: startId, target: openUiId },
     { id: crypto.randomUUID(), source: openUiId, target: stateId },
     { id: crypto.randomUUID(), source: stateId, target: endingId },

@@ -12,7 +12,7 @@ describe("story progress storage", () => {
   it("hashes story content deterministically", async () => {
     const story = createStoryDocument();
     expect(await storySignature(story)).toBe(await storySignature(structuredClone(story)));
-    story.chapters[0]!.title = "Changed";
+    story.chapter.title = "Changed";
     expect(await storySignature(story)).not.toBe(await storySignature(createStoryDocument()));
   });
 
@@ -24,7 +24,7 @@ describe("story progress storage", () => {
       removeItem: (key) => { values.delete(key); },
     };
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const state = { mode: "playing" as const, chapterId: chapter.id, nodeId: ending.id, variables: {} };
     const key = storyProgressKey("project:test", chapter.id);

@@ -70,9 +70,6 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   } catch {
     throw new PublishError("Interactive Drama story.json is missing or invalid");
   }
-  if (story.chapters.length !== 1) {
-    throw new PublishError("Build and publish currently support one chapter per Interactive Drama.");
-  }
   const assets = new Map(library.list().map((asset) => [asset.id, asset]));
   validatePublishedStory(story, assets);
   const requiredIds = referencedAssetIds(story);
@@ -105,11 +102,10 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
 
 function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string, LibraryAsset>): void {
   const availableAssets = new Map([...assets.values()].flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const]));
-  for (const chapter of story.chapters) {
-    const issue = validatePlayableChapter(chapter, { availableAssets });
-    if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
-  }
-  for (const chapter of story.chapters) for (const node of chapter.nodes) {
+  const chapter = story.chapter;
+  const issue = validatePlayableChapter(chapter, { availableAssets });
+  if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
+  for (const node of chapter.nodes) {
     if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
     for (const item of node.data.presentation.media.items) {
       const assetId = resolveStoryAssetId(chapter, item.source);
@@ -122,13 +118,12 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
 
 function referencedAssetIds(story: StoryDocument): Set<string> {
   const ids = new Set<string>();
-  for (const chapter of story.chapters) {
-    for (const node of chapter.nodes) {
-      if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
-      for (const item of node.data.presentation.media.items) {
-        const assetId = resolveStoryAssetId(chapter, item.source);
-        if (assetId) ids.add(assetId);
-      }
+  const chapter = story.chapter;
+  for (const node of chapter.nodes) {
+    if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+    for (const item of node.data.presentation.media.items) {
+      const assetId = resolveStoryAssetId(chapter, item.source);
+      if (assetId) ids.add(assetId);
     }
   }
   return ids;

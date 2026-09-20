@@ -32,8 +32,8 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     setError(undefined);
     void Promise.all([getStory(projectId), listLibraryAssets()]).then(async ([story, assets]) => {
       if (disposed) return;
-      const selected = story.chapters.find((candidate) => candidate.id === chapterId);
-      if (!selected) throw new Error("Chapter not found");
+      const selected = story.chapter;
+      if (selected.id !== chapterId) throw new Error("Chapter not found");
       const issue = validatePlayableChapter(selected, {
         availableAssets: new Map(assets.flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const])),
       });

@@ -7,21 +7,11 @@ import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } fro
 import { STORY_CODEBASE_SCHEMA } from "../shared/story-schema.js";
 
 const STORY_FILE = "story.json";
-const PROJECT_FILE = "project.json";
 const EDITOR_LAYOUT_FILE = "editor/layout.json";
-const EDITOR_DOCUMENTATION_FILE = "editor/README.md";
+const DOCUMENTATION_FILE = "README.md";
 const STORY_SCHEMA_FILE = "schemas/story.schema.json";
 const EDITOR_LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
 const AGENT_INSTRUCTIONS_FILE = "AGENTS.md";
-const PROJECT_MANIFEST = {
-  version: 1,
-  type: "interactive-drama",
-  story: STORY_FILE,
-  storySchema: STORY_SCHEMA_FILE,
-  editorLayout: EDITOR_LAYOUT_FILE,
-  editorLayoutSchema: EDITOR_LAYOUT_SCHEMA_FILE,
-  editorDocs: EDITOR_DOCUMENTATION_FILE,
-} as const;
 const DEFAULT_EDITOR_DOCUMENTATION = `# Interactive Drama Project Guide
 
 ## Story format
@@ -30,11 +20,11 @@ const DEFAULT_EDITOR_DOCUMENTATION = `# Interactive Drama Project Guide
 
 The schema checks the shape of one JSON document. OhMyGame additionally validates relationships that JSON Schema cannot fully express:
 
-- node IDs are unique across the document;
+- node IDs are unique;
 - edges reference nodes in the same chapter;
 - Choice handles match option IDs;
-- each chapter has at most one Start node;
-- IDs for chapters, nodes, edges, Choice options, and presentation media are unique in their scope;
+- the chapter has at most one Start node;
+- IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
 - Choice timeouts reference an option in the same Choice;
 - actions and conditions reference compatible declared Variables;
 - Hotspot rectangles fit completely inside the normalized viewport;
@@ -59,12 +49,11 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 ## Contract
 
-- \`project.json\` identifies the workspace and its primary files.
 - \`story.json\` contains the story graph, content, stable IDs, declared runtime behavior, and references to source files.
 - \`editor/layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
 - \`schemas/story.schema.json\` defines the exact persisted \`story.json\` structure. Read it before editing Story data; do not guess field names.
 - \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
-- \`editor/README.md\` explains graph semantics and runtime surface APIs.
+- \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
 - Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
@@ -72,9 +61,9 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
 - An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
 - Open UI is an ordinary Story node that owns its media, content, and code.
-- Keep \`story.json\` valid JSON and preserve \`codebase.version\`.
+- Keep \`story.json\` valid JSON and preserve its \`version\`.
 
-Use \`editor/README.md\` as the source of truth for runtime and editor JavaScript interfaces.
+Use \`README.md\` as the source of truth for runtime JavaScript interfaces.
 `;
 const WORKING_BOUNDARY_INSTRUCTIONS = `## Working boundary
 
@@ -83,7 +72,7 @@ Do not use absolute paths or paths containing \`..\`.
 
 Do not inspect parent directories, other projects, user directories, package installations, the OhMyGame source repository, or OhMyGame tests. Do not search outside this workspace for examples, schemas, validators, or runtime implementation details.
 
-Treat this file, \`schemas/story.schema.json\`, \`schemas/editor-layout.schema.json\`, \`editor/README.md\`, \`story.json\`, \`editor/layout.json\`, and the current node source files as the complete project contract. If a capability is not documented here, use the smallest structure already present in this project instead of reverse-engineering the OhMyGame application.
+Treat this file, \`README.md\`, both files in \`schemas/\`, \`story.json\`, \`editor/layout.json\`, and the current node source files as the complete project contract. If a capability is not documented here, use the smallest structure already present in this project instead of reverse-engineering the OhMyGame application.
 
 An exception applies only when the user explicitly provides an external file path and asks to import that file: read only that exact file and copy it into this workspace. Do not inspect its parent directory.
 
@@ -95,7 +84,7 @@ For a request that only creates, updates, moves, or deletes standard Story nodes
 1. Read only the contract files relevant to the change:
    - moving nodes or changing the canvas view: \`schemas/editor-layout.schema.json\` and \`editor/layout.json\`;
    - creating, updating, deleting, or connecting nodes: both schema files, \`story.json\`, and \`editor/layout.json\`;
-   - changing player-facing HTML, CSS, or JavaScript: also read \`editor/README.md\` and that node's source files.
+   - changing player-facing HTML, CSS, or JavaScript: also read \`README.md\` and that node's source files.
 2. Do not inspect Git, the OhMyGame application source, Godot, MCP servers, or unrelated files.
 3. Make the smallest possible edits and preserve every unrelated field.
 4. Keep node IDs unique and stable. Every node ID in \`story.json\` must have exactly one position in \`editor/layout.json\`, and the layout must not contain extra node IDs.
@@ -142,15 +131,15 @@ Do not generate media when the user asks for an empty generation node.
 `;
 const BASIC_TEMPLATE_INSTRUCTIONS = `## Basic template path
 
-When the user asks for a basic Interactive Drama template, create only this minimal playable loop unless they ask for more:
+When the user asks for a basic Interactive Drama template without specifying its structure, create a compact playable story that demonstrates the standard Story capabilities:
 
-\`start -> open-ui -> scene -> choice -> ending-a / ending-b\`
+\`start -> open-ui -> scene -> choice -> project-state -> scene -> interaction -> ending-a / ending-b\`
 
-Use six runtime nodes and five edges: one Start, one Open UI title, one Scene, one Choice with two options, and two Endings. Preserve existing Image, Video, and other asset nodes without changing their configuration. Do not add variables, interactions, extra scenes, or media generation unless requested.
+Declare at least one Variable and use it through a Project State action, Choice action or condition, or Interaction outcome. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
 
 For a Choice, each option has a stable \`id\` and the matching outgoing edge uses that option ID as \`sourceHandle\`. For all other standard flow edges, use the node's default outgoing handle. Every edge source and target must reference a node in the same chapter.
 
-Follow \`schemas/story.schema.json\` exactly for every node. Each presentation source uses the keys \`html\`, \`css\`, and \`javascript\`. Follow \`editor/README.md\` for JavaScript exports and action APIs.
+Follow \`schemas/story.schema.json\` exactly for every node. Each presentation source uses the keys \`html\`, \`css\`, and \`javascript\`. Follow \`README.md\` for JavaScript exports and action APIs.
 
 Keep the visual implementation minimal. Do not create a design system or elaborate custom editor presentation for a basic template.
 
@@ -177,14 +166,11 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
   const normalized = withStableSources(story);
   const previousSources = await persistedSourcePaths(workspacePath);
   const preserve = options.preserveExistingSources ?? false;
-  await Promise.all([
-    ...normalized.chapters.flatMap((chapter) => chapter.nodes.flatMap((node) => isPresentationNode(node) && node.data.presentation?.surface.source
-      ? [writeSourceFiles(workspacePath, node.data.presentation.surface.source, node.data.presentation.surface.files, preserve)]
-      : [])),
-  ]);
+  await Promise.all(normalized.chapter.nodes.flatMap((node) => isPresentationNode(node) && node.data.presentation?.surface.source
+    ? [writeSourceFiles(workspacePath, node.data.presentation.surface.source, node.data.presentation.surface.files, preserve)]
+    : []));
   const layout = editorLayoutFromStory(normalized);
   await Promise.all([
-    writeJsonAtomic(workspacePath, PROJECT_FILE, PROJECT_MANIFEST),
     writeJsonAtomic(workspacePath, STORY_FILE, dehydrateStory(normalized)),
     writeJsonAtomic(workspacePath, EDITOR_LAYOUT_FILE, layout),
   ]);
@@ -196,7 +182,7 @@ export async function writeStoryCodebase(workspacePath: string, story: StoryDocu
 }
 
 export async function ensureStoryCodebaseInstructions(workspacePath: string): Promise<void> {
-  await Promise.all([ensureEditorDocumentation(workspacePath), ensureStorySchema(workspacePath), ensureEditorLayoutSchema(workspacePath), ensureProjectManifest(workspacePath)]);
+  await Promise.all([ensureDocumentation(workspacePath), ensureStorySchema(workspacePath), ensureEditorLayoutSchema(workspacePath)]);
   const destination = path.join(workspacePath, AGENT_INSTRUCTIONS_FILE);
   try {
     const current = await readFile(destination, "utf8");
@@ -205,19 +191,6 @@ export async function ensureStoryCodebaseInstructions(workspacePath: string): Pr
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     await writeFile(destination, AGENT_INSTRUCTIONS, { encoding: "utf8", flag: "wx" });
   }
-}
-
-async function ensureProjectManifest(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, PROJECT_FILE);
-  try {
-    const parsed: unknown = JSON.parse(await readFile(destination, "utf8"));
-    if (!isRecord(parsed)) throw new Error(`Invalid ${PROJECT_FILE}`);
-    const entries = Object.entries(PROJECT_MANIFEST);
-    if (Object.keys(parsed).length === entries.length && entries.every(([key, value]) => parsed[key] === value)) return;
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-  }
-  await writeJsonAtomic(workspacePath, PROJECT_FILE, PROJECT_MANIFEST);
 }
 
 async function ensureStorySchema(workspacePath: string): Promise<void> {
@@ -244,9 +217,8 @@ async function ensureEditorLayoutSchema(workspacePath: string): Promise<void> {
   await writeJsonAtomic(workspacePath, EDITOR_LAYOUT_SCHEMA_FILE, EDITOR_LAYOUT_SCHEMA);
 }
 
-async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
-  const destination = path.join(workspacePath, EDITOR_DOCUMENTATION_FILE);
-  await mkdir(path.dirname(destination), { recursive: true });
+async function ensureDocumentation(workspacePath: string): Promise<void> {
+  const destination = path.join(workspacePath, DOCUMENTATION_FILE);
   try {
     await writeFile(destination, DEFAULT_EDITOR_DOCUMENTATION, { encoding: "utf8", flag: "wx" });
   } catch (cause) {
@@ -255,12 +227,12 @@ async function ensureEditorDocumentation(workspacePath: string): Promise<void> {
 }
 
 export function isCanonicalStoryCodebase(value: unknown): boolean {
-  if (!isRecord(value) || value.version !== 10 || !isRecord(value.codebase) || value.codebase.version !== 3) return false;
-  if (records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => isRecord(node.position)))) return false;
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.chapter)) return false;
+  if (records(value.chapter.nodes).some((node) => isRecord(node.position))) return false;
   if (["characters", "overlays", "interactions", "playerViews", "screens"].some((key) => key in value)) return false;
   if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
-  return !records(value.chapters).some((chapter) => records(chapter.nodes).some((node) => {
+  return !records(value.chapter.nodes).some((node) => {
     if (!["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
@@ -269,17 +241,13 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
       (data.presentation.media.mode === "own" && !Array.isArray(data.presentation.media.items)) ||
       ["clips", "events", "media", "surface", "overlayIds"].some((key) => key in data);
     return node.type === "interaction" && (!isRecord(data.behavior) || "event" in data || "interactionId" in data);
-  }));
+  });
 }
 
 function withStableSources(story: StoryDocument): StoryDocument {
   return {
     ...story,
-    codebase: { version: 3 },
-    chapters: story.chapters.map((chapter) => ({
-      ...chapter,
-      nodes: chapter.nodes.map(withNodePresentationSource),
-    })),
+    chapter: { ...story.chapter, nodes: story.chapter.nodes.map(withNodePresentationSource) },
   };
 }
 
@@ -307,9 +275,9 @@ function withNodePresentationSource(node: StoryNode): StoryNode {
 function dehydrateStory(story: StoryDocument): unknown {
   const value = structuredClone(story) as unknown as UnknownRecord;
   delete value.editorLayout;
-  value.chapters = records(value.chapters).map((chapter) => ({
-    ...chapter,
-    nodes: records(chapter.nodes).map(({ position: _position, ...node }) => {
+  value.chapter = {
+    ...record(value.chapter),
+    nodes: records(record(value.chapter)?.nodes).map(({ position: _position, ...node }) => {
       if (!isRecord(node.data)) return node;
       const presentation = isRecord(node.data.presentation) && isRecord(node.data.presentation.surface)
         ? {
@@ -319,23 +287,24 @@ function dehydrateStory(story: StoryDocument): unknown {
         : undefined;
       return { ...node, data: { ...node.data, ...(presentation ? { presentation } : {}) } };
     }),
-  }));
+  };
   return value;
 }
 
 async function hydrateSourceFiles(workspacePath: string, input: unknown): Promise<unknown> {
   if (!isRecord(input)) return input;
   const value = structuredClone(input) as UnknownRecord;
-  value.chapters = await Promise.all(records(value.chapters).map(async (chapter) => ({
+  const chapter = record(value.chapter);
+  value.chapter = {
     ...chapter,
-    nodes: await Promise.all(records(chapter.nodes).map(async (node) => {
+    nodes: await Promise.all(records(chapter?.nodes).map(async (node) => {
       if (!isRecord(node.data)) return node;
       const presentation = isRecord(node.data.presentation) && isRecord(node.data.presentation.surface) && isSourceReference(node.data.presentation.surface.source)
         ? { ...node.data.presentation, surface: { ...node.data.presentation.surface, files: await readSourceFiles(workspacePath, node.data.presentation.surface.source) } }
         : node.data.presentation;
       return { ...node, data: { ...node.data, ...(presentation ? { presentation } : {}) } };
     })),
-  })));
+  };
   return value;
 }
 
@@ -347,30 +316,30 @@ async function readEditorLayout(workspacePath: string): Promise<StoryEditorLayou
 
 function hydrateLayout(input: unknown, layout: StoryEditorLayout): unknown {
   if (!isRecord(input)) return input;
-  const expectedIds = new Set(records(input.chapters).flatMap((chapter) => records(chapter.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : [])));
+  const chapter = record(input.chapter);
+  const expectedIds = new Set(records(chapter?.nodes).flatMap((node) => typeof node.id === "string" ? [node.id] : []));
   const layoutIds = Object.keys(layout.nodes);
   if (layoutIds.length !== expectedIds.size || layoutIds.some((id) => !expectedIds.has(id))) {
     throw new Error(`Invalid ${EDITOR_LAYOUT_FILE}: node positions do not match story.json`);
   }
   return {
     ...input,
-    codebase: { version: 3 },
     editorLayout: layout,
-    chapters: records(input.chapters).map((chapter) => ({
+    chapter: {
       ...chapter,
-      nodes: records(chapter.nodes).map((node) => ({
+      nodes: records(chapter?.nodes).map((node) => ({
         ...node,
         position: typeof node.id === "string" ? layout.nodes[node.id] : undefined,
       })),
-    })),
+    },
   };
 }
 
 function editorLayoutFromStory(story: StoryDocument): StoryEditorLayout {
   const prior = story.editorLayout;
-  const currentIds = new Set(story.chapters.flatMap((chapter) => chapter.nodes.map((node) => node.id)));
+  const currentIds = new Set(story.chapter.nodes.map((node) => node.id));
   const nodes = Object.fromEntries(Object.entries(prior.nodes).filter(([id]) => currentIds.has(id)));
-  for (const chapter of story.chapters) for (const node of chapter.nodes) nodes[node.id] = node.position;
+  for (const node of story.chapter.nodes) nodes[node.id] = node.position;
   return {
     version: 1,
     nodes,
@@ -449,7 +418,7 @@ function sourcePaths(value: unknown): Set<string> {
     if (!isSourceReference(source)) return;
     paths.add(source.html); paths.add(source.css); paths.add(source.javascript);
   };
-  for (const chapter of records(value.chapters)) for (const node of records(chapter.nodes)) {
+  for (const node of records(record(value.chapter)?.nodes)) {
     if (isRecord(node.data) && isRecord(node.data.presentation) && isRecord(node.data.presentation.surface)) add(node.data.presentation.surface.source);
   }
   return paths;
@@ -502,6 +471,10 @@ function isWorkspacePath(value: string): boolean {
 
 function records(value: unknown): UnknownRecord[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function record(value: unknown): UnknownRecord | undefined {
+  return isRecord(value) ? value : undefined;
 }
 
 function isRecord(value: unknown): value is UnknownRecord {

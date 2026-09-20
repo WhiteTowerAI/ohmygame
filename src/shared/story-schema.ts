@@ -200,8 +200,6 @@ const nodes = [
 /** JSON Schema for the persisted story.json file. Cross-file graph rules remain runtime validations. */
 export const STORY_CODEBASE_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ohmygame.dev/schemas/interactive-drama/story-v10.json",
-  title: "OhMyGame Interactive Drama Story",
   $defs: {
     id: idSchema,
     sourcePath: sourcePathSchema,
@@ -217,10 +215,9 @@ export const STORY_CODEBASE_SCHEMA = {
   },
   type: "object",
   additionalProperties: false,
-  required: ["version", "codebase", "player", "variables", "chapters"],
+  required: ["version", "player", "variables", "chapter"],
   properties: {
-    version: { const: 10 },
-    codebase: { type: "object", additionalProperties: false, required: ["version"], properties: { version: { const: 3 } } },
+    version: { const: 1 },
     player: {
       type: "object", additionalProperties: false, required: ["title", "viewport", "theme", "videoFit", "choicePosition"],
       properties: {
@@ -240,16 +237,13 @@ export const STORY_CODEBASE_SCHEMA = {
         ],
       },
     },
-    chapters: {
-      type: "array", minItems: 1,
-      items: {
-        type: "object", additionalProperties: false, required: ["id", "title", "nodes", "edges"],
-        properties: {
-          id, title: { type: "string" }, nodes: { type: "array", items: { oneOf: nodes } },
-          edges: {
-            type: "array",
-            items: { type: "object", additionalProperties: false, required: ["id", "source", "target"], properties: { id, source: id, target: id, sourceHandle: { type: "string" } } },
-          },
+    chapter: {
+      type: "object", additionalProperties: false, required: ["id", "title", "nodes", "edges"],
+      properties: {
+        id, title: { type: "string" }, nodes: { type: "array", items: { oneOf: nodes } },
+        edges: {
+          type: "array",
+          items: { type: "object", additionalProperties: false, required: ["id", "source", "target"], properties: { id, source: id, target: id, sourceHandle: { type: "string" } } },
         },
       },
     },

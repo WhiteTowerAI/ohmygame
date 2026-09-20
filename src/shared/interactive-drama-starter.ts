@@ -47,8 +47,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   };
 
   return {
-    version: 10,
-    codebase: { version: 3 },
+    version: 1,
     editorLayout: {
       version: 1,
       nodes: {
@@ -76,7 +75,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       { id: courageId, name: "Courage", type: "number", initialValue: 2 },
       { id: ticketId, name: "Found ticket", type: "boolean", initialValue: false },
     ],
-    chapters: [{
+    chapter: {
       id: chapterId,
       title: "Platform 13",
       nodes: [
@@ -155,7 +154,7 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveEndingId },
         { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayEndingId },
       ],
-    }],
+    },
   };
 }
 

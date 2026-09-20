@@ -27,33 +27,24 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(stored.characters).toBeUndefined();
     expect(stored.overlays).toBeUndefined();
     expect(stored.interactions).toBeUndefined();
     expect(stored.playerViews).toBeUndefined();
-    expect(stored.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(stored.chapter).toMatchObject({ nodes: [], edges: [] });
     expect(Check(STORY_CODEBASE_SCHEMA, stored)).toBe(true);
-    const manifest = JSON.parse(await readFile(path.join(project.workspacePath, "project.json"), "utf8"));
-    expect(manifest).toEqual({
-      version: 1,
-      type: "interactive-drama",
-      story: "story.json",
-      storySchema: "schemas/story.schema.json",
-      editorLayout: "editor/layout.json",
-      editorLayoutSchema: "schemas/editor-layout.schema.json",
-      editorDocs: "editor/README.md",
-    });
-    expect(JSON.parse(await readFile(path.join(project.workspacePath, manifest.storySchema), "utf8"))).toEqual(STORY_CODEBASE_SCHEMA);
-    expect(JSON.parse(await readFile(path.join(project.workspacePath, manifest.editorLayoutSchema), "utf8"))).toEqual(EDITOR_LAYOUT_SCHEMA);
+    await expect(stat(path.join(project.workspacePath, "project.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "schemas/story.schema.json"), "utf8"))).toEqual(STORY_CODEBASE_SCHEMA);
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "schemas/editor-layout.schema.json"), "utf8"))).toEqual(EDITOR_LAYOUT_SCHEMA);
     expect(Check(EDITOR_LAYOUT_SCHEMA, story.editorLayout)).toBe(true);
     expect(Check(EDITOR_LAYOUT_SCHEMA, { ...story.editorLayout, extensions: {} })).toBe(false);
     const instructions = await readFile(path.join(project.workspacePath, "AGENTS.md"), "utf8");
     expect(instructions).toContain("Read only the contract files relevant to the change");
     expect(instructions).toContain("Parsing alone checks syntax, not the schema");
     expect(instructions).toContain("Do not search for or install a schema validator");
-    const documentation = await readFile(path.join(project.workspacePath, "editor/README.md"), "utf8");
+    const documentation = await readFile(path.join(project.workspacePath, "README.md"), "utf8");
     expect(documentation).toContain("machine-readable definition");
     expect(documentation).toContain("JSON Schema cannot fully express");
   });
@@ -75,7 +66,7 @@ describe("Interactive Drama project codebase", () => {
     const project = await manager.create("Story", "interactive-drama");
     await manager.story(project.id);
     const story = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
-    story.chapters[0].nodes = [
+    story.chapter.nodes = [
       { id: "start", type: "start", data: {} },
       {
         id: "open-ui",
@@ -93,25 +84,25 @@ describe("Interactive Drama project codebase", () => {
     expect(Check(STORY_CODEBASE_SCHEMA, story)).toBe(true);
 
     const invalidStart = structuredClone(story);
-    invalidStart.chapters[0].nodes[0].data.title = "Start";
+    invalidStart.chapter.nodes[0].data.title = "Start";
     expect(Check(STORY_CODEBASE_SCHEMA, invalidStart)).toBe(false);
 
     const invalidEditorMetadata = structuredClone(story);
-    invalidEditorMetadata.chapters[0].nodes[0].editor = { kind: "custom" };
+    invalidEditorMetadata.chapter.nodes[0].editor = { kind: "custom" };
     expect(Check(STORY_CODEBASE_SCHEMA, invalidEditorMetadata)).toBe(false);
 
     const invalidPresentation = structuredClone(story);
-    invalidPresentation.chapters[0].nodes[1].data.presentation.media = { strategy: "none" };
-    invalidPresentation.chapters[0].nodes[1].data.presentation.surface.source.js = invalidPresentation.chapters[0].nodes[1].data.presentation.surface.source.javascript;
-    delete invalidPresentation.chapters[0].nodes[1].data.presentation.surface.source.javascript;
+    invalidPresentation.chapter.nodes[1].data.presentation.media = { strategy: "none" };
+    invalidPresentation.chapter.nodes[1].data.presentation.surface.source.js = invalidPresentation.chapter.nodes[1].data.presentation.surface.source.javascript;
+    delete invalidPresentation.chapter.nodes[1].data.presentation.surface.source.javascript;
     expect(Check(STORY_CODEBASE_SCHEMA, invalidPresentation)).toBe(false);
 
     const invalidContent = structuredClone(story);
-    invalidContent.chapters[0].nodes[1].data.content = { actions: [{ id: "start", label: "Start", type: "continue" }] };
+    invalidContent.chapter.nodes[1].data.content = { actions: [{ id: "start", label: "Start", type: "continue" }] };
     expect(Check(STORY_CODEBASE_SCHEMA, invalidContent)).toBe(false);
 
     const invalidOpenUiMedia = structuredClone(story);
-    invalidOpenUiMedia.chapters[0].nodes[1].data.presentation.media = {
+    invalidOpenUiMedia.chapter.nodes[1].data.presentation.media = {
       mode: "own",
       items: [
         { id: "first", type: "image", source: { type: "library", assetId: "first" } },
@@ -121,20 +112,7 @@ describe("Interactive Drama project codebase", () => {
     expect(Check(STORY_CODEBASE_SCHEMA, invalidOpenUiMedia)).toBe(false);
   });
 
-  it("rewrites a project manifest with undocumented fields", async () => {
-    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
-    const project = await manager.create("Story", "interactive-drama");
-    await manager.story(project.id);
-    const manifestPath = path.join(project.workspacePath, "project.json");
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-    await writeFile(manifestPath, JSON.stringify({ ...manifest, editorPresentation: "editor/presentation.js" }));
-
-    await manager.story(project.id);
-
-    expect(JSON.parse(await readFile(manifestPath, "utf8"))).toEqual(manifest);
-  });
-
-  it("documents the workspace boundary and minimal template path", async () => {
+  it("documents the workspace boundary and basic template path", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     await manager.story(project.id);
@@ -142,9 +120,9 @@ describe("Interactive Drama project codebase", () => {
 
     expect(instructions).toContain("## Working boundary");
     expect(instructions).toContain("Do not inspect parent directories, other projects");
-    expect(instructions).toContain("start -> open-ui -> scene -> choice -> ending-a / ending-b");
-    expect(instructions).toContain("Use six runtime nodes and five edges");
-    expect(instructions).toContain("Do not add variables, interactions, extra scenes, or media generation unless requested");
+    expect(instructions).toContain("start -> open-ui -> scene -> choice -> project-state -> scene -> interaction -> ending-a / ending-b");
+    expect(instructions).toContain("Declare at least one Variable");
+    expect(instructions).toContain("do not add nodes merely to demonstrate every available feature");
     expect(instructions).toContain("invoke an OhMyGame source parser");
   });
 
@@ -152,7 +130,7 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    story.chapters[0]!.nodes.push({
+    story.chapter.nodes.push({
       id: "platform", type: "scene", position: { x: 320, y: 180 },
       data: { title: "Platform", presentation: { media: { mode: "own", items: [{ id: "video", type: "video", source: { type: "library", assetId: "video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } },
     });
@@ -160,7 +138,7 @@ describe("Interactive Drama project codebase", () => {
     await manager.setStory(project.id, story);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(Check(STORY_CODEBASE_SCHEMA, stored)).toBe(true);
-    const scene = stored.chapters[0].nodes.find((node: { id: string }) => node.id === "platform");
+    const scene = stored.chapter.nodes.find((node: { id: string }) => node.id === "platform");
     expect(scene.data.clips).toBeUndefined();
     expect(scene.data.events).toBeUndefined();
     expect(scene.data.presentation.media.items).toHaveLength(1);
@@ -176,13 +154,13 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    story.chapters[0]!.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    story.chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     story.editorLayout.nodes.scene = { x: 0, y: 0 };
     await manager.setStory(project.id, story);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
-    const source = stored.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.surface.source.javascript;
+    const source = stored.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.surface.source.javascript;
     const sourceDirectory = path.dirname(path.join(project.workspacePath, source));
-    story.chapters[0]!.nodes = story.chapters[0]!.nodes.filter((node) => node.id !== "scene");
+    story.chapter.nodes = story.chapter.nodes.filter((node) => node.id !== "scene");
     delete story.editorLayout.nodes.scene;
     await manager.setStory(project.id, story);
     await expect(stat(path.join(project.workspacePath, source))).rejects.toMatchObject({ code: "ENOENT" });
@@ -240,7 +218,7 @@ describe("Interactive Drama project codebase", () => {
     const project = await manager.create("Story", "interactive-drama");
     await manager.setStory(project.id, createPlayableStoryDocument());
     const story = await manager.story(project.id);
-    const openUi = story.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
     if (openUi.type !== "open-ui") throw new Error("Open UI is missing");
     openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "video", source: { type: "library", assetId: "shared-media" } }] };
     await manager.setStory(project.id, story);
@@ -248,7 +226,7 @@ describe("Interactive Drama project codebase", () => {
     await manager.removeLibraryAssetReferences("shared-media");
 
     const updated = await manager.story(project.id);
-    const updatedOpenUi = updated.chapters[0]!.nodes.find((node) => node.type === "open-ui")!;
+    const updatedOpenUi = updated.chapter.nodes.find((node) => node.type === "open-ui")!;
     expect(updatedOpenUi.type === "open-ui" && updatedOpenUi.data.presentation.media).toEqual({ mode: "own", items: [] });
   });
 });

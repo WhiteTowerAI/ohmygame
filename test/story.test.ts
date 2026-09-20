@@ -12,7 +12,7 @@ import { createPlayableStoryDocument } from "./story-fixture.js";
 describe("canonical Interactive Drama story", () => {
   it("creates a valid blank story document", () => {
     const story = createStoryDocument();
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
     expect(story.editorLayout.nodes).toEqual({});
     expect(isStoryDocument(story)).toBe(true);
   });
@@ -29,7 +29,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("creates a complete Start -> Open UI -> Project State -> Ending graph", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const start = getStartNode(chapter)!;
     const state = getProjectStateNode(chapter)!;
     const openUi = getNextNode(chapter, start.id)!;
@@ -42,7 +42,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("recognizes only the Open UI connected directly after Start as the entry UI", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const entry = chapter.nodes.find((node) => node.type === "open-ui")!;
     const midFlow = structuredClone(entry);
     midFlow.id = "mid-flow-ui";
@@ -54,7 +54,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("allows incomplete editing state but rejects more than one Start", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const state = getProjectStateNode(chapter)!;
     chapter.nodes = chapter.nodes.filter((node) => node.id !== state.id);
     chapter.edges = chapter.edges.filter((edge) => edge.source !== state.id && edge.target !== state.id);
@@ -62,7 +62,7 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(true);
 
     const second = createPlayableStoryDocument();
-    const secondChapter = second.chapters[0]!;
+    const secondChapter = second.chapter;
     secondChapter.nodes.push({ id: "second-start", type: "start", position: { x: 0, y: 0 }, data: {} });
     second.editorLayout.nodes["second-start"] = { x: 0, y: 0 };
     expect(isStoryDocument(second)).toBe(false);
@@ -70,7 +70,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("rejects old document versions instead of migrating them", () => {
     expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), version: 8 })).toThrow("Invalid story document");
-    expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), codebase: { version: 2 } })).toThrow("Invalid story document");
+    expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), chapters: [] })).toThrow("Invalid story document");
   });
 
   it("rejects legacy and unknown fields instead of normalizing them", () => {
@@ -78,7 +78,7 @@ describe("canonical Interactive Drama story", () => {
     const { player: _player, ...withoutPlayer } = createPlayableStoryDocument();
     expect(isStoryDocument(withoutPlayer)).toBe(false);
     const story = createPlayableStoryDocument();
-    const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
+    const ending = story.chapter.nodes.find((node) => node.type === "ending")!;
     ending.data = { ...ending.data, overlayIds: [] } as typeof ending.data;
     expect(isStoryDocument(story)).toBe(false);
   });
@@ -100,18 +100,18 @@ describe("canonical Interactive Drama story", () => {
 
   it("ships a starter whose visible nodes own media and code", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" }, "Midnight Run");
-    const visible = story.chapters[0]!.nodes.filter(isVisibleNode);
+    const visible = story.chapter.nodes.filter(isVisibleNode);
     expect("interactions" in story).toBe(false);
     expect("overlays" in story).toBe(false);
     expect("playerViews" in story).toBe(false);
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
-    expect(story.chapters[0]!.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
+    expect(story.chapter.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
     expect(isStoryDocument(story)).toBe(true);
   });
 
   it("runs standalone Interaction behavior and graph outcomes", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" });
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     let state = restartGame(chapter, story.variables);
     state = advanceOpenUi(chapter, state);
     const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
@@ -125,7 +125,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("applies Project State actions while advancing through the flow", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const stateNode = getProjectStateNode(chapter)!;
     const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
     story.variables = [variable];
@@ -164,7 +164,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("validates image and video presentation media by their actual type", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     const state = getProjectStateNode(chapter)!;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const image: StoryNode = { id: "image", type: "asset", position: { x: 200, y: 0 }, data: { assetId: "poster", mediaType: "image" } };
@@ -178,17 +178,17 @@ describe("canonical Interactive Drama story", () => {
 
   it("requires globally unique node IDs and complete exact editor layout", () => {
     const missingLayout = createPlayableStoryDocument();
-    delete missingLayout.editorLayout.nodes[missingLayout.chapters[0]!.nodes[0]!.id];
+    delete missingLayout.editorLayout.nodes[missingLayout.chapter.nodes[0]!.id];
     expect(isStoryDocument(missingLayout)).toBe(false);
 
     const duplicate = createPlayableStoryDocument();
-    duplicate.chapters.push({ ...duplicate.chapters[0]!, id: "second", title: "Second" });
+    duplicate.chapter.nodes.push({ ...duplicate.chapter.nodes[0]!, id: duplicate.chapter.nodes[1]!.id });
     expect(isStoryDocument(duplicate)).toBe(false);
   });
 
   it("rejects multiple owned media items outside Scene nodes", () => {
     const story = createPlayableStoryDocument();
-    const ending = story.chapters[0]!.nodes.find((node) => node.type === "ending")!;
+    const ending = story.chapter.nodes.find((node) => node.type === "ending")!;
     if (ending.type !== "ending") throw new Error("Ending is missing");
     ending.data.presentation.media = { mode: "own", items: [
       { id: "one", type: "image", source: { type: "library", assetId: "one" } },
@@ -199,7 +199,7 @@ describe("canonical Interactive Drama story", () => {
 
   it("resolves canonical presentation media through Library and media nodes", () => {
     const story = createPlayableStoryDocument();
-    const chapter = story.chapters[0]!;
+    const chapter = story.chapter;
     chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
     expect(resolveStoryAssetId(chapter, { type: "library", assetId: "library" })).toBe("library");
     expect(resolveStoryAssetId(chapter, { type: "node", nodeId: "video" })).toBe("generated");

@@ -36,7 +36,7 @@ describe("daemon", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
     const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
   });
 
   it("accepts a custom story viewport only for blank Interactive Drama projects", async () => {
@@ -109,9 +109,9 @@ describe("daemon", () => {
     const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
     const story = storyJson as StoryDocument;
-    expect(validatePlayableChapter(story.chapters[0], { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
-    const scene = story.chapters[0].nodes.find((node) => node.type === "scene");
-    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapters[0], item.source)!))).toBe(true);
+    expect(validatePlayableChapter(story.chapter, { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
+    const scene = story.chapter.nodes.find((node) => node.type === "scene");
+    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapter, item.source)!))).toBe(true);
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
@@ -131,11 +131,11 @@ describe("daemon", () => {
 
     const assetId = async (projectId: string) => {
       const story = (await app.inject({ method: "GET", url: `/projects/${projectId}/story` })).json() as StoryDocument;
-      const scene = story.chapters[0]!.nodes.find((node) => node.type === "scene");
+      const scene = story.chapter.nodes.find((node) => node.type === "scene");
       if (scene?.type !== "scene") throw new Error("Sample scene not found");
       const media = scene.data.presentation.media;
       if (media.mode !== "own" || !media.items[0]) throw new Error("Sample video not found");
-      return resolveStoryAssetId(story.chapters[0]!, media.items[0].source)!;
+      return resolveStoryAssetId(story.chapter, media.items[0].source)!;
     };
     const firstAssetId = await assetId(firstProject.id);
     const secondAssetId = await assetId(secondProject.id);
@@ -176,14 +176,14 @@ describe("daemon", () => {
 
     const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
     const story = loaded.json();
-    story.chapters[0].title = "The Stopover";
+    story.chapter.title = "The Stopover";
     const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapters[0]).toMatchObject({ nodes: [], edges: [] });
+    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
     expect(updated.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
-      .toMatchObject({ chapters: [{ title: "The Stopover" }] });
+      .toMatchObject({ chapter: { title: "The Stopover" } });
   });
 
   it("generates story text with a selected language model", async () => {
@@ -352,7 +352,7 @@ describe("daemon", () => {
     expect(content.rawPayload.toString()).toBe("video bytes");
 
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push({
+    story.chapter.nodes.push({
       id: "video",
       type: "video",
       position: { x: 0, y: 0 },
@@ -392,8 +392,8 @@ describe("daemon", () => {
     expect(removed.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
     const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
-    expect(updatedStory.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
+    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
+    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
       { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
     ]);
   });
@@ -499,7 +499,7 @@ describe("daemon", () => {
       payload: { name: "Story", type: "interactive-drama" },
     })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push({
+    story.chapter.nodes.push({
       id: "video",
       type: "video",
       position: { x: 100, y: 0 },
@@ -518,7 +518,7 @@ describe("daemon", () => {
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -558,7 +558,7 @@ describe("daemon", () => {
 
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push(
+    story.chapter.nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
       { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
@@ -566,8 +566,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
+    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
   });
 
   it("removes deleted Library assets from image references", async () => {
@@ -580,7 +580,7 @@ describe("daemon", () => {
     })).json();
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapters[0].nodes.push(
+    story.chapter.nodes.push(
       { id: "library-image", type: "asset", position: { x: 100, y: 0 }, data: { assetId: image.id, mediaType: "image" } },
       { id: "generated-image", type: "image", position: { x: 400, y: 0 }, data: { prompt: "Compose", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: image.id }, { type: "node", nodeId: "library-image" }] } },
     );
@@ -590,8 +590,8 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}?force=true` })).statusCode).toBe(204);
 
     const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapters[0].nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
-    expect(updated.chapters[0].nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
+    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
+    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
   });
 
   it("rejects unsafe workspace file paths", async () => {
@@ -1428,9 +1428,7 @@ describe("daemon", () => {
 });
 
 function syncStoryLayout(story: StoryDocument): void {
-  story.editorLayout.nodes = Object.fromEntries([
-    ...story.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node.position] as const)),
-  ]);
+  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
 }
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
