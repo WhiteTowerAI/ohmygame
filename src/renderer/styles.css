@@ -8819,20 +8819,26 @@ button {
   font-size: 10px;
   font-weight: 600;
 }
-.story-open-ui-background > p {
+.story-media-empty {
   margin: 0;
   color: var(--text-faint);
   font-size: 10px;
 }
-.story-open-ui-background-actions {
+.story-media-list {
+  display: grid;
+  gap: 6px;
+}
+.story-media-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-.story-open-ui-background > .story-open-ui-background-error {
+.story-media-error {
+  margin: 0;
   color: var(--danger);
+  font-size: 10px;
 }
-.story-open-ui-background-row {
+.story-media-row {
   display: grid;
   min-width: 0;
   grid-template-columns: 30px minmax(0, 1fr) 28px;
@@ -8843,7 +8849,7 @@ button {
   border-radius: 6px;
   background: var(--surface-raised);
 }
-.story-open-ui-background-row > span {
+.story-media-row > span {
   display: grid;
   width: 30px;
   height: 30px;
@@ -8852,27 +8858,27 @@ button {
   background: var(--surface);
   color: var(--text-muted);
 }
-.story-open-ui-background-row > div {
+.story-media-row > div {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
-.story-open-ui-background-row strong,
-.story-open-ui-background-row small {
+.story-media-row strong,
+.story-media-row small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.story-open-ui-background-row strong {
+.story-media-row strong {
   color: var(--text);
   font-size: 10px;
   font-weight: 600;
 }
-.story-open-ui-background-row small {
+.story-media-row small {
   color: var(--text-faint);
   font-size: 8px;
 }
-.story-open-ui-background-row > button {
+.story-media-row > button {
   display: grid;
   width: 28px;
   height: 28px;
@@ -8884,7 +8890,7 @@ button {
   color: var(--text-muted);
   cursor: pointer;
 }
-.story-open-ui-background-row > button:hover {
+.story-media-row > button:hover {
   background: var(--surface-hover);
   color: var(--danger);
 }

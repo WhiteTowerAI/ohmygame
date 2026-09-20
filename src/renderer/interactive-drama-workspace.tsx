@@ -2284,13 +2284,13 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
         <button type="button" className={sceneMode === "code" ? "is-active" : ""} aria-pressed={sceneMode === "code"} onClick={() => setSceneMode("code")}>Code</button>
       </div> : null}
     </header>
-    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} config={config} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
+    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} nodes={nodes} config={config} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
       : node?.type === "project-state" ? <StateEditorPage node={node} variables={variables} onVariablesChange={onVariablesChange} onNodeChange={onNodeChange} />
-      : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
-      : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
-      : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} />
-      : node?.type === "ending" ? <EndingWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onChange={onNodeChange} onPlaytest={onPlaytest} />
+      : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "ending" ? <EndingWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : <div className="story-node-editor-content"><div className="story-node-editor-main"><div className="story-node-editor-preview"><span>{node?.type ?? "Node"}</span><h1>{title}</h1><p>Node editor preview</p></div></div></div>}
   </section>;
 }
@@ -2377,13 +2377,14 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
   </div>;
 }
 
-function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onChange }: {
+function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   edges: Edge[];
   viewport: StoryPlayerConfig["viewport"];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
   const preview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
@@ -2395,17 +2396,18 @@ function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, var
       </InheritedScenePoster>
     </div>
   </section>;
-  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} />;
 }
 
-function ChoiceWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onChange }: {
+function ChoiceWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   edges: Edge[];
   viewport: StoryPlayerConfig["viewport"];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
   const options = node.data.options ?? [];
@@ -2426,17 +2428,18 @@ function ChoiceWorkbench({ node, nodes, edges, viewport, libraryAssets, variable
     </div>
   </section>;
 
-  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} selectedChoiceOptionId={selectedOption?.id} hideHeader hideDelete onSelectChoiceOption={setSelectedOptionId} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} selectedChoiceOptionId={selectedOption?.id} hideHeader hideDelete onSelectChoiceOption={setSelectedOptionId} onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-choice-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
-function EndingWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onChange, onPlaytest }: {
+function EndingWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onUploadAsset, onChange, onPlaytest }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   edges: Edge[];
   viewport: StoryPlayerConfig["viewport"];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onPlaytest: () => void;
 }) {
@@ -2450,7 +2453,7 @@ function EndingWorkbench({ node, nodes, edges, viewport, libraryAssets, variable
       </InheritedScenePoster>
     </div>
   </section>;
-  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
@@ -2487,26 +2490,25 @@ function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, st
   </section>;
 }
 
-function OpenUiWorkbench({ mode, node, config, libraryAssets, onUploadAsset, onChange, onPlaytest }: {
+function OpenUiWorkbench({ mode, node, nodes, config, libraryAssets, onUploadAsset, onChange, onPlaytest }: {
   mode: "design" | "code";
   node: StoryFlowNode;
+  nodes: StoryFlowNode[];
   config: StoryPlayerConfig;
   libraryAssets: LibraryAsset[];
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
   onPlaytest: () => void;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string>();
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
   const [currentMs, setCurrentMs] = useState(0);
   const previewVideo = useRef<HTMLVideoElement>(null);
-  const uploadInput = useRef<HTMLInputElement>(null);
   const presentation = node.data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   const mediaItem = presentation.media.mode === "own" ? presentation.media.items[0] : undefined;
-  const mediaAssetId = mediaItem?.source.type === "library" ? mediaItem.source.assetId : undefined;
+  const mediaSource = mediaItem?.source;
+  const mediaSourceNode = mediaSource?.type === "node" ? nodes.find((candidate) => candidate.id === mediaSource.nodeId) : undefined;
+  const mediaAssetId = mediaSource?.type === "library" ? mediaSource.assetId : mediaSourceNode?.data.assetId;
   const selectedVideo = libraryAssets.find((asset) => asset.id === mediaAssetId && asset.mediaType === "video");
   const selectedImage = libraryAssets.find((asset) => asset.id === mediaAssetId && asset.mediaType === "image");
   const selectedBackground = selectedVideo ?? selectedImage;
@@ -2533,25 +2535,6 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onUploadAsset, onC
     setPlaying(nextPlaying);
   }
 
-  function selectBackground(asset: LibraryAsset): void {
-    if (asset.mediaType !== "image" && asset.mediaType !== "video") return;
-    onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [{ id: crypto.randomUUID(), type: asset.mediaType, source: { type: "library", assetId: asset.id } }] } } });
-  }
-
-  async function uploadBackground(file: File): Promise<void> {
-    setUploading(true);
-    setUploadError(undefined);
-    try {
-      const mediaType = libraryUploadMediaType(file);
-      if (!mediaType?.startsWith("image/") && !mediaType?.startsWith("video/")) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, or WebM file.");
-      selectBackground(await onUploadAsset(file));
-    } catch (error) {
-      setUploadError(errorMessage(error));
-    } finally {
-      setUploading(false);
-    }
-  }
-
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
   const preview = <StoryWorkbenchPreview ariaLabel="Open UI live preview" viewport={config.viewport} stageClassName="story-open-ui-stage">
@@ -2576,24 +2559,17 @@ function OpenUiWorkbench({ mode, node, config, libraryAssets, onUploadAsset, onC
           </section>
           <section className="story-open-ui-inspector-section story-open-ui-background">
             <h3>Background</h3>
-            {selectedBackground ? <div className="story-open-ui-background-row"><span>{selectedVideo ? <Film size={15} /> : <ImageIcon size={15} />}</span><div><strong>{selectedBackground.name}</strong><small>{selectedVideo ? "Video" : "Image"} · Library</small></div><button type="button" title="Remove background" aria-label="Remove background" onClick={() => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [] } } })}><X size={13} /></button></div> : <p>No background selected</p>}
-            {!selectedBackground ? <div className="story-open-ui-background-actions">
-              <button className="story-field-add" type="button" disabled={uploading} onClick={() => uploadInput.current?.click()}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}{uploading ? "Uploading..." : "Upload"}</button>
-              <button className="story-field-add" type="button" disabled={uploading} onClick={() => setPickerOpen(true)}><Folder size={14} />From Library</button>
-              <input ref={uploadInput} hidden type="file" accept={STORY_VISUAL_ASSET_ACCEPT} onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void uploadBackground(file);
-              }} />
-            </div> : null}
-            {uploadError ? <p className="story-open-ui-background-error" role="alert">{uploadError}</p> : null}
+            <StoryMediaSourcePicker
+              items={presentation.media.mode === "own" ? presentation.media.items : []}
+              nodes={nodes}
+              libraryAssets={libraryAssets}
+              emptyLabel="No background selected"
+              pickerTitle="Choose background"
+              onUploadAsset={onUploadAsset}
+              onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items } } })}
+            />
           </section>
         </div>
-        {pickerOpen ? <StoryAssetPicker title="Choose background" assets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
-          selectBackground(asset);
-          setUploadError(undefined);
-          setPickerOpen(false);
-        }} /> : null}
       </aside>;
   return <NodeWorkbenchLayout
     className="story-open-ui-workbench"
@@ -2677,7 +2653,7 @@ function presentationItemPreview(item: StorySceneMedia | undefined, nodes: reado
     : { mediaType: item.type };
 }
 
-function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, variables, onChange }: {
+function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, variables, onUploadAsset, onChange }: {
   mode: "design" | "code";
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
@@ -2685,6 +2661,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
   videoFit: StoryPlayerConfig["videoFit"];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
   const presentationMedia = node.data.presentation?.media;
@@ -2716,7 +2693,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
         }
         else { setCurrentMs(totalMs); setPlaying(false); }
       }} />;
-  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
   return <NodeWorkbenchLayout className="story-scene-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
@@ -2897,6 +2874,7 @@ function StoryInspector({
   hideHeader = false,
   hideDelete = false,
   onSelectChoiceOption,
+  onUploadAsset,
   onChange,
   onClose,
   onDelete,
@@ -2909,6 +2887,7 @@ function StoryInspector({
   hideHeader?: boolean;
   hideDelete?: boolean;
   onSelectChoiceOption?: (optionId: string) => void;
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onClose: () => void;
   onDelete: () => void;
@@ -2941,7 +2920,7 @@ function StoryInspector({
       </header> : null}
       <div className="story-inspector-content">
         {node.type === "start" ? <p className="story-inspector-help">The first node in this chapter. Connect it to the opening scene.</p> : null}
-        {node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending" ? <StoryPresentationMediaEditor node={node} nodes={nodes} libraryAssets={libraryAssets} onChange={onChange} /> : null}
+        {node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending" ? <StoryPresentationMediaEditor node={node} nodes={nodes} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onChange} /> : null}
         {node.type === "scene" ? (
           <>
             <InspectorField label="Title">
@@ -3050,20 +3029,15 @@ function StoryInspector({
   );
 }
 
-function StoryPresentationMediaEditor({ node, nodes, libraryAssets, onChange }: {
+function StoryPresentationMediaEditor({ node, nodes, libraryAssets, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
   const presentation = flowNodePresentation(node);
   const media = presentation.media;
-  const item = media.mode === "own" ? media.items.at(-1) : undefined;
-  const source = item?.source;
-  const sourceNode = source?.type === "node" ? nodes.find((candidate) => candidate.id === source.nodeId) : undefined;
-  const assetId = source?.type === "library" ? source.assetId : sourceNode?.data.assetId;
-  const asset = libraryAssets.find((candidate) => candidate.id === assetId);
   const setMode = (mode: StoryNodePresentation["media"]["mode"]) => {
     const nextMedia = mode === "own" ? { mode, items: media.mode === "own" ? media.items : [] } as const : { mode } as const;
     onChange({ ...node.data, presentation: { ...presentation, media: nextMedia } });
@@ -3075,17 +3049,93 @@ function StoryPresentationMediaEditor({ node, nodes, libraryAssets, onChange }: 
     </div>
     {media.mode === "inherit" ? <p>Uses the nearest upstream presentation media.</p> : null}
     {media.mode === "none" ? <p>Renders code without a media layer.</p> : null}
-    {media.mode === "own" ? item ? <div className="story-open-ui-background-row">
-      <span>{item.type === "video" ? <Film size={15} /> : <ImageIcon size={15} />}</span>
-      <div><strong>{asset?.name ?? (sourceNode ? "Connected media" : "Missing media")}</strong><small>{item.type === "video" ? "Video" : "Image"}{item.source.type === "node" ? " · Connected node" : " · Library"}</small></div>
-      <button type="button" title="Remove media" aria-label="Remove media" onClick={() => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [] } } })}><X size={13} /></button>
-    </div> : <button className="story-field-add" type="button" onClick={() => setPickerOpen(true)}><Plus size={14} />Add media</button> : null}
-    {pickerOpen ? <StoryAssetPicker title="Choose media" assets={libraryAssets.filter((candidate) => candidate.mediaType === "image" || candidate.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(selected) => {
-      const type = selected.mediaType === "video" ? "video" : "image";
-      onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items: [{ id: crypto.randomUUID(), type, source: { type: "library", assetId: selected.id } }] } } });
+    {media.mode === "own" ? <StoryMediaSourcePicker
+      items={media.items}
+      nodes={nodes}
+      libraryAssets={libraryAssets}
+      append={node.type === "scene"}
+      emptyLabel="No media selected"
+      pickerTitle="Choose media"
+      onUploadAsset={onUploadAsset}
+      onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items } } })}
+    /> : null}
+  </section>;
+}
+
+function StoryMediaSourcePicker({ items, nodes, libraryAssets, append = false, emptyLabel, pickerTitle, onUploadAsset, onChange }: {
+  items: StorySceneMedia[];
+  nodes: StoryFlowNode[];
+  libraryAssets: LibraryAsset[];
+  append?: boolean;
+  emptyLabel: string;
+  pickerTitle: string;
+  onUploadAsset: (file: File) => Promise<LibraryAsset>;
+  onChange: (items: StorySceneMedia[]) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string>();
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  const itemsRef = useRef(items);
+  const onChangeRef = useRef(onChange);
+  itemsRef.current = items;
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  function selectAsset(asset: LibraryAsset): void {
+    if (asset.mediaType !== "image" && asset.mediaType !== "video") return;
+    const item: StorySceneMedia = { id: crypto.randomUUID(), type: asset.mediaType, source: { type: "library", assetId: asset.id } };
+    onChangeRef.current(append ? [...itemsRef.current, item] : [item]);
+  }
+
+  async function upload(file: File): Promise<void> {
+    setUploading(true);
+    setUploadError(undefined);
+    try {
+      const mediaType = libraryUploadMediaType(file);
+      if (!mediaType?.startsWith("image/") && !mediaType?.startsWith("video/")) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, or WebM file.");
+      const asset = await onUploadAsset(file);
+      if (mounted.current) selectAsset(asset);
+    } catch (error) {
+      if (mounted.current) setUploadError(errorMessage(error));
+    } finally {
+      if (mounted.current) setUploading(false);
+    }
+  }
+
+  return <>
+    {items.length ? <div className="story-media-list">{items.map((item) => {
+      const source = item.source;
+      const sourceNode = source.type === "node" ? nodes.find((candidate) => candidate.id === source.nodeId) : undefined;
+      const assetId = source.type === "library" ? source.assetId : sourceNode?.data.assetId;
+      const asset = libraryAssets.find((candidate) => candidate.id === assetId);
+      const name = asset?.name ?? sourceNode?.data.name ?? sourceNode?.data.title ?? (sourceNode ? "Connected media" : "Missing media");
+      return <div className="story-media-row" key={item.id}>
+        <span>{item.type === "video" ? <Film size={15} /> : <ImageIcon size={15} />}</span>
+        <div><strong>{name}</strong><small>{item.type === "video" ? "Video" : "Image"}{item.source.type === "node" ? " · Connected node" : " · Library"}</small></div>
+        <button type="button" title="Remove media" aria-label={`Remove ${name}`} onClick={() => onChange(items.filter((candidate) => candidate.id !== item.id))}><X size={13} /></button>
+      </div>;
+    })}</div> : <p className="story-media-empty">{emptyLabel}</p>}
+    <div className="story-media-actions">
+      <button className="story-field-add" type="button" disabled={uploading} onClick={() => uploadInput.current?.click()}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}{uploading ? "Uploading..." : "Upload"}</button>
+      <button className="story-field-add" type="button" disabled={uploading} onClick={() => setPickerOpen(true)}><Folder size={14} />From Library</button>
+      <input ref={uploadInput} hidden type="file" accept={STORY_VISUAL_ASSET_ACCEPT} onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (file) void upload(file);
+      }} />
+    </div>
+    {uploadError ? <p className="story-media-error" role="alert">{uploadError}</p> : null}
+    {pickerOpen ? <StoryAssetPicker title={pickerTitle} assets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video")} onClose={() => setPickerOpen(false)} onSelect={(asset) => {
+      selectAsset(asset);
+      setUploadError(undefined);
       setPickerOpen(false);
     }} /> : null}
-  </section>;
+  </>;
 }
 
 function StoryAssetPicker({ title, assets, onClose, onSelect }: {
