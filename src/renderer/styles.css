@@ -11042,7 +11042,7 @@ button {
   z-index: 10;
   top: 34px;
   right: 0;
-  width: min(286px, calc(100vw - 36px));
+  width: min(248px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid var(--menu-border);
   border-radius: 8px;
@@ -14407,6 +14407,10 @@ button {
   text-align: center;
 }
 
+:root[data-appearance="light"] .preview-empty-state {
+  background-color: #ffffff;
+}
+
 .preview-empty-mark {
   display: grid;
   width: 44px;
@@ -15053,7 +15057,6 @@ button {
     position: fixed;
     top: 50px;
     right: 16px;
-    width: min(286px, calc(100vw - 32px));
   }
 
   .agent-pane {
