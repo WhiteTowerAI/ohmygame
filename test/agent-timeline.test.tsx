@@ -4,13 +4,13 @@ import { AgentTimeline as ThreadTimeline } from "../src/renderer/agent-timeline.
 import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
-function AgentTimeline({ items, activeTurnId, failedTurnId, ...props }: Omit<ComponentProps<typeof ThreadTimeline>, "turns"> & { items: ThreadItem[]; activeTurnId?: string; failedTurnId?: string }) {
+function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...props }: Omit<ComponentProps<typeof ThreadTimeline>, "turns"> & { items: ThreadItem[]; activeTurnId?: string; failedTurnId?: string; cancelledTurnId?: string }) {
   const grouped = new Map<string, ThreadItem[]>();
   for (const item of items) grouped.set(item.turnId, [...(grouped.get(item.turnId) ?? []), item]);
   const turns: Turn[] = [...grouped].map(([id, turnItems]) => ({
     id,
     conversationId: "conversation-1",
-    status: id === activeTurnId ? "inProgress" : id === failedTurnId ? "failed" : "completed",
+    status: id === activeTurnId ? "inProgress" : id === failedTurnId ? "failed" : id === cancelledTurnId ? "cancelled" : "completed",
     items: turnItems,
   }));
   return <ThreadTimeline {...props} turns={turns} />;
@@ -40,14 +40,14 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("<details");
   });
 
-  it("shows Pi's streamed reasoning summary before work begins", () => {
+  it("hides streamed reasoning text behind the generic Thinking state", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "**Planning Vite app creation**", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Planning Vite app creation");
-    expect(html).not.toContain("**");
+    expect(html).toContain('<span class="activity-shimmer">Thinking</span>');
+    expect(html).not.toContain("Planning Vite app creation");
   });
 
   it("keeps completed tools visible when work begins", () => {
@@ -59,14 +59,19 @@ describe("AgentTimeline", () => {
     expect(html.match(/<div class="work-summary work-summary-active">([\s\S]*?)<\/div>/)?.[1]).not.toContain("solar-refresh-linear");
     expect(html).toContain("Thinking");
     expect(html).toContain("Read package.json");
-    expect(html).not.toContain("tool-activity-group");
+    expect(html).toContain('class="tool-activity-group"');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
+    expect(html).not.toContain('class="thinking-activity"');
+    expect(html).not.toContain('class="tool-activity-group" open');
     expect(html).not.toContain("<details class=\"work-activity\"");
   });
 
-  it("spins only the initial Thinking header", () => {
+  it("shimmers the initial Thinking header without a loading icon", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("solar-refresh-linear spin");
+    expect(html).toContain('<span class="activity-shimmer">Thinking</span>');
+    expect(html).not.toContain("solar-refresh-linear spin");
   });
 
   it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {
@@ -182,6 +187,46 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("work-items");
   });
 
+  it("describes an early stopped turn without exposing its reasoning text", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { ...user(), timestamp: 1_000 },
+      { id: "thinking", turnId: "turn-1", type: "reasoning", text: "private reasoning", status: "completed", timestamp: 2_000 },
+      { id: "stopped", turnId: "turn-1", type: "agentMessage", text: "", status: "cancelled", timestamp: 4_000 },
+    ]} cancelledTurnId="turn-1" />);
+
+    expect(html).toContain("You stopped after 3s");
+    expect(html).toContain("Stopped while thinking");
+    expect(html).toContain('class="work-activity work-activity-stopped"');
+    expect(html).not.toContain('<details class="work-activity"');
+    expect(html).not.toContain("private reasoning");
+    expect(html).not.toContain('<span class="muted-text">Stopped</span>');
+  });
+
+  it("keeps completed work inside a stopped turn", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { ...user(), timestamp: 1_000 },
+      { ...tool(), timestamp: 2_000 },
+      { id: "stopped", turnId: "turn-1", type: "agentMessage", text: "", status: "cancelled", timestamp: 4_000 },
+    ]} cancelledTurnId="turn-1" />);
+
+    expect(html).toContain("You stopped after 3s");
+    expect(html).toContain("Read a file");
+    expect(html).toContain("Read package.json");
+    expect(html).toContain('class="work-activity work-activity-stopped"');
+    expect(html).not.toContain('<details class="work-activity"');
+    expect(html).not.toContain("Stopped while thinking");
+  });
+
+  it("shows zero seconds when a turn is stopped in under a second", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { ...user(), timestamp: 1_000 },
+      { id: "stopped", turnId: "turn-1", type: "agentMessage", text: "", status: "cancelled", timestamp: 1_500 },
+    ]} cancelledTurnId="turn-1" />);
+
+    expect(html).toContain("You stopped after 0s");
+    expect(html).not.toContain("&lt;1s");
+  });
+
   it("keeps the latest tool before Thinking after earlier commentary", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -220,9 +265,25 @@ describe("AgentTimeline", () => {
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Working for");
-    expect(html).toContain("Planning the next edit");
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Planning the next edit");
     expect(html).toContain("package.json");
-    expect(html).not.toContain("tool-activity-group");
+    expect(html).toContain("tool-activity-group");
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
+    expect(html).not.toContain('class="thinking-activity"');
+  });
+
+  it("restores the tool summary before rendering subsequent text", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      tool(),
+      { ...assistant("commentary", "I found the relevant file."), status: "inProgress", phase: undefined },
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Read a file");
+    expect(html.indexOf("Read a file")).toBeLessThan(html.indexOf("I found the relevant file."));
+    expect(html).not.toContain('title="Thinking">Thinking</span>');
   });
 
   it("keeps tools when completed reasoning returns to the generic status", () => {
@@ -247,7 +308,8 @@ describe("AgentTimeline", () => {
     ]} />);
 
     expect(html).toContain("Read package.json");
-    expect(html).not.toContain("tool-activity-group");
+    expect(html).toContain("Read a file");
+    expect(html).toContain("tool-activity-group");
     expect(html).not.toContain("Thinking");
   });
 
@@ -405,8 +467,10 @@ describe("AgentTimeline", () => {
       writtenFile("write-3", "three.ts"),
     ]} />);
 
-    expect(html).toContain("2 actions failed");
-    expect(html).toContain("Edited 3 files");
+    expect(html).toContain("Actions failed");
+    expect(html).toContain("Edited files");
+    expect(html).not.toContain("2 actions failed");
+    expect(html).not.toContain("Edited 3 files");
     expect(html.match(/class="tool-activity-group"/g)).toHaveLength(2);
     expect(html).not.toContain("assistant-failed");
     expect(html).not.toContain("stream disconnected");
@@ -492,9 +556,12 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Editing src/app.ts");
+    expect(html).toContain('class="tool-label activity-shimmer" title="Edit Files">Edit Files</span>');
+    expect(html).toContain('class="tool-label" title="Editing src/app.ts">Editing src/app.ts</span>');
     expect(html).toContain("package.json");
-    expect(html).not.toContain("tool-activity-group");
+    expect(html).toContain('class="tool-activity-group"');
+    expect(html.match(/class="tool-label activity-shimmer"/g)).toHaveLength(1);
+    expect(html).not.toContain("solar-refresh-linear spin");
   });
 
   it("collapses an earlier activity group after commentary starts a new stage", () => {
@@ -521,7 +588,7 @@ describe("AgentTimeline", () => {
     expect(html.indexOf("Now I will run the checks.")).toBeLessThan(html.indexOf("Running npm test"));
   });
 
-  it("shows a completed mixed tool group before one Thinking row", () => {
+  it("reuses a completed mixed tool group row for Thinking", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       tool(),
@@ -545,7 +612,9 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain("Thinking");
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
+    expect(html).not.toContain('class="thinking-activity"');
     expect(html).not.toContain("Edited a file, read a file, ran a command");
     expect(html).toContain("Read package.json");
     expect(html).toContain("Edited src/app.ts");
@@ -609,6 +678,40 @@ describe("AgentTimeline", () => {
     expect(html).toContain("solar-plug-circle-linear");
   });
 
+  it("uses an indefinite article for a single generic tool", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "image-tool",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "image-tool",
+        tool: "image",
+        status: "completed",
+      },
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Used an image tool");
+  });
+
+  it("uses an before an MCP initialism", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "mcp",
+        turnId: "turn-1",
+        type: "mcpToolCall",
+        toolCallId: "mcp",
+        tool: "fetch_asset",
+        status: "completed",
+      },
+      assistant("final", "Done.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Used an MCP tool");
+  });
+
   it("groups consecutive calls by their MCP integration", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
@@ -626,7 +729,7 @@ describe("AgentTimeline", () => {
       assistant("final", "Done.", "final_answer"),
     ]} />);
 
-    expect(html).toContain("Used Godot 2 times");
+    expect(html).toContain("Used Godot tools");
     expect(html).toContain("Godot: Get Godot version");
     expect(html).toContain("Godot: Run project");
   });
@@ -648,7 +751,7 @@ describe("AgentTimeline", () => {
       assistant("final", "Done.", "final_answer"),
     ]} />);
 
-    expect(html).toContain("Used Custom tools 2 times");
+    expect(html).toContain("Used Custom tools");
     expect(html).toContain("solar-plug-circle-linear");
   });
 
@@ -668,7 +771,7 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).not.toContain("tool-activity-group");
+    expect(html.match(/<details class="tool-activity-group/g)).toHaveLength(2);
     expect(html.indexOf("Read package.json")).toBeLessThan(html.indexOf("Now I will edit it."));
     expect(html).toContain("Edited src/app.ts");
     expect(html.indexOf("Now I will edit it.")).toBeLessThan(html.indexOf("Thinking"));
