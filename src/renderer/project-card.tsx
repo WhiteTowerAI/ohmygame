@@ -68,7 +68,9 @@ export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardP
             <div className="project-card-actions-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>Rename</button>
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>Duplicate</button>
-              <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>Delete</button>
+              <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>
+                {project.workspaceLocation === "external" ? "Remove from OhMyGame" : "Delete"}
+              </button>
             </div>
           ) : null}
         </div>

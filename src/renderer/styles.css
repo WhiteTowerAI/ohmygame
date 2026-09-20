@@ -28,7 +28,7 @@
   --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, white);
   --menu-border: var(--composer-border);
   --menu-hover: rgb(255 255 255 / 5%);
-  --menu-shadow: 0 10px 14px rgb(0 0 0 / 8%);
+  --menu-shadow: 0 2px 5px rgb(0 0 0 / 5%);
   --menu-surface: var(--surface-raised);
   --settings-row-surface: rgb(255 255 255 / 2%);
   --settings-row-surface-emphasis: rgb(255 255 255 / 4%);
@@ -38,22 +38,22 @@
 :root[data-appearance="light"] {
   color: #202523;
   color-scheme: light;
-  --canvas: #f7f7f4;
+  --canvas: #f7f7f7;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-hover: #f0f1ed;
+  --surface-hover: #f7f7f7;
   --border: #dedfd9;
   --border-strong: #c8cac3;
   --text: #202523;
   --text-secondary: #626a66;
   --text-muted: #747c77;
   --text-faint: #919791;
-  --accent: #278565;
-  --accent-ink: #ffffff;
+  --accent: #b7f23d;
+  --accent-ink: #17210b;
   --danger: #c9413d;
   --warning: #9b6a20;
-  --theme-accent: #86b414;
-  --theme-accent-hover: #759d0d;
+  --theme-accent: #b7f23d;
+  --theme-accent-hover: #a8e531;
   --composer-border: #d7d9d2;
   --composer-surface: #ffffff;
   --focus-ring: color-mix(in srgb, var(--theme-accent) 64%, #506070);
@@ -190,12 +190,7 @@ body {
   border-right: 1px solid rgb(255 255 255 / 6%);
   background: var(--home-sidebar);
   color: #fff;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -229,6 +224,35 @@ body {
   background: #28c840;
 }
 
+.home-sidebar-brand {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 11px 0;
+}
+
+.home-sidebar-brand img {
+  width: 27px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.home-sidebar-brand span {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+:root[data-appearance="light"] .home-sidebar-brand {
+  color: var(--text);
+}
+
+:root[data-appearance="light"] .home-sidebar-brand img {
+  filter: brightness(0) saturate(100%);
+}
+
 .desktop-macos .home-sidebar {
   app-region: drag;
   user-select: none;
@@ -240,6 +264,7 @@ body {
 
 .desktop-macos .home-sidebar nav,
 .desktop-macos .home-sidebar-community,
+.desktop-macos .home-sidebar-brand,
 .desktop-macos .home-sidebar-account,
 .desktop-macos .settings-page-back,
 .desktop-macos .home-sidebar-resizer,
@@ -1804,7 +1829,7 @@ body {
 }
 
 .home-sidebar nav {
-  margin-top: 35px;
+  margin-top: 24px;
 }
 
 .home-nav-label {
@@ -1924,7 +1949,7 @@ button.home-nav-item:hover {
 
 button.home-nav-item-active,
 button.home-nav-item-active:hover {
-  background: color-mix(in srgb, var(--home-accent) 15%, transparent);
+  background: color-mix(in srgb, var(--home-accent) 25%, transparent);
   font-weight: 600;
 }
 
@@ -2118,6 +2143,7 @@ button.home-nav-item-active:hover {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
+  box-shadow: var(--menu-shadow);
 }
 
 .home-category-control label:hover {
@@ -2875,6 +2901,57 @@ button.home-nav-item-active:hover {
 .project-create-name input::placeholder {
   color: var(--text-faint);
   opacity: 1;
+}
+.project-create-workspace {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-create-workspace legend {
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-create-workspace-selection {
+  display: grid;
+  gap: 8px;
+}
+.project-create-workspace-selection > span {
+  overflow: hidden;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #111216;
+  color: var(--text-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-create-workspace-selection > span.is-selected {
+  color: var(--text-muted);
+}
+.project-create-workspace-selection > div {
+  display: flex;
+  gap: 7px;
+}
+.project-create-workspace-selection button {
+  height: 27px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+.project-create-workspace-selection button:hover:not(:disabled) {
+  background: var(--surface-hover);
 }
 .project-create-types {
   display: grid;
@@ -5290,10 +5367,10 @@ button {
 }
 
 :is(
-    .asset-config-fields,
-    .asset-result-canvas.asset-template-gallery,
-    .asset-result-canvas.asset-history-grid
-  )::-webkit-scrollbar-thumb:hover {
+  .asset-config-fields,
+  .asset-result-canvas.asset-template-gallery,
+  .asset-result-canvas.asset-history-grid
+)::-webkit-scrollbar-thumb:hover {
   background-color: var(--border-strong);
 }
 
@@ -5915,7 +5992,8 @@ button {
   padding: 0;
   border: 0;
   outline: 0;
-  background: linear-gradient(
+  background:
+    linear-gradient(
       to right,
       var(--home-accent) 0 var(--asset-range-progress),
       var(--border-strong) var(--asset-range-progress) 100%
@@ -5986,7 +6064,8 @@ button {
   margin: 0;
   appearance: none;
   cursor: pointer;
-  background: linear-gradient(
+  background:
+    linear-gradient(
       to right,
       var(--home-accent) 0 var(--asset-range-progress),
       var(--border-strong) var(--asset-range-progress) 100%
@@ -11372,6 +11451,41 @@ button {
   object-fit: cover;
 }
 
+.user-message-attachments {
+  display: flex;
+  max-width: min(86%, 520px);
+  align-self: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.user-message-attachment {
+  display: grid;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.user-message-attachment > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-message-attachment small {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
 .assistant-message {
   margin: 0;
   color: #e6e8eb;
@@ -11703,6 +11817,32 @@ button {
 
 .timeline-event-error {
   color: var(--danger);
+}
+
+.compaction-details {
+  margin: 0;
+}
+
+.compaction-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.compaction-details[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.compaction-content {
+  margin: 6px 0 12px 21px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.compaction-stats {
+  margin: 0 0 8px;
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 .connection-activity-details {
@@ -12535,6 +12675,7 @@ button {
   border-radius: 14px;
   background: var(--surface-raised);
   text-align: left;
+  box-shadow: var(--menu-shadow);
 }
 
 .prompt-box-drop-overlay {
@@ -12543,7 +12684,8 @@ button {
   inset: 5px;
   display: grid;
   place-items: center;
-  border: 1px dashed color-mix(in srgb, var(--composer-accent) 72%, var(--border));
+  border: 1px dashed
+    color-mix(in srgb, var(--composer-accent) 72%, var(--border));
   border-radius: 10px;
   background: color-mix(in srgb, var(--composer-surface) 88%, transparent);
   color: var(--text);
@@ -12553,7 +12695,11 @@ button {
 }
 
 .prompt-box-drop-active {
-  border-color: color-mix(in srgb, var(--composer-accent) 70%, var(--composer-border));
+  border-color: color-mix(
+    in srgb,
+    var(--composer-accent) 70%,
+    var(--composer-border)
+  );
 }
 
 .composer-reference {
@@ -12845,6 +12991,53 @@ button {
   min-width: 0;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.composer-attachments {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-attachment {
+  display: flex;
+  max-width: 260px;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 5px 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.composer-attachment > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment button {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.composer-attachment button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .composer-image {
@@ -13279,12 +13472,7 @@ button {
   min-width: 0;
   align-items: center;
   gap: 6px;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .viewport-menu {
@@ -13302,7 +13490,7 @@ button {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: transparent;
   color: #cdd0d5;
   cursor: pointer;
 }
@@ -13365,7 +13553,7 @@ button {
   overflow: visible;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--surface-raised);
+  background: transparent;
 }
 
 .preview-location:hover,
@@ -13943,12 +14131,7 @@ button {
   display: grid;
   min-width: 0;
   gap: 2px;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .electron-game-toolbar strong,
 .electron-game-toolbar span {
@@ -14582,6 +14765,10 @@ button {
     padding: 0;
   }
 
+  .home-sidebar-brand {
+    display: none;
+  }
+
   .home-sidebar nav {
     display: flex;
     margin: 0;
@@ -15128,6 +15315,10 @@ button {
   background: var(--surface-hover);
 }
 
+:root[data-appearance="light"] .settings-provider-mark.is-monochrome {
+  background: #2d2d2d;
+}
+
 :root[data-appearance="light"]
   .settings-provider-row
   > button:hover:not(:disabled),
@@ -15223,6 +15414,7 @@ button {
 :root[data-appearance="light"]
   :is(
     .project-create-name input,
+    .project-create-workspace-selection > span,
     .publish-dialog input:not([type="file"]),
     .publish-dialog textarea
   ) {
@@ -15330,7 +15522,7 @@ button {
 
 :root[data-appearance="light"] .workspace-tabs {
   border-color: var(--border);
-  background: var(--surface);
+  background: transparent;
 }
 
 :root[data-appearance="light"] .workspace-tab {

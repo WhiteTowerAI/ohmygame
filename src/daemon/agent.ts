@@ -11,8 +11,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
+import { createHash, randomUUID } from "node:crypto";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
@@ -27,6 +27,7 @@ export interface CodingSession {
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
   compact?(customInstructions?: string): Promise<unknown>;
+  abortCompaction?(): void;
   getContextUsage?(): AgentContextUsage | undefined;
   clearQueue?(): { steering: string[]; followUp: string[] };
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
@@ -57,11 +58,11 @@ interface PiPromptImage {
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
 export type AgentRunResult = "completed" | "cancelled";
+type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
-export function loadConversation(workspacePath: string, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
-  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
-  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+export function loadConversation(project: ProjectState, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
+  const entries = SessionManager.open(sessionPath, sessionDirectory(project), project.workspacePath).getBranch();
   return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries, markInterrupted);
 }
 
@@ -73,6 +74,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
   let turnId: string | undefined;
   let turnFinished = true;
   let lastTimestamp: number | undefined;
+  let storedPrompt: StoredPromptDetails | undefined;
 
   for (const entry of entries) {
     if (entry.type === "compaction") {
@@ -82,6 +84,8 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         turnId: entry.id,
         type: "contextCompaction",
         status: "completed",
+        summary: entry.summary,
+        tokensBefore: entry.tokensBefore,
         ...(Number.isFinite(compactedAt) ? { timestamp: compactedAt } : {}),
       });
       continue;
@@ -99,6 +103,10 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       }
       continue;
     }
+    if (entry.type === "custom" && entry.customType === USER_PROMPT_ENTRY) {
+      storedPrompt = parseStoredPromptDetails(entry.data);
+      continue;
+    }
     if (entry.type !== "message") continue;
     const message = entry.message;
     const timestamp = messageTime(entry);
@@ -107,9 +115,14 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnId = entry.id;
       turnFinished = false;
       const parsed = parseUserPrompt(textContent(message.content));
+      const details = storedPrompt?.wirePromptHash === promptHash(textContent(message.content)) ? storedPrompt : undefined;
+      storedPrompt = undefined;
       const images = imageContent(message.content);
-      if (parsed.text || images.length > 0) {
-        items.push({ id: entry.id, turnId, type: "userMessage", text: parsed.text, ...(parsed.mentions.length ? { mentions: parsed.mentions } : {}), ...(images.length ? { images } : {}), timestamp });
+      const text = details?.prompt ?? parsed.text;
+      const mentions = details?.mentions ?? parsed.mentions;
+      const attachments = details?.attachments ?? parsed.attachments;
+      if (text || images.length > 0 || attachments.length > 0) {
+        items.push({ id: entry.id, turnId, type: "userMessage", text, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), timestamp });
         if (images.length) items.push({ id: `${entry.id}:images`, turnId, type: "imageRead", count: images.length, status: "completed", timestamp });
       }
       continue;
@@ -275,6 +288,9 @@ interface ActiveTurn {
   prompt: string;
   mentions: PluginMention[];
   images: PromptImage[];
+  references: PromptReference[];
+  attachmentContext: string;
+  attachments: ConversationAttachment[];
   mode: PlanMode;
   plan?: PlanState;
   conversation: StoredConversation;
@@ -294,6 +310,7 @@ interface ActiveTurn {
 
 interface QueuedPrompt extends PendingPrompt {
   wirePrompt: string;
+  attachmentContext: string;
   queuedEventId: number;
 }
 
@@ -431,6 +448,9 @@ export class AgentManager {
       prompt: "",
       mentions: [],
       images: [],
+      references: [],
+      attachmentContext: "",
+      attachments: [],
       mode: "normal",
       conversation,
       status: "running",
@@ -449,11 +469,15 @@ export class AgentManager {
     const execution = managed.session.compact(customInstructions).then(() => "completed" as const);
     run = execution.then(
       (result) => {
-        this.#finishCompact(project, active, run);
+        this.#finishCompact(project, active, run, { status: result });
         return result;
       },
       (cause) => {
-        this.#finishCompact(project, active, run, cause);
+        if (isCancelling(active)) {
+          this.#finishCompact(project, active, run, { status: "cancelled" });
+          return "cancelled" as const;
+        }
+        this.#finishCompact(project, active, run, { status: "failed", cause });
         throw cause;
       },
     );
@@ -484,8 +508,10 @@ export class AgentManager {
     mode: "normal" | "planning" | "executing" = "normal",
     mentions: PluginMention[] = [],
     turnId = randomUUID(),
+    attachmentContext = "",
+    attachments: ConversationAttachment[] = [],
   ): { turnId: string; queued: boolean; result?: Promise<AgentRunResult | void> } {
-    if (!prompt.trim() && images.length === 0) throw new Error("Prompt must not be empty");
+    if (!prompt.trim() && images.length === 0 && !attachmentContext.trim()) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#revisions.has(key)) throw new Error("A message edit is already starting in this conversation");
@@ -496,16 +522,16 @@ export class AgentManager {
     if (active) {
       if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
-      const wirePrompt = promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references);
+      const wirePrompt = `${promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references)}${attachmentContext}`;
       const result = this.#withQueueMutation(key, async () => {
         const event = this.events.publish(
           project.id,
           "prompt.queued",
-          { prompt, ...(mentions.length ? { mentions } : {}), references, ...(images.length ? { images } : {}) },
+          { prompt, ...(mentions.length ? { mentions } : {}), references, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) },
           { conversationId: conversation.summary.id, turnId },
           images.length ? { prompt, references } : undefined,
         );
-        const queued = { turnId, prompt, mentions, references, images, wirePrompt, queuedEventId: event.id };
+        const queued = { turnId, prompt, mentions, references, images, attachments, attachmentContext, wirePrompt, queuedEventId: event.id };
         this.#pendingPrompts.set(key, [...(this.#pendingPrompts.get(key) ?? []), queued]);
         try {
           const managed = await this.#getSession(project, conversation);
@@ -527,7 +553,7 @@ export class AgentManager {
 
     this.#pendingPrompts.delete(key);
     if (mode === "planning") this.#setPlanState(project, conversation, { mode: "planning", ...(planState.plan ? { plan: planState.plan } : {}) }, false);
-    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan, mentions) };
+    return { turnId, queued: false, result: this.#startPrompt(project, conversation, prompt, references, images, turnId, undefined, mode, planState.plan, mentions, attachmentContext, attachments) };
   }
 
   async reviseLast(
@@ -550,7 +576,7 @@ export class AgentManager {
     this.#revisions.add(key);
     let navigated = false;
     try {
-      const previous = lastUserPrompt(project.workspacePath, conversation.sessionPath);
+      const previous = lastUserPrompt(project, conversation.sessionPath);
       if (!previous) throw new Error("There is no user message to edit");
       const references = await Promise.all(previous.references.map(validateReference));
       const managed = await this.#getSession(project, conversation);
@@ -573,6 +599,8 @@ export class AgentManager {
           "normal",
           undefined,
           previous.mentions.filter((mention) => hasPluginMentionToken(prompt, mention)),
+          previous.attachmentContext,
+          previous.attachments,
         ),
       };
     } catch (cause) {
@@ -595,6 +623,8 @@ export class AgentManager {
     mode: PlanMode = "normal",
     plan?: PlanState,
     mentions: PluginMention[] = [],
+    attachmentContext = "",
+    attachments: ConversationAttachment[] = [],
   ): Promise<AgentRunResult> {
 
     const active: ActiveTurn = {
@@ -605,6 +635,9 @@ export class AgentManager {
       prompt,
       mentions,
       images,
+      references,
+      attachmentContext,
+      attachments,
       mode,
       conversation,
       plan,
@@ -622,7 +655,7 @@ export class AgentManager {
     const started = this.events.publish(
       project.id,
       "agent.started",
-      { prompt, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(revision ? { revision } : {}) },
+      { prompt, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(revision ? { revision } : {}) },
       eventScope(active),
       images.length ? { prompt, ...(revision ? { revision } : {}) } : undefined,
     );
@@ -630,11 +663,12 @@ export class AgentManager {
     active.startedAt = Date.parse(started.timestamp);
     const mentionedPrompt = serializePluginMentions(prompt, mentions);
     const invocation = mode === "normal" ? skillInvocationPrompt(mentionedPrompt) : mentionedPrompt;
-    const wirePrompt = mode === "planning"
+    const basePrompt = mode === "planning"
       ? planningPrompt(promptWithReferences(invocation, references))
       : mode === "executing"
         ? executionPrompt(promptWithReferences(invocation, references), active.plan)
         : promptWithReferences(invocation, references);
+    const wirePrompt = `${basePrompt}${attachmentContext}`;
     const execution = this.#runPrompt(project, conversation, wirePrompt, images, active);
     let run: Promise<AgentRunResult>;
     run = execution.then(
@@ -673,6 +707,7 @@ export class AgentManager {
       }
 
       managed.session.setActiveToolsByName?.(this.options.activeToolNames?.(project, active.mode, managed.session) ?? BASE_TOOL_NAMES);
+      appendPromptDetails(managed.session.sessionManager, active, prompt);
       if (images.length) {
         await managed.session.prompt(prompt, { images: images.map(toPiImage) });
       } else {
@@ -715,6 +750,7 @@ export class AgentManager {
         managed.session.clearQueue?.();
         this.#clearPending(projectId, conversationId);
       });
+      managed.session.abortCompaction?.();
       await managed.session.abort();
     } else {
       this.#clearPending(projectId, conversationId);
@@ -812,8 +848,8 @@ export class AgentManager {
   }
 
   pendingPrompts(projectId: string, conversationId: string): PendingPrompt[] {
-    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, mentions, references, images }) => ({
-      turnId, prompt, mentions, references, images,
+    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
+      turnId, prompt, mentions, references, images, attachments,
     }));
   }
 
@@ -907,6 +943,7 @@ export class AgentManager {
       text: active.prompt,
       ...(active.mentions.length ? { mentions: active.mentions } : {}),
       ...(active.images.length ? { images: active.images } : {}),
+      ...(active.attachments.length ? { attachments: active.attachments } : {}),
       ...timestamp,
     }, ...(active.images.length ? [{
       id: `${active.turnId}:images`,
@@ -949,6 +986,7 @@ export class AgentManager {
     }
     this.#questionnaires.clear();
     const sessions = [...this.#sessions.values()];
+    for (const { session } of sessions) session.abortCompaction?.();
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
     await Promise.allSettled([...this.#queueMutations.values()]);
@@ -996,11 +1034,21 @@ export class AgentManager {
     });
   }
 
-  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, cause?: unknown): void {
+  #finishCompact(project: ProjectState, active: ActiveTurn, run: Promise<AgentRunResult>, outcome: CompactRunOutcome): void {
     this.#runs.delete(run);
     const key = conversationKey(project.id, active.conversationId);
     if (this.#activeTurns.get(key) === active) {
-      const error = cause === undefined ? undefined : cause instanceof Error ? cause.message : String(cause);
+      if (outcome.status === "cancelled") {
+        this.#completeOpenItems(project.id, active, "cancelled");
+        this.#activeTurns.delete(key);
+        this.#setState(project.id, active.conversationId, { status: "idle" });
+        this.events.publish(project.id, "agent.cancelled", {}, eventScope(active));
+        this.#flushInvalidatedProject(project.id);
+        return;
+      }
+      const error = outcome.status === "failed"
+        ? outcome.cause instanceof Error ? outcome.cause.message : String(outcome.cause)
+        : undefined;
       this.#completeOpenItems(project.id, active, error ? "failed" : "completed", error);
       this.#activeTurns.delete(key);
       this.#setState(project.id, active.conversationId, error ? { status: "error", error } : { status: "idle" });
@@ -1039,7 +1087,7 @@ export class AgentManager {
 
     const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
       state.workspacePath,
-      SessionManager.open(stored.sessionPath, path.join(path.dirname(state.workspacePath), "session"), state.workspacePath),
+      SessionManager.open(stored.sessionPath, sessionDirectory(state), state.workspacePath),
       [],
     )))(project, conversation);
     if (this.#closing) {
@@ -1068,6 +1116,7 @@ export class AgentManager {
       const pending = this.#pendingPrompts.get(key) ?? [];
       const started = steering[0] ?? pending[0];
       if (!started) return;
+      appendPromptDetails(this.#sessions.get(key)?.session.sessionManager, started, started.wirePrompt);
       if (steering.length > 0) this.#steeringPrompts.set(key, steering.slice(1));
       else this.#pendingPrompts.set(key, pending.slice(1));
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
@@ -1077,6 +1126,9 @@ export class AgentManager {
       active.prompt = started.prompt;
       active.mentions = started.mentions;
       active.images = started.images;
+      active.references = started.references;
+      active.attachmentContext = started.attachmentContext;
+      active.attachments = started.attachments;
       active.assistantItemIds.clear();
       active.completedAssistantIndexes.clear();
       active.assistantSequence = 0;
@@ -1090,7 +1142,7 @@ export class AgentManager {
       const startedEvent = this.events.publish(
         projectId,
         "agent.started",
-        { prompt: started.prompt, ...(started.mentions.length ? { mentions: started.mentions } : {}), ...(started.images.length ? { images: started.images } : {}) },
+        { prompt: started.prompt, ...(started.mentions.length ? { mentions: started.mentions } : {}), ...(started.images.length ? { images: started.images } : {}), ...(started.attachments.length ? { attachments: started.attachments } : {}) },
         eventScope(active),
         started.images.length ? { prompt: started.prompt } : undefined,
       );
@@ -1251,21 +1303,31 @@ export class AgentManager {
       }
       active.retryItemId = undefined;
     } else if (event.type === "compaction_start") {
-      this.#startItem(projectId, active, {
+      const started = this.#startItem(projectId, active, {
         id: `${active.turnId}:compaction`,
         turnId: active.turnId,
         type: "contextCompaction",
         status: "inProgress",
       });
+      active.startedEventId ??= started.id;
+      active.startedAt ??= Date.parse(started.timestamp);
     } else if (event.type === "compaction_end") {
+      const stopped = event.aborted && isCancelling(active);
+      const status = stopped ? "cancelled" : event.aborted || event.errorMessage ? "failed" : "completed";
+      const error = event.errorMessage ?? (event.aborted
+        ? event.willRetry ? "Context compaction interrupted; retrying" : stopped ? "Context compaction stopped" : "Context compaction interrupted"
+        : undefined);
       this.#completeItem(projectId, active, {
         id: `${active.turnId}:compaction`,
         turnId: active.turnId,
         type: "contextCompaction",
-        status: event.aborted ? "failed" : "completed",
-        ...(event.errorMessage ? { error: itemError(event.errorMessage) } : event.aborted ? {
-          error: itemError(event.willRetry ? "Context compaction interrupted; retrying" : "Context compaction interrupted"),
+        status,
+        ...(event.result ? {
+          summary: event.result.summary,
+          tokensBefore: event.result.tokensBefore,
+          estimatedTokensAfter: event.result.estimatedTokensAfter,
         } : {}),
+        ...(error ? { error: itemError(error) } : {}),
       });
     } else if (event.type === "tool_execution_start") {
       if (event.toolName === "update_plan" || event.toolName === "questionnaire") return;
@@ -1315,9 +1377,9 @@ export class AgentManager {
     }
   }
 
-  #startItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+  #startItem(projectId: string, active: ActiveTurn, item: ThreadItem) {
     active.items.set(item.id, item);
-    this.events.publish(projectId, "item.started", { item }, eventScope(active));
+    return this.events.publish(projectId, "item.started", { item }, eventScope(active));
   }
 
   #updateItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
@@ -1350,7 +1412,7 @@ export class AgentManager {
       } else if (item.type === "contextCompaction" && item.status === "inProgress") {
         this.#completeItem(projectId, active, {
           ...item,
-          status: status === "completed" ? "completed" : "failed",
+          status: status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : "failed",
           ...(error ? { error: itemError(error) } : {}),
         });
       } else if (item.type === "retry" && item.status === "inProgress") {
@@ -1444,6 +1506,18 @@ export class AgentManager {
 }
 
 const REFERENCE_MARKER = "<workspace-file-references>";
+const LOCAL_ATTACHMENTS_MARKER = "<local-attachments>";
+const USER_PROMPT_ENTRY = "ohmygame-user-prompt";
+
+interface StoredPromptDetails {
+  version: 1;
+  wirePromptHash: string;
+  prompt: string;
+  mentions: PluginMention[];
+  references: PromptReference[];
+  attachments: ConversationAttachment[];
+  attachmentContext: string;
+}
 
 function promptWithReferences(prompt: string, references: PromptReference[]): string {
   if (references.length === 0) return prompt;
@@ -1455,17 +1529,20 @@ export function skillInvocationPrompt(prompt: string): string {
   return match ? `/skill:${match[1]}${prompt.slice(match[0].length)}` : prompt;
 }
 
-function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[] } {
+function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
+  const localAttachments = parseLocalAttachments(value);
+  const source = localAttachments ? localAttachments.visible : value;
   const marker = `\n\n${REFERENCE_MARKER}\n`;
-  const index = value.lastIndexOf(marker);
-  const visible = index < 0 ? value : value.slice(0, index);
+  const index = source.lastIndexOf(marker);
+  const visible = index < 0 ? source : source.slice(0, index);
   const skill = parseSkillBlock(visible);
   const restored = skill ? `$${skill.name}${skill.userMessage ? ` ${skill.userMessage}` : ""}` : visible;
   const parsed = parsePluginMentions(restored);
   const text = parsed.text;
-  if (index < 0) return { text, mentions: parsed.mentions, references: [] };
+  const attachments = localAttachments?.attachments ?? [];
+  if (index < 0) return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext: localAttachments?.context ?? "" };
   const closing = "\n</workspace-file-references>";
-  const encoded = value.slice(index + marker.length, value.endsWith(closing) ? -closing.length : undefined);
+  const encoded = source.slice(index + marker.length, source.endsWith(closing) ? -closing.length : undefined);
   try {
     const paths: unknown = JSON.parse(encoded);
     return {
@@ -1474,32 +1551,129 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
       references: Array.isArray(paths)
         ? paths.filter((item): item is string => typeof item === "string").map((path) => ({ type: "workspace-file", path }))
         : [],
+      attachments,
+      attachmentContext: localAttachments?.context ?? "",
     };
   } catch {
-    return { text, mentions: parsed.mentions, references: [] };
+    return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext: localAttachments?.context ?? "" };
   }
 }
 
-function lastUserPrompt(workspacePath: string, sessionPath: string): {
+function parseLocalAttachments(value: string): { visible: string; attachments: ConversationAttachment[]; context: string } | undefined {
+  const marker = `\n\n${LOCAL_ATTACHMENTS_MARKER}\n`;
+  const index = value.lastIndexOf(marker);
+  if (index >= 0) {
+    const closing = "\n</local-attachments>";
+    const closingIndex = value.indexOf(closing, index + marker.length);
+    if (closingIndex >= 0) {
+      const encoded = value.slice(index + marker.length, closingIndex);
+      try {
+        const parsed: unknown = JSON.parse(encoded);
+        const files = parsed && typeof parsed === "object" ? (parsed as { files?: unknown }).files : undefined;
+        if (Array.isArray(files)) {
+          return { visible: `${value.slice(0, index)}${value.slice(closingIndex + closing.length)}`, attachments: files.filter(isConversationAttachment), context: value.slice(index, closingIndex + closing.length) };
+        }
+      } catch {
+        // Keep an unparseable private context out of the user-visible message.
+      }
+      return { visible: `${value.slice(0, index)}${value.slice(closingIndex + closing.length)}`, attachments: [], context: value.slice(index, closingIndex + closing.length) };
+    }
+  }
+  return parseLegacyLocalAttachments(value);
+}
+
+function parseLegacyLocalAttachments(value: string): { visible: string; attachments: ConversationAttachment[]; context: string } | undefined {
+  const marker = "\n\n[Attached local files]\n";
+  const index = value.lastIndexOf(marker);
+  if (index < 0) return undefined;
+  const attachments = value.slice(index + marker.length)
+    .split("\n")
+    .flatMap((line) => legacyAttachment(line));
+  return { visible: value.slice(0, index), attachments, context: value.slice(index) };
+}
+
+function legacyAttachment(line: string): ConversationAttachment[] {
+  const match = line.match(/^- (.+) \((image|text|document|audio|video|model|archive|binary), ([\d.]+) (B|KB|MB)\): /);
+  if (!match) return [];
+  const [, rawRelativePath, kind, amount, unit] = match;
+  const relativePath = rawRelativePath.replaceAll("\\_", "_");
+  const multiplier = unit === "MB" ? 1024 * 1024 : unit === "KB" ? 1024 : 1;
+  const size = Number(amount) * multiplier;
+  if (!Number.isFinite(size)) return [];
+  return [{ name: path.posix.basename(relativePath), relativePath, kind: kind as ConversationAttachment["kind"], size }];
+}
+
+function isConversationAttachment(value: unknown): value is ConversationAttachment {
+  if (!value || typeof value !== "object") return false;
+  const attachment = value as Partial<ConversationAttachment>;
+  return typeof attachment.name === "string"
+    && typeof attachment.relativePath === "string"
+    && typeof attachment.size === "number"
+    && (attachment.kind === "image" || attachment.kind === "text" || attachment.kind === "document" || attachment.kind === "audio" || attachment.kind === "video" || attachment.kind === "model" || attachment.kind === "archive" || attachment.kind === "binary")
+    && (attachment.mediaType === undefined || typeof attachment.mediaType === "string");
+}
+
+function parseStoredPromptDetails(value: unknown): StoredPromptDetails | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const details = value as Partial<StoredPromptDetails>;
+  if (details.version !== 1 || typeof details.wirePromptHash !== "string" || typeof details.prompt !== "string" || typeof details.attachmentContext !== "string") return undefined;
+  if (!Array.isArray(details.mentions) || !details.mentions.every(isPluginMention)) return undefined;
+  if (!Array.isArray(details.references) || !details.references.every(isPromptReference)) return undefined;
+  if (!Array.isArray(details.attachments) || !details.attachments.every(isConversationAttachment)) return undefined;
+  return details as StoredPromptDetails;
+}
+
+function isPluginMention(value: unknown): value is PluginMention {
+  if (!value || typeof value !== "object") return false;
+  const mention = value as Partial<PluginMention>;
+  return typeof mention.name === "string" && typeof mention.displayName === "string" && typeof mention.marketplaceId === "string";
+}
+
+function isPromptReference(value: unknown): value is PromptReference {
+  if (!value || typeof value !== "object") return false;
+  const reference = value as Partial<PromptReference>;
+  return reference.type === "workspace-file" && typeof reference.path === "string";
+}
+
+function lastUserPrompt(project: ProjectState, sessionPath: string): {
   id: string;
   mentions: PluginMention[];
   references: PromptReference[];
   images: PromptImage[];
+  attachments: ConversationAttachment[];
+  attachmentContext: string;
 } | undefined {
-  const sessionDirectory = path.join(path.dirname(workspacePath), "session");
-  const entries = SessionManager.open(sessionPath, sessionDirectory, workspacePath).getBranch();
+  const entries = SessionManager.open(sessionPath, sessionDirectory(project), project.workspacePath).getBranch();
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry.type !== "message" || entry.message.role !== "user") continue;
     const parsed = parseUserPrompt(textContent(entry.message.content));
+    const details = storedPromptBefore(entries, index, textContent(entry.message.content));
     return {
       id: entry.id,
-      mentions: parsed.mentions,
-      references: parsed.references,
+      mentions: details?.mentions ?? parsed.mentions,
+      references: details?.references ?? parsed.references,
       images: imageContent(entry.message.content),
+      attachments: details?.attachments ?? parsed.attachments,
+      attachmentContext: details?.attachmentContext ?? parsed.attachmentContext,
     };
   }
   return undefined;
+}
+
+function storedPromptBefore(entries: readonly SessionEntry[], userIndex: number, wirePrompt: string): StoredPromptDetails | undefined {
+  for (let index = userIndex - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.type === "message" && entry.message.role === "user") return undefined;
+    if (entry.type !== "custom" || entry.customType !== USER_PROMPT_ENTRY) continue;
+    const details = parseStoredPromptDetails(entry.data);
+    return details?.wirePromptHash === promptHash(wirePrompt) ? details : undefined;
+  }
+  return undefined;
+}
+
+function sessionDirectory(project: ProjectState): string {
+  return path.join(project.storagePath ?? path.dirname(project.workspacePath), "session");
 }
 
 function conversationKey(projectId: string, conversationId: string): string {
@@ -1565,6 +1739,26 @@ function isPromptImageMediaType(value: unknown): value is PromptImage["mediaType
 
 function toPiImage(image: PromptImage): PiPromptImage {
   return { type: "image", mimeType: image.mediaType, data: image.data };
+}
+
+type StoredPromptSource = Pick<ActiveTurn, "prompt" | "mentions" | "references" | "attachments" | "attachmentContext">;
+
+function appendPromptDetails(sessionManager: CodingSession["sessionManager"], value: StoredPromptSource, wirePrompt: string): void {
+  if (!sessionManager || (value.references.length === 0 && value.attachments.length === 0 && !value.attachmentContext.trim())) return;
+  const details: StoredPromptDetails = {
+    version: 1,
+    wirePromptHash: promptHash(wirePrompt),
+    prompt: value.prompt,
+    mentions: value.mentions,
+    references: value.references,
+    attachments: value.attachments,
+    attachmentContext: value.attachmentContext,
+  };
+  sessionManager.appendCustomEntry(USER_PROMPT_ENTRY, details);
+}
+
+function promptHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 async function replayQueue(

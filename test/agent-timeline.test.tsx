@@ -685,6 +685,21 @@ describe("AgentTimeline", () => {
     expect(html).toContain('</div><div class="user-message">Build</div>');
   });
 
+  it("renders non-image attachments without duplicating image attachments", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[{
+      ...user(),
+      images: [{ name: "references/hero.png", mediaType: "image/png", data: "aW1hZ2U=" }],
+      attachments: [
+        { name: "hero.png", relativePath: "references/hero.png", size: 5, kind: "image" },
+        { name: "notes.md", relativePath: "references/notes.md", size: 1_024, kind: "text" },
+      ],
+    }]} />);
+
+    expect(html).toContain("references/notes.md");
+    expect(html).toContain("1 KB");
+    expect(html).not.toContain(">references/hero.png</span>");
+  });
+
   it("renders image-reading and completed compaction records", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -694,6 +709,47 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Viewed 2 images");
     expect(html).toContain("Context compacted");
+  });
+
+  it("expands completed compaction records with their summary and token counts", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      {
+        id: "compaction",
+        turnId: "compaction",
+        type: "contextCompaction",
+        status: "completed",
+        summary: "## Goal\nKeep building the editor.",
+        tokensBefore: 42_000,
+        estimatedTokensAfter: 12_000,
+      },
+    ]} />);
+
+    expect(html).toContain('class="compaction-details"');
+    expect(html).toContain(`Compacted from ${new Intl.NumberFormat().format(42_000)} to approximately ${new Intl.NumberFormat().format(12_000)} tokens`);
+    expect(html).toContain("Keep building the editor.");
+  });
+
+  it("renders failed and cancelled compaction states distinctly", () => {
+    const failed = renderToStaticMarkup(<AgentTimeline items={[
+      { id: "failed", turnId: "failed", type: "contextCompaction", status: "failed" },
+    ]} />);
+    const cancelled = renderToStaticMarkup(<AgentTimeline items={[
+      { id: "cancelled", turnId: "cancelled", type: "contextCompaction", status: "cancelled" },
+    ]} />);
+
+    expect(failed).toContain("timeline-event-error");
+    expect(failed).toContain("Context compaction failed");
+    expect(cancelled).toContain("Context compaction stopped");
+    expect(cancelled).not.toContain("timeline-event-error");
+  });
+
+  it("uses the compaction timestamp for an active turn duration", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { id: "compaction", turnId: "compaction", type: "contextCompaction", status: "inProgress", timestamp: 1 },
+    ]} activeTurnId="compaction" />);
+
+    expect(html).toContain("Working for");
+    expect(html).not.toContain("Working for 0s");
   });
 
   it("expands image-reading activity to show the viewed images", () => {

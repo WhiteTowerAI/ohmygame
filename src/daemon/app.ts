@@ -23,7 +23,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { AccountServiceClient } from "./account-service-client.js";
 import { AccountConnection } from "./account-connection.js";
-import { isRunnableWorkspace, ProjectAssetError, ProjectManager, ProjectStoryReferenceError } from "./projects.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ImageSettingsStore } from "./image-settings.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -51,6 +51,7 @@ import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
+import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -102,6 +103,7 @@ const createProjectSchema = {
           height: { type: "integer", minimum: 320, maximum: 4096 },
         },
       },
+      workspacePath: { type: "string", minLength: 1, maxLength: 4096 },
     },
   },
 } as const;
@@ -283,6 +285,19 @@ const promptSchema = {
             mediaType: { enum: ["image/png", "image/jpeg", "image/webp", "image/gif"] },
             data: { type: "string", minLength: 1 },
             name: { type: "string", minLength: 1, maxLength: 255 },
+          },
+        },
+      },
+      attachments: {
+        type: "array",
+        maxItems: MAX_AGENT_ATTACHMENTS_PER_TURN,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "batchId"],
+          properties: {
+            id: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
+            batchId: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
           },
         },
       },
@@ -501,6 +516,7 @@ export function createApp(options: AppOptions = {}) {
   const events = new RuntimeEventBus();
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
+  const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
@@ -645,6 +661,9 @@ export function createApp(options: AppOptions = {}) {
   });
   app.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: MAX_LIBRARY_UPLOAD_BYTES }, (_request, body, done) => {
     done(null, body);
+  });
+  app.addContentTypeParser("application/vnd.ohmygame.attachment", { bodyLimit: MAX_AGENT_ATTACHMENT_BYTES }, (_request, payload, done) => {
+    done(null, payload);
   });
 
   app.addHook("onReady", async () => {
@@ -1139,26 +1158,37 @@ export function createApp(options: AppOptions = {}) {
   );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
-    if (request.body?.templateId && request.body.type !== "interactive-drama") {
-      return reply.code(400).send({ error: "Project templates require a matching project type" });
-    }
-    if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
-      return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
-    }
-    if (request.body?.storyViewport && request.body.templateId) {
-      return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
-    }
-    if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
-      const project = await createInteractiveDramaStarterProject(interactiveDramaExamplesDirectory, projects, library, request.body.name);
+    try {
+      if (request.body?.templateId && request.body.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "Project templates require a matching project type" });
+      }
+      if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
+      }
+      if (request.body?.storyViewport && request.body.templateId) {
+        return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
+      }
+      if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
+        const project = await createInteractiveDramaStarterProject(
+          interactiveDramaExamplesDirectory,
+          projects,
+          library,
+          request.body.name,
+          request.body.workspacePath,
+        );
+        return reply.code(201).send(project);
+      }
+      const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
+      if (project.type === "interactive-drama" && request.body?.storyViewport) {
+        const story = createStoryDocument();
+        story.player.viewport = request.body.storyViewport;
+        await projects.setStory(project.id, story);
+      }
       return reply.code(201).send(project);
+    } catch (cause) {
+      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
     }
-    const project = await projects.create(request.body?.name, request.body?.type);
-    if (project.type === "interactive-drama" && request.body?.storyViewport) {
-      const story = createStoryDocument();
-      story.player.viewport = request.body.storyViewport;
-      await projects.setStory(project.id, story);
-    }
-    return reply.code(201).send(project);
   });
 
   app.get("/projects", async () => projects.list());
@@ -2157,15 +2187,16 @@ export function createApp(options: AppOptions = {}) {
       };
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
-      const restoreActiveItems = Boolean(activeItems.find((item) => item.type === "userMessage")?.images?.length);
       const loadedItems = [
         ...loadConversation(
-          project.workspacePath,
+          project,
           conversation.sessionPath,
           currentRun?.timestamp,
           !currentRun,
         ),
-        ...(restoreActiveItems ? activeItems : []),
+        // A reset must be a complete snapshot. Replaying from the active turn's
+        // start is unsafe once a chat produces more events than the replay buffer.
+        ...(currentRun ? activeItems : []),
       ];
       return {
         conversation: conversation.summary,
@@ -2177,7 +2208,7 @@ export function createApp(options: AppOptions = {}) {
           loadedItems,
           agents.activeTurnId(project.id, conversation.summary.id),
         ),
-        cursor: !currentRun ? events.cursor() : restoreActiveItems ? currentRun.id : currentRun.id - 1,
+        cursor: events.cursor(),
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
       } satisfies ConversationDetail;
     },
@@ -2287,11 +2318,45 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (!(await isRunnableWorkspace(project.workspacePath))) {
-      return reply.code(409).send({ error: "Workspace is not runnable yet" });
+    const previewWorkspace = await previewWorkspaceStatus(project.workspacePath);
+    if (!previewWorkspace.runnable) {
+      return reply.code(409).send({ error: previewWorkspace.error ?? "Workspace is not runnable yet" });
     }
     return { url: await previews.start(project) };
   });
+
+  app.post<{ Params: { projectId: string }; Querystring: { batchId: string; name: string; relativePath?: string }; Body: AsyncIterable<Buffer | string> }>(
+    "/projects/:projectId/attachments",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          required: ["batchId", "name"],
+          properties: {
+            batchId: { type: "string", pattern: "^[a-fA-F0-9-]{36}$" },
+            name: { type: "string", minLength: 1, maxLength: 255 },
+            relativePath: { type: "string", minLength: 1, maxLength: 1_000 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return reply.code(201).send(await attachments.store(project, {
+          batchId: request.query.batchId,
+          name: request.query.name,
+          relativePath: request.query.relativePath,
+          contents: request.body,
+        }));
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof AgentAttachmentError ? cause.statusCode : 500).send({ error });
+      }
+    },
+  );
 
   app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/turns",
@@ -2301,7 +2366,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      if (!request.body?.prompt?.trim() && !request.body?.images?.length) return reply.code(400).send({ error: "Prompt or image is required" });
+      if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
         mentions = await plugins.validateMentions(request.body.mentions ?? []);
@@ -2321,8 +2386,22 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
       }
+      let resolvedAttachments;
       try {
-        await Promise.all((request.body.images ?? []).map((image, index) => (
+        resolvedAttachments = await Promise.all((request.body.attachments ?? []).map((attachment) => attachments.resolve(project, attachment)));
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        return reply.code(cause instanceof AgentAttachmentError ? cause.statusCode : 400).send({ error });
+      }
+      let attachmentImages: PromptImage[];
+      try {
+        attachmentImages = (await Promise.all(resolvedAttachments.map((attachment) => attachments.promptImage(attachment))))
+          .flatMap((image) => image ? [image] : []);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      try {
+        await Promise.all([...(request.body.images ?? []), ...attachmentImages].map((image, index) => (
           addConversationImageToProject(library, projects, project.id, image, index)
         )));
       } catch (cause) {
@@ -2332,10 +2411,32 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
-        turn = agents.prompt(project, conversation, request.body.prompt, references, request.body.images ?? [], request.body.mode ?? "normal", mentions);
-        if (turn.queued) await turn.result;
+        turn = agents.prompt(
+          project,
+          conversation,
+          request.body.prompt,
+          references,
+          [...(request.body.images ?? []), ...attachmentImages],
+          request.body.mode ?? "normal",
+          mentions,
+          undefined,
+          attachments.promptContext(project, resolvedAttachments),
+          attachments.conversationAttachments(resolvedAttachments),
+        );
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+      try {
+        await attachments.claim(project, resolvedAttachments);
+      } catch (cause) {
+        request.log.warn({ err: cause }, "failed to retain agent attachments");
+      }
+      if (turn.queued) {
+        try {
+          await turn.result;
+        } catch (cause) {
+          return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+        }
       }
       const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
       if (titled) publishConversationRenamed(titled);

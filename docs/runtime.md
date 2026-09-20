@@ -11,9 +11,10 @@ Vite proxies the renderer's `/api` requests to the daemon. On load, the
 renderer restores the last project ID from local storage or creates a new
 project, subscribes to its event stream, and leaves the preview waiting until
 the workspace becomes runnable. After a successful Pi turn creates a
-`package.json` with a non-empty `scripts.dev`, the daemon starts the workspace
-preview. Pi events populate the conversation on the left while preview
-lifecycle events control the iframe on the right.
+`package.json` whose `scripts.dev` starts a web server, the daemon starts the
+workspace preview. Commands clearly used for formatting, linting, testing, or
+building are not run as previews. Pi events populate the conversation on the
+left while preview lifecycle events control the iframe on the right.
 
 The daemon configures Node's HTTP dispatcher from uppercase or lowercase proxy
 environment variables and excludes localhost. The outer renderer ignores
@@ -31,7 +32,8 @@ reload the project shell. A generated workspace still updates its own preview.
 - `GET /tool-runs/:runId/files/:fileName` returns a generated tool output.
 - `GET /projects/:id` returns authoritative current state.
 - `POST /projects/:id/preview` starts or restarts the development server and
-  returns `409` while the workspace has no `package.json` `scripts.dev`.
+  returns `409` while the workspace has no `package.json` `scripts.dev` that
+  starts a preview server.
 - `POST /projects/:id/prompts` starts a Pi coding turn.
 - `POST /projects/:id/cancel` aborts the active turn.
 - `GET /projects/:id/conversation` returns the current Pi session branch as a

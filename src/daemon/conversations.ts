@@ -164,7 +164,7 @@ function summary(projectId: string, session: SessionInfo): ConversationSummary {
 }
 
 function sessionDirectory(project: ProjectState): string {
-  return path.join(path.dirname(project.workspacePath), "session");
+  return path.join(project.storagePath ?? path.dirname(project.workspacePath), "session");
 }
 
 function normalizeTitle(value: string, maxLength = TITLE_MAX_LENGTH): string {

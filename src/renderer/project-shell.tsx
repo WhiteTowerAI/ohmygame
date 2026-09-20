@@ -15,7 +15,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import type { AgentModel, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
@@ -28,6 +28,7 @@ import {
   getConversationContextUsage,
   getConversationCapabilities,
   getProject,
+  listModels,
   listConversations,
   publishProject,
   removePendingPrompt,
@@ -211,9 +212,18 @@ export function ProjectShell({
         await waitForRuntime();
         const [project, availableConversations] = await Promise.all([getProject(projectId), listConversations(projectId)]);
         if (disposed) return;
+        if (project.workspaceAvailable === false) {
+          dispatch({ type: "fatal", message: "The selected workspace folder is no longer available." });
+          return;
+        }
         setConversations(availableConversations);
         const requestedConversation = availableConversations.find((item) => item.id === conversationId);
-        const selected = requestedConversation ?? availableConversations[0] ?? await createConversation(projectId);
+        let selected = requestedConversation ?? availableConversations[0];
+        if (!selected) {
+          const model = await initialConversationModel();
+          if (disposed) return;
+          selected = await createConversation(projectId, model);
+        }
         if (disposed) return;
         if (!requestedConversation) {
           if (availableConversations.length === 0) setConversations([selected]);
@@ -335,6 +345,7 @@ export function ProjectShell({
 
   const project = state.project;
   const conversation = state.conversation;
+  const displayedModel = state.settings.model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
   const activeTurn = state.turns.find((turn) => turn.status === "inProgress");
   const items = state.turns.flatMap((turn) => turn.items);
   const questionnaire = activeTurn?.items.find((item): item is Extract<ThreadItem, { type: "userInputRequest" }> => (
@@ -349,13 +360,13 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions);
-      if (images.length) setWorkspaceRevision((value) => value + 1);
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, [], images, mode, mentions, attachments);
+      if (images.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
       return true;
     } catch (error) {
@@ -541,8 +552,8 @@ export function ProjectShell({
     dispatch({ type: "notice", message: undefined });
     try {
       const reasoningLevel = await setConversationReasoning(project.id, conversation.id, level);
-      if (!state.settings.model) return;
-      dispatch({ type: "conversation-settings", settings: { model: state.settings.model, reasoningLevel } });
+      if (!displayedModel) return;
+      dispatch({ type: "conversation-settings", settings: { model: displayedModel, reasoningLevel } });
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally {
@@ -677,6 +688,7 @@ export function ProjectShell({
 
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
+            projectId={project?.id}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
             stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
@@ -812,6 +824,15 @@ function FatalState({ message, onHome }: { message: string; onHome: () => void }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function initialConversationModel(): Promise<AgentModelRef | undefined> {
+  try {
+    const catalog = await listModels();
+    return catalog.defaultModel ?? catalog.models[0];
+  } catch {
+    return undefined;
+  }
 }
 
 function readAgentWidth(): number {

@@ -61,6 +61,15 @@ ipcMain.handle("ohmygame:select-plugin-directory", async (event) => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
   return result.canceled ? undefined : result.filePaths[0];
 });
+ipcMain.handle("ohmygame:select-project-directory", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select project workspace",
+    buttonLabel: "Use this folder",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? undefined : result.filePaths[0];
+});
 ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
