@@ -47,6 +47,8 @@ describe("Interactive Drama project codebase", () => {
     const documentation = await readFile(path.join(project.workspacePath, "README.md"), "utf8");
     expect(documentation).toContain("machine-readable definition");
     expect(documentation).toContain("JSON Schema cannot fully express");
+    expect(documentation).toContain("code fully owns the interaction behavior");
+    expect(documentation).toContain("data.outcomes");
   });
 
   it("preserves user-authored Interactive Drama instructions", async () => {

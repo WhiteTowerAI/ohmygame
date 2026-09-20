@@ -5,21 +5,21 @@ import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
 export interface StoryInteractionRuntimeContext {
   variables: Record<string, StoryVariableValue>;
+  variableDefinitions: Array<{ id: string; name: string; type: "boolean" | "number" | "text" }>;
 }
 
-interface EventSurfaceMessage {
-  channel: "ohmygame:interaction-surface";
-  instanceId: string;
-  type: "ready" | "complete" | "error";
-  result?: string;
-  commands?: StoryInteractionCommand[];
-  message?: string;
-}
+type EventSurfaceMessage =
+  | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "ready" }
+  | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "complete"; result: string; commands: StoryInteractionCommand[] }
+  | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "error"; message: string };
 
-export function StoryInteractionSurface({ files, mode, context, title, className, viewport, onReady, onComplete, onError }: {
+export function StoryInteractionSurface({ files, outcomes, mode, context, active = true, paused = false, title, className, viewport, onReady, onComplete, onError }: {
   files: StorySurfaceFiles;
+  outcomes: string[];
   mode: "preview" | "runtime";
   context?: StoryInteractionRuntimeContext;
+  active?: boolean;
+  paused?: boolean;
   title: string;
   className?: string;
   viewport: { width: number; height: number };
@@ -41,9 +41,9 @@ export function StoryInteractionSurface({ files, mode, context, title, className
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
       if (event.data.type === "ready") onReadyRef.current?.();
-      else if (event.data.type === "complete") onCompleteRef.current?.(event.data.result ?? "continue", event.data.commands ?? []);
+      else if (event.data.type === "complete") onCompleteRef.current?.(event.data.result, event.data.commands);
       else {
-        onErrorRef.current?.(event.data.message ?? "Interaction code failed");
+        onErrorRef.current?.(event.data.message);
         onReadyRef.current?.();
       }
     };
@@ -52,13 +52,20 @@ export function StoryInteractionSurface({ files, mode, context, title, className
   }, [instanceId]);
   useEffect(() => {
     if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files: surfaceFiles, mode, context }, "*");
-  }, [context, instanceId, loaded, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files: surfaceFiles, outcomes, mode, context, active, paused }, "*");
+  }, [context, instanceId, loaded, mode, outcomes, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
+  useEffect(() => {
+    if (!loaded) return;
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "lifecycle", active, paused }, "*");
+  }, [active, instanceId, loaded, paused]);
   return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="interaction-surface.html" onLoad={() => setLoaded(true)} />;
 }
 
 function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<EventSurfaceMessage>;
-  return message.channel === "ohmygame:interaction-surface" && typeof message.instanceId === "string" && (message.type === "ready" || message.type === "complete" || message.type === "error");
+  if (message.channel !== "ohmygame:interaction-surface" || typeof message.instanceId !== "string") return false;
+  if (message.type === "ready") return true;
+  if (message.type === "error") return typeof message.message === "string";
+  return message.type === "complete" && typeof message.result === "string" && Array.isArray(message.commands);
 }

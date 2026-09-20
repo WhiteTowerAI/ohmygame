@@ -87,7 +87,6 @@ import {
   type StoryChoiceOption,
   type StoryDocument,
   type StoryEditorLayout,
-  type StoryInteractionBehavior,
   type StorySurfaceFiles,
   type StoryAssetReference,
   type StoryNode,
@@ -96,7 +95,6 @@ import {
   type StoryPlayerConfig,
   type StoryOpenUiAction,
   type StoryOpenUiContent,
-  type StoryInteractionOutcome,
   type StorySceneMedia,
   type StorySceneSurface,
   type StoryTextReference,
@@ -108,7 +106,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryVariableReferences, openUiRuntimeContent, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -116,8 +114,8 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { playtestHash } from "./routes.js";
 import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
-import { createStoryInteractionFiles } from "../shared/story-interaction-code.js";
-import { StoryInteractionSurface } from "./story-interaction-surface.js";
+import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
+import { StoryInteractionSurface, type StoryInteractionRuntimeContext } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface as SceneCodeSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
@@ -150,10 +148,9 @@ const STORY_CANVAS_MEDIA_STYLE = {
 } as CSSProperties;
 type InteractionMode = "pointer" | "pan";
 type StoryWorkspaceView = "canvas" | "code";
-type InteractionTemplate = "blank" | StoryInteractionBehavior["type"];
 type CanvasNodeCreationAction =
   | { kind: "node"; type: Exclude<StoryNodeType, "asset"> }
-  | { kind: "interaction"; template: InteractionTemplate };
+  | { kind: "interaction"; template: StoryInteractionTemplate };
 interface CanvasNodeCreationLeaf {
   label: string;
   description: string;
@@ -251,7 +248,7 @@ type StoryFlowData = {
   options?: StoryChoiceOption[];
   timeout?: StoryChoiceTimeout;
   presentation?: StoryNodePresentation;
-  behavior?: StoryInteractionBehavior;
+  outcomes?: string[];
   actions?: StoryAction[];
   content?: StoryOpenUiContent;
   scenePreview?: SceneCanvasPreviewData;
@@ -772,7 +769,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const definitions = new Map(next.map((variable) => [variable.id, variable]));
     const normalizeNode = <T extends StoryFlowNode | StoryNode>(node: T): T => {
       if (node.type === "choice") return { ...node, data: { ...node.data, options: normalizeStoryVariableReferences(node.data.options ?? [], definitions) } } as T;
-      if (node.type === "interaction") return { ...node, data: { ...node.data, behavior: normalizeBehaviorVariableReferences(node.data.behavior, definitions) } } as T;
       return node;
     };
     setNotice(undefined);
@@ -780,16 +776,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setNodes((current) => current.map(normalizeNode));
   }
 
-  function addInteraction(position: { x: number; y: number }, template: InteractionTemplate = "blank"): void {
+  function addInteraction(position: { x: number; y: number }, template: StoryInteractionTemplate = "blank"): void {
     const name = nextInteractionName(nodes);
-    const draft = createInteractionFromTemplate(template);
+    const draft = createStoryInteractionTemplate(template);
     const node: StoryFlowNode = {
       id: crypto.randomUUID(),
       type: "interaction",
       position,
       selected: true,
       deletable: true,
-      data: { title: name, behavior: draft.behavior, presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } },
+      data: { title: name, outcomes: draft.outcomes, presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } },
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -1520,19 +1516,25 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
 }
 
 function InteractionNode({ data, selected }: NodeProps<StoryFlowNode>) {
-  const behavior = data.behavior;
-  const outcomes = behavior ? storyInteractionNodeOutcomes(behavior) : [];
-  const label = behavior?.type === "qte" ? "QTE" : behavior?.type === "hotspot" ? "Hotspot" : behavior?.type === "continue" ? "Continue" : "Action";
+  const outcomes = data.outcomes ?? [];
+  const context = useMemo(() => interactionPreviewContext(data.variables ?? []), [data.variables]);
   return <div className={`story-node story-media-node story-node-interaction-flow${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>{label}</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
+    <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>Interaction</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
     <InheritedScenePoster preview={data.inheritedScenePreview} className="story-interaction-flow-preview">
-      {behavior ? <StoryInteractionSurface files={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} mode="preview" viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={`${data.title || "Interaction"} preview`} /> : <span>Interaction</span>}
+      <StoryInteractionSurface files={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} outcomes={outcomes} mode="preview" context={context} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={`${data.title || "Interaction"} preview`} />
     </InheritedScenePoster>
     <div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>
-    <footer className="story-scene-node-meta"><span>{behavior?.type === "qte" || behavior?.type === "hotspot" ? `${Math.round(behavior.durationMs / 1000)}s` : "Waits for input"}</span><i /><span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span></footer>
+    <footer className="story-scene-node-meta"><span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span></footer>
     {outcomes.map((outcome, index) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
   </div>;
+}
+
+function interactionPreviewContext(variables: StoryVariable[]): StoryInteractionRuntimeContext {
+  return {
+    variables: Object.fromEntries(variables.map((variable) => [variable.id, variable.initialValue])),
+    variableDefinitions: variables.map(({ id, name, type }) => ({ id, name, type })),
+  };
 }
 
 function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, videoFit, title }: {
@@ -2389,10 +2391,11 @@ function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, var
 }) {
   const preview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
   const files = node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES;
+  const context = useMemo(() => interactionPreviewContext(variables), [variables]);
   const design = <section className="story-choice-ending-preview" aria-label="Interaction live preview">
     <div className="story-choice-ending-frame">
       <InheritedScenePoster preview={preview} className="story-choice-ending-stage">
-        <StoryInteractionSurface files={files} mode="preview" viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
+        <StoryInteractionSurface files={files} outcomes={node.data.outcomes ?? []} mode="preview" context={context} viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
       </InheritedScenePoster>
     </div>
   </section>;
@@ -2929,10 +2932,7 @@ function StoryInspector({
           </>
         ) : null}
         {node.type === "interaction" ? (
-          <>
-            <InspectorField label="Title"><input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} /></InspectorField>
-            <div className="story-inspector-section"><span>Behavior</span><strong>{node.data.behavior?.type ?? "continue"}</strong></div>
-          </>
+          <InspectorField label="Title"><input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} /></InspectorField>
         ) : null}
         {node.type === "ending" ? (
           <>
@@ -3182,18 +3182,6 @@ function StoryAssetPicker({ title, assets, onClose, onSelect }: {
   );
 }
 
-function createInteractionFromTemplate(template: InteractionTemplate): { behavior: StoryInteractionBehavior; files: StorySurfaceFiles } {
-  const outcome: StoryInteractionOutcome = { actions: [] };
-  const behavior: StoryInteractionBehavior = template === "actions" || template === "blank"
-    ? { type: "actions", actions: [] }
-    : template === "continue"
-      ? { type: "continue", label: "Continue" }
-      : template === "hotspot"
-        ? { type: "hotspot", durationMs: 5_000, label: "Click area", region: { x: 0.35, y: 0.35, width: 0.3, height: 0.3 }, success: outcome, timeout: outcome }
-        : { type: "qte", durationMs: 3_000, prompt: "Act now", key: "KeyE", success: outcome, timeout: outcome };
-  return { behavior, files: createStoryInteractionFiles(behavior) };
-}
-
 function nextInteractionName(nodes: readonly StoryFlowNode[]): string {
   const interactions = nodes.filter((node) => node.type === "interaction");
   const used = new Set(interactions.map((node) => node.data.title));
@@ -3226,7 +3214,7 @@ function CanvasToolbar({
   importing: boolean;
   reserveInspector: boolean;
   onAdd: (type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }) => void;
-  onAddInteraction: (position: { x: number; y: number }, template?: InteractionTemplate) => void;
+  onAddInteraction: (position: { x: number; y: number }, template?: StoryInteractionTemplate) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (file: File, position: { x: number; y: number }) => void;
   onModeChange: (mode: InteractionMode) => void;
@@ -3554,7 +3542,7 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   if (node.type === "project-state" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
-  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, behavior: node.data.behavior, presentation: node.data.presentation } };
+  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, presentation: node.data.presentation } };
   if (node.type === "text") return {
     id: node.id,
     type: "text",
@@ -3617,8 +3605,8 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   };
   if (type === "scene") return { id, type, position, data: { title: "Untitled scene", presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
   if (type === "interaction") {
-    const behavior: StoryInteractionBehavior = { type: "continue", label: "Continue" };
-    return { id, type, position, data: { title: "Continue", behavior, presentation: { media: { mode: "inherit" }, surface: { files: createStoryInteractionFiles(behavior) } } } };
+    const draft = createStoryInteractionTemplate("continue");
+    return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } } };
   }
   if (type === "image") {
     const model = imageModels[0];
@@ -3685,23 +3673,6 @@ function defaultVariableValue(type: StoryVariableType): StoryVariableValue {
   return type === "boolean" ? false : type === "number" ? 0 : "";
 }
 
-function normalizeBehaviorVariableReferences(behavior: StoryInteractionBehavior | undefined, variables: ReadonlyMap<string, StoryVariable>): StoryInteractionBehavior {
-  const current = behavior ?? { type: "continue" as const, label: "Continue" };
-  const normalize = (actions: StoryAction[]) => actions.filter((action) => {
-    const variable = variables.get(action.variableId);
-    return Boolean(variable && (action.type !== "increment-variable" || variable.type === "number"));
-  }).map((action) => action.type === "set-variable"
-    ? { ...action, value: normalizeVariableValue(action.value, variables.get(action.variableId)?.type) }
-    : action);
-  if (current.type === "actions") return { ...current, actions: normalize(current.actions) };
-  if (current.type === "hotspot" || current.type === "qte") return {
-    ...current,
-    success: { ...current.success, actions: normalize(current.success.actions) },
-    timeout: { ...current.timeout, actions: normalize(current.timeout.actions) },
-  };
-  return current;
-}
-
 function normalizeVariableValue(value: StoryVariableValue, type: StoryVariableType | undefined): StoryVariableValue {
   if (type === "boolean") return typeof value === "boolean" ? value : false;
   if (type === "number") return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -3730,7 +3701,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     position: node.position,
     data: {
       title: node.data.title ?? "",
-      behavior: node.data.behavior ?? { type: "continue", label: "Continue" },
+      outcomes: node.data.outcomes ?? ["out"],
       presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
     },
   };
@@ -3913,11 +3884,6 @@ function storyNodeVariableIds(node: StoryFlowNode | StoryNode): Set<string> {
   };
   const collectCondition = (condition?: StoryVariableCondition) => { if (condition) ids.add(condition.variableId); };
   if (node.type === "choice") for (const option of node.data.options ?? []) { collect(option.actions); collectCondition(option.condition); }
-  if (node.type === "interaction") {
-    const behavior = node.data.behavior;
-    if (behavior?.type === "actions") collect(behavior.actions);
-    if (behavior?.type === "hotspot" || behavior?.type === "qte") { collect(behavior.success.actions); collect(behavior.timeout.actions); }
-  }
   return ids;
 }
 

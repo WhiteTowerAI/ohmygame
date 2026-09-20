@@ -337,29 +337,12 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, f
   const pending = useRef<{ result: string; commands: StoryInteractionCommand[] } | undefined>(undefined);
   const activeRef = useRef(active);
   const pausedRef = useRef(paused);
-  const remaining = useRef(node.data.behavior.type === "qte" || node.data.behavior.type === "hotspot" ? node.data.behavior.durationMs : 0);
   activeRef.current = active;
   pausedRef.current = paused;
   const context = useMemo(() => ({
-    variables: Object.fromEntries(variables.flatMap((variable) => [[variable.id, runtime.variables[variable.id]], [variable.name, runtime.variables[variable.id]]])),
+    variables: Object.fromEntries(variables.map((variable) => [variable.id, runtime.variables[variable.id]])),
+    variableDefinitions: variables.map(({ id, name, type }) => ({ id, name, type })),
   }), [runtime.variables, variables]);
-  useEffect(() => {
-    if (!active || paused || resolved.current || remaining.current <= 0 || (node.data.behavior.type !== "qte" && node.data.behavior.type !== "hotspot")) return;
-    const startedAt = performance.now();
-    const timer = window.setTimeout(() => {
-      if (resolved.current) return;
-      if (!activeRef.current || pausedRef.current) {
-        pending.current = { result: "timeout", commands: [] };
-        return;
-      }
-      resolved.current = true;
-      onComplete("timeout", []);
-    }, remaining.current);
-    return () => {
-      remaining.current = Math.max(0, remaining.current - (performance.now() - startedAt));
-      window.clearTimeout(timer);
-    };
-  }, [active, node.data.behavior, onComplete, paused]);
   useEffect(() => {
     if (!active || paused || resolved.current || !pending.current) return;
     const completion = pending.current;
@@ -369,7 +352,7 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, f
   }, [active, onComplete, paused]);
   return <div className="story-player-node story-player-interaction-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    {!active || !paused ? <StoryInteractionSurface files={storyNodePresentation(node).surface.files} mode="runtime" context={context} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current || pausedRef.current) return; if (!activeRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} /> : null}
+    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} mode="runtime" context={context} active={active} paused={paused} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
     {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
   </div>;
 }

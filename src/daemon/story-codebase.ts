@@ -27,7 +27,7 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 - IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
 - Choice timeouts reference an option in the same Choice;
 - actions and conditions reference compatible declared Variables;
-- Hotspot rectangles fit completely inside the normalized viewport;
+- Interaction outcomes are unique within each node and match its outgoing edge handles;
 - \`editor/layout.json\` contains exactly one position for every Story node;
 - referenced source files exist and stay inside the workspace.
 
@@ -41,7 +41,9 @@ Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content
 
 Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
 
-Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`.
+Interaction JavaScript exports \`run({ game, ui, signal })\` and returns one of the strings declared in that node's \`data.outcomes\`. The code fully owns the interaction behavior; names such as Hotspot, QTE, and Continue describe starter templates, not runtime types.
+
+\`ui\` provides \`root\`, \`querySelector(selector)\`, \`waitForClick(target)\`, \`waitForKey(code)\`, and \`waitForTimeout(duration)\`. These wait helpers pause and resume with the Player; raw browser timers do not. \`game.variables.get(idOrName)\`, \`set(idOrName, value)\`, and \`increment(idOrName, amount)\` read or update declared Variables. Use \`signal\` to cancel additional asynchronous work when the node stops.
 `;
 const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
@@ -49,17 +51,17 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 ## Contract
 
-- \`story.json\` contains the story graph, content, stable IDs, declared runtime behavior, and references to source files.
+- \`story.json\` contains the story graph, content, stable IDs, declared Interaction outcomes, and references to source files.
 - \`editor/layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
 - \`schemas/story.schema.json\` defines the exact persisted \`story.json\` structure. Read it before editing Story data; do not guess field names.
 - \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
 - \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
-- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
+- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
-- An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
+- An Interaction contains only \`title\`, \`outcomes\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow.
 - Open UI is an ordinary Story node that owns its media, content, and code.
 - Keep \`story.json\` valid JSON and preserve its \`version\`.
 
@@ -240,7 +242,7 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
     if (node.type === "scene") return !isRecord(data.presentation.media) ||
       (data.presentation.media.mode === "own" && !Array.isArray(data.presentation.media.items)) ||
       ["clips", "events", "media", "surface", "overlayIds"].some((key) => key in data);
-    return node.type === "interaction" && (!isRecord(data.behavior) || "event" in data || "interactionId" in data);
+    return node.type === "interaction" && (!Array.isArray(data.outcomes) || "event" in data || "interactionId" in data || "behavior" in data);
   });
 }
 

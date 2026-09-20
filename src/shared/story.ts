@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionBehavior, type StoryInteractionCommand, type StorySurfaceFiles, type StoryInteractionOutcome, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "project-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 
@@ -209,7 +209,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
     const handle = edge.sourceHandle ?? "out";
     if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
-      : source.type === "interaction" ? !storyInteractionNodeOutcomes(source.data.behavior).includes(handle)
+      : source.type === "interaction" ? !source.data.outcomes.includes(handle)
       : handle !== "out") return false;
     edgeIds.add(edge.id);
     outputs.add(output);
@@ -249,11 +249,6 @@ export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHan
 export function getNextNode(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryNode | undefined {
   const edge = getOutgoingEdge(chapter, nodeId, sourceHandle);
   return edge ? chapter.nodes.find((node) => node.id === edge.target) : undefined;
-}
-
-export function storyInteractionNodeOutcomes(behavior: StoryInteractionBehavior): string[] {
-  if (behavior.type === "hotspot" || behavior.type === "qte") return ["success", "timeout"];
-  return behavior.type === "continue" ? ["continue"] : ["out"];
 }
 
 export function resolveStoryImageAssetId(chapter: StoryChapter, reference: StoryAssetReference): string | undefined {
@@ -406,13 +401,9 @@ export function resolveInteractionNode(
   if (state.mode !== "playing") throw new Error("The game is not playing");
   const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
   if (node?.type !== "interaction") throw new Error("The current node is not an Interaction");
-  const behavior = node.data.behavior;
-  const outcomes = storyInteractionNodeOutcomes(behavior);
-  const handle = outcomes.includes(result) ? result : undefined;
+  const handle = node.data.outcomes.includes(result) ? result : undefined;
   if (!handle || !result || result.length > 80) throw new Error("The Interaction outcome is invalid");
-  const outcome = (behavior.type === "hotspot" || behavior.type === "qte") && (result === "success" || result === "timeout") ? behavior[result] : undefined;
-  const appliedBehavior = applyRuntimeActions(state.variables, outcome?.actions ?? (behavior.type === "actions" ? behavior.actions : []));
-  const applied = applyStoryInteractionCommands(appliedBehavior, commands, variables);
+  const applied = applyStoryInteractionCommands(state.variables, commands, variables);
   const next = getNextNode(chapter, node.id, handle);
   if (!next) throw new Error(`The ${result} outcome is not connected`);
   return enterStoryNode(chapter, { ...state, variables: applied }, next);
@@ -649,7 +640,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
     }
     if (node.type === "ending") continue;
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id)
-      : node.type === "interaction" ? storyInteractionNodeOutcomes(node.data.behavior)
+      : node.type === "interaction" ? node.data.outcomes
       : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
@@ -693,8 +684,8 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     const presentation = data.presentation as StoryNodePresentation;
     return typeof data.title === "string" &&
       (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
-      isRecord(data.behavior) && isInteractionBehavior(data.behavior, variables) &&
-      Object.keys(data).every((key) => key === "title" || key === "behavior" || key === "presentation");
+      isInteractionOutcomes(data.outcomes) &&
+      Object.keys(data).every((key) => key === "title" || key === "outcomes" || key === "presentation");
   }
   if (value.type === "ending") {
     const presentation = value.data.presentation as StoryNodePresentation;
@@ -769,40 +760,15 @@ function isWorkspaceSourcePath(value: string): boolean {
   return Boolean(normalized) && !normalized.startsWith("/") && !normalized.split("/").some((part) => !part || part === "." || part === "..");
 }
 
-function isInteractionBehavior(value: Record<string, unknown>, variables: ReadonlyMap<string, StoryVariable>): value is Record<string, unknown> & StoryInteractionBehavior {
-  if (value.type === "actions") return hasOnlyKeys(value, ["type", "actions"]) && Array.isArray(value.actions) && value.actions.every((action) => isAction(action, variables));
-  if (value.type === "continue") return hasOnlyKeys(value, ["type", "label"]) && typeof value.label === "string" && value.label.length <= 80;
-  if ((value.type !== "hotspot" && value.type !== "qte") || !validInteractionDuration(value.durationMs) ||
-    !isOutcome(value.success, variables) || !isOutcome(value.timeout, variables)) return false;
-  if (value.type === "qte") return hasOnlyKeys(value, ["type", "durationMs", "prompt", "key", "success", "timeout"]) && typeof value.prompt === "string" && value.prompt.length <= 120 && isQteKey(value.key);
-  return hasOnlyKeys(value, ["type", "durationMs", "label", "region", "success", "timeout"]) && typeof value.label === "string" && value.label.length <= 80 && isHotspotRegion(value.region);
+function isInteractionOutcomes(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= 8 && new Set(value).size === value.length &&
+    value.every((outcome) => nonEmptyString(outcome) && outcome.length <= 80);
 }
 
 function isSurfaceFiles(value: unknown): value is StorySurfaceFiles {
   return isRecord(value) && hasOnlyKeys(value, ["html", "css", "javascript"]) && typeof value.html === "string" && value.html.length <= 20_000 &&
     typeof value.css === "string" && value.css.length <= 30_000 &&
     typeof value.javascript === "string" && value.javascript.length <= 20_000;
-}
-
-function validInteractionDuration(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 500 && value <= 60_000;
-}
-
-function isOutcome(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryInteractionOutcome {
-  return isRecord(value) && hasOnlyKeys(value, ["actions"]) &&
-    Array.isArray(value.actions) && value.actions.every((action) => isAction(action, variables));
-}
-
-function isHotspotRegion(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["x", "y", "width", "height"])) return false;
-  const { x, y, width, height } = value;
-  return [x, y, width, height].every((part) => typeof part === "number" && Number.isFinite(part)) &&
-    Number(width) > 0 && Number(height) > 0 && Number(x) >= 0 && Number(y) >= 0 &&
-    Number(x) + Number(width) <= 1 && Number(y) + Number(height) <= 1;
-}
-
-function isQteKey(value: unknown): boolean {
-  return typeof value === "string" && /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$/.test(value);
 }
 
 function isVariables(value: unknown): value is StoryVariable[] {

@@ -5,7 +5,7 @@ import {
   advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
   getProjectStateNode, getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryVariableReferences,
   parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
-  restartGame, storyInteractionNodeOutcomes, storyNodePresentation, validatePlayableChapter,
+  restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
@@ -119,7 +119,18 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(true);
   });
 
-  it("runs standalone Interaction behavior and graph outcomes", () => {
+  it("requires Interaction nodes to declare unique outcomes instead of a fixed behavior type", () => {
+    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const interaction = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.type === "interaction")!;
+    interaction.data.outcomes = ["custom", "custom"];
+    expect(isStoryDocument(story)).toBe(false);
+
+    interaction.data.outcomes = ["custom"];
+    interaction.data = { ...interaction.data, behavior: { type: "hotspot" } } as typeof interaction.data;
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("runs Interaction code commands and graph outcomes", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" });
     const chapter = story.chapter;
     let state = restartGame(chapter, story.variables);
@@ -127,8 +138,11 @@ describe("canonical Interactive Drama story", () => {
     const scene = chapter.nodes.find((node) => node.id === state.nodeId && node.type === "scene")!;
     state = { ...state, nodeId: getNextNode(chapter, scene.id)!.id, scenePlayback: undefined };
     const interaction = chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.id === state.nodeId && node.type === "interaction")!;
-    expect(storyInteractionNodeOutcomes(interaction.data.behavior)).toEqual(["success", "timeout"]);
-    state = resolveInteractionNode(chapter, state, "success", [{ type: "set-variable", variable: "Found ticket", value: true }], story.variables);
+    expect(interaction.data.outcomes).toEqual(["success", "timeout"]);
+    state = resolveInteractionNode(chapter, state, "success", [
+      { type: "set-variable", variable: "Found ticket", value: true },
+      { type: "increment-variable", variable: "Courage", amount: 1 },
+    ], story.variables);
     expect(Object.values(state.variables)).toContain(true);
     expect(state.variables[story.variables.find((variable) => variable.name === "Courage")!.id]).toBe(3);
   });
@@ -153,7 +167,7 @@ describe("canonical Interactive Drama story", () => {
     const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
     const initial: StoryNode = { id: "state", type: "project-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "own", items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: inheritedPresentation().surface } } };
-    const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", behavior: { type: "continue", label: "Continue" }, presentation: inheritedPresentation() } };
+    const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", outcomes: ["continue"], presentation: inheritedPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: inheritedPresentation() } };
     const chapter: StoryChapter = {
       id: "chapter", title: "Chapter", nodes: [start, initial, scene, interaction, ending],

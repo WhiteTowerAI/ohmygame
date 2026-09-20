@@ -10,8 +10,6 @@ const action = ref("action");
 const condition = ref("condition");
 const presentation = ref("presentation");
 const singleMediaPresentation = ref("singleMediaPresentation");
-const interactionOutcome = ref("interactionOutcome");
-const interactionBehavior = ref("interactionBehavior");
 
 const idSchema = { type: "string", minLength: 1 } as const;
 const sourcePathSchema = { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$" } as const;
@@ -98,43 +96,6 @@ function node(type: string, data: object) {
   };
 }
 
-const interactionOutcomeSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["actions"],
-  properties: { actions: { type: "array", items: action } },
-} as const;
-const interactionBehaviorSchema = {
-  oneOf: [
-    { type: "object", additionalProperties: false, required: ["type", "actions"], properties: { type: { const: "actions" }, actions: { type: "array", items: action } } },
-    { type: "object", additionalProperties: false, required: ["type", "label"], properties: { type: { const: "continue" }, label: { type: "string", maxLength: 80 } } },
-    {
-      type: "object", additionalProperties: false,
-      required: ["type", "durationMs", "label", "region", "success", "timeout"],
-      properties: {
-        type: { const: "hotspot" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, label: { type: "string", maxLength: 80 },
-        region: {
-          type: "object", additionalProperties: false, required: ["x", "y", "width", "height"],
-          properties: {
-            x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 },
-            width: { type: "number", exclusiveMinimum: 0, maximum: 1 }, height: { type: "number", exclusiveMinimum: 0, maximum: 1 },
-          },
-        },
-        success: interactionOutcome, timeout: interactionOutcome,
-      },
-    },
-    {
-      type: "object", additionalProperties: false,
-      required: ["type", "durationMs", "prompt", "key", "success", "timeout"],
-      properties: {
-        type: { const: "qte" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, prompt: { type: "string", maxLength: 120 },
-        key: { type: "string", pattern: "^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$" },
-        success: interactionOutcome, timeout: interactionOutcome,
-      },
-    },
-  ],
-} as const;
-
 const nodes = [
   node("start", { type: "object", additionalProperties: false }),
   node("project-state", {
@@ -159,7 +120,14 @@ const nodes = [
     },
   }),
   node("scene", { type: "object", additionalProperties: false, required: ["title", "presentation"], properties: { title: { type: "string" }, presentation } }),
-  node("interaction", { type: "object", additionalProperties: false, required: ["title", "behavior", "presentation"], properties: { title: { type: "string" }, behavior: interactionBehavior, presentation: singleMediaPresentation } }),
+  node("interaction", {
+    type: "object", additionalProperties: false, required: ["title", "outcomes", "presentation"],
+    properties: {
+      title: { type: "string" },
+      outcomes: { type: "array", minItems: 1, maxItems: 8, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80, pattern: "\\S" } },
+      presentation: singleMediaPresentation,
+    },
+  }),
   node("choice", {
     type: "object", additionalProperties: false, required: ["title", "options", "presentation"],
     properties: {
@@ -210,8 +178,6 @@ export const STORY_CODEBASE_SCHEMA = {
     condition: conditionSchema,
     presentation: presentationSchema(),
     singleMediaPresentation: presentationSchema(1),
-    interactionOutcome: interactionOutcomeSchema,
-    interactionBehavior: interactionBehaviorSchema,
   },
   type: "object",
   additionalProperties: false,

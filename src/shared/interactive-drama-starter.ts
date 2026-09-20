@@ -1,6 +1,5 @@
-import type { StoryDocument, StoryInteractionBehavior, StorySurfaceFiles } from "./contracts.js";
+import type { StoryDocument, StorySurfaceFiles } from "./contracts.js";
 import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT } from "./story.js";
-import { createStoryInteractionFiles } from "./story-interaction-code.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
   id: "night-train",
@@ -24,27 +23,8 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
   const ticketId = id();
   const leaveOptionId = id();
   const stayOptionId = id();
-  const hotspotBehavior: StoryInteractionBehavior = {
-    type: "hotspot",
-    durationMs: 3_000,
-    label: "Inspect the glowing ticket",
-    region: { x: 0.4, y: 0.46, width: 0.2, height: 0.2 },
-    success: {
-      actions: [
-        { type: "set-variable", variableId: ticketId, value: true },
-        { type: "increment-variable", variableId: courageId, amount: 1 },
-      ],
-    },
-    timeout: { actions: [] },
-  };
-  const qteBehavior: StoryInteractionBehavior = {
-    type: "qte",
-    durationMs: 2_500,
-    prompt: "Press Space to board",
-    key: "Space",
-    success: { actions: [{ type: "increment-variable", variableId: courageId, amount: 1 }] },
-    timeout: { actions: [{ type: "increment-variable", variableId: courageId, amount: -1 }] },
-  };
+  const hotspotFiles = starterHotspotSurfaceFiles(ticketId, courageId);
+  const qteFiles = starterQteSurfaceFiles(courageId);
 
   return {
     version: 1,
@@ -98,13 +78,13 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
           id: hotspotId,
           type: "interaction",
           position: { x: 1_660, y: 120 },
-          data: { title: "Inspect the ticket", behavior: hotspotBehavior, presentation: { media: { mode: "inherit" }, surface: { files: createStoryInteractionFiles(hotspotBehavior) } } },
+          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], presentation: { media: { mode: "inherit" }, surface: { files: hotspotFiles } } },
         },
         {
           id: qteId,
           type: "interaction",
           position: { x: 2_000, y: 120 },
-          data: { title: "Board the train", behavior: qteBehavior, presentation: { media: { mode: "inherit" }, surface: { files: createStoryInteractionFiles(qteBehavior) } } },
+          data: { title: "Board the train", outcomes: ["success", "timeout"], presentation: { media: { mode: "inherit" }, surface: { files: qteFiles } } },
         },
         {
           id: choiceId,
@@ -155,6 +135,47 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
         { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayEndingId },
       ],
     },
+  };
+}
+
+function starterHotspotSurfaceFiles(ticketId: string, courageId: string): StorySurfaceFiles {
+  return {
+    html: '<button id="hotspot" type="button">Inspect the glowing ticket</button>',
+    css: `html, body { width: 100%; height: 100%; margin: 0; }
+body { position: relative; font-family: Inter, system-ui, sans-serif; }
+#hotspot { position: absolute; left: 40%; top: 46%; width: 20%; height: 20%; border: 1px solid rgb(255 255 255 / 78%); border-radius: 4px; background: rgb(17 18 20 / 42%); color: white; font: inherit; cursor: pointer; }`,
+    javascript: `export async function run({ ui, game }) {
+  const result = await Promise.race([
+    ui.waitForClick("#hotspot").then(() => "success"),
+    ui.waitForTimeout(3000).then(() => "timeout"),
+  ]);
+  if (result === "success") {
+    game.variables.set(${JSON.stringify(ticketId)}, true);
+    game.variables.increment(${JSON.stringify(courageId)}, 1);
+  }
+  return result;
+}
+`,
+  };
+}
+
+function starterQteSurfaceFiles(courageId: string): StorySurfaceFiles {
+  return {
+    html: '<div id="qte"><span>Press Space to board</span><button id="action" type="button">Space</button></div>',
+    css: `html, body { width: 100%; height: 100%; margin: 0; }
+body { display: grid; place-items: center; font-family: Inter, system-ui, sans-serif; }
+#qte { display: grid; justify-items: center; gap: 14px; color: white; font-weight: 700; text-shadow: 0 2px 10px #000; }
+#action { min-width: 62px; min-height: 54px; border: 2px solid #fff; border-radius: 6px; background: rgb(9 10 12 / 84%); color: white; font: 700 16px Inter, system-ui, sans-serif; cursor: pointer; }`,
+    javascript: `export async function run({ ui, game }) {
+  const result = await Promise.race([
+    ui.waitForClick("#action").then(() => "success"),
+    ui.waitForKey("Space").then(() => "success"),
+    ui.waitForTimeout(2500).then(() => "timeout"),
+  ]);
+  game.variables.increment(${JSON.stringify(courageId)}, result === "success" ? 1 : -1);
+  return result;
+}
+`,
   };
 }
 

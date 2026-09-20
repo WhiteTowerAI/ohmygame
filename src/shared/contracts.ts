@@ -187,17 +187,6 @@ export interface StoryNodePresentation {
   surface: StorySceneSurface;
 }
 
-export interface StoryInteractionOutcome {
-  actions: StoryAction[];
-}
-
-export interface StoryHotspotRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export interface StorySurfaceFiles {
   html: string;
   css: string;
@@ -214,12 +203,6 @@ export interface StorySourceFiles {
 export type StoryInteractionCommand =
   | { type: "set-variable"; variable: string; value: StoryVariableValue }
   | { type: "increment-variable"; variable: string; amount: number };
-
-export type StoryInteractionBehavior =
-  | { type: "actions"; actions: StoryAction[] }
-  | { type: "continue"; label: string }
-  | { type: "hotspot"; durationMs: number; label: string; region: StoryHotspotRegion; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome }
-  | { type: "qte"; durationMs: number; prompt: string; key: string; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome };
 
 export interface StoryEditorLayout {
   version: 1;
@@ -259,7 +242,7 @@ export type StoryNode = (
     title: string;
     presentation: StoryNodePresentation;
   } }
-  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; behavior: StoryInteractionBehavior; presentation: StoryNodePresentation } }
+  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; presentation: StoryNodePresentation } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout; presentation: StoryNodePresentation } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
