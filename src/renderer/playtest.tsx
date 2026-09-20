@@ -8,6 +8,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
@@ -149,6 +150,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   } as CSSProperties;
 
   return <main className="story-playtest-page" style={style}>
+    <WindowDragRegion />
     {error ? <div className="story-playtest-state" role="alert">{error}</div> : null}
     {!error && (!chapter || !runtime) ? <div className="story-playtest-state">Loading playtest...</div> : null}
     {chapter && runtime ? (

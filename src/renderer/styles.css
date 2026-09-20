@@ -8095,6 +8095,13 @@ button {
   font-family: var(--story-player-font);
 }
 
+.desktop-macos .story-playtest-page > .window-drag-region {
+  z-index: 1000;
+  right: 8px;
+  left: 72px;
+  height: 40px;
+}
+
 .story-playtest-state {
   display: grid;
   min-width: 0;
