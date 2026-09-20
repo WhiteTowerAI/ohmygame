@@ -1,8 +1,8 @@
-import type { StorySurfaceFiles } from "./contracts.js";
+import type { StoryInteractionTimeout, StorySurfaceFiles } from "./contracts.js";
 
 export type StoryInteractionTemplate = "blank" | "continue" | "hotspot" | "qte";
 
-export function createStoryInteractionTemplate(template: StoryInteractionTemplate): { outcomes: string[]; files: StorySurfaceFiles } {
+export function createStoryInteractionTemplate(template: StoryInteractionTemplate): { outcomes: string[]; timeout?: StoryInteractionTimeout; files: StorySurfaceFiles } {
   if (template === "blank") {
     return {
       outcomes: ["out"],
@@ -16,8 +16,8 @@ export function createStoryInteractionTemplate(template: StoryInteractionTemplat
       },
     };
   }
-  if (template === "hotspot") return { outcomes: ["success", "timeout"], files: hotspotFiles() };
-  if (template === "qte") return { outcomes: ["success", "timeout"], files: qteFiles() };
+  if (template === "hotspot") return { outcomes: ["success", "timeout"], timeout: { durationMs: 5_000, outcome: "timeout" }, files: hotspotFiles() };
+  if (template === "qte") return { outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, files: qteFiles() };
   return {
     outcomes: ["continue"],
     files: {
@@ -41,10 +41,8 @@ function hotspotFiles(): StorySurfaceFiles {
 body { position: relative; font-family: Inter, system-ui, sans-serif; }
 #hotspot { position: absolute; left: 35%; top: 35%; width: 30%; height: 30%; border: 1px solid rgb(255 255 255 / 78%); border-radius: 4px; background: rgb(17 18 20 / 42%); color: white; font: inherit; cursor: pointer; }`,
     javascript: `export async function run({ ui }) {
-  return Promise.race([
-    ui.waitForClick("#hotspot").then(() => "success"),
-    ui.waitForTimeout(5000).then(() => "timeout"),
-  ]);
+  await ui.waitForClick("#hotspot");
+  return "success";
 }
 `,
   };
@@ -58,11 +56,11 @@ body { display: grid; place-items: center; font-family: Inter, system-ui, sans-s
 #qte { display: grid; justify-items: center; gap: 14px; color: white; font-weight: 700; text-shadow: 0 2px 10px #000; }
 #action { min-width: 62px; min-height: 54px; border: 2px solid #fff; border-radius: 6px; background: rgb(9 10 12 / 84%); color: white; font: 700 16px Inter, system-ui, sans-serif; cursor: pointer; }`,
     javascript: `export async function run({ ui }) {
-  return Promise.race([
+  await Promise.race([
     ui.waitForClick("#action").then(() => "success"),
     ui.waitForKey("KeyE").then(() => "success"),
-    ui.waitForTimeout(3000).then(() => "timeout"),
   ]);
+  return "success";
 }
 `,
   };

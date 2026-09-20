@@ -125,6 +125,10 @@ const nodes = [
     properties: {
       title: { type: "string" },
       outcomes: { type: "array", minItems: 1, maxItems: 8, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80, pattern: "\\S" } },
+      timeout: {
+        type: "object", additionalProperties: false, required: ["durationMs", "outcome"],
+        properties: { durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, outcome: { type: "string", minLength: 1, maxLength: 80, pattern: "\\S" } },
+      },
       presentation: singleMediaPresentation,
     },
   }),

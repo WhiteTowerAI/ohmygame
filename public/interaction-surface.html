@@ -45,6 +45,7 @@
             lifecycle: createLifecycle(Boolean(data.paused)),
             active: Boolean(data.active),
             started: false,
+            completed: false,
           };
           session = current;
           document.body.innerHTML = data.files.html;
@@ -62,6 +63,7 @@
             current.run = interactionModule.run;
             current.mode = data.mode;
             current.outcomes = data.outcomes;
+            current.timeout = data.timeout;
             current.commands = [];
             current.variables = { ...(data.context?.variables || {}) };
             current.variableDefinitions = data.context?.variableDefinitions || [];
@@ -78,15 +80,36 @@
           const signal = current.controller.signal;
           const ui = createUi(document, signal, current.lifecycle);
           const game = createGame(current.mode, current.variables, current.variableDefinitions, current.commands);
+          if (current.timeout) {
+            waitForTimeout(current.timeout.durationMs, signal, current.lifecycle).then(() => {
+              complete(current, current.timeout.outcome, []);
+            }).catch((error) => {
+              if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
+            });
+          }
           Promise.resolve().then(() => current.run({ ui, game, signal })).then((result) => {
-            if (signal.aborted) return;
+            if (signal.aborted || current.completed) return;
             if (typeof result !== "string" || !Array.isArray(current.outcomes) || !current.outcomes.includes(result)) {
               throw new Error(`Interaction code must return one of: ${(current.outcomes || []).join(", ")}`);
             }
-            post(current.instanceId, "complete", { result, commands: current.mode === "runtime" ? current.commands : [] });
+            complete(current, result, current.mode === "runtime" ? current.commands : []);
           }).catch((error) => {
-            if (!(error instanceof DOMException && error.name === "AbortError")) post(current.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
+            if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
           });
+        }
+
+        function complete(current, result, commands) {
+          if (session !== current || current.completed) return;
+          current.completed = true;
+          current.controller.abort();
+          post(current.instanceId, "complete", { result, commands });
+        }
+
+        function reportError(current, error) {
+          if (session !== current || current.completed) return;
+          current.completed = true;
+          current.controller.abort();
+          post(current.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
         }
 
         function createUi(root, signal, lifecycle) {

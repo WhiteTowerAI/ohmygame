@@ -130,6 +130,22 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(false);
   });
 
+  it("validates Interaction time limits against their declared outcomes", () => {
+    const story = createInteractiveDramaStarterStory({ videoId: "video" });
+    const interaction = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "interaction" }> => node.type === "interaction")!;
+    expect(interaction.data.timeout).toEqual({ durationMs: 3_000, outcome: "timeout" });
+    expect(isStoryDocument(story)).toBe(true);
+
+    interaction.data.timeout = { durationMs: 999, outcome: "timeout" };
+    expect(isStoryDocument(story)).toBe(false);
+    interaction.data.timeout = { durationMs: 300_001, outcome: "timeout" };
+    expect(isStoryDocument(story)).toBe(false);
+    interaction.data.timeout = { durationMs: 3_000, outcome: "missing" };
+    expect(isStoryDocument(story)).toBe(false);
+    interaction.data.timeout = { durationMs: 3_000, outcome: "timeout", extra: true } as typeof interaction.data.timeout;
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
   it("runs Interaction code commands and graph outcomes", () => {
     const story = createInteractiveDramaStarterStory({ videoId: "video" });
     const chapter = story.chapter;

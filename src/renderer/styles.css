@@ -10208,6 +10208,21 @@ button {
   gap: 5px;
 }
 
+.story-interaction-outcomes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.story-interaction-outcomes > div > span {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
 .story-inspector-options div button:disabled {
   cursor: not-allowed;
   opacity: 0.35;

@@ -49,6 +49,10 @@ describe("Interactive Drama project codebase", () => {
     expect(documentation).toContain("JSON Schema cannot fully express");
     expect(documentation).toContain("code fully owns the interaction behavior");
     expect(documentation).toContain("data.outcomes");
+    expect(documentation).toContain("data.timeout");
+    expect(documentation).toContain("overall pause-aware deadline");
+    expect(documentation).toContain("buffered Variable commands are discarded");
+    expect(documentation).toContain("later code result is ignored");
   });
 
   it("preserves user-authored Interactive Drama instructions", async () => {

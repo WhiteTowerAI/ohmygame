@@ -26,6 +26,7 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 - the chapter has at most one Start node;
 - IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
 - Choice timeouts reference an option in the same Choice;
+- Interaction timeouts reference an outcome in the same Interaction;
 - actions and conditions reference compatible declared Variables;
 - Interaction outcomes are unique within each node and match its outgoing edge handles;
 - \`editor/layout.json\` contains exactly one position for every Story node;
@@ -41,9 +42,9 @@ Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content
 
 Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
 
-Interaction JavaScript exports \`run({ game, ui, signal })\` and returns one of the strings declared in that node's \`data.outcomes\`. The code fully owns the interaction behavior; names such as Hotspot, QTE, and Continue describe starter templates, not runtime types.
+Interaction JavaScript exports \`run({ game, ui, signal })\` and returns one of the strings declared in that node's \`data.outcomes\`. The code fully owns the interaction behavior; names such as Hotspot, QTE, and Continue describe starter templates, not runtime types. Optional \`data.timeout\` defines the overall pause-aware deadline and the outcome returned when it expires; the runtime owns this deadline and cancels unfinished code. On timeout, buffered Variable commands are discarded and any later code result is ignored.
 
-\`ui\` provides \`root\`, \`querySelector(selector)\`, \`waitForClick(target)\`, \`waitForKey(code)\`, and \`waitForTimeout(duration)\`. These wait helpers pause and resume with the Player; raw browser timers do not. \`game.variables.get(idOrName)\`, \`set(idOrName, value)\`, and \`increment(idOrName, amount)\` read or update declared Variables. Use \`signal\` to cancel additional asynchronous work when the node stops.
+\`ui\` provides \`root\`, \`querySelector(selector)\`, \`waitForClick(target)\`, \`waitForKey(code)\`, and \`waitForTimeout(duration)\`. Use \`ui.waitForTimeout\` for delays inside behavior, not for the node's overall deadline. These wait helpers pause and resume with the Player; raw browser timers do not. \`game.variables.get(idOrName)\`, \`set(idOrName, value)\`, and \`increment(idOrName, amount)\` read or update declared Variables. Use \`signal\` to cancel additional asynchronous work when the node stops.
 `;
 const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
@@ -61,7 +62,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
 - A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
-- An Interaction contains only \`title\`, \`outcomes\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow.
+- An Interaction contains \`title\`, \`outcomes\`, optional \`timeout\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow. The runtime owns the optional overall timeout.
 - Open UI is an ordinary Story node that owns its media, content, and code.
 - Keep \`story.json\` valid JSON and preserve its \`version\`.
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { StoryInteractionCommand, StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
+import type { StoryInteractionCommand, StoryInteractionTimeout, StorySurfaceFiles, StoryVariableValue } from "../shared/contracts.js";
 import { transparentStorySurfaceFiles } from "../shared/story.js";
 import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
@@ -13,9 +13,10 @@ type EventSurfaceMessage =
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "complete"; result: string; commands: StoryInteractionCommand[] }
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "error"; message: string };
 
-export function StoryInteractionSurface({ files, outcomes, mode, context, active = true, paused = false, title, className, viewport, onReady, onComplete, onError }: {
+export function StoryInteractionSurface({ files, outcomes, timeout, mode, context, active = true, paused = false, title, className, viewport, onReady, onComplete, onError }: {
   files: StorySurfaceFiles;
   outcomes: string[];
+  timeout?: StoryInteractionTimeout;
   mode: "preview" | "runtime";
   context?: StoryInteractionRuntimeContext;
   active?: boolean;
@@ -52,8 +53,8 @@ export function StoryInteractionSurface({ files, outcomes, mode, context, active
   }, [instanceId]);
   useEffect(() => {
     if (!loadRevision) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files: surfaceFiles, outcomes, mode, context, active, paused }, "*");
-  }, [context, instanceId, loadRevision, mode, outcomes, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "init", files: surfaceFiles, outcomes, timeout, mode, context, active, paused }, "*");
+  }, [context, instanceId, loadRevision, mode, outcomes, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript, timeout]);
   useEffect(() => {
     if (!loadRevision) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "lifecycle", active, paused }, "*");

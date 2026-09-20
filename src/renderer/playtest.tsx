@@ -352,7 +352,7 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, f
   }, [active, onComplete, paused]);
   return <div className="story-player-node story-player-interaction-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} mode="runtime" context={context} active={active} paused={paused} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
+    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
     {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
   </div>;
 }

@@ -166,6 +166,11 @@ export interface StoryChoiceTimeout {
   defaultOptionId: string;
 }
 
+export interface StoryInteractionTimeout {
+  durationMs: number;
+  outcome: string;
+}
+
 export type StorySceneMedia =
   | { id: string; type: "image"; source: StoryAssetReference }
   | { id: string; type: "video"; source: StoryAssetReference };
@@ -242,7 +247,7 @@ export type StoryNode = (
     title: string;
     presentation: StoryNodePresentation;
   } }
-  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; presentation: StoryNodePresentation } }
+  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; timeout?: StoryInteractionTimeout; presentation: StoryNodePresentation } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout; presentation: StoryNodePresentation } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {

@@ -681,11 +681,13 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   }
   if (value.type === "interaction") {
     const data = value.data;
+    const outcomes = isInteractionOutcomes(data.outcomes) ? data.outcomes : undefined;
     const presentation = data.presentation as StoryNodePresentation;
     return typeof data.title === "string" &&
       (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
-      isInteractionOutcomes(data.outcomes) &&
-      Object.keys(data).every((key) => key === "title" || key === "outcomes" || key === "presentation");
+      outcomes !== undefined &&
+      (data.timeout === undefined || isInteractionTimeout(data.timeout, outcomes)) &&
+      Object.keys(data).every((key) => key === "title" || key === "outcomes" || key === "timeout" || key === "presentation");
   }
   if (value.type === "ending") {
     const presentation = value.data.presentation as StoryNodePresentation;
@@ -763,6 +765,12 @@ function isWorkspaceSourcePath(value: string): boolean {
 function isInteractionOutcomes(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.length <= 8 && new Set(value).size === value.length &&
     value.every((outcome) => nonEmptyString(outcome) && outcome.length <= 80);
+}
+
+function isInteractionTimeout(value: unknown, outcomes: readonly string[]): boolean {
+  return isRecord(value) && hasOnlyKeys(value, ["durationMs", "outcome"]) &&
+    typeof value.durationMs === "number" && Number.isInteger(value.durationMs) && value.durationMs >= 1_000 && value.durationMs <= 300_000 &&
+    nonEmptyString(value.outcome) && outcomes.includes(value.outcome);
 }
 
 function isSurfaceFiles(value: unknown): value is StorySurfaceFiles {

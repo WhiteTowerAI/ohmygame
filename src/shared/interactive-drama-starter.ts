@@ -78,13 +78,13 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
           id: hotspotId,
           type: "interaction",
           position: { x: 1_660, y: 120 },
-          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], presentation: { media: { mode: "inherit" }, surface: { files: hotspotFiles } } },
+          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: hotspotFiles } } },
         },
         {
           id: qteId,
           type: "interaction",
           position: { x: 2_000, y: 120 },
-          data: { title: "Board the train", outcomes: ["success", "timeout"], presentation: { media: { mode: "inherit" }, surface: { files: qteFiles } } },
+          data: { title: "Board the train", outcomes: ["success", "timeout"], timeout: { durationMs: 2_500, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: qteFiles } } },
         },
         {
           id: choiceId,
@@ -145,15 +145,10 @@ function starterHotspotSurfaceFiles(ticketId: string, courageId: string): StoryS
 body { position: relative; font-family: Inter, system-ui, sans-serif; }
 #hotspot { position: absolute; left: 40%; top: 46%; width: 20%; height: 20%; border: 1px solid rgb(255 255 255 / 78%); border-radius: 4px; background: rgb(17 18 20 / 42%); color: white; font: inherit; cursor: pointer; }`,
     javascript: `export async function run({ ui, game }) {
-  const result = await Promise.race([
-    ui.waitForClick("#hotspot").then(() => "success"),
-    ui.waitForTimeout(3000).then(() => "timeout"),
-  ]);
-  if (result === "success") {
-    game.variables.set(${JSON.stringify(ticketId)}, true);
-    game.variables.increment(${JSON.stringify(courageId)}, 1);
-  }
-  return result;
+  await ui.waitForClick("#hotspot");
+  game.variables.set(${JSON.stringify(ticketId)}, true);
+  game.variables.increment(${JSON.stringify(courageId)}, 1);
+  return "success";
 }
 `,
   };
@@ -167,13 +162,12 @@ body { display: grid; place-items: center; font-family: Inter, system-ui, sans-s
 #qte { display: grid; justify-items: center; gap: 14px; color: white; font-weight: 700; text-shadow: 0 2px 10px #000; }
 #action { min-width: 62px; min-height: 54px; border: 2px solid #fff; border-radius: 6px; background: rgb(9 10 12 / 84%); color: white; font: 700 16px Inter, system-ui, sans-serif; cursor: pointer; }`,
     javascript: `export async function run({ ui, game }) {
-  const result = await Promise.race([
+  await Promise.race([
     ui.waitForClick("#action").then(() => "success"),
     ui.waitForKey("Space").then(() => "success"),
-    ui.waitForTimeout(2500).then(() => "timeout"),
   ]);
-  game.variables.increment(${JSON.stringify(courageId)}, result === "success" ? 1 : -1);
-  return result;
+  game.variables.increment(${JSON.stringify(courageId)}, 1);
+  return "success";
 }
 `,
   };

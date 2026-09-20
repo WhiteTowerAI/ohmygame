@@ -84,6 +84,7 @@ import {
   type RunVideoToolRequest,
   type StoryAction,
   type StoryChoiceTimeout,
+  type StoryInteractionTimeout,
   type StoryChoiceOption,
   type StoryDocument,
   type StoryEditorLayout,
@@ -247,6 +248,7 @@ type StoryFlowData = {
   name?: string;
   options?: StoryChoiceOption[];
   timeout?: StoryChoiceTimeout;
+  interactionTimeout?: StoryInteractionTimeout;
   presentation?: StoryNodePresentation;
   outcomes?: string[];
   actions?: StoryAction[];
@@ -785,7 +787,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       position,
       selected: true,
       deletable: true,
-      data: { title: name, outcomes: draft.outcomes, presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } },
+      data: { title: name, outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } },
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -1522,7 +1524,7 @@ function InteractionNode({ data, selected }: NodeProps<StoryFlowNode>) {
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>Interaction</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
     <InheritedScenePoster preview={data.inheritedScenePreview} className="story-interaction-flow-preview">
-      <StoryInteractionSurface files={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} outcomes={outcomes} mode="preview" context={context} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={`${data.title || "Interaction"} preview`} />
+      <StoryInteractionSurface files={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} outcomes={outcomes} timeout={data.interactionTimeout} mode="preview" context={context} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={`${data.title || "Interaction"} preview`} />
     </InheritedScenePoster>
     <div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>
     <footer className="story-scene-node-meta"><span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span></footer>
@@ -2395,7 +2397,7 @@ function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, var
   const design = <section className="story-choice-ending-preview" aria-label="Interaction live preview">
     <div className="story-choice-ending-frame">
       <InheritedScenePoster preview={preview} className="story-choice-ending-stage">
-        <StoryInteractionSurface files={files} outcomes={node.data.outcomes ?? []} mode="preview" context={context} viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
+        <StoryInteractionSurface files={files} outcomes={node.data.outcomes ?? []} timeout={node.data.interactionTimeout} mode="preview" context={context} viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
       </InheritedScenePoster>
     </div>
   </section>;
@@ -2932,7 +2934,24 @@ function StoryInspector({
           </>
         ) : null}
         {node.type === "interaction" ? (
-          <InspectorField label="Title"><input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} /></InspectorField>
+          <>
+            <InspectorField label="Title"><input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} /></InspectorField>
+            <div className="story-inspector-options story-interaction-outcomes">
+              <span>Outcomes</span>
+              <div>{node.data.outcomes?.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>
+            </div>
+            <div className="story-choice-timeout">
+              <label><input type="checkbox" checked={Boolean(node.data.interactionTimeout)} onChange={(event) => {
+                const outcomes = node.data.outcomes ?? [];
+                const outcome = outcomes.find((candidate) => candidate === "timeout") ?? outcomes[0];
+                onChange({ ...node.data, interactionTimeout: event.target.checked && outcome ? { durationMs: 8_000, outcome } : undefined });
+              }} /><span>Time limit</span></label>
+              {node.data.interactionTimeout ? <div>
+                <label><span>Seconds</span><input type="number" min={1} max={300} step={1} value={node.data.interactionTimeout.durationMs / 1_000} onChange={(event) => onChange({ ...node.data, interactionTimeout: { ...node.data.interactionTimeout!, durationMs: Math.round(Math.min(300, Math.max(1, Number(event.target.value) || 1)) * 1_000) } })} /></label>
+                <label><span>On timeout</span><select value={node.data.interactionTimeout.outcome} onChange={(event) => onChange({ ...node.data, interactionTimeout: { ...node.data.interactionTimeout!, outcome: event.target.value } })}>{node.data.outcomes?.map((outcome) => <option key={outcome} value={outcome}>{outcome}</option>)}</select></label>
+              </div> : null}
+            </div>
+          </>
         ) : null}
         {node.type === "ending" ? (
           <>
@@ -3542,7 +3561,7 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   if (node.type === "project-state" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
-  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, presentation: node.data.presentation } };
+  if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, ...(node.data.timeout ? { interactionTimeout: node.data.timeout } : {}), presentation: node.data.presentation } };
   if (node.type === "text") return {
     id: node.id,
     type: "text",
@@ -3606,7 +3625,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   if (type === "scene") return { id, type, position, data: { title: "Untitled scene", presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
   if (type === "interaction") {
     const draft = createStoryInteractionTemplate("continue");
-    return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } } };
+    return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } } };
   }
   if (type === "image") {
     const model = imageModels[0];
@@ -3702,6 +3721,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       title: node.data.title ?? "",
       outcomes: node.data.outcomes ?? ["out"],
+      ...(node.data.interactionTimeout ? { timeout: node.data.interactionTimeout } : {}),
       presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
     },
   };
