@@ -33,18 +33,12 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - name: Validate desktop release configuration
         shell: pwsh
-        env:
-          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
           if (-not $env:DESKTOP_UPDATE_URL) { throw "DESKTOP_UPDATE_URL repository variable is not configured" }
-          if (-not $env:WINDOWS_CSC_LINK) { throw "WINDOWS_CSC_LINK repository secret is not configured" }
-          if (-not $env:WINDOWS_CSC_KEY_PASSWORD) { throw "WINDOWS_CSC_KEY_PASSWORD repository secret is not configured" }
-      - name: Build signed Windows package
+      - name: Build Windows package
         run: npx electron-builder --win nsis --x64 --publish never
         env:
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-Windows-x64
