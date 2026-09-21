@@ -33,13 +33,12 @@ interface SceneSurfaceMessage {
   message?: string;
 }
 
-export function StorySceneSurface({ files, context, mode, title, className, viewport, onReady, onAction, onError }: {
+export function StorySceneSurface({ files, context, mode, title, className, onReady, onAction, onError }: {
   files: StorySurfaceFiles;
   context: StorySceneSurfaceContext;
   mode: "preview" | "runtime";
   title: string;
   className?: string;
-  viewport: { width: number; height: number };
   onReady?: () => void;
   onAction?: (action: StoryNodeSurfaceAction) => void;
   onError?: (message?: string) => void;
@@ -83,7 +82,7 @@ export function StorySceneSurface({ files, context, mode, title, className, view
     if (!loadRevision || !ready) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:scene-surface", instanceId, type: "update", context, mode }, "*");
   }, [context, instanceId, loadRevision, mode, ready]);
-  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="scene-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
+  return <StorySurfaceViewport iframeRef={iframe} className={className} title={title} src="scene-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
 }
 
 function isSceneSurfaceMessage(value: unknown): value is SceneSurfaceMessage {

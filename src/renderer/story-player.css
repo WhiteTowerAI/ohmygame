@@ -15,6 +15,7 @@ button { font: inherit; }
 
 .story-playtest-state { display: grid; min-width: 0; min-height: 0; place-items: center; padding: 32px; color: #a5a7ad; font-size: 12px; text-align: center; }
 .story-player { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; place-items: center; background: var(--story-player-empty-background, #737574); color: var(--story-player-text); }
+.story-player-viewport { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; place-items: center; overflow: hidden; }
 .story-player-menu { position: relative; place-items: center; overflow: hidden; }
 .story-player-menu-stage { position: relative; width: 100%; height: 100%; overflow: hidden; background-position: center; background-size: cover; }
 .story-player-menu-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -30,7 +31,7 @@ button { font: inherit; }
 }
 .story-player-menu-content button.is-secondary { border-color: rgb(255 255 255 / 18%); background: rgb(17 18 22 / 72%); }
 .story-player-pause-layer button:disabled { cursor: default; opacity: 0.4; }
-.story-player-stage { position: relative; display: grid; width: 100%; max-width: var(--story-viewport-max-width, 177.77778dvh); min-width: 0; min-height: 0; place-items: center; overflow: hidden; aspect-ratio: var(--story-viewport-ratio, 16 / 9); }
+.story-player-stage { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; overflow: hidden; transform-origin: center; }
 .story-player-frame { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
 .story-player-frame.is-ready, .story-player-frame.is-previous { opacity: 1; }
 .story-player-frame.is-ready { pointer-events: auto; }

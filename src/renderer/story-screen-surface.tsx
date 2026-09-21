@@ -11,13 +11,12 @@ interface ScreenSurfaceMessage {
   message?: string;
 }
 
-export function StoryScreenSurface({ files, content, mode, title, className, viewport, onReady, onAction, onError }: {
+export function StoryScreenSurface({ files, content, mode, title, className, onReady, onAction, onError }: {
   files: StorySurfaceFiles;
   content: unknown;
   mode: "preview" | "runtime";
   title: string;
   className?: string;
-  viewport: { width: number; height: number };
   onReady?: () => void;
   onAction?: (action: StoryOpenUiAction) => void;
   onError?: (message: string) => void;
@@ -49,7 +48,7 @@ export function StoryScreenSurface({ files, content, mode, title, className, vie
     if (!loadRevision) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files: surfaceFiles, content, mode }, "*");
   }, [content, instanceId, loadRevision, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
-  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="screen-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
+  return <StorySurfaceViewport iframeRef={iframe} className={className} title={title} src="screen-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
 }
 
 function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {

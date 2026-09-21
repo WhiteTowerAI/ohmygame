@@ -1,5 +1,5 @@
 import { Play, RotateCcw } from "./icons.js";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId, restartGame, shouldCreateStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
@@ -324,24 +324,40 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   onInteraction: (result: string, commands: StoryInteractionCommand[]) => void;
   onChoice: (optionId: string) => void;
 }) {
-  const viewportStyle = {
-    "--story-viewport-ratio": `${config.viewport.width} / ${config.viewport.height}`,
-    "--story-viewport-aspect": config.viewport.width / config.viewport.height,
-    "--story-viewport-max-width": `${(config.viewport.width / config.viewport.height) * 100}dvh`,
-  } as CSSProperties;
   if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
   const frameKey = `${node?.id ?? "missing"}:${runtime.scenePlayback?.mediaId ?? ""}:${playbackKey}`;
   const frame = { chapter, variables, config, node, runtime, hasCheckpoint, assetUrls } satisfies StoryPlayerFrameData;
   const canPause = node?.type === "scene" || node?.type === "interaction" || node?.type === "choice";
 
-  return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player" style={viewportStyle}>
-    <div className="story-player-stage">
+  return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
+    <StoryPlayerViewport viewport={config.viewport}>
       <StoryFrameTransition frameKey={frameKey} frame={frame} paused={paused || playbackPaused} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
       {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
       <StoryPlayerControls pause={config.controls.pause && canPause} mode="runtime" onPause={onPause} />
       {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
-    </div>
+    </StoryPlayerViewport>
   </section>;
+}
+
+function StoryPlayerViewport({ viewport, children }: { viewport: StoryPlayerConfig["viewport"]; children: ReactNode }) {
+  const container = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useLayoutEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const update = () => setScale(Math.min(element.clientWidth / viewport.width, element.clientHeight / viewport.height));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [viewport.height, viewport.width]);
+
+  return <div ref={container} className="story-player-viewport">
+    <div className="story-player-stage" style={{ width: viewport.width, height: viewport.height, transform: `translate(-50%, -50%) scale(${scale})` }}>
+      {children}
+    </div>
+  </div>;
 }
 
 interface StoryPlayerFrameData {
@@ -413,11 +429,11 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   const handlePlayerUiAction = (action: StoryOpenUiAction) => {
     if (active && action === "enter-game") (node && isEntryOpenUiNode(chapter, node.id) && hasCheckpoint ? onContinueGame : onAdvanceOpenUi)();
   };
-  if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} config={config} hasCheckpoint={hasCheckpoint} paused={inactive} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} />;
-  if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} viewport={config.viewport} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;
-  if (node?.type === "interaction") return <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} viewport={config.viewport} fit={config.videoFit} active={active} paused={paused} assetUrls={assetUrls} onReady={onReady} onComplete={activeInteraction} />;
-  if (node?.type === "choice") return <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} viewport={config.viewport} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onSelect={activeChoice} />;
-  if (node?.type === "ending") return <StoryEnding chapter={chapter} node={node} variables={variables} runtime={runtime} viewport={config.viewport} fit={config.videoFit} assetUrls={assetUrls} onReady={onReady} onRestart={active ? onRestartGame : NOOP} onMenu={active ? onMenu : NOOP} />;
+  if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} />;
+  if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;
+  if (node?.type === "interaction") return <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} active={active} paused={paused} assetUrls={assetUrls} onReady={onReady} onComplete={activeInteraction} />;
+  if (node?.type === "choice") return <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onSelect={activeChoice} />;
+  if (node?.type === "ending") return <StoryEnding chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} assetUrls={assetUrls} onReady={onReady} onRestart={active ? onRestartGame : NOOP} onMenu={active ? onMenu : NOOP} />;
   return <><ReadyEffect onReady={onReady} /><div className="story-playtest-state" role="alert">The current story node is missing.</div></>;
 }
 
@@ -427,7 +443,7 @@ const NOOP_MEDIA_COMPLETE = (_mediaId: string, _durationMs: number) => {};
 const NOOP_INTERACTION = (_result: string, _commands: StoryInteractionCommand[]) => {};
 const NOOP_CHOICE = (_optionId: string) => {};
 
-function StoryOpenUiPlayer({ chapter, node, config, hasCheckpoint, paused, assetUrls, onReady, onAction }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "open-ui" }>; config: StoryPlayerConfig; hasCheckpoint: boolean; paused: boolean; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onAction: (action: StoryOpenUiAction) => void }) {
+function StoryOpenUiPlayer({ chapter, node, hasCheckpoint, paused, assetUrls, onReady, onAction }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "open-ui" }>; hasCheckpoint: boolean; paused: boolean; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onAction: (action: StoryOpenUiAction) => void }) {
   const item = node.data.presentation.media.mode === "own" ? node.data.presentation.media.items[0] : undefined;
   const assetId = item ? resolveStoryAssetId(chapter, item.source) : undefined;
   const media = useStoryAssetUrl(assetId, assetUrls);
@@ -436,16 +452,15 @@ function StoryOpenUiPlayer({ chapter, node, config, hasCheckpoint, paused, asset
   return <div className="story-player-menu-stage">
     {media.url && item?.type === "image" ? <img src={media.url} alt="" onLoad={() => ready("media")} onError={() => ready("media")} /> : null}
     {media.url && item?.type === "video" ? <video className="story-player-menu-video" src={media.url} autoPlay={!paused} muted loop playsInline onLoadedData={() => ready("media")} onError={() => ready("media")} /> : null}
-    <StoryScreenSurface files={node.data.presentation.surface.files} content={openUiRuntimeContent(node.data.content, hasCheckpoint)} mode="runtime" title={node.data.title || "Open UI"} className="story-player-menu-screen" viewport={config.viewport} onReady={() => ready("surface")} onAction={onAction} />
+    <StoryScreenSurface files={node.data.presentation.surface.files} content={openUiRuntimeContent(node.data.content, hasCheckpoint)} mode="runtime" title={node.data.title || "Open UI"} className="story-player-menu-screen" onReady={() => ready("surface")} onAction={onAction} />
   </div>;
 }
 
-function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, fit, active, paused, assetUrls, onReady, onComplete }: {
+function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, active, paused, assetUrls, onReady, onComplete }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "interaction" }>;
   variables: StoryVariable[];
   runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
-  viewport: StoryPlayerConfig["viewport"];
   fit: StoryPlayerConfig["videoFit"];
   active: boolean;
   paused: boolean;
@@ -474,7 +489,7 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, viewport, f
   }, [active, onComplete, paused]);
   return <div className="story-player-node story-player-interaction-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} viewport={viewport} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
+    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
     {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
   </div>;
 }
@@ -503,24 +518,23 @@ function PauseMenu({ canRestartCheckpoint, onResume, onRestartCheckpoint, onRest
   </StoryPlayerPauseLayer>;
 }
 
-function StoryEnding({ chapter, node, variables, runtime, viewport, fit, assetUrls, onReady, onRestart, onMenu }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "ending" }>; variables: StoryVariable[]; runtime: Extract<PlayerRuntimeState, { mode: "playing" }>; viewport: StoryPlayerConfig["viewport"]; fit: StoryPlayerConfig["videoFit"]; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onRestart: () => void; onMenu: () => void }) {
+function StoryEnding({ chapter, node, variables, runtime, fit, assetUrls, onReady, onRestart, onMenu }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "ending" }>; variables: StoryVariable[]; runtime: Extract<PlayerRuntimeState, { mode: "playing" }>; fit: StoryPlayerConfig["videoFit"]; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onRestart: () => void; onMenu: () => void }) {
   const context = storyPresentationContext(node, variables, runtime);
   const ready = useReadyParts(onReady, 2);
   return <div className="story-player-node story-player-presentation-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" viewport={viewport} title={`${node.data.title || "Ending"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => {
+    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Ending"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => {
       if (action.type === "restart") onRestart();
       if (action.type === "menu") onMenu();
     }} />
   </div>;
 }
 
-function StoryChoicePlayer({ chapter, node, variables, runtime, viewport, fit, paused, assetUrls, onReady, onSelect }: {
+function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, assetUrls, onReady, onSelect }: {
   chapter: StoryChapter;
   node: Extract<StoryNode, { type: "choice" }>;
   variables: StoryVariable[];
   runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
-  viewport: StoryPlayerConfig["viewport"];
   fit: StoryPlayerConfig["videoFit"];
   paused: boolean;
   assetUrls?: Readonly<Record<string, string>>;
@@ -560,7 +574,7 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, viewport, fit, p
   const context = storyPresentationContext(node, variables, runtime, { options: visibleOptions.map(({ id, label }) => ({ id, label })), remainingMs: node.data.timeout ? remainingMs : undefined, durationMs: node.data.timeout?.durationMs });
   return <div className="story-player-node story-player-presentation-node">
     <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" viewport={viewport} title={`${node.data.title || "Choice"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => { if (action.type === "choose") select(action.optionId); }} />
+    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Choice"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => { if (action.type === "choose") select(action.optionId); }} />
   </div>;
 }
 
@@ -577,12 +591,11 @@ function storyPresentationContext(node: Extract<StoryNode, { type: "scene" | "in
   };
 }
 
-function StoryScenePlayer({ chapter, variables, node, runtime, viewport, fit, paused, assetUrls, onReady, onTime, onComplete }: {
+function StoryScenePlayer({ chapter, variables, node, runtime, fit, paused, assetUrls, onReady, onTime, onComplete }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   node: Extract<StoryNode, { type: "scene" }>;
   runtime: Extract<PlayerRuntimeState, { mode: "playing" }>;
-  viewport: StoryPlayerConfig["viewport"];
   fit: StoryPlayerConfig["videoFit"];
   paused: boolean;
   assetUrls?: Readonly<Record<string, string>>;
@@ -619,12 +632,12 @@ function StoryScenePlayer({ chapter, variables, node, runtime, viewport, fit, pa
   }, [items.length, mediaIndex, node.data.title, node.id, paused, playback?.mediaId, playback?.timeMs, runtime.variables, variables]);
   if (!item) return <div className="story-player-node">
     {media.mode === "inherit" ? <StoryPresentationMediaLayer chapter={chapter} runtime={runtime} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} /> : <ReadyEffect onReady={() => ready("media")} />}
-    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" viewport={viewport} title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
+    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
     <button className="story-player-continue" type="button" onClick={() => onComplete("scene", 0)}>Continue</button>
   </div>;
   return <div className="story-player-node">
     {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onReady={() => ready("media")} onTime={(time) => onTime(item.id, time)} onDuration={(durationMs) => { duration.current = durationMs; }} onEnded={(durationMs) => onComplete(item.id, durationMs)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} onLoad={() => ready("media")} onError={() => ready("media")} /> : null}<button className="story-player-continue" type="button" onClick={() => onComplete(item.id, 0)}>Continue</button></article>}
-    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" viewport={viewport} title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
+    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
     {surfaceError ? <div className="story-player-scene-error" role="alert">Scene code failed: {surfaceError}</div> : null}
   </div>;
 }

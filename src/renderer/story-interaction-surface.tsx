@@ -13,7 +13,7 @@ type EventSurfaceMessage =
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "complete"; result: string; commands: StoryInteractionCommand[] }
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "error"; message: string };
 
-export function StoryInteractionSurface({ files, outcomes, timeout, mode, context, active = true, paused = false, title, className, viewport, onReady, onComplete, onError }: {
+export function StoryInteractionSurface({ files, outcomes, timeout, mode, context, active = true, paused = false, title, className, onReady, onComplete, onError }: {
   files: StorySurfaceFiles;
   outcomes: string[];
   timeout?: StoryInteractionTimeout;
@@ -23,7 +23,6 @@ export function StoryInteractionSurface({ files, outcomes, timeout, mode, contex
   paused?: boolean;
   title: string;
   className?: string;
-  viewport: { width: number; height: number };
   onReady?: () => void;
   onComplete?: (result: string, commands: StoryInteractionCommand[]) => void;
   onError?: (message: string) => void;
@@ -59,7 +58,7 @@ export function StoryInteractionSurface({ files, outcomes, timeout, mode, contex
     if (!loadRevision) return;
     iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:interaction-surface", instanceId, type: "lifecycle", active, paused }, "*");
   }, [active, instanceId, loadRevision, paused]);
-  return <StorySurfaceViewport iframeRef={iframe} viewport={viewport} className={className} title={title} src="interaction-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
+  return <StorySurfaceViewport iframeRef={iframe} className={className} title={title} src="interaction-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
 }
 
 function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
