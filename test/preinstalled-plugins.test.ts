@@ -6,8 +6,6 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
-import { createPublishApp } from "../src/publish-server/app.js";
-import { PublishStore, type StoredPlugin, type StoredPluginRelease } from "../src/publish-server/store.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 
 const apps: FastifyInstance[] = [];
@@ -124,74 +122,6 @@ describe("preinstalled plugins", () => {
     expect((await app.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" })).statusCode).toBe(404);
   });
 
-  it("seeds the prepared release into the public Catalog with its source metadata", async () => {
-    const prepared = await preparedPlugin();
-    const app = createPublishApp({
-      dataDirectory: await temporary("ohmygame-preinstalled-publish-"),
-      preinstalledPluginsDirectory: prepared.directory,
-      verifyPublisherToken: async () => undefined,
-    });
-    apps.push(app);
-    await app.ready();
-
-    const listing = await app.inject({ method: "GET", url: `/v1/explore/plugins/${prepared.pluginId}` });
-    expect(listing.statusCode).toBe(200);
-    expect(listing.json()).toMatchObject({
-      id: prepared.pluginId,
-      releaseId: prepared.releaseId,
-      name: "reference-tools",
-      version: "1.0.0",
-      origin: { type: "github", repository: "example/reference-tools", commit: "abc123" },
-      curation: "featured",
-      author: { id: "github:example", displayName: "Example" },
-    });
-    const content = await app.inject({
-      method: "GET",
-      url: `/v1/explore/plugins/${prepared.pluginId}/releases/${prepared.releaseId}/content`,
-    });
-    expect(content.statusCode).toBe(200);
-    expect(createHash("sha256").update(content.rawPayload).digest("hex")).toBe(prepared.artifactSha256);
-  });
-
-  it("does not downgrade or relist an existing Catalog Plugin when seeding again", async () => {
-    const store = new PublishStore(await temporary("ohmygame-preinstalled-store-"));
-    const publisher = { id: "github:example", displayName: "Example" };
-    const plugin: StoredPlugin = {
-      id: "plugin-1", publisherId: publisher.id, name: "reference-tools", currentReleaseId: "release-1",
-      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
-      origin: { type: "github", repository: "example/reference-tools", commit: "old-commit" },
-      curation: "featured",
-    };
-    const bundled = pluginRelease("release-1", "1.0.0", "2026-01-01T00:00:00.000Z");
-    const newer = pluginRelease("release-2", "1.1.0", "2026-02-01T00:00:00.000Z");
-    try {
-      store.seedPlugin(plugin, bundled, publisher);
-      const reservation = store.reserveIdempotency(
-        publisher.id, "POST", "/release", "newer-release", "request-hash", newer.publishedAt,
-      );
-      expect(reservation).toEqual({ kind: "new" });
-      store.activatePluginRelease(publisher.id, newer, undefined, {
-        method: "POST", route: "/release", key: "newer-release", statusCode: 201, body: {},
-      });
-      expect(store.setPluginListing(publisher.id, plugin.id, "unlisted", newer.publishedAt)).toMatchObject({ status: "unlisted" });
-
-      store.seedPlugin(plugin, bundled, publisher);
-
-      expect(store.currentPluginRelease(publisher.id, plugin.id)?.version).toBe("1.1.0");
-      expect(store.explorePlugin(plugin.id)).toBeUndefined();
-
-      const nextBundled = pluginRelease("release-3", "1.2.0", "2026-03-01T00:00:00.000Z");
-      store.seedPlugin({
-        ...plugin,
-        currentReleaseId: nextBundled.id,
-        origin: { type: "github", repository: "example/reference-tools", commit: "new-commit" },
-      }, nextBundled, publisher);
-      expect(store.currentPluginRelease(publisher.id, plugin.id)?.version).toBe("1.2.0");
-      expect(store.explorePlugin(plugin.id)).toBeUndefined();
-    } finally {
-      store.close();
-    }
-  });
 });
 
 async function preparedPlugin() {
@@ -238,17 +168,4 @@ async function preparedPlugin() {
 
 async function temporary(prefix: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), prefix));
-}
-
-function pluginRelease(id: string, version: string, publishedAt: string): StoredPluginRelease {
-  return {
-    id,
-    pluginId: "plugin-1",
-    version,
-    artifactSha256: "a".repeat(64),
-    artifactBytes: 1,
-    manifest: { name: "reference-tools", version, description: "Reference workflows" },
-    skills: [],
-    publishedAt,
-  };
 }

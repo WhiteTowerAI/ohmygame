@@ -1,21 +1,37 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
-import { createPublishApp } from "../src/publish-server/app.js";
 import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
+const webRepository = process.env.OHMYGAME_WEB_ROOT
+  ? path.resolve(process.env.OHMYGAME_WEB_ROOT)
+  : path.resolve(import.meta.dirname, "../../ohmygame-web");
+const publishServerModule = path.join(webRepository, "src", "publish-server", "app.ts");
+const publishServerDependencies = path.join(webRepository, "node_modules", "fastify", "package.json");
+const createPublishApp = existsSync(publishServerModule) && existsSync(publishServerDependencies)
+  ? (await import(pathToFileURL(publishServerModule).href) as {
+      createPublishApp: (options: {
+        dataDirectory: string;
+        playOrigin?: string;
+        verifyPublisherToken: (token: string) => Promise<string | undefined>;
+      }) => FastifyInstance;
+    }).createPublishApp
+  : undefined;
+const describePublishContract = createPublishApp ? describe : describe.skip;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
-describe("remote publish", () => {
+describePublishContract("remote publish", () => {
   it("saves, publishes, and loads an Asset Template from Explore", async () => {
     const runtime = await testRuntime();
     const saved = await runtime.daemon.inject({
@@ -774,7 +790,7 @@ function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>):
 
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("ohmygame-publish-server-");
-  const publishServer = createPublishApp({
+  const publishServer = createPublishApp!({
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
     verifyPublisherToken: async (value) => value === token ? "publisher" : undefined,

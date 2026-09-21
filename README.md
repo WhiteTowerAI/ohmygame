@@ -55,53 +55,20 @@ directly. It archives only the static output and uploads it to the configured
 Publish v1 service. Later publishes reuse the same remote Game while creating a
 new immutable Deployment.
 
-For local development, this repository includes a minimal Publish v1 service.
-Set the client and server settings in the ignored `.env.local`:
+The hosted Community website and Publish v1 service live in the separate
+[`ohmygame-web`](https://github.com/WhiteTowerAI/ohmygame-web) repository. Set
+the desktop client endpoint in the ignored `.env.local` when developing against
+a local or preview deployment:
 
 ```dotenv
 PUBLISH_API_URL=http://127.0.0.1:43130
-SUPABASE_URL=https://your-project.supabase.co
 ```
 
-Then start it alongside `npm run dev`:
-
-```bash
-npm run dev:publish
-```
-
-The public Community is a separate web app. During development, start it after
-the Publish service and open `http://127.0.0.1:43140`:
-
-```bash
-npm run dev:community
-```
-
-It reads the public `/v1/community` API directly and provides shareable
-`/games/:gameId` pages without requiring the local daemon. In production,
-serve `dist/community-web` with history fallback and proxy `/v1` to the Publish
-service. The included `vercel.json` configures the production build, API proxy,
-and shareable game routes.
-
-The same web app owns the public `/pricing` page and signed-in `/account/usage`
-and `/account/billing` pages. The desktop renderer exposes the same account
-features under Settings. Both use the OhMyGame account service; its private New
-API administration credentials never enter either client.
-Add the production website account routes to the Supabase redirect allow list
-alongside the renderer and desktop callback URLs.
-
-It listens on `http://127.0.0.1:43130` by default. Creator routes verify the
-signed-in user's Supabase access token and use its `sub` as the publisher ID;
-Community routes and published games are public. Data is stored under
-`.data/publish`. This server implements the public protocol in
-[docs/publish-v1.md](docs/publish-v1.md). `PUBLISH_API_URL` may instead point
-the daemon at a separately hosted implementation. The user token is forwarded
-only for the active publish request and is never stored by the daemon, written
-to a project, sent to Pi, or included in the uploaded artifact.
-
-The included `railway.toml` builds and starts the Publish service, uses
-Railway's `PORT`, and checks `/health`. For a persistent deployment, attach a
-volume at `/data`, set `PUBLISH_DATA_DIR=/data`, and configure the API domain
-plus a wildcard play domain as described in [docs/publish-v1.md](docs/publish-v1.md).
+The desktop owns only the HTTP client side of the versioned contract. The user
+token is forwarded only for the active request and is never stored by the
+daemon, written to a project, sent to Pi, or included in an uploaded artifact.
+The server contract and deployment documentation are maintained in
+[`ohmygame-web/docs/publish-v1.md`](https://github.com/WhiteTowerAI/ohmygame-web/blob/main/docs/publish-v1.md).
 
 ## Desktop
 
@@ -113,8 +80,7 @@ Electron starts a managed daemon on an available local port, waits for its
 health check, and then opens the same renderer. Closing the desktop window
 stops the managed daemon and its preview process. Publishing uses the remote
 service configured through the desktop process environment. `npm run start:desktop`
-builds the desktop runtime and renderer without building the separate Community
-Web app.
+builds the desktop runtime and renderer.
 
 The desktop daemon uses a random process-scoped access token. The preload
 bridge exposes only its runtime connection. Node.js APIs are not available to
