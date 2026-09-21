@@ -3,7 +3,7 @@ import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } fr
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
   advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, createStorySave, defaultStoryNodeSource, getNextNode,
-  getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
+  getStartNode, getStoryMapNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
   matchesStoryCondition, openUiRuntimeContent, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId, restoreStorySave, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint,
   previewStoryNode, restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT,
@@ -28,13 +28,14 @@ describe("canonical Interactive Drama story", () => {
     expect(defaultStoryNodeSource("!!!").html).toMatch(/^nodes\/definition-[a-z0-9]+\/index\.html$/);
   });
 
-  it("creates a complete Start -> Open UI -> Ending graph", () => {
+  it("creates a complete story graph with an Open UI-owned Story Map", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
     const start = getStartNode(chapter)!;
     const openUi = getNextNode(chapter, start.id)!;
     expect(openUi.type).toBe("open-ui");
     expect(getNextNode(chapter, openUi.id)?.type).toBe("ending");
+    expect(getStoryMapNode(chapter, openUi.id)?.type).toBe("story-map");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
   });
@@ -74,7 +75,7 @@ describe("canonical Interactive Drama story", () => {
     ending.data.presentation.media = { items: [] };
     chapter.nodes.push(scene);
     chapter.edges = [
-      ...chapter.edges.filter((edge) => edge.source !== openUi.id),
+      ...chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map"),
       { id: "open-to-scene", source: openUi.id, target: scene.id },
       { id: "scene-to-ending", source: scene.id, target: ending.id },
     ];
@@ -108,6 +109,19 @@ describe("canonical Interactive Drama story", () => {
     missing.chapter.nodes = missing.chapter.nodes.filter((node) => node.id !== openUi.id);
     missing.chapter.edges = missing.chapter.edges.filter((edge) => edge.source !== openUi.id && edge.target !== openUi.id);
     expect(validatePlayableChapter(missing.chapter)?.message).toBe("This chapter must have exactly one Open UI node.");
+  });
+
+  it("requires one Story Map connected from the Open UI system output", () => {
+    const missing = createPlayableStoryDocument();
+    const storyMap = missing.chapter.nodes.find((node) => node.type === "story-map")!;
+    missing.chapter.nodes = missing.chapter.nodes.filter((node) => node.id !== storyMap.id);
+    missing.chapter.edges = missing.chapter.edges.filter((edge) => edge.target !== storyMap.id);
+    expect(validatePlayableChapter(missing.chapter)?.message).toBe("This chapter must have exactly one Story Map node.");
+
+    const disconnected = createPlayableStoryDocument();
+    const mapEdge = disconnected.chapter.edges.find((edge) => edge.sourceHandle === "story-map")!;
+    mapEdge.sourceHandle = "out";
+    expect(validatePlayableChapter(disconnected.chapter)?.message).toBe("Connect Open UI to Story Map.");
   });
 
   it("keeps presentation surfaces transparent", () => {
@@ -156,6 +170,12 @@ describe("canonical Interactive Drama story", () => {
     duplicateMenu.chapter.nodes.push({ ...structuredClone(menu), id: "second-menu" });
     duplicateMenu.editorLayout.nodes["second-menu"] = { x: 0, y: 0 };
     expect(isStoryDocument(duplicateMenu)).toBe(false);
+
+    const duplicateMap = createPlayableStoryDocument();
+    const storyMap = duplicateMap.chapter.nodes.find((node) => node.type === "story-map")!;
+    duplicateMap.chapter.nodes.push({ ...structuredClone(storyMap), id: "second-story-map" });
+    duplicateMap.editorLayout.nodes["second-story-map"] = { x: 0, y: 0 };
+    expect(isStoryDocument(duplicateMap)).toBe(false);
   });
 
   it("rejects old document versions instead of migrating them", () => {
@@ -346,7 +366,7 @@ describe("canonical Interactive Drama story", () => {
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const stateNode: StoryNode = { id: "update", type: "update-state", position: { x: 500, y: 0 }, data: { title: "Raise score", actions: [] } };
     chapter.nodes.push(stateNode);
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
     chapter.edges.push({ id: "open-update", source: openUi.id, target: stateNode.id }, { id: "update-ending", source: stateNode.id, target: ending.id });
     story.editorLayout.nodes[stateNode.id] = stateNode.position;
     const variable = { id: "score", name: "Score", type: "number" as const, initialValue: 1 };
@@ -393,7 +413,7 @@ describe("canonical Interactive Drama story", () => {
     const image: StoryNode = { id: "image", type: "asset", position: { x: 200, y: 0 }, data: { assetId: "poster", mediaType: "image" } };
     const scene: StoryNode = { id: "scene", type: "scene", position: { x: 300, y: 0 }, data: { title: "Poster", durationMs: 3_000, presentation: { media: { items: [{ id: "poster-item", type: "image", source: { type: "node", nodeId: image.id } }] }, surface: emptyPresentation().surface } } };
     chapter.nodes.push(image, scene);
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
     chapter.edges.push({ id: "open-scene", source: openUi.id, target: scene.id }, { id: "scene-ending", source: scene.id, target: ending.id });
     expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "image"]]) })).toBeUndefined();
     expect(validatePlayableChapter(chapter, { availableAssets: new Map([["poster", "video"]]) })?.nodeId).toBe(scene.id);
@@ -484,7 +504,7 @@ describe("canonical Interactive Drama story", () => {
       };
       story.variables = [{ id: "score", name: "Score", type: "number", initialValue: score }];
       story.chapter.nodes.push(condition, falseEnding);
-      story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id);
+      story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
       story.chapter.edges.push(
         { id: "open-condition", source: openUi.id, target: condition.id },
         { id: "condition-true", source: condition.id, sourceHandle: "true", target: trueEnding.id },
@@ -515,7 +535,7 @@ describe("canonical Interactive Drama story", () => {
     const update: StoryNode = { id: "loop-update", type: "update-state", position: { x: 600, y: 0 }, data: { title: "Increase", actions: [{ type: "update-variable", variableId: "score", operator: "add", value: 1 }] } };
     story.variables = [{ id: "score", name: "Score", type: "number", initialValue: 0 }];
     story.chapter.nodes.push(condition, update);
-    story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id);
+    story.chapter.edges = story.chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
     story.chapter.edges.push(
       { id: "open-loop", source: openUi.id, target: condition.id },
       { id: "loop-true", source: condition.id, sourceHandle: "true", target: update.id },

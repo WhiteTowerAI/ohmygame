@@ -8936,6 +8936,24 @@ button {
   top: calc(28px + var(--story-media-height, 280px) / 2);
 }
 
+.story-open-ui-output-label {
+  position: absolute;
+  right: 12px;
+  color: rgb(255 255 255 / 72%);
+  font-size: 9px;
+  font-weight: 600;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.story-open-ui-output-label.is-story {
+  top: 43%;
+}
+
+.story-open-ui-output-label.is-map {
+  top: 68%;
+}
+
 .story-asset-edge .react-flow__edge-path,
 .story-reference-edge .react-flow__edge-path {
   stroke-dasharray: 6 5;

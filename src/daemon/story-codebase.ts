@@ -45,7 +45,9 @@ The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the ex
 
 ## Runtime surfaces
 
-Each chapter has exactly one Open UI node directly after Start. It is the system main menu; use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant.
+Each chapter has exactly one Open UI node directly after Start and one Story Map node connected from Open UI's \`"story-map"\` output. Story Map is a system screen, not a story step. Use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant.
+
+Story Map JavaScript exports \`render({ content, actions, root })\`. The runtime supplies read-only derived map nodes, edges, discovery state, and counts through \`content\`; call \`actions.run("close")\` to return without changing story state.
 
 Open UI HTML may mark movable elements with a unique \`data-layout-id\`. Its optional \`presentation.surface.layout\` object stores logical-pixel \`offsetX\` and \`offsetY\` values by that ID; the player applies those offsets without replacing the element's authored CSS layout.
 
@@ -249,7 +251,7 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
   if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
   return !records(value.chapter.nodes).some((node) => {
-    if (!["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
+    if (!["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
     if (!isSourceReference(data.presentation.surface.source) || isRecord(data.presentation.surface.files)) return true;
@@ -266,8 +268,8 @@ function withStableSources(story: StoryDocument): StoryDocument {
   };
 }
 
-function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function withNodePresentationSource(node: StoryNode): StoryNode {
@@ -282,6 +284,7 @@ function withNodePresentationSource(node: StoryNode): StoryNode {
   };
   if (node.type === "scene") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation } };
+  if (node.type === "story-map") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "interaction") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "choice") return { ...node, data: { ...node.data, presentation } };
   return { ...node, data: { ...node.data, presentation } };

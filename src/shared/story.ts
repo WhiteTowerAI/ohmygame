@@ -1,6 +1,6 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
 export const DEFAULT_SCENE_DURATION_MS = 3_000;
 
@@ -50,6 +50,81 @@ export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
     { id: "new-game", label: "New game", action: "new-game" },
     { id: "story-map", label: "Story map", action: "open-story-map" },
   ],
+};
+
+export const DEFAULT_STORY_MAP_SURFACE_FILES: StorySurfaceFiles = {
+  html: `<main class="story-map">
+  <header><button type="button" data-close>Back</button><div><span data-screen-title></span><strong data-title></strong></div><p><span data-discovered></span><span data-endings></span></p></header>
+  <div class="map-scroll"><div class="map-canvas"><svg aria-hidden="true"></svg><ol></ol></div></div>
+</main>`,
+  css: `* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { color: #f4f5f7; font-family: Inter, system-ui, sans-serif; }
+.story-map { display: grid; width: 100%; height: 100%; grid-template-rows: 74px minmax(0, 1fr); background: #0c0d10; }
+header { display: grid; min-width: 0; grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr); align-items: center; gap: 20px; padding: 0 28px; border-bottom: 1px solid rgb(255 255 255 / 12%); }
+header button { width: max-content; height: 36px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 5px; background: #15171b; color: inherit; cursor: pointer; }
+header div { display: grid; min-width: 0; justify-items: center; gap: 3px; }
+header div span { color: rgb(244 245 247 / 58%); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+header strong { max-width: 420px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+header p { display: flex; min-width: 0; justify-content: flex-end; gap: 14px; margin: 0; color: rgb(244 245 247 / 62%); font-size: 10px; font-variant-numeric: tabular-nums; }
+.map-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-color: rgb(255 255 255 / 24%) transparent; }
+.map-canvas { position: relative; min-width: 100%; min-height: 100%; }
+svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+path { fill: none; stroke: rgb(255 255 255 / 15%); stroke-width: 2; }
+path.discovered { stroke: color-mix(in srgb, var(--accent) 72%, #fff); }
+ol { margin: 0; padding: 0; list-style: none; }
+li { position: absolute; display: grid; align-content: center; gap: 5px; padding: 9px 12px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 6px; background: #17191e; }
+li span { overflow: hidden; color: rgb(244 245 247 / 52%); font-size: 8px; font-weight: 700; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+li strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+li.locked { border-style: dashed; background: #111216; color: rgb(244 245 247 / 44%); }
+li.discovered { border-color: color-mix(in srgb, var(--accent) 58%, transparent); }
+li.current { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) { header { grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 0 14px; } header div { justify-items: end; } header p { display: none; } }`,
+  javascript: `export function render({ content, actions, root }) {
+  root.documentElement.style.setProperty('--accent', content.accentColor);
+  root.querySelector('[data-screen-title]').textContent = content.screenTitle;
+  root.querySelector('[data-title]').textContent = content.title;
+  root.querySelector('[data-discovered]').textContent = content.discoveredCount + '/' + content.nodes.length + ' discovered';
+  root.querySelector('[data-endings]').textContent = content.unlockedEndingCount + '/' + content.endingCount + ' endings';
+  root.querySelector('[data-close]').onclick = () => actions.run('close');
+  const canvas = root.querySelector('.map-canvas');
+  canvas.style.width = content.width + 'px';
+  canvas.style.height = content.height + 'px';
+  const positions = new Map(content.nodes.map((node) => [node.id, node]));
+  const svg = root.querySelector('svg');
+  svg.setAttribute('width', content.width);
+  svg.setAttribute('height', content.height);
+  svg.setAttribute('viewBox', '0 0 ' + content.width + ' ' + content.height);
+  for (const edge of content.edges) {
+    const source = positions.get(edge.source);
+    const target = positions.get(edge.target);
+    if (!source || !target) continue;
+    const x1 = source.x + source.width;
+    const y1 = source.y + source.height / 2;
+    const x2 = target.x;
+    const y2 = target.y + target.height / 2;
+    const bend = Math.max(28, (x2 - x1) / 2);
+    const path = root.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + bend) + ' ' + y1 + ', ' + (x2 - bend) + ' ' + y2 + ', ' + x2 + ' ' + y2);
+    if (edge.discovered) path.classList.add('discovered');
+    svg.append(path);
+  }
+  const list = root.querySelector('ol');
+  for (const node of content.nodes) {
+    const item = root.createElement('li');
+    item.className = node.state + (node.current ? ' current' : '');
+    item.style.left = node.x + 'px';
+    item.style.top = node.y + 'px';
+    item.style.width = node.width + 'px';
+    item.style.height = node.height + 'px';
+    const type = root.createElement('span');
+    type.textContent = node.label;
+    const title = root.createElement('strong');
+    title.textContent = node.title;
+    item.append(type, title);
+    list.append(item);
+  }
+}`,
 };
 
 export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
@@ -146,7 +221,7 @@ button:hover { border-color: #fff; background: rgb(255 255 255 / 18%); }`,
 }`,
 };
 
-export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
+export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
   return node.data.presentation;
 }
 
@@ -174,7 +249,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
     const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
     const source = surface && isRecord(surface.source) ? surface.source : undefined;
-    return ["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
+    return ["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
       ? [source.html, source.css, source.javascript]
       : [];
   });
@@ -191,7 +266,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     nodeById.set(node.id, node);
   }
   for (const node of nodeById.values()) {
-    if (node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
+    if (node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
       const presentation = node.data.presentation;
       for (const item of presentation.media.items) {
         if (item.source.type !== "node") continue;
@@ -212,7 +287,8 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
       nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
   }
   if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1 ||
-    nodes.filter((node) => isRecord(node) && node.type === "open-ui").length > 1) return false;
+    nodes.filter((node) => isRecord(node) && node.type === "open-ui").length > 1 ||
+    nodes.filter((node) => isRecord(node) && node.type === "story-map").length > 1) return false;
   const edgeIds = new Set<string>();
   const outputs = new Set<string>();
   const validEdges = (chapter.edges as unknown[]).every((edge) => {
@@ -225,9 +301,11 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if (outputs.has(output)) return false;
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
-    if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
+    if (!source || !target || source.type === "ending" || source.type === "story-map" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
     const handle = edge.sourceHandle ?? "out";
-    if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
+    if (target.type === "story-map" ? source.type !== "open-ui" || handle !== "story-map"
+      : source.type === "open-ui" ? handle !== "out"
+      : source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
       : source.type === "interaction" ? !source.data.outcomes.includes(handle)
       : source.type === "condition" ? handle !== "true" && handle !== "false"
       : handle !== "out") return false;
@@ -256,6 +334,11 @@ export function getStartNode(chapter: StoryChapter): StoryNode | undefined {
 export function isEntryOpenUiNode(chapter: StoryChapter, nodeId: string): boolean {
   const start = getStartNode(chapter);
   return Boolean(start && getNextNode(chapter, start.id)?.id === nodeId);
+}
+
+export function getStoryMapNode(chapter: StoryChapter, openUiId: string): Extract<StoryNode, { type: "story-map" }> | undefined {
+  const target = getNextNode(chapter, openUiId, "story-map");
+  return target?.type === "story-map" ? target : undefined;
 }
 
 export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryEdge | undefined {
@@ -367,7 +450,7 @@ export function restoreStorySave(
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) return undefined;
@@ -505,6 +588,7 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
   let currentNode = node;
   let automaticSteps = 0;
   while (true) {
+    if (currentNode.type === "story-map") throw new Error("Story Map is a system screen, not a story step");
     const entered = {
       ...currentState,
       progress: addStoryProgress(currentState.progress, { nodeId: currentNode.id, endingId: currentNode.type === "ending" ? currentNode.id : undefined }),
@@ -666,6 +750,9 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
   const openUis = chapter.nodes.filter((node) => node.type === "open-ui");
   if (openUis.length !== 1) return { nodeId: openUis[0]?.id ?? start.id, message: "This chapter must have exactly one Open UI node." };
   if (getNextNode(chapter, start.id)?.id !== openUis[0].id) return { nodeId: openUis[0].id, message: "Connect Start directly to Open UI." };
+  const storyMaps = chapter.nodes.filter((node) => node.type === "story-map");
+  if (storyMaps.length !== 1) return { nodeId: storyMaps[0]?.id ?? openUis[0].id, message: "This chapter must have exactly one Story Map node." };
+  if (getStoryMapNode(chapter, openUis[0].id)?.id !== storyMaps[0].id) return { nodeId: storyMaps[0].id, message: "Connect Open UI to Story Map." };
   const visited = new Set<string>();
   const pending = [start];
   while (pending.length > 0) {
@@ -724,6 +811,11 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     return typeof value.data.title === "string" && isOpenUiContent(value.data.content) &&
       presentation.media.items.length <= 1 &&
       hasOnlyKeys(value.data, ["title", "content", "presentation"]);
+  }
+  if (value.type === "story-map") {
+    if (!isNodePresentation(value.data.presentation)) return false;
+    const presentation = value.data.presentation as StoryNodePresentation;
+    return typeof value.data.title === "string" && presentation.media.items.length === 0 && hasOnlyKeys(value.data, ["title", "presentation"]);
   }
   if (["scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "scene") {

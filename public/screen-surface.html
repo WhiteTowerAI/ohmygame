@@ -144,7 +144,7 @@
             if (typeof screenModule.render !== "function") throw new Error('screen.js must export a function named "render"');
             const actions = Object.freeze({
               run: (action) => {
-                const valid = action === "start-game" || action === "continue-game" || action === "new-game" || action === "open-story-map";
+                const valid = action === "start-game" || action === "continue-game" || action === "new-game" || action === "open-story-map" || action === "close";
                 if (!valid) throw new Error(`Unknown Player UI action: ${String(action)}`);
                 if (data.mode === "runtime") post(data.instanceId, "action", { action });
               },

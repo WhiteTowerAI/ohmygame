@@ -421,7 +421,7 @@ describe("remote publish", () => {
     const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
     if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");
-    chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== openUi.id);
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
     chapter.edges.push({ id: "open-scene", source: openUi.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
     syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);

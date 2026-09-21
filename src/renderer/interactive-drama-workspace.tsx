@@ -110,7 +110,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -125,6 +125,8 @@ import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
 import { StoryPlayerPreviewSession, StoryPlayerSnapshot, type StoryPreviewSessionState } from "./playtest.js";
+import { StoryMapSurface } from "./story-map.js";
+import { StoryPlayerViewport } from "./story-player-viewport.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -137,6 +139,7 @@ const STORY_EDGE_OPTIONS = {
 };
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
+const STORY_MAP_HANDLE = "story-map";
 const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
 const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
@@ -188,6 +191,7 @@ const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
     items: [
       { label: "Start", description: "Set the story entry point", icon: Flag, action: { kind: "node", type: "start" } },
       { label: "Open UI", description: "Add a coded player interface", icon: PanelToggle, action: { kind: "node", type: "open-ui" } },
+      { label: "Story Map", description: "Customize the system story map", icon: Layers3, action: { kind: "node", type: "story-map" } },
       { label: "Scene", description: "Ordered image or video media", icon: Clapperboard, action: { kind: "node", type: "scene" } },
       { label: "Interaction", description: "Wait for player input", icon: MousePointer2, children: [
         { label: "Continue", description: "Wait for the player to continue", icon: Play, action: { kind: "interaction", template: "continue" } },
@@ -216,7 +220,7 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
 }
 
 function isSingletonStoryNode(node: { type?: string }): boolean {
-  return node.type === "start" || node.type === "open-ui";
+  return node.type === "start" || node.type === "open-ui" || node.type === "story-map";
 }
 
 interface StoryCanvasPlayerData {
@@ -317,6 +321,7 @@ interface MediaReferenceView {
 
 const STORY_NODE_TYPES: NodeTypes = {
   "open-ui": OpenUiNode,
+  "story-map": StoryMapNode,
   start: StartNode,
   "update-state": UpdateStateNode,
   condition: ConditionNode,
@@ -658,7 +663,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const target = nodes.find((node) => node.id === connection.target);
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
-    const relation = connectionRelation(source, target, nodes, libraryAssets, imageModels);
+    const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels);
     if (relation === "image-reference" && target.type === "image") {
       setNodes((current) => current.map((node) => node.id === target.id && node.type === "image"
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
@@ -712,7 +717,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
-    if ((type === "start" || type === "open-ui") && nodes.some((node) => node.type === type)) return;
+    if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
     const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -1307,7 +1312,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               isValidConnection={(connection) => {
                 const target = nodes.find((node) => node.id === connection.target);
                 const source = nodes.find((node) => node.id === connection.source);
-                return Boolean(source && target && connectionRelation(source, target, nodes, libraryAssets, imageModels));
+                return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels));
               }}
               proOptions={{ hideAttribution: true }}
               defaultViewport={editorLayout.viewport}
@@ -1320,6 +1325,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 canvas={canvas}
                 hasStart={nodes.some((node) => node.type === "start")}
                 hasOpenUi={nodes.some((node) => node.type === "open-ui")}
+                hasStoryMap={nodes.some((node) => node.type === "story-map")}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
                 importing={importingAssets}
                 reserveInspector={false}
@@ -1340,6 +1346,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             canDuplicate={Boolean(contextMenuNode && (!isSingletonStoryNode(contextMenuNode) || !nodes.some((node) => node.type === contextMenuNode.type)))}
             hasStart={nodes.some((node) => node.type === "start")}
             hasOpenUi={nodes.some((node) => node.type === "open-ui")}
+            hasStoryMap={nodes.some((node) => node.type === "story-map")}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
@@ -1461,9 +1468,33 @@ function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
     title={data.title || "Untitled Story"}
     trailing={preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
     footer={<><span>{mediaType === "video" ? "Video" : mediaType === "image" ? "Image" : "No media"}</span><i /><span>Code</span></>}
-    outputs={<Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />}
+    outputs={<>
+      <span className="story-open-ui-output-label is-story">Story</span>
+      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} style={{ top: "43%" }} />
+      <span className="story-open-ui-output-label is-map">Story map</span>
+      <Handle className="story-media-output-handle" id={STORY_MAP_HANDLE} type="source" position={Position.Right} style={{ top: "68%" }} />
+    </>}
   >
     <CanvasStoryPlayer nodeId={id} />
+  </StoryPresentationNodeCard>;
+}
+
+function StoryMapNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
+  const player = useContext(StoryCanvasPlayerContext);
+  const node = player?.chapter.nodes.find((candidate): candidate is Extract<StoryNode, { type: "story-map" }> => candidate.id === id && candidate.type === "story-map");
+  return <StoryPresentationNodeCard
+    className="story-node-story-map"
+    selected={selected}
+    icon={<Layers3 size={14} />}
+    type="Story Map"
+    title={data.title || "Story Map"}
+    footer={<><span>System UI</span><i /><span>Code</span></>}
+  >
+    <div className="story-media-stage story-canvas-player-preview" inert>
+      {player && node ? <StoryPlayerViewport viewport={player.config.viewport}>
+        <StoryMapSurface chapter={player.chapter} node={node} viewport={player.config.viewport} accentColor={player.config.theme.accentColor} mode="preview" onClose={() => {}} />
+      </StoryPlayerViewport> : null}
+    </div>
   </StoryPresentationNodeCard>;
 }
 
@@ -2108,18 +2139,20 @@ function NodeEditorPage({ node, chapter, config, nodes, libraryAssets, variables
 }) {
   const [sceneMode, setSceneMode] = useState<"design" | "code">("design");
   const isOpenUi = node?.type === "open-ui";
+  const hasPresentationEditor = Boolean(node && ["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(node.type));
   const title = node?.data.title || node?.data.name || (node ? titleCase(node.type) : "Untitled node");
   useEffect(() => { setSceneMode("design"); }, [node?.id]);
   return <section className="story-node-editor-page" aria-label={`${title} editor`}>
     <header className="story-node-editor-header window-drag-handle">
       <StoryEditorBreadcrumb label={isOpenUi ? "Open UI" : title} onClose={onClose} />
-      {(isOpenUi || Boolean(node && ["scene", "interaction", "choice", "ending"].includes(node.type))) ? <div className="story-node-editor-mode" role="group" aria-label={isOpenUi ? "Open UI editor section" : "Node editor mode"}>
+      {hasPresentationEditor ? <div className="story-node-editor-mode" role="group" aria-label={isOpenUi ? "Open UI editor section" : "Node editor mode"}>
         <button type="button" className={sceneMode === "design" ? "is-active" : ""} aria-pressed={sceneMode === "design"} onClick={() => setSceneMode("design")}>Design</button>
         <button type="button" className={sceneMode === "code" ? "is-active" : ""} aria-pressed={sceneMode === "code"} onClick={() => setSceneMode("code")}>Code</button>
       </div> : null}
     </header>
     {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} chapter={chapter} variables={variables} nodes={nodes} config={config} libraryAssets={libraryAssets} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
+      : node && sceneMode === "code" && (node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
+      : node?.type === "story-map" ? <StoryMapWorkbench node={node} chapter={chapter} config={config} onChange={onNodeChange} />
       : node?.type === "update-state" ? <UpdateStateEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
       : node?.type === "condition" ? <ConditionEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
       : node?.type === "scene" ? <SceneWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
@@ -2321,6 +2354,28 @@ function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, n
   </StoryWorkbenchPreview>;
 }
 
+function StoryMapWorkbench({ node, chapter, config, onChange }: {
+  node: StoryFlowNode;
+  chapter: StoryChapter;
+  config: StoryPlayerConfig;
+  onChange: (data: StoryFlowData) => void;
+}) {
+  const storyMapNode = chapter.nodes.find((candidate): candidate is Extract<StoryNode, { type: "story-map" }> => candidate.id === node.id && candidate.type === "story-map");
+  const inspector = <aside className="story-open-ui-inspector story-inspector" aria-label="Story Map inspector">
+    <div className="story-inspector-content">
+      <section className="story-open-ui-inspector-section">
+        <InspectorField label="Title"><input maxLength={120} value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} /></InspectorField>
+      </section>
+    </div>
+  </aside>;
+  const preview = <StoryWorkbenchPreview ariaLabel="Story Map live preview" viewport={config.viewport}>
+    {storyMapNode ? <StoryPlayerViewport viewport={config.viewport}>
+      <StoryMapSurface chapter={chapter} node={storyMapNode} viewport={config.viewport} accentColor={config.theme.accentColor} mode="preview" onClose={() => {}} />
+    </StoryPlayerViewport> : null}
+  </StoryWorkbenchPreview>;
+  return <NodeWorkbenchLayout className="story-map-workbench" preview={preview} inspector={inspector} timeline={null} />;
+}
+
 function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, libraryAssets, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   mode: "design" | "code";
   node: StoryFlowNode;
@@ -2424,7 +2479,7 @@ function StoryPresentationCodeWorkbench({ node }: {
   node: StoryFlowNode;
 }) {
   const [file, setFile] = useState<keyof StorySurfaceFiles>("html");
-  const fallback = node.type === "open-ui" ? DEFAULT_OPEN_UI_CODE : node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
+  const fallback = node.type === "open-ui" ? DEFAULT_OPEN_UI_CODE : node.type === "story-map" ? DEFAULT_STORY_MAP_SURFACE_FILES : node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : node.type === "ending" ? DEFAULT_ENDING_SURFACE_FILES : DEFAULT_SCENE_SURFACE_FILES;
   const files = node.data.presentation?.surface.files ?? fallback;
   const source = node.data.presentation?.surface.source ?? defaultStoryNodeSource(node.id);
   const paths: Record<keyof StorySurfaceFiles, string> = {
@@ -2815,6 +2870,7 @@ function CanvasToolbar({
   canvas,
   hasStart,
   hasOpenUi,
+  hasStoryMap,
   libraryAssets,
   importing,
   reserveInspector,
@@ -2828,6 +2884,7 @@ function CanvasToolbar({
   canvas: React.RefObject<HTMLDivElement | null>;
   hasStart: boolean;
   hasOpenUi: boolean;
+  hasStoryMap: boolean;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   reserveInspector: boolean;
@@ -2904,7 +2961,7 @@ function CanvasToolbar({
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                   ><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
-                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi));
+                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi) || (item.action.type === "story-map" && hasStoryMap));
                   const description = disabled ? `Only one ${item.label} node is allowed` : item.description;
                   return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
                 })}
@@ -2958,6 +3015,7 @@ function StoryCanvasContextMenu({
   canDuplicate,
   hasStart,
   hasOpenUi,
+  hasStoryMap,
   nodeActionsDisabled,
   importing,
   onClose,
@@ -2977,6 +3035,7 @@ function StoryCanvasContextMenu({
   canDuplicate: boolean;
   hasStart: boolean;
   hasOpenUi: boolean;
+  hasStoryMap: boolean;
   nodeActionsDisabled: boolean;
   importing: boolean;
   onClose: () => void;
@@ -3059,7 +3118,7 @@ function StoryCanvasContextMenu({
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                   ><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
-                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi));
+                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi) || (item.action.type === "story-map" && hasStoryMap));
                   return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? `Only one ${item.label} node is allowed` : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
                 })}
               </Fragment>)}
@@ -3159,7 +3218,7 @@ function ZoomControls() {
 }
 
 function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
-  if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui") return { ...node, deletable: true };
+  if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, durationMs: node.data.durationMs, presentation: node.data.presentation } };
   if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, ...(node.data.timeout ? { interactionTimeout: node.data.timeout } : {}), presentation: node.data.presentation } };
@@ -3210,6 +3269,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
   if (type === "condition") return { id, type, position, data: { title: "Condition" } };
   if (type === "open-ui") return { id, type, position, data: { title: "Open UI", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
+  if (type === "story-map") return { id, type, position, data: { title: "Story Map", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_STORY_MAP_SURFACE_FILES) } } } };
   if (type === "text") return { id, type, position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
   if (type === "choice") return {
     id,
@@ -3305,6 +3365,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
   if (node.type === "update-state") return { id: node.id, type: "update-state", position: node.position, data: { title: node.data.title ?? "Update State", actions: node.data.actions ?? [] } };
   if (node.type === "condition") return { id: node.id, type: "condition", position: node.position, data: { title: node.data.title ?? "Condition", ...(node.data.condition ? { condition: node.data.condition } : {}) } };
   if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
+  if (node.type === "story-map") return { id: node.id, type: "story-map", position: node.position, data: { title: node.data.title ?? "Story Map", presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_STORY_MAP_SURFACE_FILES) } } } };
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
@@ -3466,11 +3527,15 @@ type ConnectionRelation = "image-reference" | "video-reference" | "prompt" | "pr
 function connectionRelation(
   source: StoryFlowNode,
   target: StoryFlowNode,
+  sourceHandle: string | null | undefined,
   nodes: StoryFlowNode[],
   libraryAssets: LibraryAsset[],
   imageModels: ImageModel[],
 ): ConnectionRelation | undefined {
   if (source.id === target.id) return undefined;
+  if (source.type === "story-map") return undefined;
+  if (sourceHandle === STORY_MAP_HANDLE) return source.type === "open-ui" && target.type === "story-map" ? "story" : undefined;
+  if (target.type === "story-map") return undefined;
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "image") {
     return (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
@@ -3556,6 +3621,7 @@ function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
 
 function hasNodeEditor(node: StoryFlowNode): boolean {
   return node.type === "open-ui"
+    || node.type === "story-map"
     || node.type === "update-state"
     || node.type === "condition"
     || node.type === "scene"

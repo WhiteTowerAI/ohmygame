@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -255,6 +255,10 @@ export type StoryNode = (
     content: StoryOpenUiContent;
     presentation: StoryOpenUiPresentation;
   } }
+  | { id: string; type: "story-map"; position: StoryPosition; data: {
+    title: string;
+    presentation: StoryNodePresentation;
+  } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;
     durationMs?: number;
@@ -324,6 +328,7 @@ export interface StoryPlayerConfig {
 }
 
 export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map";
+export type StoryScreenAction = StoryOpenUiAction | "close";
 
 export interface StoryOpenUiButton {
   id: string;

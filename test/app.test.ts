@@ -199,6 +199,10 @@ describe("daemon", () => {
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
     const story = storyJson as StoryDocument;
     expect(validatePlayableChapter(story.chapter, { availableAssets: new Map() })).toBeUndefined();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui");
+    const storyMaps = story.chapter.nodes.filter((node) => node.type === "story-map");
+    expect(storyMaps).toHaveLength(1);
+    expect(story.chapter.edges).toContainEqual(expect.objectContaining({ source: openUi?.id, sourceHandle: "story-map", target: storyMaps[0]?.id }));
     const scene = story.chapter.nodes.find((node) => node.type === "scene");
     expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ items: [] });
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);

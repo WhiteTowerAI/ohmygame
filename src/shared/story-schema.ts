@@ -11,6 +11,7 @@ const condition = ref("condition");
 const presentation = ref("presentation");
 const singleMediaPresentation = ref("singleMediaPresentation");
 const openUiPresentation = ref("openUiPresentation");
+const storyMapPresentation = ref("storyMapPresentation");
 
 const sceneDurationRequirement = {
   if: {
@@ -167,6 +168,10 @@ const nodes = [
       presentation: openUiPresentation,
     },
   }),
+  node("story-map", {
+    type: "object", additionalProperties: false, required: ["title", "presentation"],
+    properties: { title: { type: "string", maxLength: 120 }, presentation: storyMapPresentation },
+  }),
   node("scene", {
     type: "object", additionalProperties: false, required: ["title", "presentation"],
     properties: { title: { type: "string" }, durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, presentation },
@@ -235,6 +240,7 @@ export const STORY_CODEBASE_SCHEMA = {
     presentation: presentationSchema(),
     singleMediaPresentation: presentationSchema(1),
     openUiPresentation: presentationSchema(1, true),
+    storyMapPresentation: presentationSchema(0),
   },
   type: "object",
   additionalProperties: false,
@@ -270,6 +276,7 @@ export const STORY_CODEBASE_SCHEMA = {
           allOf: [
             { contains: { type: "object", required: ["type"], properties: { type: { const: "start" } } }, minContains: 0, maxContains: 1 },
             { contains: { type: "object", required: ["type"], properties: { type: { const: "open-ui" } } }, minContains: 0, maxContains: 1 },
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "story-map" } } }, minContains: 0, maxContains: 1 },
           ],
         },
         edges: {

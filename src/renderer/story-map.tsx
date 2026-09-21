@@ -1,14 +1,15 @@
-import type { CSSProperties } from "react";
+import { useMemo } from "react";
 import type { StoryChapter, StoryNode } from "../shared/contracts.js";
 import type { StoryProgressFacts } from "../shared/story.js";
-import { ChevronLeft } from "./icons.js";
+import { StoryScreenSurface } from "./story-screen-surface.js";
 import "./story-map.css";
 
-type StoryMapNode = Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }>;
+type StoryMapFlowNode = Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }>;
+type StoryMapSystemNode = Extract<StoryNode, { type: "story-map" }>;
 
 export interface StoryMapNodeLayout {
   id: string;
-  node: StoryMapNode;
+  node: StoryMapFlowNode;
   x: number;
   y: number;
 }
@@ -20,14 +21,39 @@ export interface StoryMapLayout {
   edges: { source: string; target: string }[];
 }
 
+export interface StoryMapContent {
+  screenTitle: string;
+  title: string;
+  accentColor: string;
+  width: number;
+  height: number;
+  discoveredCount: number;
+  endingCount: number;
+  unlockedEndingCount: number;
+  nodes: Array<{
+    id: string;
+    type: StoryMapFlowNode["type"];
+    label: string;
+    title: string;
+    state: "discovered" | "locked";
+    current: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+  edges: Array<{ source: string; target: string; discovered: boolean }>;
+}
+
 const NODE_WIDTH = 176;
 const NODE_HEIGHT = 62;
 const COLUMN_GAP = 84;
 const ROW_GAP = 28;
 const PADDING = 48;
+const HEADER_HEIGHT = 74;
 
 export function createStoryMapLayout(chapter: StoryChapter, minimum = { width: 0, height: 0 }): StoryMapLayout {
-  const mapNodes = chapter.nodes.filter(isStoryMapNode);
+  const mapNodes = chapter.nodes.filter(isStoryMapFlowNode);
   const mapNodeIds = new Set(mapNodes.map((node) => node.id));
   const edges = uniqueMapEdges(mapNodes.flatMap((node) => nextMapNodeIds(chapter, node.id).map((target) => ({ source: node.id, target }))));
   const start = chapter.nodes.find((node) => node.type === "start");
@@ -44,7 +70,7 @@ export function createStoryMapLayout(chapter: StoryChapter, minimum = { width: 0
   }
   const lastDepth = Math.max(0, ...depths.values());
   for (const node of mapNodes) if (!depths.has(node.id)) depths.set(node.id, lastDepth + 1);
-  const columns = new Map<number, StoryMapNode[]>();
+  const columns = new Map<number, StoryMapFlowNode[]>();
   for (const node of mapNodes) {
     const depth = depths.get(node.id) ?? 0;
     columns.set(depth, [...(columns.get(depth) ?? []), node]);
@@ -61,59 +87,87 @@ export function createStoryMapLayout(chapter: StoryChapter, minimum = { width: 0
   return { width, height, nodes, edges };
 }
 
-export function StoryMap({ chapter, progress, currentNodeId, viewport, onClose }: { chapter: StoryChapter; progress?: StoryProgressFacts; currentNodeId?: string; viewport: { width: number; height: number }; onClose: () => void }) {
-  const layout = createStoryMapLayout(chapter, { width: viewport.width, height: Math.max(0, viewport.height - 74) });
-  const positions = new Map(layout.nodes.map((item) => [item.id, item]));
+export function createStoryMapContent(chapter: StoryChapter, progress: StoryProgressFacts | undefined, currentNodeId: string | undefined, viewport: { width: number; height: number }, accentColor: string, screenTitle = "Story Map"): StoryMapContent {
+  const layout = createStoryMapLayout(chapter, { width: viewport.width, height: Math.max(0, viewport.height - HEADER_HEIGHT) });
   const visited = new Set(progress?.visitedNodeIds ?? []);
   const unlockedEndings = new Set(progress?.unlockedEndingIds ?? []);
-  const visitedCount = layout.nodes.filter((item) => visited.has(item.id)).length;
   const endings = layout.nodes.filter((item) => item.node.type === "ending");
+  return {
+    screenTitle,
+    title: chapter.title,
+    accentColor,
+    width: layout.width,
+    height: layout.height,
+    discoveredCount: layout.nodes.filter((item) => visited.has(item.id)).length,
+    endingCount: endings.length,
+    unlockedEndingCount: endings.filter((item) => unlockedEndings.has(item.id)).length,
+    nodes: layout.nodes.map(({ id, node, x, y }) => {
+      const discovered = visited.has(id);
+      const unlocked = node.type === "ending" && unlockedEndings.has(id);
+      return {
+        id,
+        type: node.type,
+        label: discovered ? storyMapNodeType(node) : node.type === "ending" ? "Locked ending" : "Undiscovered",
+        title: discovered || unlocked ? storyMapNodeTitle(node) : "Unknown",
+        state: discovered || unlocked ? "discovered" : "locked",
+        current: id === currentNodeId,
+        x,
+        y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+      };
+    }),
+    edges: layout.edges.map((edge) => ({ ...edge, discovered: visited.has(edge.source) && visited.has(edge.target) })),
+  };
+}
 
+export function StoryMapSurface({ chapter, node, progress, currentNodeId, viewport, accentColor, mode, onClose, onReady }: {
+  chapter: StoryChapter;
+  node: StoryMapSystemNode;
+  progress?: StoryProgressFacts;
+  currentNodeId?: string;
+  viewport: { width: number; height: number };
+  accentColor: string;
+  mode: "preview" | "runtime";
+  onClose: () => void;
+  onReady?: () => void;
+}) {
+  const screenTitle = node.data.title || "Story Map";
+  const content = useMemo(
+    () => createStoryMapContent(chapter, progress, currentNodeId, viewport, accentColor, screenTitle),
+    [accentColor, chapter, currentNodeId, progress, screenTitle, viewport.height, viewport.width],
+  );
+  return <StoryScreenSurface
+    files={node.data.presentation.surface.files}
+    content={content}
+    mode={mode}
+    title={screenTitle}
+    className="story-map-surface"
+    onReady={onReady}
+    onAction={(action) => { if (action === "close") onClose(); }}
+  />;
+}
+
+export function StoryMap({ chapter, node, progress, currentNodeId, viewport, accentColor, onClose }: {
+  chapter: StoryChapter;
+  node: StoryMapSystemNode;
+  progress?: StoryProgressFacts;
+  currentNodeId?: string;
+  viewport: { width: number; height: number };
+  accentColor: string;
+  onClose: () => void;
+}) {
   return <section className="story-map" role="dialog" aria-modal="true" aria-label="Story map">
-    <header>
-      <button type="button" onClick={onClose}><ChevronLeft size={16} />Back</button>
-      <div><span>Story map</span><strong>{chapter.title}</strong></div>
-      <p><span>{visitedCount}/{layout.nodes.length} discovered</span><span>{unlockedEndings.size}/{endings.length} endings</span></p>
-    </header>
-    <div className="story-map-scroll">
-      <div className="story-map-canvas" style={{ width: layout.width, height: layout.height } as CSSProperties}>
-        <svg aria-hidden="true" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`}>
-          {layout.edges.map((edge) => {
-            const source = positions.get(edge.source);
-            const target = positions.get(edge.target);
-            if (!source || !target) return null;
-            const x1 = source.x + NODE_WIDTH;
-            const y1 = source.y + NODE_HEIGHT / 2;
-            const x2 = target.x;
-            const y2 = target.y + NODE_HEIGHT / 2;
-            const bend = Math.max(28, (x2 - x1) / 2);
-            const discovered = visited.has(source.id) && visited.has(target.id);
-            return <path key={`${edge.source}:${edge.target}`} className={discovered ? "is-discovered" : undefined} d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} />;
-          })}
-        </svg>
-        <ol>
-          {layout.nodes.map(({ id, node, x, y }) => {
-            const discovered = visited.has(id);
-            const unlocked = node.type === "ending" && unlockedEndings.has(id);
-            const current = id === currentNodeId;
-            const state = discovered || unlocked ? "is-discovered" : "is-locked";
-            return <li key={id} className={`${state}${current ? " is-current" : ""}`} style={{ left: x, top: y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
-              <span>{discovered ? storyMapNodeType(node) : node.type === "ending" ? "Locked ending" : "Undiscovered"}</span>
-              <strong>{discovered || unlocked ? storyMapNodeTitle(node) : "Unknown"}</strong>
-            </li>;
-          })}
-        </ol>
-      </div>
-    </div>
+    <StoryMapSurface chapter={chapter} node={node} progress={progress} currentNodeId={currentNodeId} viewport={viewport} accentColor={accentColor} mode="runtime" onClose={onClose} />
   </section>;
 }
 
-function isStoryMapNode(node: StoryNode): node is StoryMapNode {
+function isStoryMapFlowNode(node: StoryNode): node is StoryMapFlowNode {
   return node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function nextMapNodeIds(chapter: StoryChapter, sourceId: string): string[] {
-  const pending = chapter.edges.filter((edge) => edge.source === sourceId).map((edge) => edge.target);
+  const pending = chapter.edges.filter((edge) => edge.source === sourceId && edge.sourceHandle !== "story-map").map((edge) => edge.target);
   const visited = new Set<string>([sourceId]);
   const result: string[] = [];
   while (pending.length) {
@@ -121,9 +175,9 @@ function nextMapNodeIds(chapter: StoryChapter, sourceId: string): string[] {
     if (visited.has(id)) continue;
     visited.add(id);
     const node = chapter.nodes.find((candidate) => candidate.id === id);
-    if (!node) continue;
-    if (isStoryMapNode(node)) result.push(id);
-    else for (const edge of chapter.edges) if (edge.source === id) pending.push(edge.target);
+    if (!node || node.type === "story-map") continue;
+    if (isStoryMapFlowNode(node)) result.push(id);
+    else for (const edge of chapter.edges) if (edge.source === id && edge.sourceHandle !== "story-map") pending.push(edge.target);
   }
   return [...new Set(result)];
 }
@@ -140,14 +194,14 @@ function uniqueMapEdges(edges: { source: string; target: string }[]): { source: 
   return unique;
 }
 
-function storyMapNodeType(node: StoryMapNode): string {
+function storyMapNodeType(node: StoryMapFlowNode): string {
   if (node.type === "scene") return "Scene";
   if (node.type === "interaction") return "Interaction";
   if (node.type === "choice") return "Choice";
   return "Ending";
 }
 
-function storyMapNodeTitle(node: StoryMapNode): string {
+function storyMapNodeTitle(node: StoryMapFlowNode): string {
   if (node.type === "choice") return node.data.title || "Make a choice";
   return node.data.title || (node.type === "scene" ? "Untitled scene" : node.type === "interaction" ? "Untitled interaction" : "Untitled ending");
 }
