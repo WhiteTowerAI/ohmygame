@@ -272,7 +272,7 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
       </div>
       {display.work.length > 0 ? (
         <div className="active-work-items">
-          <WorkItems items={display.work} images={display.user?.images} active />
+          <WorkItems items={display.work} images={display.user?.images} />
         </div>
       ) : null}
     </section>
@@ -307,8 +307,8 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
   );
 }
 
-function WorkItems({ items, images, active = false, failed = false }: { items: TurnDisplay["work"]; images?: PromptImage[]; active?: boolean; failed?: boolean }) {
-  const rendered = items.map((item, index) => {
+function WorkItems({ items, images, failed = false }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean }) {
+  const rendered = items.map((item) => {
     if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} thinking={item.thinking} />;
     if (item.kind === "thinking") return <ThinkingActivity key={item.id} />;
     return <TimelineItem
@@ -316,7 +316,6 @@ function WorkItems({ items, images, active = false, failed = false }: { items: T
       item={item.item}
       images={item.item.type === "imageRead" ? images : undefined}
       hideError={item.item.type === "agentMessage" && Boolean(item.item.error)}
-      retrying={active && item.item.type === "retry" && item.item.status === "inProgress" && index === items.length - 1}
     />;
   });
   if (failed) {
@@ -415,7 +414,7 @@ function ThinkingActivity() {
   );
 }
 
-function TimelineItem({ item, images, hideError = false, retrying = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean; retrying?: boolean }) {
+function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
   if (item.type === "reasoning") return null;
   if (item.type === "modelChange") {
     return (
@@ -458,7 +457,6 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
     return <ConnectionActivity
       title={item.status === "failed" ? "Connection error" : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
       error={item.error}
-      retrying={retrying}
       failed={item.status === "failed"}
     />;
   }
@@ -508,7 +506,7 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
   return null;
 }
 
-function ConnectionActivity({ title, error, retrying = false, failed = false }: { title: string; error: ThreadItemError; retrying?: boolean; failed?: boolean }) {
+function ConnectionActivity({ title, error, failed = false }: { title: string; error: ThreadItemError; failed?: boolean }) {
   const Icon = failed ? WifiOff : Wifi;
   const presentation = connectionErrorPresentation(title, error);
   return (
@@ -517,7 +515,6 @@ function ConnectionActivity({ title, error, retrying = false, failed = false }: 
         <Icon size={13} aria-hidden="true" />
         <span className="tool-label">{presentation.title}</span>
         <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
-        <span className="tool-result">{retrying ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : null}</span>
       </summary>
       <div className="connection-activity-error">{presentation.message}</div>
     </details>
