@@ -2058,7 +2058,7 @@ function NodeEditorPage({ node, chapter, config, nodes, libraryAssets, variables
   const title = node?.data.title || node?.data.name || (node ? titleCase(node.type) : "Untitled node");
   useEffect(() => { setSceneMode("design"); }, [node?.id]);
   return <section className="story-node-editor-page" aria-label={`${title} editor`}>
-    <header className="story-node-editor-header">
+    <header className="story-node-editor-header window-drag-handle">
       <StoryEditorBreadcrumb label={isOpenUi ? "Open UI" : title} onClose={onClose} />
       {(isOpenUi || Boolean(node && ["scene", "interaction", "choice", "ending"].includes(node.type))) ? <div className="story-node-editor-mode" role="group" aria-label={isOpenUi ? "Open UI editor section" : "Node editor mode"}>
         <button type="button" className={sceneMode === "design" ? "is-active" : ""} aria-pressed={sceneMode === "design"} onClick={() => setSceneMode("design")}>Design</button>
