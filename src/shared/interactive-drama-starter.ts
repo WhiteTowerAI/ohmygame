@@ -51,7 +51,6 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
       title,
       viewport: { width: 1280, height: 720 },
       theme: { accentColor: "#62d6cb", textColor: "#ffffff", font: "sans" },
-      controls: { pause: true },
       videoFit: "cover",
       choicePosition: "bottom",
     },

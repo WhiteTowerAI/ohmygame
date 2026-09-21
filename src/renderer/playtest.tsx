@@ -336,7 +336,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
     <StoryPlayerViewport viewport={config.viewport}>
       <StoryFrameTransition frameKey={frameKey} frame={frame} paused={paused || playbackPaused} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
       {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
-      <StoryPlayerControls pause={config.controls.pause && canPause} mode="runtime" onPause={onPause} />
+      {canPause ? <StoryPlayerControls onPause={onPause} /> : null}
       {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
     </StoryPlayerViewport>
   </section>;

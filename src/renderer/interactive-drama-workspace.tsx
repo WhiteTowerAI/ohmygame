@@ -28,7 +28,6 @@ import {
   Play,
   Plus,
   Search,
-  SlidersHorizontal,
   Share2,
   Trash2,
   Upload,
@@ -122,7 +121,6 @@ import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
-import { StoryPlayerSettingsDialog } from "./story-player-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
 import { StoryPlayerPreviewSession, StoryPlayerSnapshot } from "./playtest.js";
 import "@xyflow/react/dist/style.css";
@@ -367,7 +365,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [importingAssets, setImportingAssets] = useState(false);
   const [building, setBuilding] = useState(false);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
-  const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
@@ -1203,9 +1200,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
-          <button type="button" title="Canvas format" onClick={() => { setPlayerSettingsOpen(false); setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
-          <button type="button" title="Player" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(false); setPlayerSettingsOpen(true); }}><SlidersHorizontal size={14} /><span>Player</span></button>
-          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setPlayerSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
+          <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
+          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
         </div>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
@@ -1365,7 +1361,6 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         onClose={() => setOpenedNodeId(undefined)}
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog viewport={player.viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={(viewport) => setPlayer((current) => ({ ...current, viewport }))} /> : null}
-      {playerSettingsOpen ? <StoryPlayerSettingsDialog controls={player.controls} onClose={() => setPlayerSettingsOpen(false)} onApply={(controls) => setPlayer((current) => ({ ...current, controls }))} /> : null}
       {variablesOpen ? <StoryVariablesDialog variables={variables} usageCounts={variableUsageCounts} onClose={() => setVariablesOpen(false)} onApply={updateVariables} /> : null}
       {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
     </section>

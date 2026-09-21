@@ -222,12 +222,11 @@ export const STORY_CODEBASE_SCHEMA = {
   properties: {
     version: { const: 1 },
     player: {
-      type: "object", additionalProperties: false, required: ["title", "viewport", "theme", "controls", "videoFit", "choicePosition"],
+      type: "object", additionalProperties: false, required: ["title", "viewport", "theme", "videoFit", "choicePosition"],
       properties: {
         title: { type: "string", maxLength: 120 },
         viewport: { type: "object", additionalProperties: false, required: ["width", "height"], properties: { width: { type: "integer", minimum: 240, maximum: 8192 }, height: { type: "integer", minimum: 240, maximum: 8192 } } },
         theme: { type: "object", additionalProperties: false, required: ["accentColor", "textColor", "font"], properties: { accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, textColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" }, font: { enum: ["sans", "serif"] } } },
-        controls: { type: "object", additionalProperties: false, required: ["pause"], properties: { pause: { type: "boolean" } } },
         videoFit: { enum: ["contain", "cover"] }, choicePosition: { enum: ["center", "bottom"] },
       },
     },
