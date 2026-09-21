@@ -1,5 +1,5 @@
 import type { StoryDocument, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS } from "./story.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES } from "./story.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
   id: "night-train",
@@ -73,7 +73,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
             durationMs: DEFAULT_SCENE_DURATION_MS,
             presentation: {
               media: { items: [] },
-              surface: { files: starterSceneSurfaceFiles(courageId) },
+              surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) },
             },
           },
         },
@@ -191,27 +191,6 @@ body { display: grid; place-items: center; font-family: Inter, system-ui, sans-s
   game.variables.increment(${JSON.stringify(courageId)}, 1);
   return "success";
 }
-`,
-  };
-}
-
-function starterSceneSurfaceFiles(courageId: string): StorySurfaceFiles {
-  return {
-    html: '<div id="scene-hud"><strong>Mara</strong><span>Courage <b id="courage">0</b>/5</span><i><em id="courage-fill"></em></i></div>',
-    css: `html, body { width: 100%; height: 100%; margin: 0; background: transparent; }
-#scene-hud { position: absolute; top: 24px; left: 24px; display: grid; gap: 7px; min-width: 168px; padding: 14px 16px; border: 1px solid rgb(255 255 255 / 28%); border-radius: 6px; background: rgb(8 12 15 / 72%); color: white; font: 500 13px Inter, sans-serif; box-sizing: border-box; }
-#scene-hud strong { font-size: 16px; }
-#scene-hud span { display: flex; justify-content: space-between; gap: 18px; }
-#scene-hud i { display: block; width: 100%; height: 5px; overflow: hidden; background: rgb(255 255 255 / 18%); }
-#scene-hud em { display: block; width: 0; height: 100%; background: #62d6cb; transition: width 160ms ease; }`,
-    javascript: `const courageId = ${JSON.stringify(courageId)};
-function paint({ variables }) {
-  const courage = Math.max(0, Math.min(5, Number(variables[courageId]) || 0));
-  document.querySelector("#courage").textContent = String(courage);
-  document.querySelector("#courage-fill").style.width = String(courage / 5 * 100) + "%";
-}
-export function render(context) { paint(context); }
-export function update(context) { paint(context); }
 `,
   };
 }
