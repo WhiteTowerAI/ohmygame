@@ -5,7 +5,7 @@ import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, crea
 import { getStory, listLibraryAssets } from "./api.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
-import { StoryInteractionSurface } from "./story-interaction-surface.js";
+import { StoryInteractionSurface, type StoryCompletionSource } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
 import { StoryPlayerControls, StoryPlayerPauseLayer } from "./story-player-controls.js";
@@ -248,6 +248,7 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
       runtime={session.runtime}
       playbackKey={playbackStep}
       paused={paused}
+      holdTimeoutTransitions
       hasCheckpoint={Boolean(session.checkpoint)}
       onAdvanceOpenUi={() => transition((current) => advanceOpenUi(chapter, current), { navigate: true, resume: true })}
       onContinueGame={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", navigate: true, resume: true }); }}
@@ -303,7 +304,7 @@ export function StoryPlayerSnapshot({ chapter, variables, config, nodeId }: { ch
   />;
 }
 
-export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, playbackKey = 0, paused, playbackPaused = false, hasCheckpoint, saveStatus, assetUrls, onAdvanceOpenUi, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
+export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, playbackKey = 0, paused, playbackPaused = false, holdTimeoutTransitions = false, hasCheckpoint, saveStatus, assetUrls, onAdvanceOpenUi, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
@@ -312,6 +313,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   playbackKey?: number;
   paused: boolean;
   playbackPaused?: boolean;
+  holdTimeoutTransitions?: boolean;
   hasCheckpoint: boolean;
   saveStatus?: "saved" | "error";
   assetUrls?: Readonly<Record<string, string>>;
@@ -329,7 +331,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
 }) {
   if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
   const frameKey = `${node?.id ?? "missing"}:${runtime.scenePlayback?.mediaId ?? ""}:${playbackKey}`;
-  const frame = { chapter, variables, config, node, runtime, hasCheckpoint, assetUrls } satisfies StoryPlayerFrameData;
+  const frame = { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls } satisfies StoryPlayerFrameData;
   const canPause = node?.type === "scene" || node?.type === "interaction" || node?.type === "choice";
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
@@ -369,6 +371,7 @@ interface StoryPlayerFrameData {
   config: StoryPlayerConfig;
   node?: StoryNode;
   runtime: PlayingRuntimeState;
+  holdTimeoutTransitions: boolean;
   hasCheckpoint: boolean;
   assetUrls?: Readonly<Record<string, string>>;
 }
@@ -423,7 +426,7 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   onInteraction: (result: string, commands: StoryInteractionCommand[]) => void;
   onChoice: (optionId: string) => void;
 }) {
-  const { chapter, variables, config, node, runtime, hasCheckpoint, assetUrls } = frame;
+  const { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls } = frame;
   const inactive = paused || !active;
   const activeSceneTime = active ? onSceneTime : NOOP_SCENE_TIME;
   const activeMediaComplete = active ? onMediaComplete : NOOP_MEDIA_COMPLETE;
@@ -434,8 +437,8 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   };
   if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} />;
   if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;
-  if (node?.type === "interaction") return <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} active={active} paused={paused} assetUrls={assetUrls} onReady={onReady} onComplete={activeInteraction} />;
-  if (node?.type === "choice") return <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onSelect={activeChoice} />;
+  if (node?.type === "interaction") return <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} active={active} paused={paused} assetUrls={assetUrls} onReady={onReady} onComplete={(result, commands, source) => { if (!holdTimeoutTransitions || source === "behavior") activeInteraction(result, commands); }} />;
+  if (node?.type === "choice") return <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onSelect={(optionId, source) => { if (!holdTimeoutTransitions || source === "behavior") activeChoice(optionId); }} />;
   if (node?.type === "ending") return <StoryEnding chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} assetUrls={assetUrls} onReady={onReady} onRestart={active ? onRestartGame : NOOP} onMenu={active ? onMenu : NOOP} />;
   return <><ReadyEffect onReady={onReady} /><div className="story-playtest-state" role="alert">The current story node is missing.</div></>;
 }
@@ -469,12 +472,12 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, active
   paused: boolean;
   assetUrls?: Readonly<Record<string, string>>;
   onReady: () => void;
-  onComplete: (result: string, commands: StoryInteractionCommand[]) => void;
+  onComplete: (result: string, commands: StoryInteractionCommand[], source: StoryCompletionSource) => void;
 }) {
   const [error, setError] = useState<string>();
   const ready = useReadyParts(onReady, 2);
   const resolved = useRef(false);
-  const pending = useRef<{ result: string; commands: StoryInteractionCommand[] } | undefined>(undefined);
+  const pending = useRef<{ result: string; commands: StoryInteractionCommand[]; source: StoryCompletionSource } | undefined>(undefined);
   const activeRef = useRef(active);
   const pausedRef = useRef(paused);
   activeRef.current = active;
@@ -488,11 +491,11 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, active
     const completion = pending.current;
     pending.current = undefined;
     resolved.current = true;
-    onComplete(completion.result, completion.commands);
+    onComplete(completion.result, completion.commands, completion.source);
   }, [active, onComplete, paused]);
   return <div className="story-player-node story-player-interaction-node">
     <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands }; return; } resolved.current = true; onComplete(result, commands); }} onError={setError} />
+    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands, source) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands, source }; return; } resolved.current = true; onComplete(result, commands, source); }} onError={setError} />
     {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
   </div>;
 }
@@ -542,7 +545,7 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, ass
   paused: boolean;
   assetUrls?: Readonly<Record<string, string>>;
   onReady: () => void;
-  onSelect: (optionId: string) => void;
+  onSelect: (optionId: string, source: StoryCompletionSource) => void;
 }) {
   const visibleOptions = node.data.options.filter((option) => matchesStoryCondition(option.condition, runtime.variables));
   const [remainingMs, setRemainingMs] = useState(node.data.timeout?.durationMs ?? 0);
@@ -562,8 +565,10 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, ass
     const timer = window.setTimeout(() => {
       if (resolved.current) return;
       resolved.current = true;
+      remaining.current = 0;
+      setRemainingMs(0);
       const selected = visibleOptions.find((option) => option.id === timeout.defaultOptionId) ?? visibleOptions[0];
-      if (selected) onSelect(selected.id);
+      if (selected) onSelect(selected.id, "timeout");
     }, remaining.current);
     return () => { tick(); window.clearInterval(interval); window.clearTimeout(timer); };
   }, [node.data.timeout, onSelect, paused, visibleOptions.length]);
@@ -571,7 +576,7 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, ass
   function select(optionId: string): void {
     if (resolved.current || paused) return;
     resolved.current = true;
-    onSelect(optionId);
+    onSelect(optionId, "behavior");
   }
 
   const context = storyPresentationContext(node, variables, runtime, { options: visibleOptions.map(({ id, label }) => ({ id, label })), remainingMs: node.data.timeout ? remainingMs : undefined, durationMs: node.data.timeout?.durationMs });

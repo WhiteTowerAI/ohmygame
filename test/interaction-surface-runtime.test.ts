@@ -52,7 +52,7 @@ describe("Interaction surface runtime", () => {
   it("discards commands on timeout and ignores late completion", async () => {
     const deadline = deferred<void>();
     const execution = deferred<string>();
-    const messages: Array<{ result: string; commands: unknown[] }> = [];
+    const messages: CompletionMessage[] = [];
     const current = runtimeSession(async () => {
       current.commands.push({ type: "set-variable" });
       return execution.promise;
@@ -67,13 +67,13 @@ describe("Interaction surface runtime", () => {
     execution.resolve("success");
     await flushPromises();
 
-    expect(messages).toEqual([{ result: "timeout", commands: [] }]);
+    expect(messages).toEqual([{ result: "timeout", commands: [], source: "timeout" }]);
     expect(current.controller.signal.aborted).toBe(true);
   });
 
   it("commits commands once when code completes before the deadline", async () => {
     const deadline = deferred<void>();
-    const messages: Array<{ result: string; commands: unknown[] }> = [];
+    const messages: CompletionMessage[] = [];
     const current = runtimeSession(async () => {
       current.commands.push({ type: "set-variable" });
       return "success";
@@ -86,11 +86,11 @@ describe("Interaction surface runtime", () => {
     deadline.resolve();
     await flushPromises();
 
-    expect(messages).toEqual([{ result: "success", commands: [{ type: "set-variable" }] }]);
+    expect(messages).toEqual([{ result: "success", commands: [{ type: "set-variable" }], source: "behavior" }]);
   });
 });
 
-function loadStart(current: RuntimeSession, waitForTimeout: () => Promise<void>, complete: (current: RuntimeSession, result: string, commands: unknown[]) => void) {
+function loadStart(current: RuntimeSession, waitForTimeout: () => Promise<void>, complete: (current: RuntimeSession, result: string, commands: unknown[], source: CompletionMessage["source"]) => void) {
   return loadRuntimeFunction<(current: RuntimeSession) => void>("start", {
     session: current,
     document: {},
@@ -102,10 +102,12 @@ function loadStart(current: RuntimeSession, waitForTimeout: () => Promise<void>,
   });
 }
 
-function loadComplete(current: RuntimeSession, messages: Array<{ result: string; commands: unknown[] }>) {
-  return loadRuntimeFunction<(current: RuntimeSession, result: string, commands: unknown[]) => void>("complete", {
+type CompletionMessage = { result: string; commands: unknown[]; source: "behavior" | "timeout" };
+
+function loadComplete(current: RuntimeSession, messages: CompletionMessage[]) {
+  return loadRuntimeFunction<(current: RuntimeSession, result: string, commands: unknown[], source: CompletionMessage["source"]) => void>("complete", {
     session: current,
-    post: (_instanceId: string, _type: string, payload: { result: string; commands: unknown[] }) => messages.push(payload),
+    post: (_instanceId: string, _type: string, payload: CompletionMessage) => messages.push(payload),
   });
 }
 

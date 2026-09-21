@@ -10,8 +10,10 @@ export interface StoryInteractionRuntimeContext {
 
 type EventSurfaceMessage =
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "ready" }
-  | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "complete"; result: string; commands: StoryInteractionCommand[] }
+  | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "complete"; result: string; commands: StoryInteractionCommand[]; source: StoryCompletionSource }
   | { channel: "ohmygame:interaction-surface"; instanceId: string; type: "error"; message: string };
+
+export type StoryCompletionSource = "behavior" | "timeout";
 
 export function StoryInteractionSurface({ files, outcomes, timeout, mode, context, active = true, paused = false, title, className, onReady, onComplete, onError }: {
   files: StorySurfaceFiles;
@@ -24,7 +26,7 @@ export function StoryInteractionSurface({ files, outcomes, timeout, mode, contex
   title: string;
   className?: string;
   onReady?: () => void;
-  onComplete?: (result: string, commands: StoryInteractionCommand[]) => void;
+  onComplete?: (result: string, commands: StoryInteractionCommand[], source: StoryCompletionSource) => void;
   onError?: (message: string) => void;
 }) {
   const surfaceFiles = transparentStorySurfaceFiles(files);
@@ -41,7 +43,7 @@ export function StoryInteractionSurface({ files, outcomes, timeout, mode, contex
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
       if (event.data.type === "ready") onReadyRef.current?.();
-      else if (event.data.type === "complete") onCompleteRef.current?.(event.data.result, event.data.commands);
+      else if (event.data.type === "complete") onCompleteRef.current?.(event.data.result, event.data.commands, event.data.source);
       else {
         onErrorRef.current?.(event.data.message);
         onReadyRef.current?.();
@@ -67,5 +69,5 @@ function isSurfaceMessage(value: unknown): value is EventSurfaceMessage {
   if (message.channel !== "ohmygame:interaction-surface" || typeof message.instanceId !== "string") return false;
   if (message.type === "ready") return true;
   if (message.type === "error") return typeof message.message === "string";
-  return message.type === "complete" && typeof message.result === "string" && Array.isArray(message.commands);
+  return message.type === "complete" && typeof message.result === "string" && Array.isArray(message.commands) && (message.source === "behavior" || message.source === "timeout");
 }

@@ -82,7 +82,7 @@
           const game = createGame(current.mode, current.variables, current.variableDefinitions, current.commands);
           if (current.timeout) {
             waitForTimeout(current.timeout.durationMs, signal, current.lifecycle).then(() => {
-              complete(current, current.timeout.outcome, []);
+              complete(current, current.timeout.outcome, [], "timeout");
             }).catch((error) => {
               if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
             });
@@ -92,17 +92,17 @@
             if (typeof result !== "string" || !Array.isArray(current.outcomes) || !current.outcomes.includes(result)) {
               throw new Error(`Interaction code must return one of: ${(current.outcomes || []).join(", ")}`);
             }
-            complete(current, result, current.mode === "runtime" ? current.commands : []);
+            complete(current, result, current.mode === "runtime" ? current.commands : [], "behavior");
           }).catch((error) => {
             if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
           });
         }
 
-        function complete(current, result, commands) {
+        function complete(current, result, commands, source) {
           if (session !== current || current.completed) return;
           current.completed = true;
           current.controller.abort();
-          post(current.instanceId, "complete", { result, commands });
+          post(current.instanceId, "complete", { result, commands, source });
         }
 
         function reportError(current, error) {
