@@ -35,8 +35,6 @@ Configure these repository secrets:
 | --- | --- |
 | `R2_ACCESS_KEY_ID` | R2 API token access key with object write access |
 | `R2_SECRET_ACCESS_KEY` | R2 API token secret |
-| `WINDOWS_CSC_LINK` | Base64-encoded Windows code-signing certificate or secure certificate URL |
-| `WINDOWS_CSC_KEY_PASSWORD` | Windows certificate password |
 | `CSC_LINK` | Base64-encoded Apple Developer ID certificate |
 | `CSC_KEY_PASSWORD` | Apple certificate password |
 | `APPLE_ID` | Apple account used for notarization |
@@ -52,9 +50,13 @@ Set `package.json` to the release version, commit it, and create a matching
 `v*` tag. Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 
 1. Builds the Windows NSIS installer and macOS DMG/ZIP.
-2. Signs Windows and signs/notarizes macOS.
+2. Builds Windows without code signing and signs/notarizes macOS.
 3. Uploads the packages and blockmaps to R2.
 4. Publishes the platform manifests and verifies them through the public URL.
+
+Windows builds are unsigned, so Windows may show an unknown-publisher or
+SmartScreen warning during download and installation. The update manifest still
+provides the SHA-512 digest used by `electron-updater` to validate downloads.
 
 For a local package build, export `DESKTOP_UPDATE_URL` before running
 `npm run package:mac` or `npm run package:win`. Development builds do not use

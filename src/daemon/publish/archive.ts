@@ -155,7 +155,11 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
 async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
   const zip = new ZipFile();
   const files = await filesIn(source, "", plugin);
-  const zipOptions = { mtime: new Date(1980, 0, 2), forceDosTimestamp: true } as const;
+  const zipOptions = {
+    mtime: new Date(1980, 0, 2),
+    forceDosTimestamp: true,
+    ...(plugin ? { mode: 0o100644 } : {}),
+  } as const;
   if (cover !== undefined && files.includes(PUBLISH_GAME_COVER_PATH)) {
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
   }
