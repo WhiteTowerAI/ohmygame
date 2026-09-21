@@ -106,7 +106,7 @@ function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string
   const issue = validatePlayableChapter(chapter, { availableAssets });
   if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
   for (const node of chapter.nodes) {
-    if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+    if (node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") continue;
     for (const item of node.data.presentation.media.items) {
       const assetId = resolveStoryAssetId(chapter, item.source);
       if (!assetId || assets.get(assetId)?.mediaType !== item.type) {
@@ -120,7 +120,7 @@ function referencedAssetIds(story: StoryDocument): Set<string> {
   const ids = new Set<string>();
   const chapter = story.chapter;
   for (const node of chapter.nodes) {
-    if ((node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") || node.data.presentation?.media.mode !== "own") continue;
+    if (node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") continue;
     for (const item of node.data.presentation.media.items) {
       const assetId = resolveStoryAssetId(chapter, item.source);
       if (assetId) ids.add(assetId);

@@ -81,7 +81,7 @@ describe("Interactive Drama project codebase", () => {
           title: "Title",
           content: { title: "Title", buttons: [{ id: "start", label: "Start", action: "enter-game" }] },
           presentation: {
-            media: { mode: "none" },
+            media: { items: [] },
             surface: { source: { html: "nodes/open-ui/index.html", css: "nodes/open-ui/style.css", javascript: "nodes/open-ui/script.js" } },
           },
         },
@@ -97,11 +97,14 @@ describe("Interactive Drama project codebase", () => {
     invalidEditorMetadata.chapter.nodes[0].editor = { kind: "custom" };
     expect(Check(STORY_CODEBASE_SCHEMA, invalidEditorMetadata)).toBe(false);
 
-    const invalidPresentation = structuredClone(story);
-    invalidPresentation.chapter.nodes[1].data.presentation.media = { strategy: "none" };
-    invalidPresentation.chapter.nodes[1].data.presentation.surface.source.js = invalidPresentation.chapter.nodes[1].data.presentation.surface.source.javascript;
-    delete invalidPresentation.chapter.nodes[1].data.presentation.surface.source.javascript;
-    expect(Check(STORY_CODEBASE_SCHEMA, invalidPresentation)).toBe(false);
+    const legacyMediaMode = structuredClone(story);
+    legacyMediaMode.chapter.nodes[1].data.presentation.media = { mode: "none" };
+    expect(Check(STORY_CODEBASE_SCHEMA, legacyMediaMode)).toBe(false);
+
+    const invalidPresentationSource = structuredClone(story);
+    invalidPresentationSource.chapter.nodes[1].data.presentation.surface.source.js = invalidPresentationSource.chapter.nodes[1].data.presentation.surface.source.javascript;
+    delete invalidPresentationSource.chapter.nodes[1].data.presentation.surface.source.javascript;
+    expect(Check(STORY_CODEBASE_SCHEMA, invalidPresentationSource)).toBe(false);
 
     const invalidContent = structuredClone(story);
     invalidContent.chapter.nodes[1].data.content = { actions: [{ id: "start", label: "Start", type: "continue" }] };
@@ -109,7 +112,6 @@ describe("Interactive Drama project codebase", () => {
 
     const invalidOpenUiMedia = structuredClone(story);
     invalidOpenUiMedia.chapter.nodes[1].data.presentation.media = {
-      mode: "own",
       items: [
         { id: "first", type: "image", source: { type: "library", assetId: "first" } },
         { id: "second", type: "image", source: { type: "library", assetId: "second" } },
@@ -141,7 +143,7 @@ describe("Interactive Drama project codebase", () => {
     const story = await manager.story(project.id);
     story.chapter.nodes.push({
       id: "platform", type: "scene", position: { x: 320, y: 180 },
-      data: { title: "Platform", presentation: { media: { mode: "own", items: [{ id: "video", type: "video", source: { type: "library", assetId: "video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } },
+      data: { title: "Platform", presentation: { media: { items: [{ id: "video", type: "video", source: { type: "library", assetId: "video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } },
     });
     story.editorLayout.nodes.platform = { x: 320, y: 180 };
     await manager.setStory(project.id, story);
@@ -163,7 +165,7 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    story.chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    story.chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     story.editorLayout.nodes.scene = { x: 0, y: 0 };
     await manager.setStory(project.id, story);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
@@ -229,13 +231,13 @@ describe("Interactive Drama project codebase", () => {
     const story = await manager.story(project.id);
     const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
     if (openUi.type !== "open-ui") throw new Error("Open UI is missing");
-    openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "video", source: { type: "library", assetId: "shared-media" } }] };
+    openUi.data.presentation.media = { items: [{ id: "background", type: "video", source: { type: "library", assetId: "shared-media" } }] };
     await manager.setStory(project.id, story);
 
     await manager.removeLibraryAssetReferences("shared-media");
 
     const updated = await manager.story(project.id);
     const updatedOpenUi = updated.chapter.nodes.find((node) => node.type === "open-ui")!;
-    expect(updatedOpenUi.type === "open-ui" && updatedOpenUi.data.presentation.media).toEqual({ mode: "own", items: [] });
+    expect(updatedOpenUi.type === "open-ui" && updatedOpenUi.data.presentation.media).toEqual({ items: [] });
   });
 });

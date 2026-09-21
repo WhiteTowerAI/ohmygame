@@ -473,7 +473,7 @@ export class ProjectManager {
         throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
       if (story.chapter.nodes.some((node) => (
-        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
+        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
         ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
@@ -595,11 +595,9 @@ export class ProjectManager {
 }
 
 function removePresentationAssetReferences(presentation: StoryNodePresentation, assetId: string, removedNodeIds: ReadonlySet<string>): StoryNodePresentation {
-  if (presentation.media.mode !== "own") return presentation;
   return {
     ...presentation,
     media: {
-      mode: "own",
       items: presentation.media.items.filter((item) =>
         (item.source.type !== "library" || item.source.assetId !== assetId) &&
         (item.source.type !== "node" || !removedNodeIds.has(item.source.nodeId))),

@@ -33,7 +33,7 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 - \`editor/layout.json\` contains exactly one position for every Story node;
 - referenced source files exist and stay inside the workspace.
 
-Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
+Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses an \`items\` array; an empty array means no media. A Start node has an empty \`data\` object.
 
 Choice and Update State actions use \`type: "update-variable"\` with an \`operator\` of \`"set"\`, \`"add"\`, \`"subtract"\`, \`"multiply"\`, or \`"divide"\`. Only \`"set"\` supports Text and Boolean Variables; arithmetic operators require a Number Variable and numeric \`value\`.
 
@@ -63,7 +63,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
 - \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
-- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
+- Every player-visible Story node owns \`data.presentation\`: a media \`items\` array and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
 - \`player.controls.pause\` controls the shared pause button shown on Scene, Interaction, and Choice nodes.
 - \`variables[].initialValue\` is the only source of new-game state. Use an Update State node only for changes that happen while the story is running.
 - Use a Condition node for automatic variable-based branching; its outgoing edges use \`"true"\` and \`"false"\` as \`sourceHandle\`.
@@ -248,8 +248,7 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
     if (!isSourceReference(data.presentation.surface.source) || isRecord(data.presentation.surface.files)) return true;
-    if (node.type === "scene") return !isRecord(data.presentation.media) ||
-      (data.presentation.media.mode === "own" && !Array.isArray(data.presentation.media.items)) ||
+    if (node.type === "scene") return !isRecord(data.presentation.media) || !Array.isArray(data.presentation.media.items) ||
       ["clips", "events", "media", "surface", "overlayIds"].some((key) => key in data);
     return node.type === "interaction" && (!Array.isArray(data.outcomes) || "event" in data || "interactionId" in data || "behavior" in data);
   });

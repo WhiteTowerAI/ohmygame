@@ -186,14 +186,9 @@ export interface StorySceneSurface {
   files: StorySurfaceFiles;
 }
 
-export type StoryPresentationMedia =
-  | { mode: "own"; items: StorySceneMedia[] }
-  | { mode: "inherit" }
-  | { mode: "none" };
-
 /** Shared player-facing presentation owned by every visible Story node. */
 export interface StoryNodePresentation {
-  media: StoryPresentationMedia;
+  media: { items: StorySceneMedia[] };
   surface: StorySceneSurface;
 }
 

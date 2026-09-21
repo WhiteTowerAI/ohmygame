@@ -20,9 +20,7 @@ export function duplicateStoryNode(
   };
   if (duplicate.type === "open-ui" || duplicate.type === "scene" || duplicate.type === "interaction" || duplicate.type === "choice" || duplicate.type === "ending") {
     duplicate.data.presentation.surface.source = undefined;
-    if (duplicate.data.presentation.media.mode === "own") {
-      duplicate.data.presentation.media.items = duplicate.data.presentation.media.items.filter((item) => item.source.type === "library");
-    }
+    duplicate.data.presentation.media.items = duplicate.data.presentation.media.items.filter((item) => item.source.type === "library");
   }
   if (duplicate.type === "image") {
     duplicate.data.promptSource = undefined;

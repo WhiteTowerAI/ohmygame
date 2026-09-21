@@ -8774,38 +8774,6 @@ button {
   font-size: 10px;
   font-weight: 600;
 }
-.story-presentation-media-editor > p {
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 9px;
-  line-height: 1.45;
-}
-.story-presentation-media-mode {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-}
-.story-presentation-media-mode button {
-  min-width: 0;
-  height: 26px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-faint);
-  font-size: 9px;
-  cursor: pointer;
-}
-.story-presentation-media-mode button:hover {
-  color: var(--text);
-}
-.story-presentation-media-mode button.is-active {
-  background: var(--surface-raised);
-  color: var(--text);
-}
 .story-scene-node-label > span {
   display: flex;
   min-width: 0;

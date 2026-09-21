@@ -417,7 +417,7 @@ describe("remote publish", () => {
     })).json();
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
     if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");

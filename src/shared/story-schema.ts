@@ -73,19 +73,10 @@ function presentationSchema(maxItems?: number) {
   required: ["media", "surface"],
   properties: {
     media: {
-      oneOf: [
-        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "none" } } },
-        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "inherit" } } },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["mode", "items"],
-          properties: {
-            mode: { const: "own" },
-            items,
-          },
-        },
-      ],
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: { items },
     },
     surface: {
       type: "object",

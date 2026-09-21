@@ -570,7 +570,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     });
     if (isVisiblePresentationFlowNode(node)) {
       const media = node.data.presentation?.media;
-      if (media?.mode === "own") derived.push(...media.items.flatMap((item) => item.source.type === "node" ? [{
+      if (media) derived.push(...media.items.flatMap((item) => item.source.type === "node" ? [{
         id: assetEdgeId("presentation", node.id, item.id),
         source: item.source.nodeId,
         target: node.id,
@@ -637,8 +637,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           }
           if (relation === "presentation-media" && node.id === edge.target && isVisiblePresentationFlowNode(node)) {
             const presentation = flowNodePresentation(node);
-            if (presentation.media.mode !== "own") return node;
-            return { ...node, data: { ...node.data, presentation: { ...presentation, media: { mode: "own", items: presentation.media.items.filter((item) => item.id !== referenceId) } } } };
+            return { ...node, data: { ...node.data, presentation: { ...presentation, media: { items: presentation.media.items.filter((item) => item.id !== referenceId) } } } };
           }
           return node;
         }));
@@ -677,8 +676,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       const mediaType = presentationMediaType(source);
       if (!mediaType) return;
       setNodes((current) => current.map((node) => node.id === target.id && isVisiblePresentationFlowNode(node)
-        ? withOwnedPresentationMedia(node, [
-            ...(node.type === "scene" ? ownedPresentationItems(node) : []),
+        ? withPresentationMedia(node, [
+            ...(node.type === "scene" ? presentationItems(node) : []),
             { id: crypto.randomUUID(), type: mediaType, source: { type: "node", nodeId: source.id } },
           ])
         : node));
@@ -790,7 +789,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       position,
       selected: true,
       deletable: true,
-      data: { title: name, outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } },
+      data: { title: name, outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { items: [] }, surface: { files: draft.files } } },
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -1026,7 +1025,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         ...node,
         data: {
           ...node.data,
-          sceneDurationMs: sceneDurationMs(media?.mode === "own" ? media.items : [], nodes, libraryAssets),
+          sceneDurationMs: sceneDurationMs(media?.items ?? [], nodes, libraryAssets),
         },
       };
     }
@@ -1039,7 +1038,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       data: { ...node.data, variables },
     };
     if (node.type === "open-ui") {
-      const item = node.data.presentation?.media.mode === "own" ? node.data.presentation.media.items[0] : undefined;
+      const item = node.data.presentation?.media.items[0];
       const assetId = item ? resolveStoryAssetId(activeChapter ?? { id: "", title: "", nodes: [], edges: [] }, item.source) : undefined;
       const asset = libraryAssets.find((candidate) => candidate.id === assetId);
       const mediaType: "image" | "video" | undefined = asset?.mediaType === "video" ? "video" : asset?.mediaType === "image" ? "image" : undefined;
@@ -1471,7 +1470,7 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 }
 
 function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
-  const mediaCount = data.presentation?.media.mode === "own" ? data.presentation.media.items.length : 0;
+  const mediaCount = data.presentation?.media.items.length ?? 0;
   return (
     <div className={`story-node story-media-node story-node-scene${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
@@ -2275,7 +2274,7 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
 }) {
-  const presentation = node.data.presentation ?? { media: { mode: "own" as const, items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  const presentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
   const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Open UI live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} />;
@@ -2287,13 +2286,13 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
           <section className="story-open-ui-inspector-section story-open-ui-background">
             <h3>Background</h3>
             <StoryMediaSourcePicker
-              items={presentation.media.mode === "own" ? presentation.media.items : []}
+              items={presentation.media.items}
               nodes={nodes}
               libraryAssets={libraryAssets}
               emptyLabel="No background selected"
               pickerTitle="Choose background"
               onUploadAsset={onUploadAsset}
-              onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items } } })}
+              onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { items } } })}
             />
           </section>
         </div>
@@ -2563,28 +2562,18 @@ function StoryPresentationMediaEditor({ node, nodes, libraryAssets, onUploadAsse
   onChange: (data: StoryFlowData) => void;
 }) {
   const presentation = flowNodePresentation(node);
-  const media = presentation.media;
-  const setMode = (mode: StoryNodePresentation["media"]["mode"]) => {
-    const nextMedia = mode === "own" ? { mode, items: media.mode === "own" ? media.items : [] } as const : { mode } as const;
-    onChange({ ...node.data, presentation: { ...presentation, media: nextMedia } });
-  };
   return <section className="story-inspector-section story-presentation-media-editor">
     <span>Media</span>
-    <div className="story-presentation-media-mode" role="group" aria-label="Media strategy">
-      {(["inherit", "own", "none"] as const).map((mode) => <button key={mode} type="button" className={media.mode === mode ? "is-active" : ""} aria-pressed={media.mode === mode} onClick={() => setMode(mode)}>{mode === "inherit" ? "Inherit" : mode === "own" ? "Own" : "None"}</button>)}
-    </div>
-    {media.mode === "inherit" ? <p>Uses the nearest upstream presentation media.</p> : null}
-    {media.mode === "none" ? <p>Renders code without a media layer.</p> : null}
-    {media.mode === "own" ? <StoryMediaSourcePicker
-      items={media.items}
+    <StoryMediaSourcePicker
+      items={presentation.media.items}
       nodes={nodes}
       libraryAssets={libraryAssets}
       append={node.type === "scene"}
       emptyLabel="No media selected"
       pickerTitle="Choose media"
       onUploadAsset={onUploadAsset}
-      onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { mode: "own", items } } })}
-    /> : null}
+      onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { items } } })}
+    />
   </section>;
 }
 
@@ -3115,7 +3104,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   if (type === "start") return { id, type, position, data: {} };
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
   if (type === "condition") return { id, type, position, data: { title: "Condition" } };
-  if (type === "open-ui") return { id, type, position, data: { title: "Open UI", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
+  if (type === "open-ui") return { id, type, position, data: { title: "Open UI", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (type === "text") return { id, type, position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
   if (type === "choice") return {
     id,
@@ -3127,13 +3116,13 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
         { id: crypto.randomUUID(), label: "Option 1" },
         { id: crypto.randomUUID(), label: "Option 2" },
       ],
-      presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
+      presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
     },
   };
-  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
+  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
   if (type === "interaction") {
     const draft = createStoryInteractionTemplate("continue");
-    return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { mode: "inherit" }, surface: { files: draft.files } } } };
+    return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { items: [] }, surface: { files: draft.files } } } };
   }
   if (type === "image") {
     const model = imageModels[0];
@@ -3168,7 +3157,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
       },
     };
   }
-  return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
+  return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
 
 function storyDocument(
@@ -3210,7 +3199,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
   if (node.type === "start") return { id: node.id, type: "start", position: node.position, data: {} };
   if (node.type === "update-state") return { id: node.id, type: "update-state", position: node.position, data: { title: node.data.title ?? "Update State", actions: node.data.actions ?? [] } };
   if (node.type === "condition") return { id: node.id, type: "condition", position: node.position, data: { title: node.data.title ?? "Condition", ...(node.data.condition ? { condition: node.data.condition } : {}) } };
-  if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
+  if (node.type === "open-ui") return { id: node.id, type: "open-ui", position: node.position, data: { title: node.data.title ?? "Open UI", content: node.data.content ?? structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } };
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
@@ -3221,7 +3210,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: "choice",
     position: node.position,
-    data: { title: node.data.title ?? "", options: node.data.options ?? [], ...(node.data.timeout ? { timeout: node.data.timeout } : {}), presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } } },
+    data: { title: node.data.title ?? "", options: node.data.options ?? [], ...(node.data.timeout ? { timeout: node.data.timeout } : {}), presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } } },
   };
   if (node.type === "interaction") return {
     id: node.id,
@@ -3231,7 +3220,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       title: node.data.title ?? "",
       outcomes: node.data.outcomes ?? ["out"],
       ...(node.data.interactionTimeout ? { timeout: node.data.interactionTimeout } : {}),
-      presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
+      presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
     },
   };
   if (node.type === "scene") return {
@@ -3240,7 +3229,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     position: node.position,
     data: {
       title: node.data.title ?? "",
-      presentation: node.data.presentation ?? { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
+      presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
     },
   };
   if (node.type === "text") return {
@@ -3286,7 +3275,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     id: node.id,
     type: node.type,
     position: node.position,
-    data: { title: node.data.title ?? "", description: node.data.description ?? "", presentation: node.data.presentation ?? { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
+    data: { title: node.data.title ?? "", description: node.data.description ?? "", presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
   };
 }
 
@@ -3386,7 +3375,7 @@ function connectionRelation(
   }
   if (isVisiblePresentationFlowNode(target) && presentationMediaType(source)) {
     const media = target.data.presentation?.media;
-    return media?.mode === "own" && media.items.some((item) => item.source.type === "node" && item.source.nodeId === source.id)
+    return media?.items.some((item) => item.source.type === "node" && item.source.nodeId === source.id)
       ? undefined
       : "presentation-media";
   }
@@ -3475,11 +3464,11 @@ function isVisiblePresentationFlowNode(node: StoryFlowNode): boolean {
 
 function flowNodePresentation(node: StoryFlowNode): StoryNodePresentation {
   if (node.data.presentation) return node.data.presentation;
-  if (node.type === "open-ui") return { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
-  if (node.type === "scene") return { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
-  if (node.type === "interaction") return { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
+  if (node.type === "open-ui") return { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  if (node.type === "scene") return { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
+  if (node.type === "interaction") return { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
   return {
-    media: { mode: "inherit" },
+    media: { items: [] },
     surface: { files: structuredClone(node.type === "choice" ? DEFAULT_CHOICE_SURFACE_FILES : DEFAULT_ENDING_SURFACE_FILES) },
   };
 }
@@ -3489,14 +3478,13 @@ function presentationMediaType(node: StoryFlowNode): StorySceneMedia["type"] | u
   return node.type === "asset" && (node.data.mediaType === "image" || node.data.mediaType === "video") ? node.data.mediaType : undefined;
 }
 
-function withOwnedPresentationMedia(node: StoryFlowNode, items: StorySceneMedia[]): StoryFlowNode {
+function withPresentationMedia(node: StoryFlowNode, items: StorySceneMedia[]): StoryFlowNode {
   const presentation = flowNodePresentation(node);
-  return { ...node, data: { ...node.data, presentation: { ...presentation, media: { mode: "own", items } } } };
+  return { ...node, data: { ...node.data, presentation: { ...presentation, media: { items } } } };
 }
 
-function ownedPresentationItems(node: StoryFlowNode): StorySceneMedia[] {
-  const media = flowNodePresentation(node).media;
-  return media.mode === "own" ? media.items : [];
+function presentationItems(node: StoryFlowNode): StorySceneMedia[] {
+  return flowNodePresentation(node).media.items;
 }
 
 function isImageFlowSource(node: StoryFlowNode | undefined): boolean {
@@ -3567,14 +3555,14 @@ function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySe
               ...(node.data.promptSource && removedIds.has(node.data.promptSource.nodeId) ? { promptSource: undefined } : {}),
             },
           }
-      : isVisiblePresentationFlowNode(node) && node.data.presentation?.media.mode === "own"
+      : isVisiblePresentationFlowNode(node) && node.data.presentation
         ? {
             ...node,
             data: {
               ...node.data,
               presentation: {
                 ...node.data.presentation,
-                media: { mode: "own", items: node.data.presentation.media.items.filter((item) => item.source.type !== "node" || !removedIds.has(item.source.nodeId)) },
+                media: { items: node.data.presentation.media.items.filter((item) => item.source.type !== "node" || !removedIds.has(item.source.nodeId)) },
               },
             },
           }

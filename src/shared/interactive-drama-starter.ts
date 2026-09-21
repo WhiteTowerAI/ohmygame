@@ -64,7 +64,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
       title: "Platform 13",
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
-        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
         {
           id: sceneId,
           type: "scene",
@@ -72,7 +72,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
           data: {
             title: "The empty platform",
             presentation: {
-              media: { mode: "own", items: [] },
+              media: { items: [] },
               surface: { files: starterSceneSurfaceFiles(courageId) },
             },
           },
@@ -81,13 +81,13 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
           id: hotspotId,
           type: "interaction",
           position: { x: 1_260, y: 120 },
-          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: hotspotFiles } } },
+          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, presentation: { media: { items: [] }, surface: { files: hotspotFiles } } },
         },
         {
           id: qteId,
           type: "interaction",
           position: { x: 1_600, y: 120 },
-          data: { title: "Board the train", outcomes: ["success", "timeout"], timeout: { durationMs: 2_500, outcome: "timeout" }, presentation: { media: { mode: "inherit" }, surface: { files: qteFiles } } },
+          data: { title: "Board the train", outcomes: ["success", "timeout"], timeout: { durationMs: 2_500, outcome: "timeout" }, presentation: { media: { items: [] }, surface: { files: qteFiles } } },
         },
         {
           id: choiceId,
@@ -107,7 +107,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
               },
             ],
             timeout: { durationMs: 6_000, defaultOptionId: stayOptionId },
-            presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
+            presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
           },
         },
         {
@@ -132,13 +132,13 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
           id: leaveEndingId,
           type: "ending",
           position: { x: 2_900, y: 100 },
-          data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
+          data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
         {
           id: stayEndingId,
           type: "ending",
           position: { x: 2_900, y: 340 },
-          data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
+          data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
       ],
       edges: [

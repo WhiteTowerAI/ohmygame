@@ -200,7 +200,7 @@ describe("daemon", () => {
     const story = storyJson as StoryDocument;
     expect(validatePlayableChapter(story.chapter, { availableAssets: new Map() })).toBeUndefined();
     const scene = story.chapter.nodes.find((node) => node.type === "scene");
-    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ mode: "own", items: [] });
+    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ items: [] });
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
@@ -217,7 +217,7 @@ describe("daemon", () => {
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json() as StoryDocument;
     const scene = story.chapter.nodes.find((node) => node.type === "scene");
 
-    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ mode: "own", items: [] });
+    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ items: [] });
     expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
   });
@@ -449,7 +449,7 @@ describe("daemon", () => {
       data: {
         title: "Opening",
         presentation: {
-          media: { mode: "own", items: [
+          media: { items: [
             { id: "library-clip", type: "video", source: { type: "library", assetId: first[0].id } },
             { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
           ] },
@@ -637,7 +637,7 @@ describe("daemon", () => {
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     story.chapter.nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
-      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
+      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
     syncStoryLayout(story);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);

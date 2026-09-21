@@ -13,8 +13,8 @@ export function createPlayableStoryDocument(): StoryDocument {
   };
   story.chapter.nodes = [
     { id: startId, type: "start", position: { x: 80, y: 180 }, data: {} },
-    { id: openUiId, type: "open-ui", position: { x: 240, y: 210 }, data: { title: "Untitled Story", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
-    { id: endingId, type: "ending", position: { x: 760, y: 210 }, data: { title: "Untitled ending", description: "", presentation: { media: { mode: "none" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } },
+    { id: openUiId, type: "open-ui", position: { x: 240, y: 210 }, data: { title: "Untitled Story", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+    { id: endingId, type: "ending", position: { x: 760, y: 210 }, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } },
   ];
   story.chapter.edges = [
     { id: crypto.randomUUID(), source: startId, target: openUiId },
