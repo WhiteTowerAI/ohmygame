@@ -1202,9 +1202,9 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           <Monitor size={14} />
           <span>{storyViewportRatio(playerViewport)}</span>
         </button>
-        <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
-          <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
-          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
+        <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+          <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
+          <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
         </nav>
         <div className="interactive-drama-header-actions">
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>

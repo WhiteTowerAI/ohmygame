@@ -141,7 +141,7 @@ export function AccountPage({
         pending={pending}
         onChoose={(planId) => userId ? void openAccountPayment(planId) : onSignIn()}
       />
-    ) : <Loading />;
+    ) : <Loading variant="plans" />;
   } else if (section === "billing") {
     content = subscription ? (
       <BillingPanel
@@ -300,7 +300,22 @@ function UsagePanel({ usage, onPageChange }: {
   );
 }
 
-function Loading() {
+function Loading({ variant }: { variant?: "plans" }) {
+  if (variant === "plans") {
+    return (
+      <div className="account-loading account-plans-loading" role="status" aria-label="Loading plans">
+        {[0, 1, 2].map((item) => (
+          <div className="account-plan-loading" aria-hidden="true" key={item}>
+            <span className="account-loading-title" />
+            <span className="account-loading-price" />
+            <span className="account-loading-copy" />
+            <span className="account-loading-copy is-short" />
+            <span className="account-loading-action" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   return <div className="account-loading" role="status" aria-label="Loading account"><div /><div /><div /></div>;
 }
 
