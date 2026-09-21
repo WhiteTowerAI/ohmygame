@@ -1,7 +1,7 @@
 import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StoryVariable } from "../shared/contracts.js";
-import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, shouldCreateStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
+import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -10,6 +10,7 @@ import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
 import { StoryPlayerControls, StoryPlayerPauseLayer } from "./story-player-controls.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { SceneTimerClock } from "./scene-timer-clock.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
@@ -62,13 +63,15 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   useEffect(() => {
     const storage = progress.current;
     const runtimeNode = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
-    if (!storage || !runtime || runtimeNode?.type === "open-ui" || !shouldCreateStoryCheckpoint(checkpointRef.current, runtime)) return;
+    if (!storage || !runtime || runtimeNode?.type === "open-ui") return;
+    const showSaved = shouldCreateStoryCheckpoint(checkpointRef.current, runtime);
+    if (!shouldPersistStoryCheckpoint(checkpointRef.current, runtime)) return;
     const save = createStoryCheckpoint(storage.signature, runtime);
     checkpointRef.current = save.checkpoint;
     setHasCheckpoint(true);
     try {
       saveStoryProgress(window.localStorage, storage.key, save);
-      setSaveStatus("saved");
+      if (showSaved) setSaveStatus("saved");
     } catch {
       setSaveStatus("error");
     }
@@ -208,7 +211,7 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
 
   useEffect(() => {
     const runtimeNode = chapter.nodes.find((candidate) => candidate.id === runtime.nodeId);
-    if (runtimeNode?.type !== "open-ui" && shouldCreateStoryCheckpoint(checkpoint, runtime)) setCheckpoint(runtime);
+    if (runtime.mode === "playing" && runtimeNode?.type !== "open-ui" && shouldCreateStoryCheckpoint(checkpoint, runtime)) setCheckpoint(runtime);
   }, [chapter.nodes, checkpoint, runtime]);
 
   const transition = useCallback((next: (current: PlayerRuntimeState) => PlayerRuntimeState, advanceFrame = true) => {
@@ -612,7 +615,9 @@ function StoryScenePlayer({ chapter, variables, node, runtime, fit, paused, asse
   const assetId = item ? resolveStoryAssetId(chapter, item.source) : undefined;
   const asset = useStoryAssetUrl(assetId, assetUrls);
   const ready = useReadyParts(onReady, 2);
-  const duration = useRef(0);
+  const [videoDurationMs, setVideoDurationMs] = useState(0);
+  const timed = !item || item.type === "image";
+  const durationMs = timed ? sceneStillDurationMs(items, node.data.durationMs) : videoDurationMs;
   useEffect(() => { if (item?.type === "image" && (!assetId || asset.error)) ready("media"); }, [asset.error, assetId, item?.type, ready]);
   const sceneSurfaceContext = useMemo(() => {
     return {
@@ -624,22 +629,62 @@ function StoryScenePlayer({ chapter, variables, node, runtime, fit, paused, asse
         mediaIndex,
         mediaCount: items.length,
         timeMs: playback?.timeMs ?? 0,
-        durationMs: duration.current,
+        durationMs,
         playing: !paused,
       },
       variables: Object.fromEntries(variables.flatMap((variable) => [[variable.id, runtime.variables[variable.id]], [variable.name, runtime.variables[variable.id]]])),
     };
-  }, [items.length, mediaIndex, node.data.title, node.id, paused, playback?.mediaId, playback?.timeMs, runtime.variables, variables]);
+  }, [durationMs, items.length, mediaIndex, node.data.title, node.id, paused, playback?.mediaId, playback?.timeMs, runtime.variables, variables]);
   if (!item) return <div className="story-player-node">
     <ReadyEffect onReady={() => ready("media")} />
+    {playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}
     <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
-    <button className="story-player-continue" type="button" onClick={() => onComplete("scene", 0)}>Continue</button>
   </div>;
   return <div className="story-player-node">
-    {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onReady={() => ready("media")} onTime={(time) => onTime(item.id, time)} onDuration={(durationMs) => { duration.current = durationMs; }} onEnded={(durationMs) => onComplete(item.id, durationMs)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} onLoad={() => ready("media")} onError={() => ready("media")} /> : null}<button className="story-player-continue" type="button" onClick={() => onComplete(item.id, 0)}>Continue</button></article>}
+    {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onReady={() => ready("media")} onTime={(time) => onTime(item.id, time)} onDuration={setVideoDurationMs} onEnded={(duration) => onComplete(item.id, duration)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} onLoad={() => ready("media")} onError={() => ready("media")} /> : null}{playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}</article>}
     <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
     {surfaceError ? <div className="story-player-scene-error" role="alert">Scene code failed: {surfaceError}</div> : null}
   </div>;
+}
+
+function StorySceneTimer({ mediaId, initialTimeMs, durationMs, paused, onTime, onComplete }: {
+  mediaId: string;
+  initialTimeMs: number;
+  durationMs: number;
+  paused: boolean;
+  onTime: (mediaId: string, timeMs: number) => void;
+  onComplete: (mediaId: string, durationMs: number) => void;
+}) {
+  const clock = useRef(new SceneTimerClock(initialTimeMs, durationMs));
+  const completed = useRef(false);
+  const onTimeRef = useRef(onTime);
+  const onCompleteRef = useRef(onComplete);
+  onTimeRef.current = onTime;
+  onCompleteRef.current = onComplete;
+
+  useEffect(() => {
+    if (paused || completed.current) return;
+    clock.current.setDuration(durationMs);
+    clock.current.resume(performance.now());
+    const sync = () => {
+      onTimeRef.current(mediaId, Math.round(clock.current.elapsed(performance.now())));
+    };
+    const finish = () => {
+      if (completed.current) return;
+      completed.current = true;
+      onTimeRef.current(mediaId, durationMs);
+      onCompleteRef.current(mediaId, durationMs);
+    };
+    const interval = window.setInterval(sync, 250);
+    const timeout = window.setTimeout(finish, clock.current.remaining(performance.now()));
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      if (!completed.current) clock.current.pause(performance.now());
+    };
+  }, [durationMs, mediaId, paused]);
+
+  return null;
 }
 
 function StoryVideoPlayer({ assetId, fit, paused, initialTimeMs, assetUrls, onReady, onTime, onDuration, onEnded }: {

@@ -109,7 +109,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -253,6 +253,7 @@ type StoryFlowData = {
   actions?: StoryAction[];
   condition?: StoryVariableCondition;
   content?: StoryOpenUiContent;
+  durationMs?: number;
   sceneDurationMs?: number;
   openUiPreview?: { mediaType?: "image" | "video"; durationMs: number };
   variables?: StoryVariable[];
@@ -1025,7 +1026,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         ...node,
         data: {
           ...node.data,
-          sceneDurationMs: sceneDurationMs(media?.items ?? [], nodes, libraryAssets),
+          sceneDurationMs: sceneDurationMs(media?.items ?? [], node.data.durationMs ?? DEFAULT_SCENE_DURATION_MS, nodes, libraryAssets),
         },
       };
     }
@@ -2305,8 +2306,10 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
   />;
 }
 
-function sceneDurationMs(items: readonly StorySceneMedia[], nodes: readonly StoryFlowNode[], libraryAssets: readonly LibraryAsset[]): number {
+function sceneDurationMs(items: readonly StorySceneMedia[], stillDurationMs: number, nodes: readonly StoryFlowNode[], libraryAssets: readonly LibraryAsset[]): number {
+  if (items.length === 0) return stillDurationMs;
   return items.reduce((total, item) => {
+    if (item.type === "image") return total + stillDurationMs;
     const source = item.source;
     const sourceNode = source.type === "node" ? nodes.find((candidate) => candidate.id === source.nodeId) : undefined;
     const assetId = source.type === "library" ? source.assetId : sourceNode?.data.assetId;
@@ -2405,6 +2408,8 @@ function StoryInspector({
 }) {
   const label = node.type[0]?.toUpperCase() + node.type.slice(1);
   const [choiceDrag, setChoiceDrag] = useState<{ sourceId: string; targetId?: string; before?: boolean }>();
+  const sceneMedia = node.type === "scene" ? flowNodePresentation(node).media.items : [];
+  const sceneVideoOnly = isVideoOnlySceneMedia(sceneMedia);
 
   function dropChoiceOption(targetId: string): void {
     if (node.type !== "choice") return;
@@ -2437,6 +2442,9 @@ function StoryInspector({
             <InspectorField label="Title">
               <input value={node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value })} />
             </InspectorField>
+            {!sceneVideoOnly ? <InspectorField label={sceneMedia.some((item) => item.type === "video") ? "Image duration" : "Duration"}>
+              <label className="story-inspector-number"><input aria-label="Scene duration in seconds" type="number" min={1} max={300} step={1} value={(node.data.durationMs ?? DEFAULT_SCENE_DURATION_MS) / 1_000} onChange={(event) => onChange({ ...node.data, durationMs: Math.round(Math.min(300, Math.max(1, Number(event.target.value) || 1)) * 1_000) })} /><span>seconds</span></label>
+            </InspectorField> : null}
           </>
         ) : null}
         {node.type === "interaction" ? (
@@ -2572,7 +2580,13 @@ function StoryPresentationMediaEditor({ node, nodes, libraryAssets, onUploadAsse
       emptyLabel="No media selected"
       pickerTitle="Choose media"
       onUploadAsset={onUploadAsset}
-      onChange={(items) => onChange({ ...node.data, presentation: { ...presentation, media: { items } } })}
+      onChange={(items) => {
+        const next = { ...node.data, presentation: { ...presentation, media: { items } } };
+        if (node.type !== "scene") { onChange(next); return; }
+        const { durationMs: _durationMs, ...scene } = next;
+        const durationMs = sceneDurationForMedia(items, node.data.durationMs);
+        onChange({ ...scene, ...(durationMs === undefined ? {} : { durationMs }) });
+      }}
     />
   </section>;
 }
@@ -2629,9 +2643,10 @@ function StoryMediaSourcePicker({ items, nodes, libraryAssets, append = false, e
       const assetId = source.type === "library" ? source.assetId : sourceNode?.data.assetId;
       const asset = libraryAssets.find((candidate) => candidate.id === assetId);
       const name = asset?.name ?? sourceNode?.data.name ?? sourceNode?.data.title ?? (sourceNode ? "Connected media" : "Missing media");
+      const videoDurationMs = item.type === "video" ? Math.round((asset?.duration ?? sourceNode?.data.assetDuration ?? sourceNode?.data.duration ?? 0) * 1_000) : 0;
       return <div className="story-media-row" key={item.id}>
         <span>{item.type === "video" ? <Film size={15} /> : <ImageIcon size={15} />}</span>
-        <div><strong>{name}</strong><small>{item.type === "video" ? "Video" : "Image"}{item.source.type === "node" ? " · Connected node" : " · Library"}</small></div>
+        <div><strong>{name}</strong><small>{item.type === "video" ? "Video" : "Image"}{videoDurationMs ? ` · ${formatCompactDuration(videoDurationMs)}` : ""}{item.source.type === "node" ? " · Connected node" : " · Library"}</small></div>
         <button type="button" title="Remove media" aria-label={`Remove ${name}`} onClick={() => onChange(items.filter((candidate) => candidate.id !== item.id))}><X size={13} /></button>
       </div>;
     })}</div> : <p className="story-media-empty">{emptyLabel}</p>}
@@ -3056,7 +3071,7 @@ function ZoomControls() {
 function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
-  if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, presentation: node.data.presentation } };
+  if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, durationMs: node.data.durationMs, presentation: node.data.presentation } };
   if (node.type === "interaction") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, outcomes: node.data.outcomes, ...(node.data.timeout ? { interactionTimeout: node.data.timeout } : {}), presentation: node.data.presentation } };
   if (node.type === "text") return {
     id: node.id,
@@ -3119,7 +3134,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
       presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
     },
   };
-  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
+  if (type === "scene") return { id, type, position, data: { title: "Untitled scene", durationMs: DEFAULT_SCENE_DURATION_MS, presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } };
   if (type === "interaction") {
     const draft = createStoryInteractionTemplate("continue");
     return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { items: [] }, surface: { files: draft.files } } } };
@@ -3223,15 +3238,20 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
     },
   };
-  if (node.type === "scene") return {
-    id: node.id,
-    type: "scene",
-    position: node.position,
-    data: {
-      title: node.data.title ?? "",
-      presentation: node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
-    },
-  };
+  if (node.type === "scene") {
+    const presentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } };
+    const durationMs = sceneDurationForMedia(presentation.media.items, node.data.durationMs);
+    return {
+      id: node.id,
+      type: "scene",
+      position: node.position,
+      data: {
+        title: node.data.title ?? "",
+        ...(durationMs === undefined ? {} : { durationMs }),
+        presentation,
+      },
+    };
+  }
   if (node.type === "text") return {
     id: node.id,
     type: "text",

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
-  advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
+  advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryCheckpoint, createStoryDocument, defaultStoryNodeSource, getNextNode,
   getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
-  matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId,
+  matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId, restoreStoryCheckpoint, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint,
   previewStoryNode, restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles,
 } from "../src/shared/story.js";
@@ -63,7 +63,7 @@ describe("canonical Interactive Drama story", () => {
       id: "blank-scene",
       type: "scene",
       position: { x: 0, y: 0 },
-      data: { title: "Blank scene", presentation: { media: { items: [] }, surface: storyNodePresentation(ending).surface } },
+      data: { title: "Blank scene", durationMs: 3_000, presentation: { media: { items: [] }, surface: storyNodePresentation(ending).surface } },
     };
     openUi.data.presentation.media = { items: [{ id: "background", type: "image", source: { type: "library", assetId: "asset" } }] };
     ending.data.presentation.media = { items: [] };
@@ -169,6 +169,7 @@ describe("canonical Interactive Drama story", () => {
     expect(visible.every((node) => Boolean(storyNodePresentation(node).surface.files.javascript))).toBe(true);
     expect(story.chapter.nodes.find((node) => node.type === "open-ui")?.data.title).toBe("Midnight Run");
     const scene = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "scene" }> => node.type === "scene")!;
+    expect(scene.data.durationMs).toBe(3_000);
     expect(scene.data.presentation.media).toEqual({ items: [] });
     const stateNodes = story.chapter.nodes.filter((node): node is Extract<StoryNode, { type: "update-state" }> => node.type === "update-state");
     expect(stateNodes.map((node) => node.data.actions[0])).toEqual([
@@ -240,6 +241,54 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(false);
   });
 
+  it("requires a bounded whole-millisecond Scene duration", () => {
+    const story = createInteractiveDramaStarterStory();
+    const scene = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "scene" }> => node.type === "scene")!;
+    expect(isStoryDocument(story)).toBe(true);
+    scene.data.durationMs = 999;
+    expect(isStoryDocument(story)).toBe(false);
+    scene.data.durationMs = 300_001;
+    expect(isStoryDocument(story)).toBe(false);
+    scene.data.durationMs = 2_500.5;
+    expect(isStoryDocument(story)).toBe(false);
+    delete (scene.data as Partial<typeof scene.data>).durationMs;
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("omits Scene duration when every media item is a video", () => {
+    const story = createInteractiveDramaStarterStory();
+    const scene = story.chapter.nodes.find((node): node is Extract<StoryNode, { type: "scene" }> => node.type === "scene")!;
+    scene.data.presentation.media.items = [{ id: "clip", type: "video", source: { type: "library", assetId: "clip" } }];
+    delete scene.data.durationMs;
+    expect(isStoryDocument(story)).toBe(true);
+
+    scene.data.durationMs = 3_000;
+    expect(isStoryDocument(story)).toBe(false);
+
+    scene.data.presentation.media.items.push({ id: "poster", type: "image", source: { type: "library", assetId: "poster" } });
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("times and restores an empty Scene without synthetic media", () => {
+    const story = createInteractiveDramaStarterStory();
+    const chapter = story.chapter;
+    let state = advanceOpenUi(chapter, restartGame(chapter, story.variables));
+    const scene = chapter.nodes.find((node): node is Extract<StoryNode, { type: "scene" }> => node.id === state.nodeId && node.type === "scene")!;
+    expect(state.scenePlayback).toEqual({ mediaId: scene.id, timeMs: 0 });
+
+    state = advanceSceneTime(chapter, state, scene.id, 1_250);
+    expect(state.scenePlayback?.timeMs).toBe(1_250);
+    const checkpoint = createStoryCheckpoint("story", state);
+    expect(restoreStoryCheckpoint(checkpoint, "story", chapter, story.variables)?.scenePlayback).toEqual({ mediaId: scene.id, timeMs: 1_250 });
+    expect(shouldCreateStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 900 } }, state)).toBe(false);
+    expect(shouldPersistStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 900 } }, state)).toBe(true);
+    expect(shouldPersistStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 1_100 } }, state)).toBe(false);
+
+    const next = completeSceneMedia(chapter, state, scene.id, scene.data.durationMs!);
+    expect(next.nodeId).toBe(getNextNode(chapter, scene.id)?.id);
+    expect(next.scenePlayback).toBeUndefined();
+  });
+
   it("runs Interaction code commands and graph outcomes", () => {
     const story = createInteractiveDramaStarterStory();
     const chapter = story.chapter;
@@ -282,7 +331,7 @@ describe("canonical Interactive Drama story", () => {
     const variables: StoryDocument["variables"] = [];
     const start: StoryNode = { id: "start", type: "start", position: { x: 0, y: 0 }, data: {} };
     const initial: StoryNode = { id: "state", type: "update-state", position: { x: 100, y: 0 }, data: { title: "State", actions: [] } };
-    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", presentation: { media: { items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: emptyPresentation().surface } } };
+    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Scene", durationMs: 3_000, presentation: { media: { items: [{ id: "image", type: "image", source: { type: "library", assetId: "image-asset" } }] }, surface: emptyPresentation().surface } } };
     const interaction: StoryNode = { id: "interaction", type: "interaction", position: { x: 300, y: 0 }, data: { title: "Continue", outcomes: ["continue"], presentation: emptyPresentation() } };
     const ending: StoryNode = { id: "ending", type: "ending", position: { x: 400, y: 0 }, data: { title: "End", description: "", presentation: emptyPresentation() } };
     const chapter: StoryChapter = {
@@ -309,7 +358,7 @@ describe("canonical Interactive Drama story", () => {
     const openUi = chapter.nodes.find((node) => node.type === "open-ui")!;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
     const image: StoryNode = { id: "image", type: "asset", position: { x: 200, y: 0 }, data: { assetId: "poster", mediaType: "image" } };
-    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 300, y: 0 }, data: { title: "Poster", presentation: { media: { items: [{ id: "poster-item", type: "image", source: { type: "node", nodeId: image.id } }] }, surface: emptyPresentation().surface } } };
+    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 300, y: 0 }, data: { title: "Poster", durationMs: 3_000, presentation: { media: { items: [{ id: "poster-item", type: "image", source: { type: "node", nodeId: image.id } }] }, surface: emptyPresentation().surface } } };
     chapter.nodes.push(image, scene);
     chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id);
     chapter.edges.push({ id: "open-scene", source: openUi.id, target: scene.id }, { id: "scene-ending", source: scene.id, target: ending.id });

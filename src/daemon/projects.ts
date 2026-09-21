@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
-import { createStoryDocument, isStoryDocument } from "../shared/story.js";
+import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
@@ -504,7 +504,12 @@ export class ProjectManager {
           ...chapter,
           nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
             if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "scene") {
+              const presentation = removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds);
+              const durationMs = sceneDurationForMedia(presentation.media.items, node.data.durationMs);
+              const { durationMs: _durationMs, ...data } = node.data;
+              return { ...node, data: { ...data, ...(durationMs === undefined ? {} : { durationMs }), presentation } };
+            }
             if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
             if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
             if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };

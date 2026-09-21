@@ -8292,26 +8292,6 @@ button {
   cursor: pointer;
 }
 
-.story-player-continue {
-  position: absolute;
-  z-index: 2;
-  bottom: 56px;
-  left: 50%;
-  min-width: 150px;
-  height: 42px;
-  padding: 0 18px;
-  border: 1px solid
-    color-mix(in srgb, var(--story-player-accent) 70%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--story-player-accent) 18%, #111216);
-  color: var(--story-player-text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transform: translateX(-50%);
-}
-
 .story-player-interaction-surface {
   position: absolute;
   z-index: 1;
@@ -9656,6 +9636,16 @@ button {
   height: 34px;
   padding: 4px;
   cursor: pointer;
+}
+.story-inspector-number {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.story-inspector-number > span {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 .story-inspector-section {
   display: grid;

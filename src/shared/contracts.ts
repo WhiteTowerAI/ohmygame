@@ -246,6 +246,7 @@ export type StoryNode = (
   } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;
+    durationMs?: number;
     presentation: StoryNodePresentation;
   } }
   | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; timeout?: StoryInteractionTimeout; presentation: StoryNodePresentation } }

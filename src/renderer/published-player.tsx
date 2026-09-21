@@ -10,6 +10,7 @@ import {
   resolveInteractionNode,
   restartGame,
   shouldCreateStoryCheckpoint,
+  shouldPersistStoryCheckpoint,
   type PlayerRuntimeState,
   type PlayingRuntimeState,
 } from "../shared/story.js";
@@ -66,13 +67,15 @@ function PublishedPlayer() {
   useEffect(() => {
     const storage = progress.current;
     const runtimeNode = chapter?.nodes.find((candidate) => candidate.id === runtime?.nodeId);
-    if (!storage || !runtime || runtimeNode?.type === "open-ui" || !shouldCreateStoryCheckpoint(checkpoint.current, runtime)) return;
+    if (!storage || !runtime || runtimeNode?.type === "open-ui") return;
+    const showSaved = shouldCreateStoryCheckpoint(checkpoint.current, runtime);
+    if (!shouldPersistStoryCheckpoint(checkpoint.current, runtime)) return;
     const save = createStoryCheckpoint(storage.signature, runtime);
     checkpoint.current = save.checkpoint;
     setHasCheckpoint(true);
     try {
       saveStoryProgress(localStorage, storage.key, save);
-      setSaveStatus("saved");
+      if (showSaved) setSaveStatus("saved");
     } catch {
       setSaveStatus("error");
     }

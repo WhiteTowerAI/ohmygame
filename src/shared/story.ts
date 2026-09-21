@@ -2,6 +2,20 @@ import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODE
 
 const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
+export const DEFAULT_SCENE_DURATION_MS = 3_000;
+
+export function isVideoOnlySceneMedia(items: readonly StorySceneMedia[]): boolean {
+  return items.length > 0 && items.every((item) => item.type === "video");
+}
+
+export function sceneDurationForMedia(items: readonly StorySceneMedia[], durationMs?: number): number | undefined {
+  return isVideoOnlySceneMedia(items) ? undefined : durationMs ?? DEFAULT_SCENE_DURATION_MS;
+}
+
+export function sceneStillDurationMs(items: readonly StorySceneMedia[], durationMs?: number): number {
+  if (isVideoOnlySceneMedia(items) || durationMs === undefined) throw new Error("This Scene does not have a still duration");
+  return durationMs;
+}
 
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
@@ -331,18 +345,14 @@ export function restoreStoryCheckpoint(
   if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
-  } else {
-    const media = node.data.presentation.media;
-    const hasPlayableMedia = media.items.length > 0;
-    if (hasPlayableMedia ? !validSavedScenePlayback(node, checkpoint.scenePlayback) : checkpoint.scenePlayback !== undefined) return undefined;
-  }
+  } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) return undefined;
   return clonePlayingState({
     ...(checkpoint as unknown as PlayingRuntimeState),
     progress: validStoryProgressFacts(checkpoint.progress, chapter) ?? progressFromCurrentNode(checkpoint.nodeId, chapter),
   });
 }
 
-export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): next is PlayingRuntimeState {
+export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): boolean {
   if (next.mode !== "playing") return false;
   if (!previous || previous.chapterId !== next.chapterId || previous.nodeId !== next.nodeId) return true;
   if (!sameRecord(previous.variables, next.variables)) return true;
@@ -350,6 +360,14 @@ export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | unde
   const after = next.scenePlayback;
   if (!before || !after) return before !== after;
   return before.mediaId !== after.mediaId;
+}
+
+export function shouldPersistStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): boolean {
+  if (shouldCreateStoryCheckpoint(previous, next)) return true;
+  if (next.mode !== "playing" || !previous) return false;
+  const before = previous.scenePlayback;
+  const after = next.scenePlayback;
+  return Boolean(before && after && before.mediaId === after.mediaId && Math.floor(before.timeMs / 1_000) !== Math.floor(after.timeMs / 1_000));
 }
 
 export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
@@ -445,11 +463,10 @@ function applyStoryInteractionCommands(
 
 export function completeSceneMedia(chapter: StoryChapter, state: PlayerRuntimeState, mediaId: string, durationMs: number): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
-  const current = chapter.nodes.find((node) => node.id === state.nodeId);
-  if (current?.type === "scene" && !state.scenePlayback) return advanceFromScene(chapter, state);
   const advanced = advanceSceneTime(chapter, state, mediaId, durationMs);
   const { node } = currentScenePlayback(chapter, advanced, mediaId);
   const items = node.data.presentation.media.items;
+  if (items.length === 0 && mediaId === node.id) return advanceFromScene(chapter, advanced);
   const next = items[items.findIndex((item) => item.id === mediaId) + 1];
   return next ? {
     ...advanced,
@@ -486,11 +503,9 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
       currentNode = next;
       continue;
     }
-    const media = currentNode.type === "scene" ? currentNode.data.presentation.media : undefined;
-    const firstMedia = media?.items[0];
-    return currentNode.type === "scene" && firstMedia
-      ? { ...entered, scenePlayback: { mediaId: firstMedia.id, timeMs: 0 } }
-      : entered;
+    if (currentNode.type !== "scene") return entered;
+    const firstMedia = currentNode.data.presentation.media.items[0];
+    return { ...entered, scenePlayback: { mediaId: firstMedia?.id ?? currentNode.id, timeMs: 0 } };
   }
 }
 
@@ -673,7 +688,11 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       hasOnlyKeys(value.data, ["title", "content", "presentation"]);
   }
   if (value.type === "scene") {
-    return typeof value.data.title === "string" && Object.keys(value.data).every((key) => key === "title" || key === "presentation");
+    const presentation = value.data.presentation as StoryNodePresentation;
+    const videoOnly = isVideoOnlySceneMedia(presentation.media.items);
+    const durationValid = typeof value.data.durationMs === "number" && Number.isInteger(value.data.durationMs) && value.data.durationMs >= 1_000 && value.data.durationMs <= 300_000;
+    return typeof value.data.title === "string" && (videoOnly ? value.data.durationMs === undefined : durationValid) &&
+      hasOnlyKeys(value.data, ["title", "durationMs", "presentation"]);
   }
   if (value.type === "interaction") {
     const data = value.data;
@@ -857,7 +876,7 @@ function variableValueMatches(type: unknown, value: unknown): boolean {
 function validSavedScenePlayback(node: Extract<StoryNode, { type: "scene" }>, value: unknown): value is ScenePlaybackState {
   if (!isRecord(value) || !nonEmptyString(value.mediaId) || !Number.isInteger(value.timeMs) || Number(value.timeMs) < 0 || Object.keys(value).some((key) => key !== "mediaId" && key !== "timeMs")) return false;
   const media = node.data.presentation.media;
-  return media.items.some((item) => item.id === value.mediaId);
+  return media.items.length === 0 ? value.mediaId === node.id : media.items.some((item) => item.id === value.mediaId);
 }
 
 function reachableStoryNodeIds(chapter: StoryChapter): Set<string> {

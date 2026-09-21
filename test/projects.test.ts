@@ -50,6 +50,8 @@ describe("Interactive Drama project codebase", () => {
     expect(documentation).toContain("code fully owns the interaction behavior");
     expect(documentation).toContain("data.outcomes");
     expect(documentation).toContain("data.timeout");
+    expect(documentation).toContain("A Scene with no media or any image requires `data.durationMs`");
+    expect(documentation).toContain("containing only videos must omit `durationMs`");
     expect(documentation).toContain("overall pause-aware deadline");
     expect(documentation).toContain("buffered Variable commands are discarded");
     expect(documentation).toContain("later code result is ignored");
@@ -86,6 +88,18 @@ describe("Interactive Drama project codebase", () => {
           },
         },
       },
+      {
+        id: "scene",
+        type: "scene",
+        data: {
+          title: "Scene",
+          durationMs: 3_000,
+          presentation: {
+            media: { items: [] },
+            surface: { source: { html: "nodes/scene/index.html", css: "nodes/scene/style.css", javascript: "nodes/scene/script.js" } },
+          },
+        },
+      },
     ];
     expect(Check(STORY_CODEBASE_SCHEMA, story)).toBe(true);
 
@@ -118,6 +132,19 @@ describe("Interactive Drama project codebase", () => {
       ],
     };
     expect(Check(STORY_CODEBASE_SCHEMA, invalidOpenUiMedia)).toBe(false);
+
+    const invalidSceneDuration = structuredClone(story);
+    invalidSceneDuration.chapter.nodes[2].data.durationMs = 999;
+    expect(Check(STORY_CODEBASE_SCHEMA, invalidSceneDuration)).toBe(false);
+    delete invalidSceneDuration.chapter.nodes[2].data.durationMs;
+    expect(Check(STORY_CODEBASE_SCHEMA, invalidSceneDuration)).toBe(false);
+
+    const videoScene = structuredClone(story);
+    videoScene.chapter.nodes[2].data.presentation.media.items = [{ id: "clip", type: "video", source: { type: "library", assetId: "clip" } }];
+    delete videoScene.chapter.nodes[2].data.durationMs;
+    expect(Check(STORY_CODEBASE_SCHEMA, videoScene)).toBe(true);
+    videoScene.chapter.nodes[2].data.durationMs = 3_000;
+    expect(Check(STORY_CODEBASE_SCHEMA, videoScene)).toBe(false);
   });
 
   it("documents the workspace boundary and basic template path", async () => {
@@ -165,7 +192,7 @@ describe("Interactive Drama project codebase", () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
-    story.chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    story.chapter.nodes.push({ id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", durationMs: 3_000, presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
     story.editorLayout.nodes.scene = { x: 0, y: 0 };
     await manager.setStory(project.id, story);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));

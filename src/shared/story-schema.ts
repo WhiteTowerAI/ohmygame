@@ -11,6 +11,31 @@ const condition = ref("condition");
 const presentation = ref("presentation");
 const singleMediaPresentation = ref("singleMediaPresentation");
 
+const sceneDurationRequirement = {
+  if: {
+    properties: {
+      presentation: {
+        properties: {
+          media: {
+            properties: {
+              items: {
+                type: "array",
+                minItems: 1,
+                items: { properties: { type: { const: "video" } }, required: ["type"] },
+              },
+            },
+            required: ["items"],
+          },
+        },
+        required: ["media"],
+      },
+    },
+    required: ["presentation"],
+  },
+  then: { not: { required: ["durationMs"] } },
+  else: { required: ["durationMs"] },
+} as const;
+
 const idSchema = { type: "string", minLength: 1 } as const;
 const sourcePathSchema = { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$" } as const;
 const modelSchema = {
@@ -123,7 +148,11 @@ const nodes = [
       presentation: singleMediaPresentation,
     },
   }),
-  node("scene", { type: "object", additionalProperties: false, required: ["title", "presentation"], properties: { title: { type: "string" }, presentation } }),
+  node("scene", {
+    type: "object", additionalProperties: false, required: ["title", "presentation"],
+    properties: { title: { type: "string" }, durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, presentation },
+    allOf: [sceneDurationRequirement],
+  }),
   node("interaction", {
     type: "object", additionalProperties: false, required: ["title", "outcomes", "presentation"],
     properties: {

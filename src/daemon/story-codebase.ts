@@ -35,6 +35,8 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 
 Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses an \`items\` array; an empty array means no media. A Start node has an empty \`data\` object.
 
+A Scene with no media or any image requires \`data.durationMs\` from 1000 to 300000 milliseconds. It controls how long each image or an empty Scene remains visible. A Scene containing only videos must omit \`durationMs\`; videos advance when playback actually ends.
+
 Choice and Update State actions use \`type: "update-variable"\` with an \`operator\` of \`"set"\`, \`"add"\`, \`"subtract"\`, \`"multiply"\`, or \`"divide"\`. Only \`"set"\` supports Text and Boolean Variables; arithmetic operators require a Number Variable and numeric \`value\`.
 
 A Condition node reads one declared Variable and immediately follows its \`"true"\` or \`"false"\` edge. Number conditions support equality plus \`"greater-than"\`, \`"greater-than-or-equal"\`, \`"less-than"\`, and \`"less-than-or-equal"\`; Text and Boolean conditions support equality only.
@@ -69,7 +71,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - Use a Condition node for automatic variable-based branching; its outgoing edges use \`"true"\` and \`"false"\` as \`sourceHandle\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
-- A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
+- A Scene contains \`title\` and \`presentation\`; its code surface owns any visual overlay UI. Add \`durationMs\` for an empty Scene or one containing images, and omit it when every media item is a video. Images use \`durationMs\`; videos advance when playback actually ends.
 - An Interaction contains \`title\`, \`outcomes\`, optional \`timeout\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow. The runtime owns the optional overall timeout.
 - Open UI is an ordinary Story node that owns its media, content, and code.
 - Keep \`story.json\` valid JSON and preserve its \`version\`.

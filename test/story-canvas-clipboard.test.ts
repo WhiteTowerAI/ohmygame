@@ -15,6 +15,7 @@ describe("story canvas clipboard", () => {
       position: { x: 100, y: 200 },
       data: {
         title: "Opening",
+        durationMs: 3_000,
         presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
       },
     };

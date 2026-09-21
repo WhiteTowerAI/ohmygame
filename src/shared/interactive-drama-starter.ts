@@ -1,5 +1,5 @@
 import type { StoryDocument, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT } from "./story.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS } from "./story.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
   id: "night-train",
@@ -71,6 +71,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
           position: { x: 760, y: 210 },
           data: {
             title: "The empty platform",
+            durationMs: DEFAULT_SCENE_DURATION_MS,
             presentation: {
               media: { items: [] },
               surface: { files: starterSceneSurfaceFiles(courageId) },
