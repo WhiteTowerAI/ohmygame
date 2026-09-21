@@ -20,6 +20,7 @@ describe("StoryPlayerControls", () => {
     expect(runtime).toContain("story-player-controls is-runtime is-interactive");
     expect(runtime).toContain('<button class="story-player-pause"');
     expect(runtime).toContain('aria-label="Pause"');
+    expect(runtime).not.toContain('fill="currentColor"');
   });
 
   it("renders shared pause content", () => {
