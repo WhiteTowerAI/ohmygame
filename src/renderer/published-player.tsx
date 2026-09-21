@@ -148,7 +148,6 @@ function PublishedPlayer() {
     node={node}
     runtime={runtime}
     playbackKey={playbackKey}
-    progressFacts={checkpoint.current?.progress}
     paused={paused}
     hasCheckpoint={hasCheckpoint}
     saveStatus={saveStatus}

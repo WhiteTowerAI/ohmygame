@@ -6968,7 +6968,7 @@ button {
   --story-edge-color: #91a89b;
   --story-editor-surface: #1b1c20;
   --story-editor-stage: #141519;
-  --story-preview-empty-stage: #737574;
+  --story-player-empty-background: #737574;
   container-type: inline-size;
   display: grid;
   grid-template-rows: 50px minmax(0, 1fr) auto;
@@ -7458,7 +7458,7 @@ button {
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: var(--story-preview-empty-stage);
+  background: var(--story-player-empty-background);
 }
 .story-workbench-preview-stage > :is(img, video) {
   position: absolute;
@@ -7467,168 +7467,30 @@ button {
   height: 100%;
   object-fit: cover;
 }
+.story-runtime-workbench-stage > .story-player,
+.story-canvas-player-preview > .story-player {
+  width: 100%;
+  height: 100%;
+  font-family: var(--story-player-font);
+}
+.story-player-preview-error {
+  position: absolute;
+  z-index: 4;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  padding: 8px 10px;
+  border: 1px solid rgb(255 120 120 / 45%);
+  border-radius: 5px;
+  background: rgb(35 8 8 / 88%);
+  color: #ffd1d1;
+  font-size: 10px;
+  text-align: center;
+}
 .story-open-ui-workbench,
 .story-choice-workbench,
 .story-ending-workbench {
   grid-template-rows: minmax(0, 1fr);
-}
-.story-choice-ending-preview {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  grid-template-rows: 42px minmax(0, 1fr);
-  padding: 0 16px 16px;
-}
-.story-choice-workbench .story-choice-ending-preview,
-.story-interaction-workbench .story-choice-ending-preview {
-  grid-template-rows: minmax(0, 1fr);
-  padding-top: 16px;
-}
-.story-choice-ending-preview > header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.story-choice-ending-preview > header strong {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.story-choice-ending-preview > header button {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 10px;
-  cursor: pointer;
-}
-.story-choice-ending-preview > header button:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.story-choice-ending-frame {
-  position: relative;
-  display: grid;
-  min-width: 0;
-  min-height: 0;
-  place-items: center;
-  overflow: hidden;
-}
-.story-media-stage.story-choice-ending-stage {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  max-height: 100%;
-  aspect-ratio: var(--story-viewport-ratio, 16 / 9);
-  border-color: var(--border-strong);
-}
-.story-interaction-workbench-surface {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-}
-.story-choice-workbench-screen,
-.story-ending-workbench-screen {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  width: min(78%, 620px);
-  align-items: center;
-  flex-direction: column;
-  color: #fff;
-  text-align: center;
-  text-shadow: 0 1px 5px rgb(0 0 0 / 76%);
-}
-.story-choice-workbench-screen > strong {
-  max-width: 100%;
-  margin-bottom: 18px;
-  overflow: hidden;
-  font-size: 22px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-choice-workbench-screen > div {
-  display: grid;
-  width: min(100%, 420px);
-  gap: 8px;
-}
-.story-choice-workbench-screen > div button {
-  min-height: 38px;
-  padding: 7px 14px;
-  overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 48%);
-  border-radius: 5px;
-  outline: 0;
-  background: rgb(9 10 13 / 62%);
-  color: #fff;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  backdrop-filter: blur(7px);
-}
-.story-choice-workbench-screen > div button:hover,
-.story-choice-workbench-screen > div button:focus-visible {
-  border-color: #fff;
-  background: rgb(255 255 255 / 16%);
-}
-.story-choice-workbench-screen > div button.is-selected {
-  border-color: #fff;
-  background: rgb(255 255 255 / 20%);
-}
-.story-choice-workbench-screen > small {
-  margin-top: 11px;
-  color: rgb(255 255 255 / 72%);
-  font-size: 9px;
-}
-.story-ending-workbench-screen > span {
-  margin-bottom: 10px;
-  color: rgb(255 255 255 / 68%);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.story-ending-workbench-screen > strong {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 38px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-ending-workbench-screen > p {
-  display: -webkit-box;
-  max-width: 520px;
-  margin: 12px 0 0;
-  overflow: hidden;
-  color: rgb(255 255 255 / 78%);
-  font-size: 12px;
-  line-height: 1.5;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-.story-choice-workbench .story-inspector > header button,
-.story-ending-workbench .story-inspector > header button {
-  visibility: hidden;
 }
 .story-code-tabs {
   display: flex;
@@ -7726,23 +7588,6 @@ button {
 }
 .story-scene-code-workbench .workspace-code {
   flex: 1;
-}
-.story-scene-media {
-  display: grid;
-  place-items: center;
-}
-.story-scene-media video {
-  cursor: pointer;
-}
-.story-scene-code-surface {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  pointer-events: none;
 }
 .interactive-drama-header {
   position: relative;
@@ -8162,7 +8007,7 @@ button {
   min-width: 0;
   min-height: 0;
   place-items: center;
-  background: #090a0c;
+  background: var(--story-player-empty-background, #737574);
   color: var(--story-player-text);
 }
 
@@ -8337,7 +8182,7 @@ button {
   height: 100%;
   place-items: center;
   overflow: hidden;
-  background: #090a0c;
+  background: var(--story-player-empty-background, #737574);
   color: color-mix(in srgb, var(--story-player-text) 65%, transparent);
 }
 
@@ -8875,20 +8720,6 @@ button {
 .story-node-scene {
   width: var(--story-media-width, 440px);
 }
-.story-interaction-flow-preview {
-  position: relative;
-  display: grid;
-  width: 100%;
-  aspect-ratio: var(--story-viewport-ratio, 16 / 9);
-  place-items: center;
-  overflow: hidden;
-  border-block: 1px solid var(--border);
-  background: #090b0d;
-  color: var(--text-muted);
-}
-.story-interaction-flow-preview > .story-surface-viewport {
-  pointer-events: none;
-}
 .story-interaction-flow-outcomes {
   display: flex;
   flex-wrap: wrap;
@@ -8906,25 +8737,6 @@ button {
 }
 .story-node-open-ui {
   width: var(--story-media-width, 440px);
-}
-.story-open-ui-node-preview > :is(img, video) {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.story-open-ui-node-surface {
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
-  pointer-events: none;
-}
-.story-open-ui-stage > .story-open-ui-node-surface {
-  pointer-events: auto;
 }
 .story-open-ui-inspector-section {
   display: grid;
@@ -9080,18 +8892,6 @@ button {
   font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
-.story-scene-node-poster {
-  width: 100%;
-}
-.story-scene-node-poster > :is(img, video) {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.story-scene-node-poster > video {
-  z-index: 1;
-}
 .story-inline-video-controls {
   position: absolute;
   z-index: 3;
@@ -9221,109 +9021,8 @@ button {
   color: var(--text-faint);
 }
 
-.story-inherited-scene-poster {
-  isolation: isolate;
-}
-
-.story-media-stage.story-inherited-scene-poster > img {
-  position: absolute;
-  z-index: -2;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.story-inherited-scene-scrim {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: transparent;
-  pointer-events: none;
-}
-
-.story-inherited-scene-poster.has-poster .story-inherited-scene-scrim {
-  background: rgb(7 8 11 / 58%);
-}
-
-.story-choice-player-screen,
-.story-ending-player-screen {
-  display: flex;
-  width: min(78%, 320px);
-  align-items: center;
-  flex-direction: column;
-  color: #fff;
-  pointer-events: none;
-  text-align: center;
-  text-shadow: 0 1px 4px rgb(0 0 0 / 72%);
-}
-
-.story-choice-player-screen > strong {
-  max-width: 100%;
-  margin-bottom: 14px;
-  overflow: hidden;
-  font-size: 16px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.story-choice-player-options {
-  display: grid;
-  width: min(100%, 272px);
-  gap: 6px;
-}
-
-.story-choice-player-options span {
-  min-height: 28px;
-  padding: 6px 12px;
-  overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 52%);
-  border-radius: 5px;
-  background: rgb(10 11 14 / 58%);
-  font-size: 10px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.story-choice-player-options small {
-  color: rgb(255 255 255 / 68%);
-  font-size: 9px;
-}
-
 .story-choice-output-handle {
   background: #8fa8ff;
-}
-
-.story-ending-player-screen > span {
-  margin-bottom: 8px;
-  color: rgb(255 255 255 / 68%);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.story-ending-player-screen > strong {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 25px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.story-ending-player-screen > p {
-  display: -webkit-box;
-  max-width: 290px;
-  margin: 9px 0 0;
-  overflow: hidden;
-  color: rgb(255 255 255 / 76%);
-  font-size: 10px;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .story-node.story-node-ending-player .react-flow__handle {
@@ -9602,10 +9301,6 @@ button {
   background: var(--story-editor-stage);
 }
 
-:is(.story-open-ui-node-preview, .story-scene-node-poster, .story-inherited-scene-poster) {
-  background: var(--story-preview-empty-stage);
-}
-
 :is(.story-node-scene, .story-node-choice-player, .story-node-ending-player)
   > .story-media-stage {
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
@@ -9626,11 +9321,6 @@ button {
   > .story-media-stage
   > :is(img, video) {
   object-fit: contain;
-}
-
-:is(.story-open-ui-node-preview, .story-inherited-scene-poster)
-  > :is(img, video) {
-  object-fit: cover;
 }
 
 .story-canvas-video {

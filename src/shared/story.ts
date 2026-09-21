@@ -412,6 +412,18 @@ export function restartGame(chapter: StoryChapter, variables: readonly StoryVari
   return startGame(chapter, createPlayerState(chapter.id, variables));
 }
 
+export function previewStoryNode(chapter: StoryChapter, variables: readonly StoryVariable[], nodeId: string): PlayingRuntimeState {
+  const node = chapter.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node || !isPresentationNode(node)) throw new Error("The preview node is not playable");
+  const initial = createPlayerState(chapter.id, variables);
+  return enterStoryNode(chapter, {
+    ...initial,
+    mode: "playing",
+    progress: { visitedNodeIds: [], selectedOptionIds: [], unlockedEndingIds: [] },
+    presentationMedia: inheritedPresentationMedia(chapter, nodeId),
+  }, node);
+}
+
 export function advanceSceneTime(chapter: StoryChapter, state: PlayerRuntimeState, mediaId: string, timeMs: number): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
   if (!Number.isFinite(timeMs) || timeMs < 0) throw new Error("Scene time must be a non-negative finite number");
@@ -508,6 +520,37 @@ export function resolvePresentationMedia(chapter: StoryChapter, state: { present
   const owner = chapter.nodes.find((node) => node.id === reference.nodeId);
   if (!owner || !isPresentationNode(owner) || owner.data.presentation.media.mode !== "own") return undefined;
   return owner.data.presentation.media.items.find((item) => item.id === reference.mediaId);
+}
+
+function inheritedPresentationMedia(chapter: StoryChapter, nodeId: string): PresentationMediaState | undefined {
+  const nodes = new Map(chapter.nodes.map((node) => [node.id, node]));
+  const visited = new Set<string>([nodeId]);
+  let pending = [nodeId];
+  while (pending.length) {
+    const next: string[] = [];
+    for (const target of pending) {
+      for (const edge of chapter.edges) {
+        if (edge.target !== target || visited.has(edge.source)) continue;
+        visited.add(edge.source);
+        const source = nodes.get(edge.source);
+        if (!source) continue;
+        if (!isPresentationNode(source)) {
+          next.push(source.id);
+          continue;
+        }
+        const media = source.data.presentation.media;
+        if (media.mode === "own") {
+          const item = media.items.at(-1);
+          if (item) return { nodeId: source.id, mediaId: item.id };
+          next.push(source.id);
+        } else if (media.mode === "inherit") {
+          next.push(source.id);
+        }
+      }
+    }
+    pending = next;
+  }
+  return undefined;
 }
 
 export function advanceOpenUi(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {

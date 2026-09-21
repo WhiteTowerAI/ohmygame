@@ -5,7 +5,7 @@ import {
   advanceOpenUi, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, defaultStoryNodeSource, getNextNode,
   getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
   matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId,
-  restartGame, storyNodePresentation, validatePlayableChapter,
+  previewStoryNode, restartGame, storyNodePresentation, validatePlayableChapter,
   transparentStorySurfaceFiles,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
@@ -37,6 +37,46 @@ describe("canonical Interactive Drama story", () => {
     expect(getNextNode(chapter, openUi.id)?.type).toBe("ending");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
+  });
+
+  it("starts an isolated preview at a presentation node with inherited media", () => {
+    const story = createPlayableStoryDocument();
+    const chapter = story.chapter;
+    const openUi = chapter.nodes.find((node) => node.type === "open-ui")!;
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "image", source: { type: "library", assetId: "asset" } }] };
+    ending.data.presentation.media = { mode: "inherit" };
+
+    const preview = previewStoryNode(chapter, story.variables, ending.id);
+
+    expect(preview.nodeId).toBe(ending.id);
+    expect(preview.presentationMedia).toEqual({ nodeId: openUi.id, mediaId: "background" });
+    expect(preview.progress?.visitedNodeIds).toEqual([ending.id]);
+  });
+
+  it("inherits preview media through an empty own-media node", () => {
+    const story = createPlayableStoryDocument();
+    const chapter = story.chapter;
+    const openUi = chapter.nodes.find((node) => node.type === "open-ui")!;
+    const ending = chapter.nodes.find((node) => node.type === "ending")!;
+    const scene: StoryNode = {
+      id: "blank-scene",
+      type: "scene",
+      position: { x: 0, y: 0 },
+      data: { title: "Blank scene", presentation: { media: { mode: "own", items: [] }, surface: storyNodePresentation(ending).surface } },
+    };
+    openUi.data.presentation.media = { mode: "own", items: [{ id: "background", type: "image", source: { type: "library", assetId: "asset" } }] };
+    ending.data.presentation.media = { mode: "inherit" };
+    chapter.nodes.push(scene);
+    chapter.edges = [
+      ...chapter.edges.filter((edge) => edge.source !== openUi.id),
+      { id: "open-to-scene", source: openUi.id, target: scene.id },
+      { id: "scene-to-ending", source: scene.id, target: ending.id },
+    ];
+
+    const preview = previewStoryNode(chapter, story.variables, ending.id);
+
+    expect(preview.presentationMedia).toEqual({ nodeId: openUi.id, mediaId: "background" });
   });
 
   it("recognizes only the Open UI connected directly after Start as the entry UI", () => {
