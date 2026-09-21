@@ -1430,14 +1430,13 @@ function CanvasStoryPlayer({ nodeId }: { nodeId: string }) {
   </div>;
 }
 
-function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, details, footer, outputs, children }: {
+function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, footer, outputs, children }: {
   className: string;
   selected: boolean;
   icon: ReactNode;
   type: string;
   title: string;
   trailing?: ReactNode;
-  details?: ReactNode;
   footer: ReactNode;
   outputs?: ReactNode;
   children: ReactNode;
@@ -1450,10 +1449,17 @@ function StoryPresentationNodeCard({ className, selected, icon, type, title, tra
       {trailing}
     </div>
     {children}
-    {details}
     <footer className="story-scene-node-meta">{footer}</footer>
     {outputs}
   </div>;
+}
+
+function StoryNodeOutputs({ outputs }: { outputs: ReadonlyArray<{ id: string; label: string }> }) {
+  if (!outputs.length) return null;
+  return <div className="story-node-outputs">{outputs.map((output) => <div className="story-node-output" key={output.id}>
+    <span className="story-node-output-label" title={output.label}>{output.label}</span>
+    <Handle className="story-node-output-handle" id={output.id} type="source" position={Position.Right} />
+  </div>)}</div>;
 }
 
 function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
@@ -1468,12 +1474,7 @@ function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
     title={data.title || "Untitled Story"}
     trailing={preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
     footer={<><span>{mediaType === "video" ? "Video" : mediaType === "image" ? "Image" : "No media"}</span><i /><span>Code</span></>}
-    outputs={<>
-      <span className="story-open-ui-output-label is-story">Story</span>
-      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} style={{ top: "43%" }} />
-      <span className="story-open-ui-output-label is-map">Story map</span>
-      <Handle className="story-media-output-handle" id={STORY_MAP_HANDLE} type="source" position={Position.Right} style={{ top: "68%" }} />
-    </>}
+    outputs={<StoryNodeOutputs outputs={[{ id: OUTPUT_HANDLE, label: "Story" }, { id: STORY_MAP_HANDLE, label: "Story map" }]} />}
   >
     <CanvasStoryPlayer nodeId={id} />
   </StoryPresentationNodeCard>;
@@ -1519,10 +1520,7 @@ function ConditionNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data"
     <Handle type="target" position={Position.Left} />
     <GitBranch size={14} />
     <span className="story-node-condition-label" title={label}>{label}</span>
-    <span className="story-node-condition-outcome story-node-condition-true">True</span>
-    <Handle className="story-condition-output-handle" id="true" type="source" position={Position.Right} style={{ top: "32%" }} />
-    <span className="story-node-condition-outcome story-node-condition-false">False</span>
-    <Handle className="story-condition-output-handle" id="false" type="source" position={Position.Right} style={{ top: "68%" }} />
+    <StoryNodeOutputs outputs={[{ id: "true", label: "True" }, { id: "false", label: "False" }]} />
   </div>;
 }
 
@@ -1568,9 +1566,8 @@ function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     icon={<Code2 size={14} />}
     type="Interaction"
     title={data.title || "Untitled interaction"}
-    details={<div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>}
     footer={<span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span>}
-    outputs={outcomes.map((outcome, index) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
+    outputs={<StoryNodeOutputs outputs={outcomes.map((outcome) => ({ id: outcome, label: outcome }))} />}
   >
     <CanvasStoryPlayer nodeId={id} />
   </StoryPresentationNodeCard>;
@@ -1578,14 +1575,6 @@ function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
 
 function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const options = data.options ?? [];
-  const outputs = options.map((option, index) => <Handle
-      className="story-choice-output-handle"
-      id={option.id}
-      key={option.id}
-      type="source"
-      position={Position.Right}
-      style={{ top: `${Math.min(88, 42 + (index + 1) * (48 / (options.length + 1)))}%` }}
-    />);
   return <StoryPresentationNodeCard
     className="story-node-choice-player"
     selected={selected}
@@ -1594,7 +1583,7 @@ function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     title={data.title || "Make a choice"}
     trailing={data.timeout?.durationMs ? <time>{formatCompactDuration(data.timeout.durationMs)}</time> : null}
     footer={<><span>{options.length} {options.length === 1 ? "option" : "options"}</span>{data.timeout?.durationMs ? <><i /><span>Timed</span></> : null}</>}
-    outputs={outputs}
+    outputs={<StoryNodeOutputs outputs={options.map((option) => ({ id: option.id, label: option.label || "Untitled option" }))} />}
   >
     <CanvasStoryPlayer nodeId={id} />
   </StoryPresentationNodeCard>;

@@ -8522,37 +8522,8 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.story-node-condition-outcome {
-  position: absolute;
-  right: 12px;
-  color: var(--text-faint);
-  font-size: 9px;
-  font-weight: 600;
-}
-.story-node-condition-true {
-  top: 12px;
-}
-.story-node-condition-false {
-  bottom: 12px;
-}
 .story-node-condition.is-selected {
   border-color: var(--accent);
-}
-
-.story-interaction-flow-outcomes {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-  padding: 7px 10px 0;
-}
-.story-interaction-flow-outcomes span {
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 8px;
-  text-transform: capitalize;
 }
 .story-open-ui-inspector-section {
   display: grid;
@@ -8833,10 +8804,6 @@ button {
   color: var(--text-faint);
 }
 
-.story-choice-output-handle {
-  background: #8fa8ff;
-}
-
 .story-node.story-node-ending-player .react-flow__handle {
   background: #e58888;
 }
@@ -8936,22 +8903,59 @@ button {
   top: calc(28px + var(--story-media-height, 280px) / 2);
 }
 
-.story-open-ui-output-label {
+.story-node-outputs {
   position: absolute;
-  right: 12px;
+  z-index: 2;
+  right: 0;
+  display: flex;
+  width: 42%;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+
+.story-presentation-node-card > .story-node-outputs {
+  top: 28px;
+  bottom: 28px;
+}
+
+.story-node-condition > .story-node-outputs {
+  top: 4px;
+  bottom: 4px;
+  color: var(--text-faint);
+}
+
+.story-node-output {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+
+.story-node-output-label {
+  max-width: 100%;
+  overflow: hidden;
   color: rgb(255 255 255 / 72%);
   font-size: 9px;
   font-weight: 600;
   pointer-events: none;
-  transform: translateY(-50%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.story-open-ui-output-label.is-story {
-  top: 43%;
+.story-node-condition .story-node-output-label {
+  color: inherit;
 }
 
-.story-open-ui-output-label.is-map {
-  top: 68%;
+.story-presentation-node-card .story-node-output-label {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 90%);
+}
+
+.story-node-output > .react-flow__handle {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
 }
 
 .story-asset-edge .react-flow__edge-path,
