@@ -356,6 +356,22 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain('class="message-error"');
   });
 
+  it("replaces missing model credentials with an actionable setup message", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error",
+      turnId: "turn-1",
+      type: "agentMessage",
+      text: "",
+      status: "failed",
+      error: { code: "model_not_configured", message: "No API key found for the selected model. Use /login to log into a provider via OAuth or API key. See: /local/path/providers.md" },
+    }]} failedTurnId="turn-1" />);
+
+    expect(html).toContain("Model setup required");
+    expect(html).toContain("Choose an available model or connect its provider in Settings");
+    expect(html).not.toContain("No API key");
+    expect(html).not.toContain("/local/path/providers.md");
+  });
+
   it("renders only the final connection error when a turn has multiple failed attempts", () => {
     const failedMessage = (id: string, text: string, error: string): ThreadItem => ({
       id,

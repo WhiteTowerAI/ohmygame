@@ -369,7 +369,7 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: { message: "No API key" }, timestamp: 0 },
+      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: { code: "model_not_configured", message: "No API key" }, timestamp: 0 },
       { id: "user", turnId: "user", type: "userMessage", text: "Stop", timestamp: 1 },
       { id: "cancelled:assistant", turnId: "user", type: "agentMessage", text: "", status: "cancelled", timestamp: 0 },
     ]);

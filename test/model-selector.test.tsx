@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ModelSelector } from "../src/renderer/model-selector.js";
+import { groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
 
 const model = {
   provider: "openai",
@@ -26,5 +26,22 @@ describe("ModelSelector", () => {
     );
 
     expect(html).toContain("disabled=\"\"");
+  });
+
+  it("groups models by provider while preserving provider and model order", () => {
+    const groups = groupModelsByProvider([
+      model,
+      { ...model, provider: "anthropic", providerName: "Anthropic", id: "claude-test", name: "Claude Test" },
+      { ...model, id: "gpt-test-mini", name: "GPT Test Mini" },
+    ]);
+
+    expect(groups.map((group) => ({
+      provider: group.provider,
+      providerName: group.providerName,
+      models: group.models.map((item) => item.name),
+    }))).toEqual([
+      { provider: "openai", providerName: "OpenAI", models: ["GPT Test", "GPT Test Mini"] },
+      { provider: "anthropic", providerName: "Anthropic", models: ["Claude Test"] },
+    ]);
   });
 });

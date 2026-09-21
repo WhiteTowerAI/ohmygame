@@ -22,8 +22,8 @@ describe("coding workspace", () => {
       onRestart: () => undefined,
     }));
 
-    expect(html).toContain("Your game preview will appear here");
-    expect(html).toContain("Describe your idea in the agent panel");
+    expect(html).toContain("Preview will appear here");
+    expect(html).toContain("Describe your game in the agent panel");
   });
 
   it("exposes Godot workspace controls without enabling publishing", () => {
