@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Globe2,
   Image as ImageIcon,
+  LaptopMinimalistic,
   Layers3,
   LoaderCircle,
   Monitor,
@@ -149,15 +150,16 @@ export function CodingWorkspace({
     <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <nav className="workspace-tabs" aria-label="Workspace views">
+        <nav
+          className="workspace-tabs"
+          data-active-tab={activeTab}
+          data-tab-count={supportsPreview ? 3 : 2}
+          aria-label="Workspace views"
+        >
           {supportsPreview ? (
-            <>
-              <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
-              <span className="workspace-tab-divider" aria-hidden="true" />
-            </>
+            <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
           ) : null}
           <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
-          <span className="workspace-tab-divider" aria-hidden="true" />
           <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
         </nav>
         <div className="viewer-controls-slot">
@@ -892,10 +894,10 @@ function PreviewEmptyState() {
   return (
     <div className="preview-empty-state">
       <div className="preview-empty-mark" aria-hidden="true">
-        <span /><span /><span /><span />
+        <LaptopMinimalistic size={20} />
       </div>
-      <p className="preview-empty-title">Your game preview will appear here</p>
-      <p className="preview-empty-description">Describe your idea in the agent panel to generate a playable first build.</p>
+      <p className="preview-empty-title">Preview will appear here</p>
+      <p className="preview-empty-description">Describe your game in the agent panel to create a playable build.</p>
     </div>
   );
 }

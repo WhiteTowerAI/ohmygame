@@ -17,7 +17,7 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, PromptImage, ThreadItem, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -154,8 +154,8 @@ function Turn({ display, projectId, now, userControls, assistantControls }: { di
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
-      {display.active ? <ActiveWork display={display} now={now} /> : null}
-      {!display.active && display.work.length > 0 ? <CompletedWork display={display} /> : null}
+      {display.status === "inProgress" ? <ActiveWork display={display} now={now} /> : null}
+      {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
         ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} />
@@ -265,17 +265,14 @@ function UserAttachments({ attachments }: { attachments: ConversationAttachment[
 }
 
 function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
-  const hasContent = display.work.length > 0 || display.waiting;
   return (
     <section className="work-activity work-activity-active">
       <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
-        {display.working ? null : <LoaderCircle className="spin" size={12} aria-hidden="true" />}
-        <span>{display.working ? `Working for ${activeTurnDuration(display, now)}` : thinkingLabel(display.thinkingText)}</span>
+        <span className={display.working ? undefined : "activity-shimmer"}>{display.working ? `Working for ${activeTurnDuration(display, now)}` : "Thinking"}</span>
       </div>
-      {hasContent ? (
+      {display.work.length > 0 ? (
         <div className="active-work-items">
-          <WorkItems items={display.work} images={display.user?.images} active />
-          {display.waiting ? <ThinkingActivity /> : null}
+          <WorkItems items={display.work} images={display.user?.images} />
         </div>
       ) : null}
     </section>
@@ -283,63 +280,72 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
 }
 
 function CompletedWork({ display }: { display: TurnDisplay }) {
+  const content = <div className="work-items">
+    <WorkItems items={display.work} images={display.user?.images} failed={display.status === "failed"} />
+    {display.status === "cancelled" && display.work.length === 0 ? (
+      <div className="stopped-work-note">{display.hadThinking ? "Stopped while thinking" : "Stopped before work began"}</div>
+    ) : null}
+  </div>;
+  if (display.status === "cancelled") {
+    return (
+      <section className="work-activity work-activity-stopped">
+        <div className="work-summary work-summary-stopped">
+          <span>You stopped after {turnDuration(display)}</span>
+        </div>
+        {content}
+      </section>
+    );
+  }
   return (
     <details className="work-activity">
       <summary className="work-summary">
         <span>Worked for {turnDuration(display)}</span>
         <ChevronRight className="work-chevron" size={13} />
       </summary>
-      <div className="work-items">
-        <WorkItems items={display.work} images={display.user?.images} failed={display.failed} />
-      </div>
+      {content}
     </details>
   );
 }
 
-function WorkItems({ items, images, active = false, failed = false }: { items: TurnDisplay["work"]; images?: PromptImage[]; active?: boolean; failed?: boolean }) {
-  const rendered = items.map((item, index) => {
-    if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} current={item.current} thinking={item.thinking} />;
+function WorkItems({ items, images, failed = false }: { items: TurnDisplay["work"]; images?: PromptImage[]; failed?: boolean }) {
+  const rendered = items.map((item) => {
+    if (item.kind === "tool-group") return <ToolActivityGroup key={item.id} tools={item.tools} thinking={item.thinking} />;
+    if (item.kind === "thinking") return <ThinkingActivity key={item.id} />;
     return <TimelineItem
       key={item.item.id}
       item={item.item}
       images={item.item.type === "imageRead" ? images : undefined}
       hideError={item.item.type === "agentMessage" && Boolean(item.item.error)}
-      retrying={active && item.item.type === "retry" && item.item.status === "inProgress" && index === items.length - 1}
     />;
   });
   if (failed) {
     const hasFailedRetry = items.some((item) => item.kind === "item" && item.item.type === "retry" && item.item.status === "failed");
     const error = items.flatMap((item) => item.kind === "item" && item.item.type === "agentMessage" && item.item.error ? [item.item] : []).at(-1);
     if (!hasFailedRetry && error?.type === "agentMessage" && error.error) {
-      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error.message} failed />);
+      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error} failed />);
     }
   }
   return rendered;
 }
 
-function ToolActivityGroup({ tools, current, thinking }: { tools: ToolItem[]; current: boolean; thinking?: Extract<ThreadItem, { type: "reasoning" }> }) {
-  if (!current && tools.length === 1) return <ToolActivity item={tools[0]} completed />;
-  if (tools.length === 0) return thinking ? <ThinkingActivity text={thinking.text} /> : null;
-  if (!current && tools.length > 1) {
-    const Icon = toolGroupIcon(tools);
-    return (
-      <details className="tool-activity-group">
-        <summary className="tool-group-summary">
-          <Icon size={13} aria-hidden="true" />
-          <span className="tool-label">{toolGroupSummary(tools)}</span>
-          <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
-        </summary>
-        <div className="tool-group-items">
-          {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed />)}
-        </div>
-      </details>
-    );
-  }
+function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: boolean }) {
+  const runningTool = tools.findLast((tool) => tool.status === "preparing" || tool.status === "inProgress");
+  const runningPresentation = runningTool ? toolPresentation(runningTool) : undefined;
+  const Icon = runningPresentation?.icon ?? toolGroupIcon(tools);
+  const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label) : undefined;
+  const showThinking = thinking && !runningTool;
+  const summaryLabel = showThinking ? "Thinking" : runningLabel ?? toolGroupSummary(tools);
   return (
-    <div className="tool-group-items tool-group-items-current">
-      {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} />)}
-      {thinking ? <ThinkingActivity text={thinking.text} /> : null}
-    </div>
+    <details className="tool-activity-group">
+      <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
+        {showThinking ? null : <Icon size={13} aria-hidden="true" />}
+        <span className={`tool-label${runningTool || showThinking ? " activity-shimmer" : ""}`} title={summaryLabel} role={showThinking ? "status" : undefined}>{summaryLabel}</span>
+        <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
+      </summary>
+      <div className="tool-group-items">
+        {tools.map((tool) => <ToolActivity key={tool.id} item={tool} completed={tool.status === "completed" || tool.status === "failed"} />)}
+      </div>
+    </details>
   );
 }
 
@@ -356,23 +362,22 @@ function toolGroupIcon(tools: ToolItem[]): ToolIcon {
 }
 
 function turnDuration(display: TurnDisplay): string {
-  const timestamps = [
-    display.user?.timestamp,
-    ...display.work.flatMap((item) => item.kind === "item" ? [item.item.timestamp] : item.tools.map((tool) => tool.timestamp)),
-    ...display.messages.map((item) => item.timestamp),
-    ...display.finalMessages.map((item) => item.timestamp),
-  ]
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (timestamps.length < 2) return "<1s";
-  const seconds = Math.max(1, Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 1_000));
+  return formatRoundedDuration(display.durationMs);
+}
+
+function formatRoundedDuration(milliseconds: number): string {
+  if (milliseconds < 1_000) return "0s";
+  const seconds = Math.max(1, Math.round(milliseconds / 1_000));
   const minutes = Math.floor(seconds / 60);
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
 function activeTurnDuration(display: TurnDisplay, now: number): string {
-  const workTimestamps = display.work.flatMap((item) => item.kind === "item"
-    ? [item.item.timestamp]
-    : item.tools.map((tool) => tool.timestamp));
+  const workTimestamps = display.work.flatMap((item) => {
+    if (item.kind === "item") return [item.item.timestamp];
+    if (item.kind === "tool-group") return item.tools.map((tool) => tool.timestamp);
+    return [];
+  });
   const startedAt = [display.user?.timestamp, ...workTimestamps]
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     .reduce((earliest, value) => Math.min(earliest, value), now);
@@ -401,25 +406,15 @@ function formatDuration(milliseconds: number): string {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
-function ThinkingActivity({ text }: { text?: string } = {}) {
+function ThinkingActivity() {
   return (
-    <div className="tool-activity tool-row timeline-activity thinking-activity" role="status">
-      <LoaderCircle className="spin" size={13} aria-hidden="true" />
-      <span className="tool-label">{thinkingLabel(text)}</span>
-      <span />
+    <div className="thinking-activity" role="status">
+      <span className="activity-shimmer">Thinking</span>
     </div>
   );
 }
 
-function thinkingLabel(text?: string): string {
-  let label = text?.trim();
-  if (!label) return "Thinking";
-  if (label.startsWith("**")) label = label.slice(2);
-  if (label.endsWith("**")) label = label.slice(0, -2);
-  return label.trim() || "Thinking";
-}
-
-function TimelineItem({ item, images, hideError = false, retrying = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean; retrying?: boolean }) {
+function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
   if (item.type === "reasoning") return null;
   if (item.type === "modelChange") {
     return (
@@ -461,8 +456,7 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
   if (item.type === "retry") {
     return <ConnectionActivity
       title={item.status === "failed" ? "Connection error" : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
-      error={item.error.message}
-      retrying={retrying}
+      error={item.error}
       failed={item.status === "failed"}
     />;
   }
@@ -505,26 +499,36 @@ function TimelineItem({ item, images, hideError = false, retrying = false }: { i
     return (
       <>
         {message}
-        <ConnectionActivity title="Connection error" error={item.error.message} failed />
+        <ConnectionActivity title="Connection error" error={item.error} failed />
       </>
     );
   }
   return null;
 }
 
-function ConnectionActivity({ title, error, retrying = false, failed = false }: { title: string; error: string; retrying?: boolean; failed?: boolean }) {
+function ConnectionActivity({ title, error, failed = false }: { title: string; error: ThreadItemError; failed?: boolean }) {
   const Icon = failed ? WifiOff : Wifi;
+  const presentation = connectionErrorPresentation(title, error);
   return (
     <details className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`}>
       <summary className="tool-activity tool-row tool-row-expandable timeline-activity connection-activity" role={failed ? "alert" : undefined}>
         <Icon size={13} aria-hidden="true" />
-        <span className="tool-label">{title}</span>
+        <span className="tool-label">{presentation.title}</span>
         <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
-        <span className="tool-result">{retrying ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : null}</span>
       </summary>
-      <div className="connection-activity-error">{error}</div>
+      <div className="connection-activity-error">{presentation.message}</div>
     </details>
   );
+}
+
+function connectionErrorPresentation(title: string, error: ThreadItemError): { title: string; message: string } {
+  if (error.code === "model_not_configured") {
+    return {
+      title: "Model setup required",
+      message: "The selected model isn't configured. Choose an available model or connect its provider in Settings, then try again.",
+    };
+  }
+  return { title, message: error.message };
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {
@@ -540,7 +544,6 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
       <span className="tool-label" title={label}>{label}</span>
       {expandable ? <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /> : null}
       <span className="tool-result" aria-label={item.status}>
-        {item.status === "preparing" || item.status === "inProgress" ? <LoaderCircle className="spin" size={12} /> : null}
         {item.status === "failed" ? <X size={12} /> : null}
       </span>
     </div>
@@ -666,6 +669,19 @@ function preparingToolLabel(toolName: string): string {
     case "mcp": return "Preparing MCP";
     case "tool": return "Preparing";
     default: return `Preparing ${toolName}`;
+  }
+}
+
+function runningToolGroupLabel(item: ToolCallItem, label: string): string {
+  if (item.type === "mcpToolCall") return label;
+  switch (item.tool) {
+    case "edit":
+    case "write": return "Edit Files";
+    case "read": return "Read Files";
+    case "grep":
+    case "find": return "Search Files";
+    case "ls": return "List Files";
+    default: return item.status === "preparing" ? preparingToolLabel(item.tool) : label;
   }
 }
 

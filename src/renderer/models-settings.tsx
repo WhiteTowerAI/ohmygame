@@ -310,7 +310,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
           ) : (
             <input id="model-auth-answer" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus />
           )}
-          <div className="settings-form-actions"><button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (endpoint.supported && !endpoint.baseUrl.trim()) || (!answer && prompt.value.type !== "select")}>Continue</button></div>
+          <div className="settings-form-actions"><button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (endpoint.supported && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button></div>
         </form>
       ) : (
         <div className="settings-waiting-card">

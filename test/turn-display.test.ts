@@ -9,11 +9,8 @@ describe("projectTurnDisplay", () => {
     ], true));
 
     expect(display).toMatchObject({
-      active: true,
-      failed: false,
+      status: "inProgress",
       working: false,
-      waiting: false,
-      thinkingText: "**Planning the build**",
       work: [],
       messages: [],
       finalMessages: [],
@@ -44,7 +41,6 @@ describe("projectTurnDisplay", () => {
     }], true));
 
     expect(display.working).toBe(false);
-    expect(display.waiting).toBe(false);
     expect(display.work).toEqual([]);
     expect(display.messages).toEqual([]);
   });
@@ -60,8 +56,8 @@ describe("projectTurnDisplay", () => {
     }], true), 1_002);
 
     expect(display.working).toBe(true);
-    expect(display.waiting).toBe(true);
-    expect(display.work).toHaveLength(1);
+    expect(display.work).toHaveLength(2);
+    expect(display.work.at(-1)).toMatchObject({ kind: "thinking" });
   });
 
   it("shows Thinking after stalled streamed commentary during work", () => {
@@ -79,7 +75,7 @@ describe("projectTurnDisplay", () => {
     ], true), 1_004);
 
     expect(display.working).toBe(true);
-    expect(display.waiting).toBe(true);
+    expect(display.work.at(-1)).toMatchObject({ kind: "thinking" });
   });
 
   it("does not show Thinking while waiting for questionnaire input", () => {
@@ -88,7 +84,7 @@ describe("projectTurnDisplay", () => {
     ], true), Date.now(), true);
 
     expect(display.working).toBe(true);
-    expect(display.waiting).toBe(false);
+    expect(display.work).not.toContainEqual(expect.objectContaining({ kind: "thinking" }));
   });
 
   it("projects a running tool group as current", () => {
@@ -98,9 +94,8 @@ describe("projectTurnDisplay", () => {
     ], true));
 
     expect(display.working).toBe(true);
-    expect(display.waiting).toBe(false);
     expect(display.work).toHaveLength(2);
-    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", current: true, tools: [{ type: "dynamicToolCall", status: "inProgress" }] });
+    expect(display.work.at(-1)).toMatchObject({ kind: "tool-group", thinking: false, tools: [{ type: "dynamicToolCall", status: "inProgress" }] });
   });
 
   it("keeps the trailing completed tool group while waiting", () => {
@@ -109,10 +104,9 @@ describe("projectTurnDisplay", () => {
       tool("completed"),
     ], true));
 
-    expect(display.waiting).toBe(true);
     expect(display.work).toHaveLength(2);
     expect(display.work[0]).toMatchObject({ kind: "item", item: { type: "agentMessage", phase: "commentary" } });
-    expect(display.work[1]).toMatchObject({ kind: "tool-group", current: true, tools: [{ type: "dynamicToolCall", status: "completed" }] });
+    expect(display.work[1]).toMatchObject({ kind: "tool-group", thinking: true, tools: [{ type: "dynamicToolCall", status: "completed" }] });
   });
 
   it("separates completed work from the final answer", () => {
@@ -122,12 +116,27 @@ describe("projectTurnDisplay", () => {
       answer("Done."),
     ], false));
 
-    expect(display.active).toBe(false);
-    expect(display.failed).toBe(false);
+    expect(display.status).toBe("completed");
     expect(display.work).toHaveLength(2);
     expect(display.messages).toEqual([]);
     expect(display.finalMessages).toHaveLength(1);
     expect(display.finalMessages[0].text).toBe("Done.");
+  });
+
+  it("keeps completed work but removes the empty status row from a cancelled turn", () => {
+    const display = projectTurnDisplay({
+      ...turn([
+        tool("completed"),
+        { id: "stopped", turnId: "turn-1", type: "agentMessage", text: "", status: "cancelled", timestamp: 5 },
+      ], false),
+      status: "cancelled",
+    });
+
+    expect(display.status).toBe("cancelled");
+    expect(display.work).toHaveLength(1);
+    expect(display.work[0]).toMatchObject({ kind: "tool-group", tools: [{ status: "completed" }] });
+    expect(display.finalMessages).toEqual([]);
+    expect(display.durationMs).toBe(4);
   });
 
   it("keeps non-final agent messages in work even without a phase", () => {
@@ -179,7 +188,6 @@ describe("projectTurnDisplay", () => {
     const display = projectTurnDisplay(turn([answer("Done.")], true));
 
     expect(display.working).toBe(true);
-    expect(display.waiting).toBe(false);
     expect(display.work).toHaveLength(1);
     expect(display.finalMessages).toEqual([]);
   });

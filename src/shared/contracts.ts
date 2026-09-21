@@ -57,7 +57,7 @@ export interface ModelProviderEndpointSettings {
 }
 
 export type ModelAuthPrompt =
-  | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
+  | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string; optional?: boolean }
   | { type: "select"; message: string; options: Array<{ id: string; label: string; description?: string }> };
 
 export type ModelAuthNotification =
@@ -358,9 +358,11 @@ export interface ConversationAgentState {
 export type ItemStatus = "preparing" | "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
 export type TurnStatus = Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
 
+export type ThreadItemErrorCode = "model_not_configured";
+
 export interface ThreadItemError {
   message: string;
-  code?: string;
+  code?: ThreadItemErrorCode;
 }
 
 export interface PromptReference {

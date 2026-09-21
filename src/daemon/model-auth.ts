@@ -147,7 +147,7 @@ export class ModelAuthManager {
     const promptId = randomUUID();
     return new Promise<string>((resolve, reject) => {
       operation.pending = { id: promptId, secret: prompt.type === "secret", resolve, reject };
-      this.#publish(operation, { type: "prompt", promptId, prompt: publicPrompt(prompt) });
+      this.#publish(operation, { type: "prompt", promptId, prompt: publicPrompt(prompt, operation) });
       prompt.signal?.addEventListener("abort", () => {
         if (operation.pending?.id !== promptId) return;
         operation.pending = undefined;
@@ -191,7 +191,7 @@ export class ModelAuthError extends Error {
   }
 }
 
-function publicPrompt(prompt: PiPrompt): ModelAuthPrompt {
+function publicPrompt(prompt: PiPrompt, operation: AuthOperation): ModelAuthPrompt {
   if (prompt.type === "select") {
     return { type: prompt.type, message: prompt.message, options: prompt.options.map((option) => ({ ...option })) };
   }
@@ -199,7 +199,15 @@ function publicPrompt(prompt: PiPrompt): ModelAuthPrompt {
     type: prompt.type,
     message: prompt.message,
     ...(prompt.placeholder ? { placeholder: prompt.placeholder } : {}),
+    ...(isOptionalPrompt(prompt, operation) ? { optional: true } : {}),
   };
+}
+
+function isOptionalPrompt(prompt: PiPrompt, operation: AuthOperation): boolean {
+  return operation.providerId === "github-copilot"
+    && operation.method === "oauth"
+    && prompt.type === "text"
+    && !operation.events.some((event) => event.type === "prompt");
 }
 
 function publicNotification(notification: PiNotification): ModelAuthNotification {

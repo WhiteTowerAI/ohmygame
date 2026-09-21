@@ -369,7 +369,7 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Stop", timestamp: 1 }),
       sessionMessage("cancelled", { role: "assistant", content: [], stopReason: "aborted" }),
     ] as never)).toEqual([
-      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: { message: "No API key" }, timestamp: 0 },
+      { id: "error:assistant", turnId: "error", type: "agentMessage", text: "", status: "failed", error: { code: "model_not_configured", message: "No API key" }, timestamp: 0 },
       { id: "user", turnId: "user", type: "userMessage", text: "Stop", timestamp: 1 },
       { id: "cancelled:assistant", turnId: "user", type: "agentMessage", text: "", status: "cancelled", timestamp: 0 },
     ]);
@@ -818,6 +818,34 @@ describe("AgentManager", () => {
     await manager.cancel(project.id, conversation.summary.id, turn.turnId);
     await expect(turn.result).resolves.toBe("cancelled");
     expect(session.abort).toHaveBeenCalledOnce();
+    await manager.close();
+  });
+
+  it("reuses the same session context after a cancelled turn", async () => {
+    const session = new FakeSession();
+    const firstPrompt = deferred<void>();
+    const priorContext = { role: "assistant", content: [{ type: "text", text: "Work completed before stopping" }], stopReason: "aborted" };
+    session.prompt
+      .mockImplementationOnce(() => firstPrompt.promise)
+      .mockImplementationOnce(async () => {
+        expect(session.messages).toContain(priorContext);
+      });
+    session.abort.mockImplementation(async () => firstPrompt.resolve());
+    const createSession = vi.fn(async () => session);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const first = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledWith("Build"));
+    session.messages.push(priorContext);
+
+    await manager.cancel(project.id, conversation.summary.id, first.turnId);
+    await expect(first.result).resolves.toBe("cancelled");
+    const second = manager.prompt(project, conversation, "Continue");
+    await expect(second.result).resolves.toBe("completed");
+
+    expect(createSession).toHaveBeenCalledOnce();
+    expect(session.prompt).toHaveBeenLastCalledWith("Continue");
     await manager.close();
   });
 
