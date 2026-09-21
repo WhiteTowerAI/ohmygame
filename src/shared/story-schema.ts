@@ -10,6 +10,7 @@ const action = ref("action");
 const condition = ref("condition");
 const presentation = ref("presentation");
 const singleMediaPresentation = ref("singleMediaPresentation");
+const openUiPresentation = ref("openUiPresentation");
 
 const sceneDurationRequirement = {
   if: {
@@ -81,7 +82,7 @@ const conditionSchema = {
     value: {},
   },
 } as const;
-function presentationSchema(maxItems?: number) {
+function presentationSchema(maxItems?: number, movable = false) {
   const items = {
     type: "array",
     ...(maxItems === undefined ? {} : { maxItems }),
@@ -107,7 +108,19 @@ function presentationSchema(maxItems?: number) {
       type: "object",
       additionalProperties: false,
       required: ["source"],
-      properties: { source },
+      properties: {
+        source,
+        ...(movable ? { layout: {
+          type: "object",
+          propertyNames: { minLength: 1, maxLength: 120, pattern: "\\S" },
+          additionalProperties: {
+            type: "object",
+            additionalProperties: false,
+            required: ["offsetX", "offsetY"],
+            properties: { offsetX: { type: "number" }, offsetY: { type: "number" } },
+          },
+        } } : {}),
+      },
     },
   },
   } as const;
@@ -145,7 +158,7 @@ const nodes = [
           },
         },
       },
-      presentation: singleMediaPresentation,
+      presentation: openUiPresentation,
     },
   }),
   node("scene", {
@@ -215,6 +228,7 @@ export const STORY_CODEBASE_SCHEMA = {
     condition: conditionSchema,
     presentation: presentationSchema(),
     singleMediaPresentation: presentationSchema(1),
+    openUiPresentation: presentationSchema(1, true),
   },
   type: "object",
   additionalProperties: false,

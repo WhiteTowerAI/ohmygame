@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoryChapter, StoryNode } from "../src/shared/contracts.js";
-import { completePreviewSceneMedia, updateStoryPreviewSession } from "../src/renderer/playtest.js";
+import { completePreviewSceneMedia, createStoryPreviewSession, updateStoryPreviewSession } from "../src/renderer/playtest.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import { advanceSceneTime, DEFAULT_SCENE_SURFACE_FILES, previewStoryNode, restartGame } from "../src/shared/story.js";
 
@@ -47,5 +47,16 @@ describe("story node preview", () => {
     expect(menu.checkpoint).toBe(active.checkpoint);
     expect(continued.runtime).toBe(active.checkpoint);
     expect(restarted.checkpoint).toBeUndefined();
+  });
+
+  it("keeps the initial runtime stable when only Open UI layout changes", () => {
+    const story = createInteractiveDramaStarterStory();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
+    const before = createStoryPreviewSession(story.chapter, story.variables, openUi.id);
+
+    openUi.data.presentation.surface.layout = { title: { offsetX: 40, offsetY: 20 } };
+    const after = createStoryPreviewSession(story.chapter, story.variables, openUi.id);
+
+    expect(after).toEqual(before);
   });
 });

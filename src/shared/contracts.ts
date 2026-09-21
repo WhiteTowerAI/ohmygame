@@ -186,10 +186,21 @@ export interface StorySceneSurface {
   files: StorySurfaceFiles;
 }
 
+export type StorySurfaceLayout = Record<string, StorySurfaceLayoutOffset>;
+
+export interface StorySurfaceLayoutOffset {
+  offsetX: number;
+  offsetY: number;
+}
+
 /** Shared player-facing presentation owned by every visible Story node. */
 export interface StoryNodePresentation {
   media: { items: StorySceneMedia[] };
   surface: StorySceneSurface;
+}
+
+export interface StoryOpenUiPresentation extends StoryNodePresentation {
+  surface: StorySceneSurface & { layout?: StorySurfaceLayout };
 }
 
 export interface StorySurfaceFiles {
@@ -242,7 +253,7 @@ export type StoryNode = (
   | { id: string; type: "open-ui"; position: StoryPosition; data: {
     title: string;
     content: StoryOpenUiContent;
-    presentation: StoryNodePresentation;
+    presentation: StoryOpenUiPresentation;
   } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;

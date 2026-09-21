@@ -94,10 +94,12 @@ import {
   type StoryNode,
   type StoryNodePresentation,
   type StoryNodeType,
+  type StoryOpenUiPresentation,
   type StoryPlayerConfig,
   type StoryOpenUiContent,
   type StorySceneMedia,
   type StorySceneSurface,
+  type StorySurfaceLayoutOffset,
   type StoryVariableOperator,
   type StoryTextReference,
   type StoryVariable,
@@ -2267,7 +2269,7 @@ function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, st
   </section>;
 }
 
-function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, nodeId, initialSession, onChoice, onNavigateNode }: {
+function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, nodeId, initialSession, onChoice, onNavigateNode, onSurfaceLayoutSelect, onSurfaceLayoutChange }: {
   ariaLabel: string;
   chapter: StoryChapter;
   variables: StoryVariable[];
@@ -2276,9 +2278,11 @@ function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, n
   initialSession?: StoryPreviewSessionState;
   onChoice?: (optionId: string) => void;
   onNavigateNode: (session: StoryPreviewSessionState) => void;
+  onSurfaceLayoutSelect?: (nodeId: string, elementId?: string) => void;
+  onSurfaceLayoutChange?: (nodeId: string, elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
   return <StoryWorkbenchPreview ariaLabel={ariaLabel} viewport={config.viewport} stageClassName="story-runtime-workbench-stage">
-    <StoryPlayerPreviewSession chapter={chapter} variables={variables} config={config} initialNodeId={nodeId} initialSession={initialSession} onChoice={onChoice} onNavigateNode={onNavigateNode} />
+    <StoryPlayerPreviewSession chapter={chapter} variables={variables} config={config} initialNodeId={nodeId} initialSession={initialSession} onChoice={onChoice} onNavigateNode={onNavigateNode} onSurfaceLayoutSelect={onSurfaceLayoutSelect} onSurfaceLayoutChange={onSurfaceLayoutChange} />
   </StoryWorkbenchPreview>;
 }
 
@@ -2295,14 +2299,39 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
 }) {
-  const presentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  const presentation: StoryOpenUiPresentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string>();
+  useEffect(() => setSelectedLayoutId(undefined), [mode, node.id]);
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Open UI live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
+  const updateLayout = (elementId: string, offset?: StorySurfaceLayoutOffset) => {
+    const layout = { ...presentation.surface.layout };
+    if (!offset || (offset.offsetX === 0 && offset.offsetY === 0)) delete layout[elementId];
+    else layout[elementId] = offset;
+    const { layout: _layout, ...surface } = presentation.surface;
+    const nextPresentation: StoryOpenUiPresentation = { ...presentation, surface: Object.keys(layout).length ? { ...surface, layout } : surface };
+    onChange({ ...node.data, presentation: nextPresentation });
+  };
+  const preview = <StoryRuntimeWorkbenchPreview
+    ariaLabel="Open UI live preview"
+    chapter={chapter}
+    variables={variables}
+    config={config}
+    nodeId={node.id}
+    initialSession={previewSession}
+    onNavigateNode={onNavigateNode}
+    onSurfaceLayoutSelect={(selectedNodeId, elementId) => { if (selectedNodeId === node.id) setSelectedLayoutId(elementId); }}
+    onSurfaceLayoutChange={(selectedNodeId, elementId, offset) => { if (selectedNodeId === node.id) updateLayout(elementId, offset); }}
+  />;
   const inspector = <aside className="story-open-ui-inspector story-inspector" aria-label="Open UI inspector">
         <div className="story-inspector-content">
           <section className="story-open-ui-inspector-section">
             <InspectorField label="Title"><input maxLength={120} value={node.data.content?.title ?? node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), title: event.target.value } })} /></InspectorField>
+          </section>
+          <section className="story-open-ui-inspector-section">
+            <h3>Position</h3>
+            <InspectorField label="Element"><output>{selectedLayoutId ?? "None"}</output></InspectorField>
+            <button className="story-open-ui-position-reset" type="button" disabled={!selectedLayoutId || !presentation.surface.layout?.[selectedLayoutId]} onClick={() => { if (selectedLayoutId) updateLayout(selectedLayoutId); }}>Reset position</button>
           </section>
           <section className="story-open-ui-inspector-section story-open-ui-background">
             <h3>Background</h3>

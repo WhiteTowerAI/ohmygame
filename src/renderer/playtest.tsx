@@ -1,6 +1,6 @@
 import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StoryVariable } from "../shared/contracts.js";
+import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
@@ -195,7 +195,14 @@ export function updateStoryPreviewSession(current: StoryPreviewSessionState, run
   return { runtime, checkpoint: shouldPersistStoryCheckpoint(current.checkpoint, runtime) ? runtime : current.checkpoint };
 }
 
-export function StoryPlayerPreviewSession({ chapter, variables, config, initialNodeId, initialSession, onChoice, onNavigateNode }: {
+export function createStoryPreviewSession(chapter: StoryChapter, variables: StoryVariable[], initialNodeId: string, initialSession?: StoryPreviewSessionState): StoryPreviewSessionState {
+  if (initialSession?.runtime.nodeId === initialNodeId) return initialSession;
+  const runtime = previewStoryNode(chapter, variables, initialNodeId);
+  const node = chapter.nodes.find((candidate) => candidate.id === initialNodeId);
+  return { runtime, ...(node?.type === "open-ui" ? {} : { checkpoint: runtime }) };
+}
+
+export function StoryPlayerPreviewSession({ chapter, variables, config, initialNodeId, initialSession, onChoice, onNavigateNode, onSurfaceLayoutSelect, onSurfaceLayoutChange }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
@@ -203,26 +210,27 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
   initialSession?: StoryPreviewSessionState;
   onChoice?: (optionId: string) => void;
   onNavigateNode?: (session: StoryPreviewSessionState) => void;
+  onSurfaceLayoutSelect?: (nodeId: string, elementId?: string) => void;
+  onSurfaceLayoutChange?: (nodeId: string, elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
-  const initial = useMemo<StoryPreviewSessionState>(() => {
-    if (initialSession?.runtime.nodeId === initialNodeId) return initialSession;
-    const runtime = previewStoryNode(chapter, variables, initialNodeId);
-    const node = chapter.nodes.find((candidate) => candidate.id === initialNodeId);
-    return { runtime, ...(node?.type === "open-ui" ? {} : { checkpoint: runtime }) };
-  }, [chapter, initialNodeId, initialSession, variables]);
-  const [session, setSession] = useState(initial);
-  const sessionRef = useRef(initial);
+  const nextInitial = useMemo(() => createStoryPreviewSession(chapter, variables, initialNodeId, initialSession), [chapter, initialNodeId, initialSession, variables]);
+  const resetKey = JSON.stringify(nextInitial);
+  const nextInitialRef = useRef(nextInitial);
+  nextInitialRef.current = nextInitial;
+  const [session, setSession] = useState(nextInitial);
+  const sessionRef = useRef(nextInitial);
   const [paused, setPaused] = useState(false);
   const [playbackStep, setPlaybackStep] = useState(0);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    const initial = nextInitialRef.current;
     sessionRef.current = initial;
     setSession(initial);
     setPaused(false);
     setPlaybackStep((step) => step + 1);
     setError(undefined);
-  }, [initial]);
+  }, [resetKey]);
 
   const transition = useCallback((next: (current: PlayingRuntimeState) => PlayingRuntimeState, options: { advanceFrame?: boolean; checkpoint?: "auto" | "preserve" | "clear"; navigate?: boolean; resume?: boolean } = {}) => {
     try {
@@ -249,6 +257,8 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
       playbackKey={playbackStep}
       paused={paused}
       holdTimeoutTransitions
+      onSurfaceLayoutSelect={onSurfaceLayoutSelect}
+      onSurfaceLayoutChange={onSurfaceLayoutChange}
       hasCheckpoint={Boolean(session.checkpoint)}
       onAdvanceOpenUi={() => transition((current) => advanceOpenUi(chapter, current), { navigate: true, resume: true })}
       onContinueGame={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", navigate: true, resume: true }); }}
@@ -304,7 +314,7 @@ export function StoryPlayerSnapshot({ chapter, variables, config, nodeId }: { ch
   />;
 }
 
-export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, playbackKey = 0, paused, playbackPaused = false, holdTimeoutTransitions = false, hasCheckpoint, saveStatus, assetUrls, onAdvanceOpenUi, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
+export function InteractiveDramaPlayer({ chapter, variables, config, node, runtime, playbackKey = 0, paused, playbackPaused = false, holdTimeoutTransitions = false, hasCheckpoint, saveStatus, assetUrls, onAdvanceOpenUi, onContinueGame, onPause, onResume, onRestartCheckpoint, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice, onSurfaceLayoutSelect, onSurfaceLayoutChange }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
@@ -328,10 +338,12 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   onMediaComplete: (mediaId: string, durationMs: number) => void;
   onInteraction: (result: string, commands: StoryInteractionCommand[]) => void;
   onChoice: (optionId: string) => void;
+  onSurfaceLayoutSelect?: (nodeId: string, elementId?: string) => void;
+  onSurfaceLayoutChange?: (nodeId: string, elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
   if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
   const frameKey = `${node?.id ?? "missing"}:${runtime.scenePlayback?.mediaId ?? ""}:${playbackKey}`;
-  const frame = { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls } satisfies StoryPlayerFrameData;
+  const frame = { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls, onSurfaceLayoutSelect, onSurfaceLayoutChange } satisfies StoryPlayerFrameData;
   const canPause = node?.type === "scene" || node?.type === "interaction" || node?.type === "choice";
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
@@ -374,6 +386,8 @@ interface StoryPlayerFrameData {
   holdTimeoutTransitions: boolean;
   hasCheckpoint: boolean;
   assetUrls?: Readonly<Record<string, string>>;
+  onSurfaceLayoutSelect?: (nodeId: string, elementId?: string) => void;
+  onSurfaceLayoutChange?: (nodeId: string, elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }
 
 interface PreviousStoryPlayerFrame {
@@ -426,7 +440,7 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   onInteraction: (result: string, commands: StoryInteractionCommand[]) => void;
   onChoice: (optionId: string) => void;
 }) {
-  const { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls } = frame;
+  const { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls, onSurfaceLayoutSelect, onSurfaceLayoutChange } = frame;
   const inactive = paused || !active;
   const activeSceneTime = active ? onSceneTime : NOOP_SCENE_TIME;
   const activeMediaComplete = active ? onMediaComplete : NOOP_MEDIA_COMPLETE;
@@ -435,7 +449,7 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   const handlePlayerUiAction = (action: StoryOpenUiAction) => {
     if (active && action === "enter-game") (node && isEntryOpenUiNode(chapter, node.id) && hasCheckpoint ? onContinueGame : onAdvanceOpenUi)();
   };
-  if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} />;
+  if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} layoutEditable={active && Boolean(onSurfaceLayoutChange)} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} onLayoutSelect={(elementId) => { if (active) onSurfaceLayoutSelect?.(node.id, elementId); }} onLayoutChange={(elementId, offset) => { if (active) onSurfaceLayoutChange?.(node.id, elementId, offset); }} />;
   if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;
   if (node?.type === "interaction") return <StoryInteractionPlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} active={active} paused={paused} assetUrls={assetUrls} onReady={onReady} onComplete={(result, commands, source) => { if (!holdTimeoutTransitions || source === "behavior") activeInteraction(result, commands); }} />;
   if (node?.type === "choice") return <StoryChoicePlayer chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onSelect={(optionId, source) => { if (!holdTimeoutTransitions || source === "behavior") activeChoice(optionId); }} />;
@@ -449,16 +463,17 @@ const NOOP_MEDIA_COMPLETE = (_mediaId: string, _durationMs: number) => {};
 const NOOP_INTERACTION = (_result: string, _commands: StoryInteractionCommand[]) => {};
 const NOOP_CHOICE = (_optionId: string) => {};
 
-function StoryOpenUiPlayer({ chapter, node, hasCheckpoint, paused, assetUrls, onReady, onAction }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "open-ui" }>; hasCheckpoint: boolean; paused: boolean; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onAction: (action: StoryOpenUiAction) => void }) {
+function StoryOpenUiPlayer({ chapter, node, hasCheckpoint, paused, layoutEditable, assetUrls, onReady, onAction, onLayoutSelect, onLayoutChange }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "open-ui" }>; hasCheckpoint: boolean; paused: boolean; layoutEditable: boolean; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onAction: (action: StoryOpenUiAction) => void; onLayoutSelect: (elementId?: string) => void; onLayoutChange: (elementId: string, offset: StorySurfaceLayoutOffset) => void }) {
   const item = node.data.presentation.media.items[0];
   const assetId = item ? resolveStoryAssetId(chapter, item.source) : undefined;
   const media = useStoryAssetUrl(assetId, assetUrls);
+  const content = useMemo(() => openUiRuntimeContent(node.data.content, hasCheckpoint), [hasCheckpoint, node.data.content]);
   const ready = useReadyParts(onReady, 2);
   useEffect(() => { if (!item || !assetId || media.error) ready("media"); }, [assetId, item, media.error, ready]);
   return <div className="story-player-menu-stage">
     {media.url && item?.type === "image" ? <img src={media.url} alt="" onLoad={() => ready("media")} onError={() => ready("media")} /> : null}
     {media.url && item?.type === "video" ? <video className="story-player-menu-video" src={media.url} autoPlay={!paused} muted loop playsInline onLoadedData={() => ready("media")} onError={() => ready("media")} /> : null}
-    <StoryScreenSurface files={node.data.presentation.surface.files} content={openUiRuntimeContent(node.data.content, hasCheckpoint)} mode="runtime" title={node.data.title || "Open UI"} className="story-player-menu-screen" onReady={() => ready("surface")} onAction={onAction} />
+    <StoryScreenSurface files={node.data.presentation.surface.files} content={content} mode="runtime" layout={node.data.presentation.surface.layout} layoutEditable={layoutEditable} title={node.data.title || "Open UI"} className="story-player-menu-screen" onReady={() => ready("surface")} onAction={onAction} onLayoutSelect={onLayoutSelect} onLayoutChange={onLayoutChange} />
   </div>;
 }
 

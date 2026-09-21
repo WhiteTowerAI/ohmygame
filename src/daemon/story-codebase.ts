@@ -47,6 +47,8 @@ The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the ex
 
 Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries contain an \`action\` string; call \`actions.run(button.action)\`.
 
+Open UI HTML may mark movable elements with a unique \`data-layout-id\`. Its optional \`presentation.surface.layout\` object stores logical-pixel \`offsetX\` and \`offsetY\` values by that ID; the player applies those offsets without replacing the element's authored CSS layout.
+
 Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
 
 Interaction JavaScript exports \`run({ game, ui, signal })\` and returns one of the strings declared in that node's \`data.outcomes\`. The code fully owns the interaction behavior; names such as Hotspot, QTE, and Continue describe starter templates, not runtime types. Optional \`data.timeout\` defines the overall pause-aware deadline and the outcome returned when it expires; the runtime owns this deadline and cancels unfinished code. On timeout, buffered Variable commands are discarded and any later code result is ignored.
@@ -74,6 +76,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - A Scene contains \`title\` and \`presentation\`; its code surface owns any visual overlay UI. Add \`durationMs\` for an empty Scene or one containing images, and omit it when every media item is a video. Images use \`durationMs\`; videos advance when playback actually ends.
 - An Interaction contains \`title\`, \`outcomes\`, optional \`timeout\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow. The runtime owns the optional overall timeout.
 - Open UI is an ordinary Story node that owns its media, content, and code.
+- An Open UI element is visually movable only when its HTML declares a unique \`data-layout-id\`; optional offsets live in \`presentation.surface.layout\` and affect the final runtime.
 - Keep \`story.json\` valid JSON and preserve its \`version\`.
 
 Use \`README.md\` as the source of truth for runtime JavaScript interfaces.

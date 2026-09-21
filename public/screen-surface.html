@@ -5,19 +5,132 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-ohmygame-screen-surface' blob:; font-src data:" />
     <script nonce="ohmygame-screen-surface">document.documentElement.style.colorScheme = new URLSearchParams(location.search).get("color-scheme") === "dark" ? "dark" : "light";</script>
-    <style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}body>*{width:100%;height:100%}</style>
+    <style>
+      html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}body>*{width:100%;height:100%}
+      [data-layout-id]{translate:var(--ohmygame-layout-translate,0 0)!important}
+      html[data-layout-editing="true"] [data-layout-id]{cursor:move!important}
+      html[data-layout-editing="true"] [data-layout-selected]{outline:2px solid #2dd4bf!important;outline-offset:3px}
+    </style>
   </head>
   <body>
     <script nonce="ohmygame-screen-surface">
       (() => {
         const CHANNEL = "ohmygame:screen-surface";
         let moduleUrl;
+        let currentInstanceId;
+        let currentLayout = {};
+        let layoutEditing = false;
+        let selectedElement;
+        let drag;
+        let suppressedClick;
+
         function post(instanceId, type, payload = {}) {
           parent.postMessage({ channel: CHANNEL, instanceId, type, ...payload }, "*");
         }
+
+        function offsetFor(elementId) {
+          const offset = currentLayout[elementId];
+          return offset && Number.isFinite(offset.offsetX) && Number.isFinite(offset.offsetY) ? offset : { offsetX: 0, offsetY: 0 };
+        }
+
+        function applyElementOffset(element, offset) {
+          element.style.setProperty("--ohmygame-layout-translate", `${offset.offsetX}px ${offset.offsetY}px`);
+        }
+
+        function applyLayout() {
+          document.querySelectorAll("[data-layout-id]").forEach((element) => applyElementOffset(element, offsetFor(element.dataset.layoutId)));
+        }
+
+        function selectElement(element, notify = true) {
+          selectedElement?.removeAttribute("data-layout-selected");
+          selectedElement = element;
+          selectedElement?.setAttribute("data-layout-selected", "");
+          if (notify && currentInstanceId) post(currentInstanceId, "layout-select", { elementId: selectedElement?.dataset.layoutId || null });
+        }
+
+        function setLayoutEditing(editable) {
+          layoutEditing = editable;
+          document.documentElement.dataset.layoutEditing = String(editable);
+          if (!editable) selectElement(undefined, false);
+        }
+
+        function clampOffset(base, offsetX, offsetY) {
+          const visible = 16;
+          return {
+            offsetX: Math.round(Math.min(innerWidth - visible - base.left, Math.max(visible - base.right, offsetX))),
+            offsetY: Math.round(Math.min(innerHeight - visible - base.top, Math.max(visible - base.bottom, offsetY))),
+          };
+        }
+
+        document.addEventListener("pointerdown", (event) => {
+          if (!layoutEditing || event.button !== 0) return;
+          const element = event.target instanceof Element ? event.target.closest("[data-layout-id]") : null;
+          if (!(element instanceof HTMLElement) || !element.dataset.layoutId) {
+            selectElement(undefined);
+            return;
+          }
+          selectElement(element);
+          const origin = offsetFor(element.dataset.layoutId);
+          const rect = element.getBoundingClientRect();
+          const base = { left: rect.left - origin.offsetX, right: rect.right - origin.offsetX, top: rect.top - origin.offsetY, bottom: rect.bottom - origin.offsetY };
+          drag = { element, elementId: element.dataset.layoutId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin, base, offset: origin, moved: false };
+          const pointerTarget = event.target instanceof HTMLElement ? event.target : element;
+          pointerTarget.setPointerCapture(event.pointerId);
+        });
+
+        document.addEventListener("pointermove", (event) => {
+          if (!drag || event.pointerId !== drag.pointerId) return;
+          const deltaX = event.clientX - drag.startX;
+          const deltaY = event.clientY - drag.startY;
+          if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+          drag.moved = true;
+          event.preventDefault();
+          drag.offset = clampOffset(drag.base, drag.origin.offsetX + deltaX, drag.origin.offsetY + deltaY);
+          applyElementOffset(drag.element, drag.offset);
+        });
+
+        document.addEventListener("pointerup", (event) => {
+          if (!drag || event.pointerId !== drag.pointerId) return;
+          const completed = drag;
+          drag = undefined;
+          if (!completed.moved || !currentInstanceId) return;
+          currentLayout = { ...currentLayout, [completed.elementId]: completed.offset };
+          suppressedClick = { element: completed.element, until: performance.now() + 500 };
+          post(currentInstanceId, "layout-change", { elementId: completed.elementId, offset: completed.offset });
+        });
+
+        document.addEventListener("pointercancel", (event) => {
+          if (drag?.pointerId !== event.pointerId) return;
+          applyElementOffset(drag.element, drag.origin);
+          drag = undefined;
+        });
+
+        document.addEventListener("click", (event) => {
+          if (!suppressedClick) return;
+          const pending = suppressedClick;
+          suppressedClick = undefined;
+          if (performance.now() > pending.until || !(event.target instanceof Node) || !pending.element.contains(event.target)) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }, true);
+
         window.addEventListener("message", async (message) => {
           const data = message.data;
-          if (message.source !== parent || !data || data.channel !== CHANNEL || data.type !== "init" || typeof data.instanceId !== "string") return;
+          if (message.source !== parent || !data || data.channel !== CHANNEL || typeof data.instanceId !== "string") return;
+          if (data.type === "layout" && data.instanceId === currentInstanceId) {
+            currentLayout = data.layout || {};
+            applyLayout();
+            return;
+          }
+          if (data.type === "layout-editing" && data.instanceId === currentInstanceId) {
+            setLayoutEditing(data.editable === true);
+            return;
+          }
+          if (data.type !== "init") return;
+          currentInstanceId = data.instanceId;
+          currentLayout = data.layout || {};
+          setLayoutEditing(data.layoutEditable === true);
+          selectElement(undefined, false);
           if (moduleUrl) URL.revokeObjectURL(moduleUrl);
           document.body.innerHTML = data.files.html;
           document.getElementById("screen-surface-style")?.remove();
@@ -37,6 +150,7 @@
               },
             });
             await screenModule.render({ content: Object.freeze(data.content), actions, root: document });
+            applyLayout();
             document.documentElement.dataset.screenSurfaceReady = "ready";
             post(data.instanceId, "ready");
           } catch (error) {

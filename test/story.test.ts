@@ -6,7 +6,7 @@ import {
   getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
   matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId, restoreStoryCheckpoint, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint,
   previewStoryNode, restartGame, storyNodePresentation, validatePlayableChapter,
-  transparentStorySurfaceFiles,
+  transparentStorySurfaceFiles, DEFAULT_OPEN_UI_CODE,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
@@ -99,6 +99,23 @@ describe("canonical Interactive Drama story", () => {
     expect(result).not.toBe(files);
     expect(result.css).toBe(`${files.css}\nhtml,body{background:transparent!important}`);
     expect(transparentStorySurfaceFiles(files, ".open-ui").css).toBe(`${files.css}\nhtml,body,.open-ui{background:transparent!important}`);
+  });
+
+  it("supports explicit movable elements and finite surface offsets", () => {
+    expect(DEFAULT_OPEN_UI_CODE.html).toContain('data-layout-id="title"');
+    expect(DEFAULT_OPEN_UI_CODE.html).toContain('data-layout-id="actions"');
+    const story = createPlayableStoryDocument();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
+    openUi.data.presentation.surface.layout = { title: { offsetX: 120, offsetY: -40 } };
+    expect(isStoryDocument(story)).toBe(true);
+
+    openUi.data.presentation.surface.layout.title = { offsetX: Number.POSITIVE_INFINITY, offsetY: 0 };
+    expect(isStoryDocument(story)).toBe(false);
+
+    const sceneStory = createPlayableStoryDocument();
+    const ending = sceneStory.chapter.nodes.find((node) => node.type === "ending")!;
+    Object.assign(ending.data.presentation.surface, { layout: { title: { offsetX: 20, offsetY: 10 } } });
+    expect(isStoryDocument(sceneStory)).toBe(false);
   });
 
   it("allows incomplete editing state but rejects more than one Start", () => {

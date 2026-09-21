@@ -7,7 +7,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { readStoryCodebase } from "../src/daemon/story-codebase.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
 import { STORY_CODEBASE_SCHEMA } from "../src/shared/story-schema.js";
-import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
 describe("Web Game project codebase", () => {
@@ -169,10 +169,14 @@ describe("Interactive Drama project codebase", () => {
     const project = await manager.create("Story", "interactive-drama");
     const story = await manager.story(project.id);
     story.chapter.nodes.push({
+      id: "menu", type: "open-ui", position: { x: 80, y: 180 },
+      data: { title: "Menu", content: structuredClone(DEFAULT_OPEN_UI_CONTENT), presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE), layout: { title: { offsetX: 48, offsetY: -24 } } } } },
+    });
+    story.chapter.nodes.push({
       id: "platform", type: "scene", position: { x: 320, y: 180 },
       data: { title: "Platform", presentation: { media: { items: [{ id: "video", type: "video", source: { type: "library", assetId: "video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } },
     });
-    story.editorLayout.nodes.platform = { x: 320, y: 180 };
+    story.editorLayout.nodes = { menu: { x: 80, y: 180 }, platform: { x: 320, y: 180 } };
     await manager.setStory(project.id, story);
     const stored = JSON.parse(await readFile(path.join(project.workspacePath, "story.json"), "utf8"));
     expect(Check(STORY_CODEBASE_SCHEMA, stored)).toBe(true);
@@ -181,6 +185,8 @@ describe("Interactive Drama project codebase", () => {
     expect(scene.data.events).toBeUndefined();
     expect(scene.data.presentation.media.items).toHaveLength(1);
     expect(scene.data.presentation.surface.files).toBeUndefined();
+    const storedOpenUi = stored.chapter.nodes.find((node: { id: string }) => node.id === "menu");
+    expect(storedOpenUi.data.presentation.surface.layout).toEqual({ title: { offsetX: 48, offsetY: -24 } });
     const cssPath = path.join(project.workspacePath, scene.data.presentation.surface.source.css);
     await writeFile(cssPath, "#scene-root { color: gold; }");
     const reloaded = await manager.story(project.id);

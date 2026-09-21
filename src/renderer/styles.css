@@ -8609,6 +8609,34 @@ button {
   font-size: 10px;
   font-weight: 600;
 }
+.story-open-ui-inspector-section output {
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+}
+.story-open-ui-position-reset {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.story-open-ui-position-reset:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.story-open-ui-position-reset:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
 .story-media-empty {
   margin: 0;
   color: var(--text-faint);

@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
 const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
@@ -19,8 +19,8 @@ export function sceneStillDurationMs(items: readonly StorySceneMedia[], duration
 
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
-  <h1 data-content="title"></h1>
-  <div class="actions" data-content="buttons"></div>
+  <h1 data-layout-id="title" data-content="title"></h1>
+  <div data-layout-id="actions" class="actions" data-content="buttons"></div>
 </main>`,
     css: `* { box-sizing: border-box; }
 body { margin: 0; color: #fff; font-family: Inter, system-ui, sans-serif; }
@@ -595,10 +595,11 @@ export function parseStoryDocument(value: unknown): StoryDocument {
   return value;
 }
 
-function isNodePresentation(value: unknown): value is StoryNodePresentation {
+function isNodePresentation(value: unknown, movable = false): value is StoryNodePresentation | StoryOpenUiPresentation {
   if (!isRecord(value) || !isRecord(value.media) || !isRecord(value.surface) ||
-    !hasOnlyKeys(value, ["media", "surface"]) || !hasOnlyKeys(value.surface, ["source", "files"]) ||
-    (value.surface.source !== undefined && !isSourceFiles(value.surface.source)) || !isSurfaceFiles(value.surface.files)) return false;
+    !hasOnlyKeys(value, ["media", "surface"]) || !hasOnlyKeys(value.surface, movable ? ["source", "files", "layout"] : ["source", "files"]) ||
+    (value.surface.source !== undefined && !isSourceFiles(value.surface.source)) || !isSurfaceFiles(value.surface.files) ||
+    (movable && value.surface.layout !== undefined && !isSurfaceLayout(value.surface.layout))) return false;
   if (!hasOnlyKeys(value.media, ["items"]) || !Array.isArray(value.media.items)) return false;
   const ids = new Set<string>();
   return value.media.items.every((item) => {
@@ -606,6 +607,14 @@ function isNodePresentation(value: unknown): value is StoryNodePresentation {
     ids.add(item.id);
     return true;
   });
+}
+
+function isSurfaceLayout(value: unknown): boolean {
+  return isRecord(value) && Object.entries(value).every(([elementId, offset]) =>
+    elementId.trim().length > 0 && elementId.length <= 120 && isRecord(offset) &&
+    hasOnlyKeys(offset, ["offsetX", "offsetY"]) &&
+    typeof offset.offsetX === "number" && Number.isFinite(offset.offsetX) &&
+    typeof offset.offsetY === "number" && Number.isFinite(offset.offsetY));
 }
 
 function storyRecords(value: unknown): Array<Record<string, unknown>> {
@@ -679,13 +688,14 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
   if (value.type === "condition") return typeof value.data.title === "string" && (value.data.condition === undefined || isCondition(value.data.condition, variables)) &&
     hasOnlyKeys(value.data, ["title", "condition"]);
-  if (["open-ui", "scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "open-ui") {
-    const presentation = value.data.presentation as StoryNodePresentation;
+    if (!isNodePresentation(value.data.presentation, true)) return false;
+    const presentation = value.data.presentation as StoryOpenUiPresentation;
     return typeof value.data.title === "string" && isOpenUiContent(value.data.content) &&
       presentation.media.items.length <= 1 &&
       hasOnlyKeys(value.data, ["title", "content", "presentation"]);
   }
+  if (["scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "scene") {
     const presentation = value.data.presentation as StoryNodePresentation;
     const videoOnly = isVideoOnlySceneMedia(presentation.media.items);
