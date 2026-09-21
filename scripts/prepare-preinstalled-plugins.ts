@@ -51,7 +51,7 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
     for (const entry of lock.plugins) {
       const source = path.join(temporary, entry.pluginId);
       await git(["clone", "--quiet", "--no-checkout", `https://github.com/${entry.repository}.git`, source]);
-      await git(["-C", source, "checkout", "--quiet", entry.commit]);
+      await git(["-c", "core.autocrlf=false", "-C", source, "checkout", "--quiet", entry.commit]);
       const actualCommit = (await git(["-C", source, "rev-parse", "HEAD"])).trim();
       if (actualCommit !== entry.commit) throw new Error(`Unexpected commit for ${entry.repository}: ${actualCommit}`);
       const publishedAt = (await git(["-C", source, "show", "-s", "--format=%cI", entry.commit])).trim();
