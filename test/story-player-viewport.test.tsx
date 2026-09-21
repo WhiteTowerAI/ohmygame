@@ -72,6 +72,38 @@ describe("story player viewport", () => {
     expect(html).not.toContain(">Continue<");
   });
 
+  it("shows the runtime pause actions in Preview", () => {
+    vi.stubGlobal("document", { documentElement: { dataset: { appearance: "light" } } });
+    const scene: StoryNode = { id: "scene", type: "scene", position: { x: 0, y: 0 }, data: { title: "Scene", durationMs: 3_000, presentation: { media: { items: [] }, surface: { files: DEFAULT_SCENE_SURFACE_FILES } } } };
+    const chapter: StoryChapter = { id: "chapter", title: "Chapter", nodes: [scene], edges: [] };
+    const html = renderToStaticMarkup(<InteractiveDramaPlayer
+      chapter={chapter}
+      variables={[]}
+      config={DEFAULT_STORY_PLAYER_CONFIG}
+      node={scene}
+      runtime={{ mode: "playing", chapterId: chapter.id, nodeId: scene.id, variables: {}, scenePlayback: { mediaId: scene.id, timeMs: 0 } }}
+      paused
+      hasCheckpoint
+      onAdvanceOpenUi={NOOP}
+      onContinueGame={NOOP}
+      onPause={NOOP}
+      onResume={NOOP}
+      onRestartCheckpoint={NOOP}
+      onRestartGame={NOOP}
+      onMenu={NOOP}
+      onSceneTime={NOOP}
+      onMediaComplete={NOOP}
+      onInteraction={NOOP}
+      onChoice={NOOP}
+    />);
+
+    expect(html).toContain("Resume");
+    expect(html).toContain("Restart checkpoint");
+    expect(html).toContain("Restart game");
+    expect(html).toContain("Main menu");
+    expect(html).not.toContain("Restart preview");
+  });
+
   it("lets a surface fill the shared stage without applying another scale", () => {
     vi.stubGlobal("document", { documentElement: { dataset: { appearance: "light" } } });
     const html = renderToStaticMarkup(<StorySurfaceViewport

@@ -122,7 +122,7 @@ import { HighlightedCode } from "./highlighted-code.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
-import { StoryPlayerPreviewSession, StoryPlayerSnapshot } from "./playtest.js";
+import { StoryPlayerPreviewSession, StoryPlayerSnapshot, type StoryPreviewSessionState } from "./playtest.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -341,6 +341,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
+  const [editorPreviewSession, setEditorPreviewSession] = useState<StoryPreviewSessionState>();
   const [workspaceView, setWorkspaceView] = useState<StoryWorkspaceView>("canvas");
   const [editorLayout, setEditorLayout] = useState<StoryEditorLayout>({
     version: 1,
@@ -1205,7 +1206,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         </div>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
-          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
+          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
         </nav>
         <div className="interactive-drama-header-actions">
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
@@ -1280,7 +1281,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 window.clearTimeout(nodeClickTimer.current);
                 setSelectedAssetEdgeId(undefined);
                 setSelectedId(node.id);
-                if (hasNodeEditor(node)) setOpenedNodeId(node.id);
+                if (hasNodeEditor(node)) {
+                  setEditorPreviewSession(undefined);
+                  setOpenedNodeId(node.id);
+                }
               }}
               onPaneClick={() => { setCanvasContextMenu(undefined); window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
               onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
@@ -1356,9 +1360,18 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         nodes={nodes}
         libraryAssets={libraryAssets}
         variables={variables}
+        previewSession={editorPreviewSession}
         onUploadAsset={uploadAssetFile}
         onNodeChange={updateSelected}
-        onClose={() => setOpenedNodeId(undefined)}
+        onNavigateNode={(session) => {
+          if (!nodes.some((candidate) => candidate.id === session.runtime.nodeId && hasNodeEditor(candidate))) return;
+          setEditorPreviewSession(session);
+          setSelectedAssetEdgeId(undefined);
+          setSelectedId(session.runtime.nodeId);
+          setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === session.runtime.nodeId })));
+          setOpenedNodeId(session.runtime.nodeId);
+        }}
+        onClose={() => { setOpenedNodeId(undefined); setEditorPreviewSession(undefined); }}
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog viewport={player.viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={(viewport) => setPlayer((current) => ({ ...current, viewport }))} /> : null}
       {variablesOpen ? <StoryVariablesDialog variables={variables} usageCounts={variableUsageCounts} onClose={() => setVariablesOpen(false)} onApply={updateVariables} /> : null}
@@ -2042,15 +2055,17 @@ function VariableValueInput({ variable, value, label, onChange }: { variable: St
   return <input aria-label={label} type={variable.type === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(variable.type === "number" ? Number(event.target.value) : event.target.value)} />;
 }
 
-function NodeEditorPage({ node, chapter, config, nodes, libraryAssets, variables, onUploadAsset, onNodeChange, onClose }: {
+function NodeEditorPage({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onUploadAsset, onNodeChange, onNavigateNode, onClose }: {
   node?: StoryFlowNode;
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  previewSession?: StoryPreviewSessionState;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onNodeChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onClose: () => void;
 }) {
   const [sceneMode, setSceneMode] = useState<"design" | "code">("design");
@@ -2065,14 +2080,14 @@ function NodeEditorPage({ node, chapter, config, nodes, libraryAssets, variables
         <button type="button" className={sceneMode === "code" ? "is-active" : ""} aria-pressed={sceneMode === "code"} onClick={() => setSceneMode("code")}>Code</button>
       </div> : null}
     </header>
-    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} chapter={chapter} variables={variables} nodes={nodes} config={config} libraryAssets={libraryAssets} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+    {node?.type === "open-ui" ? <OpenUiWorkbench mode={sceneMode} node={node} chapter={chapter} variables={variables} nodes={nodes} config={config} libraryAssets={libraryAssets} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
       : node?.type === "update-state" ? <UpdateStateEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
       : node?.type === "condition" ? <ConditionEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
-      : node?.type === "scene" ? <SceneWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node?.type === "interaction" ? <InteractionWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node?.type === "choice" ? <ChoiceWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node?.type === "ending" ? <EndingWorkbench node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "scene" ? <SceneWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "interaction" ? <InteractionWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "choice" ? <ChoiceWorkbench key={node.id} node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "ending" ? <EndingWorkbench node={node} chapter={chapter} config={config} nodes={nodes} libraryAssets={libraryAssets} variables={variables} previewSession={previewSession} onNavigateNode={onNavigateNode} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
       : <div className="story-node-editor-content"><div className="story-node-editor-main"><div className="story-node-editor-preview"><span>{node?.type ?? "Node"}</span><h1>{title}</h1><p>Node editor preview</p></div></div></div>}
   </section>;
 }
@@ -2159,28 +2174,32 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
   </div>;
 }
 
-function InteractionWorkbench({ node, chapter, config, nodes, libraryAssets, variables, onUploadAsset, onChange }: {
+function InteractionWorkbench({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  previewSession?: StoryPreviewSessionState;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const design = <StoryRuntimeWorkbenchPreview ariaLabel="Interaction live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} />;
+  const design = <StoryRuntimeWorkbenchPreview ariaLabel="Interaction live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} />;
 }
 
-function ChoiceWorkbench({ node, chapter, config, nodes, libraryAssets, variables, onUploadAsset, onChange }: {
+function ChoiceWorkbench({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  previewSession?: StoryPreviewSessionState;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
@@ -2192,23 +2211,25 @@ function ChoiceWorkbench({ node, chapter, config, nodes, libraryAssets, variable
     if (!options.some((option) => option.id === selectedOptionId)) setSelectedOptionId(options[0]?.id);
   }, [options, selectedOptionId]);
 
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Choice live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} onChoice={setSelectedOptionId} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Choice live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onChoice={setSelectedOptionId} onNavigateNode={onNavigateNode} />;
 
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} selectedChoiceOptionId={selectedOption?.id} hideHeader hideDelete onSelectChoiceOption={setSelectedOptionId} onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-choice-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
-function EndingWorkbench({ node, chapter, config, nodes, libraryAssets, variables, onUploadAsset, onChange }: {
+function EndingWorkbench({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  previewSession?: StoryPreviewSessionState;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Ending live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Ending live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
@@ -2246,20 +2267,22 @@ function StoryWorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, st
   </section>;
 }
 
-function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, nodeId, onChoice }: {
+function StoryRuntimeWorkbenchPreview({ ariaLabel, chapter, variables, config, nodeId, initialSession, onChoice, onNavigateNode }: {
   ariaLabel: string;
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
   nodeId: string;
+  initialSession?: StoryPreviewSessionState;
   onChoice?: (optionId: string) => void;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
 }) {
   return <StoryWorkbenchPreview ariaLabel={ariaLabel} viewport={config.viewport} stageClassName="story-runtime-workbench-stage">
-    <StoryPlayerPreviewSession chapter={chapter} variables={variables} config={config} initialNodeId={nodeId} onChoice={onChoice} />
+    <StoryPlayerPreviewSession chapter={chapter} variables={variables} config={config} initialNodeId={nodeId} initialSession={initialSession} onChoice={onChoice} onNavigateNode={onNavigateNode} />
   </StoryWorkbenchPreview>;
 }
 
-function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, libraryAssets, onUploadAsset, onChange }: {
+function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, libraryAssets, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   mode: "design" | "code";
   node: StoryFlowNode;
   chapter: StoryChapter;
@@ -2267,13 +2290,15 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
   nodes: StoryFlowNode[];
   config: StoryPlayerConfig;
   libraryAssets: LibraryAsset[];
+  previewSession?: StoryPreviewSessionState;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData) => void;
 }) {
   const presentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   if (mode === "code") return <StoryPresentationCodeWorkbench node={node} />;
 
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Open UI live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Open UI live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <aside className="story-open-ui-inspector story-inspector" aria-label="Open UI inspector">
         <div className="story-inspector-content">
           <section className="story-open-ui-inspector-section">
@@ -2314,17 +2339,19 @@ function sceneDurationMs(items: readonly StorySceneMedia[], stillDurationMs: num
   }, 0);
 }
 
-function SceneWorkbench({ node, chapter, config, nodes, libraryAssets, variables, onUploadAsset, onChange }: {
+function SceneWorkbench({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onNavigateNode, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   chapter: StoryChapter;
   config: StoryPlayerConfig;
   nodes: StoryFlowNode[];
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
+  previewSession?: StoryPreviewSessionState;
+  onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Scene live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Scene live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
   return <NodeWorkbenchLayout className="story-scene-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }

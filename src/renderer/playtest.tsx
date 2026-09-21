@@ -184,69 +184,60 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   </main>;
 }
 
-export function StoryPlayerPreviewSession({ chapter, variables, config, initialNodeId, onChoice }: {
+export interface StoryPreviewSessionState {
+  runtime: PlayingRuntimeState;
+  checkpoint?: PlayingRuntimeState;
+}
+
+export function updateStoryPreviewSession(current: StoryPreviewSessionState, runtime: PlayingRuntimeState, checkpoint: "auto" | "preserve" | "clear" = "auto"): StoryPreviewSessionState {
+  if (checkpoint === "clear") return { runtime };
+  if (checkpoint === "preserve") return { runtime, checkpoint: current.checkpoint };
+  return { runtime, checkpoint: shouldPersistStoryCheckpoint(current.checkpoint, runtime) ? runtime : current.checkpoint };
+}
+
+export function StoryPlayerPreviewSession({ chapter, variables, config, initialNodeId, initialSession, onChoice, onNavigateNode }: {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
   initialNodeId: string;
+  initialSession?: StoryPreviewSessionState;
   onChoice?: (optionId: string) => void;
+  onNavigateNode?: (session: StoryPreviewSessionState) => void;
 }) {
-  const initial = useMemo(() => previewStoryNode(chapter, variables, initialNodeId), [chapter, initialNodeId, variables]);
-  const [runtime, setRuntime] = useState<PlayerRuntimeState>(initial);
-  const runtimeRef = useRef<PlayerRuntimeState>(initial);
-  const startsAtOpenUi = chapter.nodes.find((candidate) => candidate.id === initialNodeId)?.type === "open-ui";
-  const [checkpoint, setCheckpoint] = useState<PlayingRuntimeState | undefined>(startsAtOpenUi ? undefined : initial);
+  const initial = useMemo<StoryPreviewSessionState>(() => {
+    if (initialSession?.runtime.nodeId === initialNodeId) return initialSession;
+    const runtime = previewStoryNode(chapter, variables, initialNodeId);
+    const node = chapter.nodes.find((candidate) => candidate.id === initialNodeId);
+    return { runtime, ...(node?.type === "open-ui" ? {} : { checkpoint: runtime }) };
+  }, [chapter, initialNodeId, initialSession, variables]);
+  const [session, setSession] = useState(initial);
+  const sessionRef = useRef(initial);
   const [paused, setPaused] = useState(false);
   const [playbackStep, setPlaybackStep] = useState(0);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    runtimeRef.current = initial;
-    setRuntime(initial);
-    setCheckpoint(startsAtOpenUi ? undefined : initial);
+    sessionRef.current = initial;
+    setSession(initial);
     setPaused(false);
     setPlaybackStep((step) => step + 1);
     setError(undefined);
-  }, [initial, startsAtOpenUi]);
+  }, [initial]);
 
-  useEffect(() => {
-    const runtimeNode = chapter.nodes.find((candidate) => candidate.id === runtime.nodeId);
-    if (runtime.mode === "playing" && runtimeNode?.type !== "open-ui" && shouldCreateStoryCheckpoint(checkpoint, runtime)) setCheckpoint(runtime);
-  }, [chapter.nodes, checkpoint, runtime]);
-
-  const transition = useCallback((next: (current: PlayerRuntimeState) => PlayerRuntimeState, advanceFrame = true) => {
+  const transition = useCallback((next: (current: PlayingRuntimeState) => PlayingRuntimeState, options: { advanceFrame?: boolean; checkpoint?: "auto" | "preserve" | "clear"; navigate?: boolean; resume?: boolean } = {}) => {
     try {
-      const nextRuntime = next(runtimeRef.current);
-      runtimeRef.current = nextRuntime;
-      setRuntime(nextRuntime);
-      if (advanceFrame) setPlaybackStep((step) => step + 1);
+      const nextSession = updateStoryPreviewSession(sessionRef.current, next(sessionRef.current.runtime), options.checkpoint);
+      sessionRef.current = nextSession;
+      setSession(nextSession);
+      if (options.resume) setPaused(false);
+      if (options.advanceFrame !== false) setPlaybackStep((step) => step + 1);
       setError(undefined);
+      if (options.navigate && nextSession.runtime.nodeId !== initialNodeId) onNavigateNode?.(nextSession);
     } catch (cause) {
       setError(errorMessage(cause));
     }
-  }, []);
-  const restart = useCallback((clearCheckpoint: boolean) => {
-    try {
-      const nextRuntime = restartGame(chapter, variables);
-      runtimeRef.current = nextRuntime;
-      setRuntime(nextRuntime);
-      if (clearCheckpoint) setCheckpoint(undefined);
-      setPaused(false);
-      setPlaybackStep((step) => step + 1);
-      setError(undefined);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }, [chapter, variables]);
-  const restartCheckpoint = useCallback(() => {
-    if (!checkpoint) return;
-    runtimeRef.current = checkpoint;
-    setRuntime(checkpoint);
-    setPaused(false);
-    setPlaybackStep((step) => step + 1);
-    setError(undefined);
-  }, [checkpoint]);
-  const node = chapter.nodes.find((candidate) => candidate.id === runtime.nodeId);
+  }, [initialNodeId, onNavigateNode]);
+  const node = chapter.nodes.find((candidate) => candidate.id === session.runtime.nodeId);
 
   return <>
     <InteractiveDramaPlayer
@@ -254,27 +245,36 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
       variables={variables}
       config={config}
       node={node}
-      runtime={runtime}
+      runtime={session.runtime}
       playbackKey={playbackStep}
       paused={paused}
-      hasCheckpoint={Boolean(checkpoint)}
-      onAdvanceOpenUi={() => transition((current) => advanceOpenUi(chapter, current))}
-      onContinueGame={restartCheckpoint}
+      hasCheckpoint={Boolean(session.checkpoint)}
+      onAdvanceOpenUi={() => transition((current) => advanceOpenUi(chapter, current), { navigate: true, resume: true })}
+      onContinueGame={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", navigate: true, resume: true }); }}
       onPause={() => setPaused(true)}
       onResume={() => setPaused(false)}
-      onRestartCheckpoint={restartCheckpoint}
-      onRestartGame={() => restart(true)}
-      onMenu={() => restart(false)}
-      onSceneTime={(mediaId, timeMs) => transition((current) => advanceSceneTime(chapter, current, mediaId, timeMs), false)}
-      onMediaComplete={(mediaId, durationMs) => transition((current) => completeSceneMedia(chapter, current, mediaId, durationMs))}
-      onInteraction={(result, commands) => transition((current) => resolveInteractionNode(chapter, current, result, commands, variables))}
+      onRestartCheckpoint={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", resume: true }); }}
+      onRestartGame={() => transition(() => restartGame(chapter, variables), { checkpoint: "clear", navigate: true, resume: true })}
+      onMenu={() => transition(() => restartGame(chapter, variables), { checkpoint: "preserve", navigate: true, resume: true })}
+      onSceneTime={(mediaId, timeMs) => transition((current) => advanceSceneTime(chapter, current, mediaId, timeMs), { advanceFrame: false })}
+      onMediaComplete={(mediaId, durationMs) => transition((current) => completePreviewSceneMedia(chapter, current, mediaId, durationMs), { advanceFrame: false })}
+      onInteraction={(result, commands) => transition((current) => resolveInteractionNode(chapter, current, result, commands, variables), { navigate: true })}
       onChoice={(optionId) => {
         onChoice?.(optionId);
-        transition((current) => chooseOption(chapter, current, optionId));
+        transition((current) => chooseOption(chapter, current, optionId), { navigate: true });
       }}
     />
     {error ? <div className="story-player-preview-error" role="alert">{error}</div> : null}
   </>;
+}
+
+export function completePreviewSceneMedia(chapter: StoryChapter, state: PlayerRuntimeState, mediaId: string, durationMs: number): PlayingRuntimeState {
+  const advanced = advanceSceneTime(chapter, state, mediaId, durationMs);
+  const node = chapter.nodes.find((candidate) => candidate.id === advanced.nodeId);
+  if (node?.type !== "scene") throw new Error("The current story node is not a scene");
+  const items = node.data.presentation.media.items;
+  const next = items[items.findIndex((item) => item.id === mediaId) + 1];
+  return next ? { ...advanced, scenePlayback: { mediaId: next.id, timeMs: 0 } } : advanced;
 }
 
 export function StoryPlayerSnapshot({ chapter, variables, config, nodeId }: { chapter: StoryChapter; variables: StoryVariable[]; config: StoryPlayerConfig; nodeId: string }) {
