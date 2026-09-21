@@ -117,13 +117,11 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "projects"} icon="project" label="Projects" onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
         <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
+        <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
         <NavigationItem active={active === "interactive-drama"} icon="interactive-drama" label="Interactive Drama" onClick={() => onNavigate("interactive-drama")} />
         <NavigationItem active={active === "asset-studio"} icon="asset-studio" label="Asset Studio" onClick={() => onNavigate("asset-studio")} />
       </nav>
-      <div className="home-sidebar-community">
-        <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
-      </div>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
           <button className="home-sidebar-account-main" type="button" aria-label="Open account menu" aria-expanded={accountMenuOpen} onClick={() => {

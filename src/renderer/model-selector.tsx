@@ -21,6 +21,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
   const current = models.find((model) => modelKey(model) === currentKey);
+  const providerGroups = groupModelsByProvider(models);
 
   useEffect(() => {
     if (!open) return;
@@ -85,27 +86,32 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
           {!showReasoning ? (
             <div className="model-selector-menu" role="menu" aria-label="Models">
               <div className="model-selector-model-list">
-                {models.map((model) => {
-                  const selected = modelKey(model) === currentKey;
-                  return (
-                    <button
-                      className={selected ? "active" : ""}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={selected}
-                      key={modelKey(model)}
-                      onClick={() => {
-                        if (!selected) onChange(model);
-                        setOpen(false);
-                        trigger.current?.focus();
-                      }}
-                      title={`${model.provider}/${model.id}`}
-                    >
-                      <span className="model-selector-name">{model.name}</span>
-                      {selected ? <Check aria-hidden="true" size={12} /> : null}
-                    </button>
-                  );
-                })}
+                {providerGroups.map((group) => (
+                  <div className="model-selector-provider-group" role="group" aria-label={group.providerName} key={group.provider}>
+                    <div className="model-selector-provider-name">{group.providerName}</div>
+                    {group.models.map((model) => {
+                      const selected = modelKey(model) === currentKey;
+                      return (
+                        <button
+                          className={selected ? "active" : ""}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
+                          key={modelKey(model)}
+                          onClick={() => {
+                            if (!selected) onChange(model);
+                            setOpen(false);
+                            trigger.current?.focus();
+                          }}
+                          title={`${model.provider}/${model.id}`}
+                        >
+                          <span className="model-selector-name">{model.name}</span>
+                          {selected ? <Check aria-hidden="true" size={12} /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
               {current ? (
                 <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setShowReasoning(true)}>
@@ -179,6 +185,16 @@ export function useAgentModels(): AgentModelCatalogState {
 
 function modelKey(model: AgentModelRef): string {
   return `${model.provider}\n${model.id}`;
+}
+
+export function groupModelsByProvider(models: AgentModel[]): { provider: string; providerName: string; models: AgentModel[] }[] {
+  const groups = new Map<string, { provider: string; providerName: string; models: AgentModel[] }>();
+  for (const model of models) {
+    const group = groups.get(model.provider);
+    if (group) group.models.push(model);
+    else groups.set(model.provider, { provider: model.provider, providerName: model.providerName, models: [model] });
+  }
+  return [...groups.values()];
 }
 
 function reasoningLabel(level?: AgentReasoningLevel): string {

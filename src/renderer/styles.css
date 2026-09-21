@@ -267,7 +267,6 @@ body {
 }
 
 .desktop-macos .home-sidebar nav,
-.desktop-macos .home-sidebar-community,
 .desktop-macos .home-sidebar-brand,
 .desktop-macos .home-sidebar-account,
 .desktop-macos .settings-page-back,
@@ -13348,6 +13347,29 @@ button {
   overscroll-behavior: contain;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
+}
+
+.model-selector-provider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-selector-provider-group + .model-selector-provider-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--menu-border);
+}
+
+.model-selector-provider-name {
+  padding: 3px 7px 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-selector-model-list::-webkit-scrollbar,
