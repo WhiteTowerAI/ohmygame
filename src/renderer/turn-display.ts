@@ -9,23 +9,24 @@ export interface TurnDisplay {
   artifacts: ToolArtifact[];
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
-  active: boolean;
-  failed: boolean;
   working: boolean;
-  waiting: boolean;
-  thinkingText?: string;
+  status: Turn["status"];
+  hadThinking: boolean;
+  durationMs: number;
 }
 
 export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput = false): TurnDisplay {
   const active = turn.status === "inProgress";
   const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
-  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" &&
+  const items = turn.items.filter((item) => item !== user && item.type !== "userInputRequest" && !isCancelledStatusMessage(item) &&
     !(item.type === "retry" && item.status === "completed"));
   const finalStarted = items.some(isFinalAnswer);
   const finalMessages = active ? [] : items.filter(isFinalAnswer);
   const processItems = active ? items : items.filter((item) => !isFinalAnswer(item));
   const activityItems = processItems.filter((item) => item.type !== "plan");
   const workStarted = activityItems.some((item) => item.type !== "reasoning" && isWorkItem(item));
+  const durationMs = turnDurationMs(turn.items);
+  const hadThinking = activityItems.some((item) => item.type === "reasoning");
 
   if (!active) {
     const workItems = activityItems.filter((item) => item.type !== "reasoning" && isWorkItem(item));
@@ -35,10 +36,10 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
       artifacts: collectArtifacts(processItems),
       messages: activityItems.filter((item) => !isWorkItem(item)),
       finalMessages,
-      active: false,
-      failed: turn.status === "failed",
       working: false,
-      waiting: false,
+      status: turn.status,
+      hadThinking,
+      durationMs,
     };
   }
 
@@ -46,21 +47,24 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
   const waiting = !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
-  const work = projectWorkItems(visibleItems, live);
-  const thinking = processItems.findLast(isStreamingThinking);
-
+  const work = projectWorkItems(visibleItems, { active: live, waiting });
   return {
     user,
     work,
     artifacts: collectArtifacts(processItems),
     messages: [],
     finalMessages,
-    active: true,
-    failed: false,
     working,
-    waiting,
-    thinkingText: thinking?.text,
+    status: turn.status,
+    hadThinking,
+    durationMs,
   };
+}
+
+function turnDurationMs(items: ThreadItem[]): number {
+  const timestamps = items.map((item) => item.timestamp)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return timestamps.length >= 2 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
 }
 
 function collectArtifacts(items: ThreadItem[]): ToolArtifact[] {
@@ -86,8 +90,8 @@ function isFinalAnswer(item: ThreadItem): item is AssistantItem {
   return item.type === "agentMessage" && item.phase === "final_answer";
 }
 
-function isStreamingThinking(item: ThreadItem): item is Extract<ThreadItem, { type: "reasoning" }> {
-  return item.type === "reasoning" && item.status === "inProgress";
+function isCancelledStatusMessage(item: ThreadItem): item is AssistantItem {
+  return item.type === "agentMessage" && item.status === "cancelled" && !item.text.trim();
 }
 
 function withoutInitialThinking(items: ThreadItem[]): ThreadItem[] {

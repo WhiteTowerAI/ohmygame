@@ -821,6 +821,34 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("reuses the same session context after a cancelled turn", async () => {
+    const session = new FakeSession();
+    const firstPrompt = deferred<void>();
+    const priorContext = { role: "assistant", content: [{ type: "text", text: "Work completed before stopping" }], stopReason: "aborted" };
+    session.prompt
+      .mockImplementationOnce(() => firstPrompt.promise)
+      .mockImplementationOnce(async () => {
+        expect(session.messages).toContain(priorContext);
+      });
+    session.abort.mockImplementation(async () => firstPrompt.resolve());
+    const createSession = vi.fn(async () => session);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const first = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledWith("Build"));
+    session.messages.push(priorContext);
+
+    await manager.cancel(project.id, conversation.summary.id, first.turnId);
+    await expect(first.result).resolves.toBe("cancelled");
+    const second = manager.prompt(project, conversation, "Continue");
+    await expect(second.result).resolves.toBe("completed");
+
+    expect(createSession).toHaveBeenCalledOnce();
+    expect(session.prompt).toHaveBeenLastCalledWith("Continue");
+    await manager.close();
+  });
+
   it("surfaces session initialization failures", async () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => { throw new Error("Auth unavailable"); } });
