@@ -1,9 +1,9 @@
 import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
-import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
+import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
-import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
+import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface, type StoryCompletionSource } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
@@ -11,6 +11,7 @@ import { StorySceneSurface, type StoryNodeSurfaceAction } from "./story-scene-su
 import { StoryPlayerControls, StoryPlayerPauseLayer } from "./story-player-controls.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { SceneTimerClock } from "./scene-timer-clock.js";
+import { StoryMap } from "./story-map.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
@@ -47,12 +48,12 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
       const key = storyProgressKey(`project:${projectId}`, selected.id);
       const saved = loadStoryProgress(window.localStorage, key, storyHash, selected, definitions);
       progress.current = { key, signature: storyHash };
-      checkpointRef.current = saved;
+      checkpointRef.current = saved?.checkpoint;
       setChapter(selected);
       setVariables(definitions);
       setConfig(story.player);
-      setHasCheckpoint(Boolean(saved));
-      setRuntime(restartGame(selected, definitions));
+      setHasCheckpoint(Boolean(saved?.checkpoint));
+      setRuntime(restartGame(selected, definitions, saved?.discoveries));
       document.title = `${story.player.title || selected.title} - Playtest`;
     }).catch((cause) => {
       if (!disposed) setError(errorMessage(cause));
@@ -66,7 +67,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     if (!storage || !runtime || runtimeNode?.type === "open-ui") return;
     const showSaved = shouldCreateStoryCheckpoint(checkpointRef.current, runtime);
     if (!shouldPersistStoryCheckpoint(checkpointRef.current, runtime)) return;
-    const save = createStoryCheckpoint(storage.signature, runtime);
+    const save = createStorySave(storage.signature, runtime.progress, runtime);
     checkpointRef.current = save.checkpoint;
     setHasCheckpoint(true);
     try {
@@ -85,15 +86,22 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   const startNewGame = useCallback(() => {
     if (!chapter) return;
-    if (checkpointRef.current && !window.confirm("Start a new game? Your current progress will be replaced.")) return;
+    if (checkpointRef.current && !window.confirm("Start a new game? Your checkpoint will be replaced. Discovered routes will stay unlocked.")) return;
     const storage = progress.current;
-    if (storage) clearStoryProgress(window.localStorage, storage.key);
+    const discoveries = storyDiscoveries(runtime?.progress ?? checkpointRef.current?.progress);
+    if (storage) {
+      try {
+        saveStoryProgress(window.localStorage, storage.key, createStorySave(storage.signature, discoveries));
+      } catch {
+        setSaveStatus("error");
+      }
+    }
     checkpointRef.current = undefined;
     setHasCheckpoint(false);
-    setRuntime(restartGame(chapter, variables));
+    setRuntime(advanceOpenUi(chapter, restartGame(chapter, variables, discoveries)));
     setPaused(false);
     setPlaybackStep((step) => step + 1);
-  }, [chapter, variables]);
+  }, [chapter, runtime?.progress, variables]);
 
   const continueGame = useCallback(() => {
     const saved = checkpointRef.current;
@@ -113,7 +121,7 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
 
   const returnToMenu = useCallback(() => {
     if (!chapter) return;
-    setRuntime(restartGame(chapter, variables));
+    setRuntime((current) => restartGame(chapter, variables, storyDiscoveries(current?.progress)));
     setPaused(false);
     setPlaybackStep((step) => step + 1);
   }, [chapter, variables]);
@@ -265,8 +273,11 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
       onPause={() => setPaused(true)}
       onResume={() => setPaused(false)}
       onRestartCheckpoint={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", resume: true }); }}
-      onRestartGame={() => transition(() => restartGame(chapter, variables), { checkpoint: "clear", navigate: true, resume: true })}
-      onMenu={() => transition(() => restartGame(chapter, variables), { checkpoint: "preserve", navigate: true, resume: true })}
+      onRestartGame={() => transition((current) => advanceOpenUi(chapter, restartGame(chapter, variables, storyDiscoveries(current.progress))), { checkpoint: "clear", navigate: true, resume: true })}
+      onMenu={() => transition(
+        (current) => restartGame(chapter, variables, storyDiscoveries(current.progress)),
+        { checkpoint: "preserve", navigate: true, resume: true },
+      )}
       onSceneTime={(mediaId, timeMs) => transition((current) => advanceSceneTime(chapter, current, mediaId, timeMs), { advanceFrame: false })}
       onMediaComplete={(mediaId, durationMs) => transition((current) => completePreviewSceneMedia(chapter, current, mediaId, durationMs), { advanceFrame: false })}
       onInteraction={(result, commands) => transition((current) => resolveInteractionNode(chapter, current, result, commands, variables), { navigate: true })}
@@ -341,6 +352,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   onSurfaceLayoutSelect?: (nodeId: string, elementId?: string) => void;
   onSurfaceLayoutChange?: (nodeId: string, elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
+  const [storyMapOpen, setStoryMapOpen] = useState(false);
   if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
   const frameKey = `${node?.id ?? "missing"}:${runtime.scenePlayback?.mediaId ?? ""}:${playbackKey}`;
   const frame = { chapter, variables, config, node, runtime, holdTimeoutTransitions, hasCheckpoint, assetUrls, onSurfaceLayoutSelect, onSurfaceLayoutChange } satisfies StoryPlayerFrameData;
@@ -348,10 +360,11 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player">
     <StoryPlayerViewport viewport={config.viewport}>
-      <StoryFrameTransition frameKey={frameKey} frame={frame} paused={paused || playbackPaused} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
+      <StoryFrameTransition frameKey={frameKey} frame={frame} paused={paused || playbackPaused || storyMapOpen} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onOpenStoryMap={() => setStoryMapOpen(true)} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
       {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
       {canPause ? <StoryPlayerControls onPause={onPause} /> : null}
       {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
+      {storyMapOpen ? <StoryMap chapter={chapter} progress={runtime.progress} currentNodeId={runtime.nodeId} viewport={config.viewport} onClose={() => setStoryMapOpen(false)} /> : null}
     </StoryPlayerViewport>
   </section>;
 }
@@ -395,13 +408,14 @@ interface PreviousStoryPlayerFrame {
   frame: StoryPlayerFrameData;
 }
 
-function StoryFrameTransition({ frameKey, frame, paused, onAdvanceOpenUi, onContinueGame, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
+function StoryFrameTransition({ frameKey, frame, paused, onAdvanceOpenUi, onContinueGame, onRestartGame, onOpenStoryMap, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
   frameKey: string;
   frame: StoryPlayerFrameData;
   paused: boolean;
   onAdvanceOpenUi: () => void;
   onContinueGame: () => void;
   onRestartGame: () => void;
+  onOpenStoryMap: () => void;
   onMenu: () => void;
   onSceneTime: (mediaId: string, timeMs: number) => void;
   onMediaComplete: (mediaId: string, durationMs: number) => void;
@@ -419,14 +433,14 @@ function StoryFrameTransition({ frameKey, frame, paused, onAdvanceOpenUi, onCont
     setTransition((current) => current.key === frameKey && !current.ready ? { key: current.key, ready: true } : current);
   }, [frameKey]);
   return <>
-    {transition.previous ? <div key={transition.previous.key} className="story-player-frame is-previous" aria-hidden="true" inert><StoryPlayerFrame frame={transition.previous.frame} active={false} paused onReady={NOOP} onAdvanceOpenUi={NOOP} onContinueGame={NOOP} onRestartGame={NOOP} onMenu={NOOP} onSceneTime={NOOP_SCENE_TIME} onMediaComplete={NOOP_MEDIA_COMPLETE} onInteraction={NOOP_INTERACTION} onChoice={NOOP_CHOICE} /></div> : null}
+    {transition.previous ? <div key={transition.previous.key} className="story-player-frame is-previous" aria-hidden="true" inert><StoryPlayerFrame frame={transition.previous.frame} active={false} paused onReady={NOOP} onAdvanceOpenUi={NOOP} onContinueGame={NOOP} onRestartGame={NOOP} onOpenStoryMap={NOOP} onMenu={NOOP} onSceneTime={NOOP_SCENE_TIME} onMediaComplete={NOOP_MEDIA_COMPLETE} onInteraction={NOOP_INTERACTION} onChoice={NOOP_CHOICE} /></div> : null}
     <div key={frameKey} className={`story-player-frame${transition.ready ? " is-ready" : ""}`} aria-hidden={!transition.ready} inert={!transition.ready}>
-      <StoryPlayerFrame frame={frame} active={transition.ready} paused={paused} onReady={showFrame} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
+      <StoryPlayerFrame frame={frame} active={transition.ready} paused={paused} onReady={showFrame} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onOpenStoryMap={onOpenStoryMap} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
     </div>
   </>;
 }
 
-function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onContinueGame, onRestartGame, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
+function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onContinueGame, onRestartGame, onOpenStoryMap, onMenu, onSceneTime, onMediaComplete, onInteraction, onChoice }: {
   frame: StoryPlayerFrameData;
   active: boolean;
   paused: boolean;
@@ -434,6 +448,7 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   onAdvanceOpenUi: () => void;
   onContinueGame: () => void;
   onRestartGame: () => void;
+  onOpenStoryMap: () => void;
   onMenu: () => void;
   onSceneTime: (mediaId: string, timeMs: number) => void;
   onMediaComplete: (mediaId: string, durationMs: number) => void;
@@ -447,7 +462,11 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   const activeInteraction = active ? onInteraction : NOOP_INTERACTION;
   const activeChoice = active ? onChoice : NOOP_CHOICE;
   const handlePlayerUiAction = (action: StoryOpenUiAction) => {
-    if (active && action === "enter-game") (node && isEntryOpenUiNode(chapter, node.id) && hasCheckpoint ? onContinueGame : onAdvanceOpenUi)();
+    if (!active) return;
+    if (action === "start-game") onAdvanceOpenUi();
+    else if (action === "continue-game") onContinueGame();
+    else if (action === "new-game") onRestartGame();
+    else onOpenStoryMap();
   };
   if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} layoutEditable={active && Boolean(onSurfaceLayoutChange)} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} onLayoutSelect={(elementId) => { if (active) onSurfaceLayoutSelect?.(node.id, elementId); }} onLayoutChange={(elementId, offset) => { if (active) onSurfaceLayoutChange?.(node.id, elementId, offset); }} />;
   if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;

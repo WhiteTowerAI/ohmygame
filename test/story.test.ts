@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
-  advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryCheckpoint, createStoryDocument, defaultStoryNodeSource, getNextNode,
+  advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, createStorySave, defaultStoryNodeSource, getNextNode,
   getStartNode, isEntryOpenUiNode, isStoryDocument, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences,
-  matchesStoryCondition, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId, restoreStoryCheckpoint, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint,
+  matchesStoryCondition, openUiRuntimeContent, parseStoryDocument, replaceOutgoingEdge, resolveInteractionNode, resolveStoryAssetId, restoreStorySave, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint,
   previewStoryNode, restartGame, storyNodePresentation, validatePlayableChapter,
-  transparentStorySurfaceFiles, DEFAULT_OPEN_UI_CODE,
+  transparentStorySurfaceFiles, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
@@ -37,6 +37,11 @@ describe("canonical Interactive Drama story", () => {
     expect(getNextNode(chapter, openUi.id)?.type).toBe("ending");
     expect(isStoryDocument(story)).toBe(true);
     expect(validatePlayableChapter(chapter)).toBeUndefined();
+  });
+
+  it("shows only Open UI actions that are available in the current session", () => {
+    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, false).buttons.map((button) => button.action)).toEqual(["start-game", "open-story-map"]);
+    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, true).buttons.map((button) => button.action)).toEqual(["continue-game", "new-game", "open-story-map"]);
   });
 
   it("starts an isolated preview without carrying upstream media", () => {
@@ -80,7 +85,7 @@ describe("canonical Interactive Drama story", () => {
     expect(ending.data.presentation.media.items).toEqual([]);
   });
 
-  it("recognizes only the Open UI connected directly after Start as the entry UI", () => {
+  it("requires one Open UI connected directly after Start", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
     const entry = chapter.nodes.find((node) => node.type === "open-ui")!;
@@ -90,6 +95,19 @@ describe("canonical Interactive Drama story", () => {
 
     expect(isEntryOpenUiNode(chapter, entry.id)).toBe(true);
     expect(isEntryOpenUiNode(chapter, midFlow.id)).toBe(false);
+    expect(isStoryDocument(story)).toBe(false);
+
+    const misplaced = createPlayableStoryDocument();
+    const start = getStartNode(misplaced.chapter)!;
+    const ending = misplaced.chapter.nodes.find((node) => node.type === "ending")!;
+    misplaced.chapter.edges = misplaced.chapter.edges.map((edge) => edge.source === start.id ? { ...edge, target: ending.id } : edge);
+    expect(validatePlayableChapter(misplaced.chapter)?.message).toBe("Connect Start directly to Open UI.");
+
+    const missing = createPlayableStoryDocument();
+    const openUi = missing.chapter.nodes.find((node) => node.type === "open-ui")!;
+    missing.chapter.nodes = missing.chapter.nodes.filter((node) => node.id !== openUi.id);
+    missing.chapter.edges = missing.chapter.edges.filter((edge) => edge.source !== openUi.id && edge.target !== openUi.id);
+    expect(validatePlayableChapter(missing.chapter)?.message).toBe("This chapter must have exactly one Open UI node.");
   });
 
   it("keeps presentation surfaces transparent", () => {
@@ -118,7 +136,7 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(sceneStory)).toBe(false);
   });
 
-  it("allows incomplete editing state but rejects more than one Start", () => {
+  it("allows incomplete editing state but rejects duplicate system nodes", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
     const ending = chapter.nodes.find((node) => node.type === "ending")!;
@@ -132,6 +150,12 @@ describe("canonical Interactive Drama story", () => {
     secondChapter.nodes.push({ id: "second-start", type: "start", position: { x: 0, y: 0 }, data: {} });
     second.editorLayout.nodes["second-start"] = { x: 0, y: 0 };
     expect(isStoryDocument(second)).toBe(false);
+
+    const duplicateMenu = createPlayableStoryDocument();
+    const menu = duplicateMenu.chapter.nodes.find((node) => node.type === "open-ui")!;
+    duplicateMenu.chapter.nodes.push({ ...structuredClone(menu), id: "second-menu" });
+    duplicateMenu.editorLayout.nodes["second-menu"] = { x: 0, y: 0 };
+    expect(isStoryDocument(duplicateMenu)).toBe(false);
   });
 
   it("rejects old document versions instead of migrating them", () => {
@@ -287,8 +311,8 @@ describe("canonical Interactive Drama story", () => {
 
     state = advanceSceneTime(chapter, state, scene.id, 1_250);
     expect(state.scenePlayback?.timeMs).toBe(1_250);
-    const checkpoint = createStoryCheckpoint("story", state);
-    expect(restoreStoryCheckpoint(checkpoint, "story", chapter, story.variables)?.scenePlayback).toEqual({ mediaId: scene.id, timeMs: 1_250 });
+    const checkpoint = createStorySave("story", state.progress, state);
+    expect(restoreStorySave(checkpoint, "story", chapter, story.variables)?.checkpoint?.scenePlayback).toEqual({ mediaId: scene.id, timeMs: 1_250 });
     expect(shouldCreateStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 900 } }, state)).toBe(false);
     expect(shouldPersistStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 900 } }, state)).toBe(true);
     expect(shouldPersistStoryCheckpoint({ ...state, scenePlayback: { mediaId: scene.id, timeMs: 1_100 } }, state)).toBe(false);

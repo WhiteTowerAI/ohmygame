@@ -45,7 +45,7 @@ The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the ex
 
 ## Runtime surfaces
 
-Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries contain an \`action\` string; call \`actions.run(button.action)\`.
+Each chapter has exactly one Open UI node directly after Start. It is the system main menu; use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant.
 
 Open UI HTML may mark movable elements with a unique \`data-layout-id\`. Its optional \`presentation.surface.layout\` object stores logical-pixel \`offsetX\` and \`offsetY\` values by that ID; the player applies those offsets without replacing the element's authored CSS layout.
 

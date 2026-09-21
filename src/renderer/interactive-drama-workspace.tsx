@@ -215,6 +215,10 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
+function isSingletonStoryNode(node: { type?: string }): boolean {
+  return node.type === "start" || node.type === "open-ui";
+}
+
 interface StoryCanvasPlayerData {
   chapter: StoryChapter;
   variables: StoryVariable[];
@@ -697,7 +701,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const contextMenuNode = canvasContextMenu?.kind === "node" ? nodes.find((node) => node.id === canvasContextMenu.nodeId) : undefined;
   const contextMenuNodeMissing = canvasContextMenu?.kind === "node" && !contextMenuNode;
-  const canInsertCopiedNode = Boolean(copiedNode && (copiedNode.type !== "start" || !nodes.some((node) => node.type === "start")));
+  const canInsertCopiedNode = Boolean(copiedNode && (!isSingletonStoryNode(copiedNode) || !nodes.some((node) => node.type === copiedNode.type)));
   const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
   const variableUsageCounts = useMemo(() => storyVariableUsageCounts(nodes), [nodes]);
@@ -708,7 +712,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
-    if (type === "start" && nodes.some((node) => node.type === "start")) return;
+    if ((type === "start" || type === "open-ui") && nodes.some((node) => node.type === type)) return;
     const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
@@ -802,7 +806,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   function insertNodeCopy(source: StoryNode, position: { x: number; y: number }): void {
-    if (source.type === "start" && nodes.some((node) => node.type === "start")) return;
+    if (isSingletonStoryNode(source) && nodes.some((node) => node.type === source.type)) return;
     const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), duplicate]);
     setSelectedAssetEdgeId(undefined);
@@ -819,7 +823,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const source = nodes.find((node) => node.id === nodeId);
     if (!source) return;
     const canonical = toStoryNode(source);
-    if (canonical.type === "start" && nodes.some((node) => node.type === "start")) return;
+    if (isSingletonStoryNode(canonical) && nodes.some((node) => node.type === canonical.type)) return;
     insertNodeCopy(canonical, { x: source.position.x + STORY_CANVAS_GRID_SIZE * 2, y: source.position.y + STORY_CANVAS_GRID_SIZE * 2 });
   }
 
@@ -1315,6 +1319,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
                 mode={interactionMode}
                 canvas={canvas}
                 hasStart={nodes.some((node) => node.type === "start")}
+                hasOpenUi={nodes.some((node) => node.type === "open-ui")}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
                 importing={importingAssets}
                 reserveInspector={false}
@@ -1332,8 +1337,9 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             canUndo={canUndo}
             canRedo={canRedo}
             canPaste={canInsertCopiedNode}
-            canDuplicate={Boolean(contextMenuNode && (contextMenuNode.type !== "start" || !nodes.some((node) => node.type === "start")))}
+            canDuplicate={Boolean(contextMenuNode && (!isSingletonStoryNode(contextMenuNode) || !nodes.some((node) => node.type === contextMenuNode.type)))}
             hasStart={nodes.some((node) => node.type === "start")}
+            hasOpenUi={nodes.some((node) => node.type === "open-ui")}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
@@ -2808,6 +2814,7 @@ function CanvasToolbar({
   mode,
   canvas,
   hasStart,
+  hasOpenUi,
   libraryAssets,
   importing,
   reserveInspector,
@@ -2820,6 +2827,7 @@ function CanvasToolbar({
   mode: InteractionMode;
   canvas: React.RefObject<HTMLDivElement | null>;
   hasStart: boolean;
+  hasOpenUi: boolean;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   reserveInspector: boolean;
@@ -2896,8 +2904,8 @@ function CanvasToolbar({
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                   ><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
-                  const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
-                  const description = disabled ? "Only one Start node is allowed" : item.description;
+                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi));
+                  const description = disabled ? `Only one ${item.label} node is allowed` : item.description;
                   return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? description : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{description}</small></span></button>;
                 })}
               </Fragment>)}
@@ -2949,6 +2957,7 @@ function StoryCanvasContextMenu({
   canPaste,
   canDuplicate,
   hasStart,
+  hasOpenUi,
   nodeActionsDisabled,
   importing,
   onClose,
@@ -2967,6 +2976,7 @@ function StoryCanvasContextMenu({
   canPaste: boolean;
   canDuplicate: boolean;
   hasStart: boolean;
+  hasOpenUi: boolean;
   nodeActionsDisabled: boolean;
   importing: boolean;
   onClose: () => void;
@@ -3049,8 +3059,8 @@ function StoryCanvasContextMenu({
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                   ><Icon size={15} /><span>{item.label}</span><ChevronRight size={13} /></button>;
-                  const disabled = item.action.kind === "node" && item.action.type === "start" && hasStart;
-                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? "Only one Start node is allowed" : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
+                  const disabled = item.action.kind === "node" && ((item.action.type === "start" && hasStart) || (item.action.type === "open-ui" && hasOpenUi));
+                  return <button type="button" role="menuitem" key={item.label} disabled={disabled} title={disabled ? `Only one ${item.label} node is allowed` : undefined} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => run(() => onAdd(item))}><Icon size={15} /><span>{item.label}</span></button>;
                 })}
               </Fragment>)}
             </div>

@@ -153,8 +153,14 @@ const nodes = [
         properties: {
           title: { type: "string", maxLength: 120 },
           buttons: {
-            type: "array", minItems: 1, maxItems: 8,
-            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { const: "enter-game" } } },
+            type: "array", minItems: 4, maxItems: 4,
+            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { enum: ["start-game", "continue-game", "new-game", "open-story-map"] } } },
+            allOf: [
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "start-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "continue-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "new-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "open-story-map" } } } },
+            ],
           },
         },
       },
@@ -257,7 +263,15 @@ export const STORY_CODEBASE_SCHEMA = {
     chapter: {
       type: "object", additionalProperties: false, required: ["id", "title", "nodes", "edges"],
       properties: {
-        id, title: { type: "string" }, nodes: { type: "array", items: { oneOf: nodes } },
+        id, title: { type: "string" },
+        nodes: {
+          type: "array",
+          items: { oneOf: nodes },
+          allOf: [
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "start" } } }, minContains: 0, maxContains: 1 },
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "open-ui" } } }, minContains: 0, maxContains: 1 },
+          ],
+        },
         edges: {
           type: "array",
           items: { type: "object", additionalProperties: false, required: ["id", "source", "target"], properties: { id, source: id, target: id, sourceHandle: { type: "string" } } },

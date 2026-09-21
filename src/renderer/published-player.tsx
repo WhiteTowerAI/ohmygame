@@ -6,16 +6,17 @@ import {
   advanceOpenUi,
   chooseOption,
   completeSceneMedia,
-  createStoryCheckpoint,
+  createStorySave,
   resolveInteractionNode,
   restartGame,
   shouldCreateStoryCheckpoint,
   shouldPersistStoryCheckpoint,
+  storyDiscoveries,
   type PlayerRuntimeState,
   type PlayingRuntimeState,
 } from "../shared/story.js";
 import { InteractiveDramaPlayer } from "./playtest.js";
-import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
+import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import "./story-player.css";
 
 interface PublishedStoryManifest {
@@ -54,11 +55,11 @@ function PublishedPlayer() {
       const key = storyProgressKey(loadedManifest.scope, chapter.id);
       const saved = loadStoryProgress(localStorage, key, signature, chapter, loadedStory.variables ?? []);
       progress.current = { key, signature };
-      checkpoint.current = saved;
+      checkpoint.current = saved?.checkpoint;
       setManifest(loadedManifest);
       setStory(loadedStory);
-      setHasCheckpoint(Boolean(saved));
-      setRuntime(restartGame(chapter, loadedStory.variables ?? []));
+      setHasCheckpoint(Boolean(saved?.checkpoint));
+      setRuntime(restartGame(chapter, loadedStory.variables ?? [], saved?.discoveries));
       document.title = loadedStory.player.title || chapter.title;
     }).catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
     return () => { disposed = true; };
@@ -70,7 +71,7 @@ function PublishedPlayer() {
     if (!storage || !runtime || runtimeNode?.type === "open-ui") return;
     const showSaved = shouldCreateStoryCheckpoint(checkpoint.current, runtime);
     if (!shouldPersistStoryCheckpoint(checkpoint.current, runtime)) return;
-    const save = createStoryCheckpoint(storage.signature, runtime);
+    const save = createStorySave(storage.signature, runtime.progress, runtime);
     checkpoint.current = save.checkpoint;
     setHasCheckpoint(true);
     try {
@@ -90,14 +91,21 @@ function PublishedPlayer() {
   const resetPlayer = useCallback(() => setPlaybackKey((value) => value + 1), []);
   const startNewGame = useCallback(() => {
     if (!chapter) return;
-    if (checkpoint.current && !window.confirm("Start a new game? Your current progress will be replaced.")) return;
-    if (progress.current) clearStoryProgress(localStorage, progress.current.key);
+    if (checkpoint.current && !window.confirm("Start a new game? Your checkpoint will be replaced. Discovered routes will stay unlocked.")) return;
+    const discoveries = storyDiscoveries(runtime?.progress ?? checkpoint.current?.progress);
+    if (progress.current) {
+      try {
+        saveStoryProgress(localStorage, progress.current.key, createStorySave(progress.current.signature, discoveries));
+      } catch {
+        setSaveStatus("error");
+      }
+    }
     checkpoint.current = undefined;
     setHasCheckpoint(false);
-    setRuntime(restartGame(chapter, variables));
+    setRuntime(advanceOpenUi(chapter, restartGame(chapter, variables, discoveries)));
     setPaused(false);
     resetPlayer();
-  }, [chapter, resetPlayer, variables]);
+  }, [chapter, resetPlayer, runtime?.progress, variables]);
   const restore = useCallback(() => {
     if (!checkpoint.current) return;
     setRuntime(checkpoint.current);
@@ -106,7 +114,7 @@ function PublishedPlayer() {
   }, [resetPlayer]);
   const menu = useCallback(() => {
     if (!chapter) return;
-    setRuntime(restartGame(chapter, variables));
+    setRuntime((current) => restartGame(chapter, variables, storyDiscoveries(current?.progress)));
     setPaused(false);
     resetPlayer();
   }, [chapter, resetPlayer, variables]);

@@ -323,7 +323,7 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
-export type StoryOpenUiAction = "enter-game";
+export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map";
 
 export interface StoryOpenUiButton {
   id: string;

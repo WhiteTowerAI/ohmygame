@@ -81,7 +81,12 @@ describe("Interactive Drama project codebase", () => {
         type: "open-ui",
         data: {
           title: "Title",
-          content: { title: "Title", buttons: [{ id: "start", label: "Start", action: "enter-game" }] },
+          content: { title: "Title", buttons: [
+            { id: "start", label: "Start", action: "start-game" },
+            { id: "continue", label: "Continue", action: "continue-game" },
+            { id: "new", label: "New game", action: "new-game" },
+            { id: "map", label: "Story map", action: "open-story-map" },
+          ] },
           presentation: {
             media: { items: [] },
             surface: { source: { html: "nodes/open-ui/index.html", css: "nodes/open-ui/style.css", javascript: "nodes/open-ui/script.js" } },
@@ -102,6 +107,14 @@ describe("Interactive Drama project codebase", () => {
       },
     ];
     expect(Check(STORY_CODEBASE_SCHEMA, story)).toBe(true);
+
+    const missingContinue = structuredClone(story);
+    missingContinue.chapter.nodes[1].data.content.buttons = [{ id: "start", label: "Start", action: "start-game" }];
+    expect(Check(STORY_CODEBASE_SCHEMA, missingContinue)).toBe(false);
+
+    const duplicateOpenUi = structuredClone(story);
+    duplicateOpenUi.chapter.nodes.push({ ...structuredClone(duplicateOpenUi.chapter.nodes[1]), id: "second-open-ui" });
+    expect(Check(STORY_CODEBASE_SCHEMA, duplicateOpenUi)).toBe(false);
 
     const invalidStart = structuredClone(story);
     invalidStart.chapter.nodes[0].data.title = "Start";

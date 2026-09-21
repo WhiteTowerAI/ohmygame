@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createStoryCheckpoint, createStoryDocument } from "../src/shared/story.js";
+import { createStoryDocument, createStorySave } from "../src/shared/story.js";
 import { clearStoryProgress, loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature, type StoryProgressStorage } from "../src/renderer/story-progress.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
@@ -29,9 +29,9 @@ describe("story progress storage", () => {
     const state = { mode: "playing" as const, chapterId: chapter.id, nodeId: ending.id, variables: {} };
     const key = storyProgressKey("project:test", chapter.id);
 
-    saveStoryProgress(storage, key, createStoryCheckpoint("signature", state));
-    expect(loadStoryProgress(storage, key, "signature", chapter, [])).toMatchObject(state);
-    const oldCheckpoint = { ...createStoryCheckpoint("signature", state), checkpoint: { ...state, visibleOverlayIds: [] } };
+    saveStoryProgress(storage, key, createStorySave("signature", undefined, state));
+    expect(loadStoryProgress(storage, key, "signature", chapter, [])?.checkpoint).toMatchObject(state);
+    const oldCheckpoint = { ...createStorySave("signature", undefined, state), checkpoint: { ...state, visibleOverlayIds: [] } };
     values.set(key, JSON.stringify(oldCheckpoint));
     expect(loadStoryProgress(storage, key, "signature", chapter, [])).toBeUndefined();
     expect(loadStoryProgress(storage, key, "changed", chapter, [])).toBeUndefined();
@@ -39,7 +39,9 @@ describe("story progress storage", () => {
     values.set(key, "not json");
     expect(loadStoryProgress(storage, key, "signature", chapter, [])).toBeUndefined();
     expect(values.has(key)).toBe(false);
-    saveStoryProgress(storage, key, createStoryCheckpoint("signature", state));
+    const discoveries = { visitedNodeIds: [ending.id], selectedOptionIds: [], unlockedEndingIds: [ending.id] };
+    saveStoryProgress(storage, key, createStorySave("signature", discoveries));
+    expect(loadStoryProgress(storage, key, "signature", chapter, [])).toEqual({ discoveries });
     clearStoryProgress(storage, key);
     expect(values.has(key)).toBe(false);
   });

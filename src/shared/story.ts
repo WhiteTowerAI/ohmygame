@@ -45,7 +45,10 @@ button { margin-top: 18px; padding: 12px 22px; border: 1px solid #44d6b2; border
 export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
   title: "Untitled Story",
   buttons: [
-    { id: "enter-game", label: "Start game", action: "enter-game" },
+    { id: "start-game", label: "Start game", action: "start-game" },
+    { id: "continue-game", label: "Continue", action: "continue-game" },
+    { id: "new-game", label: "New game", action: "new-game" },
+    { id: "story-map", label: "Story map", action: "open-story-map" },
   ],
 };
 
@@ -75,9 +78,11 @@ export function defaultStoryNodeSource(nodeId: string): StorySourceFiles {
 export function openUiRuntimeContent(content: StoryOpenUiContent, hasCheckpoint: boolean): StoryOpenUiContent {
   return {
     ...content,
-    buttons: content.buttons.map((button) => button.action === "enter-game"
-      ? { ...button, label: hasCheckpoint ? "Continue" : "Start game" }
-      : button),
+    buttons: content.buttons.filter((button) => {
+      if (button.action === "start-game") return !hasCheckpoint;
+      if (button.action === "continue-game" || button.action === "new-game") return hasCheckpoint;
+      return true;
+    }),
   };
 }
 
@@ -206,7 +211,8 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
       nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
   }
-  if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1) return false;
+  if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1 ||
+    nodes.filter((node) => isRecord(node) && node.type === "open-ui").length > 1) return false;
   const edgeIds = new Set<string>();
   const outputs = new Set<string>();
   const validEdges = (chapter.edges as unknown[]).every((edge) => {
@@ -299,11 +305,14 @@ interface PlayerRuntimeStateBase {
   progress?: StoryProgressFacts;
 }
 
-export interface StoryProgressFacts {
-  currentNodeId?: string;
+export interface StoryDiscoveries {
   visitedNodeIds: string[];
   selectedOptionIds: string[];
   unlockedEndingIds: string[];
+}
+
+export interface StoryProgressFacts extends StoryDiscoveries {
+  currentNodeId?: string;
 }
 
 export type PlayerRuntimeState =
@@ -317,23 +326,40 @@ export interface StorySaveDataV1 {
   storyVersion: 1;
   storySignature: string;
   savedAt: string;
-  checkpoint: PlayingRuntimeState;
+  discoveries: StoryDiscoveries;
+  checkpoint?: PlayingRuntimeState;
 }
 
-export function createStoryCheckpoint(storySignature: string, state: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
+export interface RestoredStorySave {
+  discoveries: StoryDiscoveries;
+  checkpoint?: PlayingRuntimeState;
+}
+
+export function createStorySave(storySignature: string, progress: StoryProgressFacts | StoryDiscoveries | undefined, checkpoint?: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
   if (!storySignature) throw new Error("Story signature is required");
-  if (state.mode !== "playing") throw new Error("Only a playing state can be saved");
-  return { version: 1, storyVersion: 1, storySignature, savedAt, checkpoint: clonePlayingState(state) };
+  if (checkpoint?.mode === "menu") throw new Error("Only a playing state can be checkpointed");
+  return {
+    version: 1,
+    storyVersion: 1,
+    storySignature,
+    savedAt,
+    discoveries: storyDiscoveries(progress),
+    ...(checkpoint ? { checkpoint: clonePlayingState(checkpoint) } : {}),
+  };
 }
 
-export function restoreStoryCheckpoint(
+export function restoreStorySave(
   value: unknown,
   storySignature: string,
   chapter: StoryChapter,
   variables: readonly StoryVariable[],
-): PlayingRuntimeState | undefined {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 1 || value.storySignature !== storySignature ||
-    typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)) || !isRecord(value.checkpoint)) return undefined;
+): RestoredStorySave | undefined {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "discoveries", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 1 || value.storySignature !== storySignature ||
+    typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt))) return undefined;
+  const discoveries = validStoryDiscoveries(value.discoveries, chapter);
+  if (!discoveries) return undefined;
+  if (value.checkpoint === undefined) return { discoveries };
+  if (!isRecord(value.checkpoint)) return undefined;
   const checkpoint = value.checkpoint;
   if (checkpoint.mode !== "playing" || checkpoint.chapterId !== chapter.id || !nonEmptyString(checkpoint.nodeId) ||
     !isRecord(checkpoint.variables) || !hasOnlyKeys(checkpoint, ["mode", "chapterId", "nodeId", "variables", "progress", "scenePlayback"])) return undefined;
@@ -345,10 +371,11 @@ export function restoreStoryCheckpoint(
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) return undefined;
-  return clonePlayingState({
+  const restored = clonePlayingState({
     ...(checkpoint as unknown as PlayingRuntimeState),
-    progress: validStoryProgressFacts(checkpoint.progress, chapter) ?? progressFromCurrentNode(checkpoint.nodeId, chapter),
+    progress: mergeStoryProgress(validStoryProgressFacts(checkpoint.progress, chapter) ?? progressFromCurrentNode(checkpoint.nodeId, chapter), discoveries),
   });
+  return { discoveries: storyDiscoveries(restored.progress), checkpoint: restored };
 }
 
 export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): boolean {
@@ -369,8 +396,8 @@ export function shouldPersistStoryCheckpoint(previous: PlayingRuntimeState | und
   return Boolean(before && after && before.mediaId === after.mediaId && Math.floor(before.timeMs / 1_000) !== Math.floor(after.timeMs / 1_000));
 }
 
-export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
-  return { mode: "menu", chapterId, variables: initialStoryVariables(variables), progress: { visitedNodeIds: [], selectedOptionIds: [], unlockedEndingIds: [] } };
+export function createPlayerState(chapterId: string, variables: readonly StoryVariable[], discoveries?: StoryDiscoveries): PlayerRuntimeState {
+  return { mode: "menu", chapterId, variables: initialStoryVariables(variables), progress: { ...storyDiscoveries(discoveries) } };
 }
 
 export function startGame(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
@@ -416,8 +443,8 @@ export function resolveInteractionNode(
   return enterStoryNode(chapter, { ...state, variables: applied }, next);
 }
 
-export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[]): PlayingRuntimeState {
-  return startGame(chapter, createPlayerState(chapter.id, variables));
+export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[], discoveries?: StoryDiscoveries): PlayingRuntimeState {
+  return startGame(chapter, createPlayerState(chapter.id, variables, discoveries));
 }
 
 export function previewStoryNode(chapter: StoryChapter, variables: readonly StoryVariable[], nodeId: string): PlayingRuntimeState {
@@ -636,6 +663,9 @@ export interface StoryPlayValidationOptions {
 export function validatePlayableChapter(chapter: StoryChapter, options: StoryPlayValidationOptions = {}): StoryPlayIssue | undefined {
   const start = getStartNode(chapter);
   if (!start) return { nodeId: "", message: "This chapter has no Start node." };
+  const openUis = chapter.nodes.filter((node) => node.type === "open-ui");
+  if (openUis.length !== 1) return { nodeId: openUis[0]?.id ?? start.id, message: "This chapter must have exactly one Open UI node." };
+  if (getNextNode(chapter, start.id)?.id !== openUis[0].id) return { nodeId: openUis[0].id, message: "Connect Start directly to Open UI." };
   const visited = new Set<string>();
   const pending = [start];
   while (pending.length > 0) {
@@ -836,11 +866,13 @@ function isViewportDimension(value: unknown): value is number {
 function isOpenUiContent(value: unknown): value is StoryOpenUiContent {
   if (!isRecord(value) || !hasOnlyKeys(value, ["title", "buttons"]) || typeof value.title !== "string" || value.title.length > 120 || !Array.isArray(value.buttons)) return false;
   const ids = new Set<string>();
-  return value.buttons.length <= 8 && value.buttons.some((button) => isRecord(button) && button.action === "enter-game") && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && Boolean(ids.add(button.id)));
+  const actions = new Set<StoryOpenUiAction>();
+  const valid = value.buttons.length === 4 && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && !actions.has(button.action) && Boolean(ids.add(button.id)) && Boolean(actions.add(button.action)));
+  return valid && actions.size === 4;
 }
 
 function isOpenUiAction(value: unknown): value is StoryOpenUiAction {
-  return value === "enter-game";
+  return value === "start-game" || value === "continue-game" || value === "new-game" || value === "open-story-map";
 }
 
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
@@ -919,6 +951,27 @@ function addStoryProgress(progress: StoryProgressFacts | undefined, addition: { 
   };
 }
 
+export function storyDiscoveries(progress?: StoryProgressFacts | StoryDiscoveries): StoryDiscoveries {
+  return {
+    visitedNodeIds: [...(progress?.visitedNodeIds ?? [])],
+    selectedOptionIds: [...(progress?.selectedOptionIds ?? [])],
+    unlockedEndingIds: [...(progress?.unlockedEndingIds ?? [])],
+  };
+}
+
+function mergeStoryProgress(progress: StoryProgressFacts, discoveries: StoryDiscoveries): StoryProgressFacts {
+  return {
+    ...progress,
+    visitedNodeIds: uniqueValues(discoveries.visitedNodeIds, progress.visitedNodeIds),
+    selectedOptionIds: uniqueValues(discoveries.selectedOptionIds, progress.selectedOptionIds),
+    unlockedEndingIds: uniqueValues(discoveries.unlockedEndingIds, progress.unlockedEndingIds),
+  };
+}
+
+function uniqueValues(...groups: readonly string[][]): string[] {
+  return [...new Set(groups.flat())];
+}
+
 function uniqueAppend(values: readonly string[], value: string | undefined): string[] {
   return value && !values.includes(value) ? [...values, value] : [...values];
 }
@@ -937,6 +990,16 @@ function validStoryProgressFacts(value: unknown, chapter: StoryChapter): StoryPr
   if (value.currentNodeId !== undefined && (typeof value.currentNodeId !== "string" || !nodeIds.has(value.currentNodeId))) return undefined;
   if (value.visitedNodeIds.some((id) => !nodeIds.has(id)) || value.selectedOptionIds.some((id) => !optionIds.has(id)) || value.unlockedEndingIds.some((id) => !endingIds.has(id))) return undefined;
   return { ...(typeof value.currentNodeId === "string" ? { currentNodeId: value.currentNodeId } : {}), visitedNodeIds: [...value.visitedNodeIds], selectedOptionIds: [...value.selectedOptionIds], unlockedEndingIds: [...value.unlockedEndingIds] };
+}
+
+function validStoryDiscoveries(value: unknown, chapter: StoryChapter): StoryDiscoveries | undefined {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["visitedNodeIds", "selectedOptionIds", "unlockedEndingIds"]) || !Array.isArray(value.visitedNodeIds) || !Array.isArray(value.selectedOptionIds) || !Array.isArray(value.unlockedEndingIds)) return undefined;
+  if (!uniqueStrings(value.visitedNodeIds) || !uniqueStrings(value.selectedOptionIds) || !uniqueStrings(value.unlockedEndingIds)) return undefined;
+  const nodeIds = new Set(chapter.nodes.map((node) => node.id));
+  const optionIds = new Set(chapter.nodes.flatMap((node) => node.type === "choice" ? node.data.options.map((option) => option.id) : []));
+  const endingIds = new Set(chapter.nodes.filter((node) => node.type === "ending").map((node) => node.id));
+  if (value.visitedNodeIds.some((id) => !nodeIds.has(id)) || value.selectedOptionIds.some((id) => !optionIds.has(id)) || value.unlockedEndingIds.some((id) => !endingIds.has(id))) return undefined;
+  return { visitedNodeIds: [...value.visitedNodeIds], selectedOptionIds: [...value.selectedOptionIds], unlockedEndingIds: [...value.unlockedEndingIds] };
 }
 
 function uniqueStrings(value: unknown[]): value is string[] {
