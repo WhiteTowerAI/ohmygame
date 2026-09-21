@@ -102,26 +102,20 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <WindowDragRegion />
         <div className="home-start">
           <h1>What are we making today?</h1>
-          <fieldset className="home-category-control">
-            <legend className="visually-hidden">Project type</legend>
+          <div className="home-category-control" role="group" aria-label="Project examples">
             {PROJECT_TYPES.map(({ label, value }) => (
-              <label
+              <button
                 className={value === projectType ? "is-active" : ""}
+                type="button"
+                aria-pressed={value === projectType}
                 key={value}
+                onClick={() => setProjectType(value)}
               >
-                <input
-                  className="visually-hidden"
-                  type="radio"
-                  name="home-project-type"
-                  value={value}
-                  checked={value === projectType}
-                  onChange={() => setProjectType(value)}
-                />
                 <ProjectTypeIcon type={value} />
                 {label}
-              </label>
+              </button>
             ))}
-          </fieldset>
+          </div>
           <ProjectPromptCreator
             projectType={projectType}
             placeholder="Describe the game you want to create..."

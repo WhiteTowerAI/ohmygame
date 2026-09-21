@@ -14,18 +14,20 @@
   --text-secondary: #969aa3;
   --text-muted: #8c919c;
   --text-faint: #676c76;
-  --accent: #48d6a5;
-  --accent-ink: #071b14;
+  --accent: #ededeb;
+  --accent-ink: #1b1b1b;
+  --success: #69b88d;
   --danger: #f17a73;
   --warning: #d9af63;
   --radius: 6px;
-  --theme-accent: #b8f21f;
-  --theme-accent-hover: #c8ff3d;
+  --radius-panel: 8px;
+  --theme-accent: #ededeb;
+  --theme-accent-hover: #ffffff;
   --composer-accent: var(--theme-accent);
   --composer-accent-hover: var(--theme-accent-hover);
   --composer-border: #343434;
   --composer-surface: #282828;
-  --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, white);
+  --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, #777777);
   --menu-border: var(--composer-border);
   --menu-hover: rgb(255 255 255 / 5%);
   --menu-shadow: 0 2px 5px rgb(0 0 0 / 5%);
@@ -36,31 +38,32 @@
 }
 
 :root[data-appearance="light"] {
-  color: #202523;
+  color: #202020;
   color-scheme: light;
   --canvas: #f7f7f7;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-hover: #f7f7f7;
-  --border: #dedfd9;
-  --border-strong: #c8cac3;
-  --text: #202523;
-  --text-secondary: #626a66;
-  --text-muted: #747c77;
-  --text-faint: #919791;
-  --accent: #b7f23d;
-  --accent-ink: #17210b;
+  --surface-hover: #f4f4f4;
+  --border: #e1e1e1;
+  --border-strong: #c9c9c9;
+  --text: #202020;
+  --text-secondary: #626262;
+  --text-muted: #767676;
+  --text-faint: #969696;
+  --accent: #252525;
+  --accent-ink: #ffffff;
+  --success: #2f7d57;
   --danger: #c9413d;
   --warning: #9b6a20;
-  --theme-accent: #b7f23d;
-  --theme-accent-hover: #a8e531;
-  --composer-border: #d7d9d2;
+  --theme-accent: #252525;
+  --theme-accent-hover: #111111;
+  --composer-border: #dadada;
   --composer-surface: #ffffff;
-  --focus-ring: color-mix(in srgb, var(--theme-accent) 64%, #506070);
-  --menu-hover: rgb(22 29 26 / 6%);
+  --focus-ring: color-mix(in srgb, var(--theme-accent) 62%, white);
+  --menu-hover: rgb(0 0 0 / 6%);
   --menu-surface: #ffffff;
-  --settings-row-surface: rgb(28 35 31 / 3%);
-  --settings-row-surface-emphasis: rgb(28 35 31 / 5%);
+  --settings-row-surface: rgb(0 0 0 / 3%);
+  --settings-row-surface-emphasis: rgb(0 0 0 / 5%);
 }
 
 :root[data-appearance="dark"] {
@@ -69,9 +72,9 @@
 
 :root[data-appearance="light"] .home-shell {
   --home-sidebar: rgb(255 255 255 / 82%);
-  --home-sidebar-hover: rgb(22 29 26 / 5%);
-  --home-nav-muted: #6f7772;
-  --home-nav-active-surface: #eeeeec;
+  --home-sidebar-hover: rgb(0 0 0 / 5%);
+  --home-nav-muted: #707070;
+  --home-nav-active-surface: #ececec;
   --home-surface: #ffffff;
 }
 
@@ -429,7 +432,7 @@ body {
   flex-basis: 28px;
   width: 28px;
   height: 28px;
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .home-sidebar-account-name {
@@ -959,8 +962,8 @@ body {
 }
 .settings-connection-types button.is-active {
   color: #fff;
-  border-color: #b8f34a;
-  background: rgba(184, 243, 74, 0.12);
+  border-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
 }
 .settings-connection-editor footer {
   display: flex;
@@ -985,7 +988,7 @@ body {
   color: #fff;
 }
 .plugin-connection-status.is-enabled {
-  color: #b8f34a;
+  color: var(--success);
 }
 
 .settings-panel > h3,
@@ -2099,43 +2102,45 @@ button.home-nav-item-active:hover {
   border: 0;
 }
 
-.home-category-control label {
+.home-category-control button {
   display: inline-flex;
   height: 32px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 12px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--home-surface);
-  color: #a8adb7;
+  background: transparent;
+  color: var(--text-muted);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: var(--menu-shadow);
 }
 
-.home-category-control label:hover {
+.home-category-control button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
   color: var(--text);
 }
-.home-category-control label:has(input:focus-visible) {
+.home-category-control button:focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.home-category-control label.is-active {
-  background: var(--home-accent);
-  color: #131610;
+.home-category-control button.is-active {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
 }
-.home-category-control label:nth-of-type(1) {
+.home-category-control button:nth-of-type(1) {
   width: 108px;
 }
-.home-category-control label:nth-of-type(2) {
+.home-category-control button:nth-of-type(2) {
   width: 142px;
 }
-.home-category-control label:nth-of-type(3) {
+.home-category-control button:nth-of-type(3) {
   width: 90px;
 }
 
@@ -2663,10 +2668,10 @@ button.home-nav-item-active:hover {
   width: 100%;
   aspect-ratio: 252 / 142;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 8px;
-  background: #171c0d;
-  color: #b8f21f;
+  background: color-mix(in srgb, var(--text) 2%, var(--surface));
+  color: var(--text-muted);
   transition:
     border-color 120ms ease,
     background 120ms ease;
@@ -2674,8 +2679,9 @@ button.home-nav-item-active:hover {
 
 .project-card-new:hover .project-card-new-art,
 .project-card-new:focus-visible .project-card-new-art {
-  border-color: #b8f21f;
-  background: #1b2408;
+  border-color: var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .project-card-new:disabled {
@@ -2821,10 +2827,10 @@ button.home-nav-item-active:hover {
   width: min(430px, 100%);
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
   outline: 0;
-  background: #17181d;
+  background: var(--surface-raised);
 }
 .project-create-dialog > header {
   display: flex;
@@ -2832,7 +2838,7 @@ button.home-nav-item-active:hover {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 .project-create-dialog h2 {
   margin: 0;
@@ -2872,9 +2878,9 @@ button.home-nav-item-active:hover {
   height: 38px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   outline: 0;
-  background: #111216;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 12px;
@@ -2907,8 +2913,8 @@ button.home-nav-item-active:hover {
   overflow: hidden;
   padding: 8px 9px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #111216;
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text-faint);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 10px;
@@ -2927,7 +2933,7 @@ button.home-nav-item-active:hover {
   height: 27px;
   padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
@@ -2963,8 +2969,8 @@ button.home-nav-item-active:hover {
   gap: 6px;
   padding: 0 6px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #1b1c21;
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
@@ -2975,12 +2981,8 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 .project-create-types button.is-active {
-  border-color: color-mix(
-    in srgb,
-    var(--composer-accent) 45%,
-    var(--border-strong)
-  );
-  background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text) 5%, var(--surface));
   color: var(--text);
 }
 .project-create-templates {
@@ -3005,8 +3007,8 @@ button.home-nav-item-active:hover {
   gap: 12px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #1b1c21;
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
@@ -3039,12 +3041,8 @@ button.home-nav-item-active:hover {
   border-color: var(--border-strong);
 }
 .project-create-templates button.is-active {
-  border-color: color-mix(
-    in srgb,
-    var(--composer-accent) 45%,
-    var(--border-strong)
-  );
-  background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text) 5%, var(--surface));
 }
 .project-create-format {
   display: grid;
@@ -3074,8 +3072,8 @@ button.home-nav-item-active:hover {
   gap: 7px;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #1b1c21;
+  border-radius: var(--radius);
+  background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
@@ -3084,12 +3082,8 @@ button.home-nav-item-active:hover {
   border-color: var(--border-strong);
 }
 .story-format-options > button.is-active {
-  border-color: color-mix(
-    in srgb,
-    var(--composer-accent) 45%,
-    var(--border-strong)
-  );
-  background: color-mix(in srgb, var(--composer-accent) 8%, #1b1c21);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text) 5%, var(--surface));
 }
 .story-format-options > button:disabled {
   cursor: default;
@@ -3146,7 +3140,7 @@ button.home-nav-item-active:hover {
   gap: 6px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
@@ -3160,7 +3154,7 @@ button.home-nav-item-active:hover {
 .project-create-dialog footer .project-create-submit {
   border-color: transparent;
   background: var(--composer-accent);
-  color: #182000;
+  color: var(--accent-ink);
 }
 .project-create-dialog footer .project-create-submit:hover:not(:disabled) {
   background: var(--composer-accent-hover);
@@ -3174,10 +3168,10 @@ button.home-nav-item-active:hover {
 .publish-dialog {
   width: min(470px, 100%);
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
   outline: 0;
-  background: #17181d;
+  background: var(--surface-raised);
 }
 .publish-dialog > header {
   display: flex;
@@ -3226,9 +3220,9 @@ button.home-nav-item-active:hover {
   width: 100%;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   outline: 0;
-  background: #111216;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 12px;
@@ -3255,7 +3249,7 @@ button.home-nav-item-active:hover {
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: #0d0e11;
   color: var(--text-faint);
   cursor: pointer;
@@ -3281,7 +3275,7 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 6px;
   padding: 0 9px;
-  border-radius: 5px;
+  border-radius: var(--radius);
   background: rgb(20 22 25 / 88%);
   color: var(--text);
   font-size: 10px;
@@ -3304,7 +3298,7 @@ button.home-nav-item-active:hover {
   gap: 6px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
@@ -3318,7 +3312,7 @@ button.home-nav-item-active:hover {
 .publish-dialog footer .project-create-submit {
   border-color: transparent;
   background: var(--composer-accent);
-  color: #182000;
+  color: var(--accent-ink);
 }
 .publish-dialog footer .project-create-submit:hover:not(:disabled) {
   background: var(--composer-accent-hover);
@@ -4220,7 +4214,7 @@ button.home-nav-item-active:hover {
   background: var(--menu-hover);
 }
 .plugin-install-candidates > button.is-selected {
-  background: rgb(185 255 24 / 8%);
+  background: color-mix(in srgb, var(--theme-accent) 8%, transparent);
   color: var(--text);
 }
 .plugin-install-candidates > button > span {
@@ -4297,7 +4291,7 @@ button.home-nav-item-active:hover {
 }
 .plugin-install-dialog footer .plugin-install-submit {
   background: var(--composer-accent);
-  color: #182000;
+  color: var(--accent-ink);
 }
 .plugin-install-dialog footer .plugin-install-submit:hover:not(:disabled) {
   background: var(--composer-accent-hover);
@@ -5938,7 +5932,7 @@ button {
   width: 14px;
   height: 14px;
   appearance: none;
-  border: 3px solid #182000;
+  border: 3px solid var(--accent-ink);
   border-radius: 50%;
   background: var(--home-accent);
 }
@@ -6009,7 +6003,7 @@ button {
   width: 14px;
   height: 14px;
   appearance: none;
-  border: 3px solid #182000;
+  border: 3px solid var(--accent-ink);
   border-radius: 50%;
   background: var(--home-accent);
 }
@@ -6074,7 +6068,7 @@ button {
   border: 0;
   border-radius: 9px;
   background: var(--home-accent);
-  color: #1c2600;
+  color: var(--accent-ink);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -6625,7 +6619,7 @@ button {
 }
 .asset-template-dialog button[type="submit"] {
   background: var(--home-accent);
-  color: #1c2600;
+  color: var(--accent-ink);
 }
 .asset-template-dialog button:disabled {
   cursor: default;
@@ -11365,7 +11359,7 @@ button {
 
 .user-message-editor-actions button.primary {
   background: var(--accent);
-  color: #101713;
+  color: var(--accent-ink);
 }
 
 .user-message-editor-actions button:disabled {
@@ -13207,11 +13201,11 @@ button {
   border-radius: 50%;
   border-color: transparent;
   background: var(--composer-accent);
-  color: #131610;
+  color: var(--accent-ink);
 }
 
 .send-button:hover:not(:disabled) {
-  background: #5bddaf;
+  background: var(--theme-accent-hover);
 }
 
 .prompt-box-home .send-button:hover:not(:disabled),
@@ -13899,17 +13893,19 @@ button {
   align-items: center;
   gap: 7px;
   padding: 0 11px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--theme-accent);
-  color: #1c2600;
+  background: var(--surface-raised);
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .publish-button:hover:not(:disabled) {
-  background: var(--theme-accent-hover);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .publish-button:disabled {
@@ -15311,7 +15307,7 @@ button {
 }
 
 :root[data-appearance="light"] .home-sidebar {
-  border-right-color: rgb(22 29 26 / 9%);
+  border-right-color: rgb(0 0 0 / 9%);
   color: var(--text);
 }
 
@@ -15454,7 +15450,7 @@ button {
 }
 
 :root[data-appearance="light"] .settings-provider-row.is-featured:focus-within {
-  background: rgb(28 35 31 / 7%);
+  background: rgb(0 0 0 / 7%);
 }
 
 :root[data-appearance="light"] .settings-provider-mark {
@@ -15477,7 +15473,7 @@ button {
 }
 
 :root[data-appearance="light"] .sign-in-backdrop {
-  background: rgb(28 35 31 / 38%);
+  background: rgb(0 0 0 / 38%);
 }
 
 :root[data-appearance="light"] .sign-in-dialog {
@@ -15499,48 +15495,36 @@ button {
 }
 
 :root[data-appearance="light"] .sign-in-provider:hover:not(:disabled) {
-  background: #36413c;
+  background: #333333;
 }
 
-:root[data-appearance="light"] .home-category-control label {
-  border: 1px solid var(--border);
+:root[data-appearance="light"] .home-category-control button {
   background: var(--surface);
   color: var(--text-secondary);
 }
 
 :root[data-appearance="light"]
   .home-category-control
-  label:hover:not(.is-active) {
+  button:hover:not(.is-active) {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
 }
 
-:root[data-appearance="light"] .home-category-control label.is-active {
-  border-color: var(--home-accent);
-  background: var(--home-accent);
-  color: #131610;
+:root[data-appearance="light"] .home-category-control button.is-active {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
-:root[data-appearance="light"] .home-category-control label.is-active:hover {
-  border-color: var(--home-accent-hover);
-  background: var(--home-accent-hover);
+:root[data-appearance="light"] .home-category-control button.is-active:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 
 :root[data-appearance="light"] .home-whats-new-icon {
-  background: #dfece6;
+  background: #ececec;
   color: var(--accent);
-}
-
-:root[data-appearance="light"]
-  :is(
-    .project-card-new-art,
-    .project-card-new:hover .project-card-new-art,
-    .project-card-new:focus-visible .project-card-new-art
-  ) {
-  border-color: color-mix(in srgb, var(--theme-accent) 52%, var(--border));
-  background: color-mix(in srgb, var(--theme-accent) 11%, #fff);
-  color: #587600;
 }
 
 :root[data-appearance="light"]
@@ -15549,7 +15533,7 @@ button {
     .library-delete-backdrop,
     .library-dialog-backdrop
   ) {
-  background: rgb(28 35 31 / 38%);
+  background: rgb(0 0 0 / 38%);
 }
 
 :root[data-appearance="light"]
@@ -15565,18 +15549,6 @@ button {
     .publish-dialog textarea
   ) {
   background: var(--surface);
-}
-
-:root[data-appearance="light"]
-  :is(.project-create-types, .project-create-templates, .story-format-options)
-  button {
-  background: var(--surface);
-}
-
-:root[data-appearance="light"]
-  :is(.project-create-types, .project-create-templates, .story-format-options)
-  button.is-active {
-  background: color-mix(in srgb, var(--composer-accent) 9%, #fff);
 }
 
 :root[data-appearance="light"] .publish-cover-preview {
@@ -15604,7 +15576,7 @@ button {
 :root[data-appearance="light"] .library-asset-menu,
 :root[data-appearance="light"] .library-asset-menu:hover,
 :root[data-appearance="light"] .library-asset-menu[aria-expanded="true"] {
-  border-color: rgb(22 29 26 / 11%);
+  border-color: rgb(0 0 0 / 11%);
   background: rgb(255 255 255 / 78%);
   color: var(--text-secondary);
 }
@@ -15636,7 +15608,7 @@ button {
 }
 
 :root[data-appearance="light"] .plugin-install-backdrop {
-  background: rgb(28 35 31 / 38%);
+  background: rgb(0 0 0 / 38%);
 }
 
 :root[data-appearance="light"] :is(.plugin-switch, .asset-toggle-field button) {
@@ -15659,7 +15631,7 @@ button {
 }
 
 :root[data-appearance="light"] .plugin-row-icon-media {
-  background: #dfece6;
+  background: #ececec;
 }
 
 :root[data-appearance="light"] .plugin-row-icon-godot {
@@ -15851,7 +15823,7 @@ button {
 }
 
 :root[data-appearance="light"] .asset-template-dialog {
-  background: rgb(28 35 31 / 24%);
+  background: rgb(0 0 0 / 24%);
 }
 
 :root[data-appearance="light"] .asset-template-preview {
