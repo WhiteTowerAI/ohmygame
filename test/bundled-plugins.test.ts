@@ -31,4 +31,26 @@ describe("bundled plugins", () => {
     }]);
     expect(store.installedPath("ohmygame:reference-modeler")).toBe(plugin);
   });
+
+  it("loads the built-in Web Game Studio skill suite", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+
+    await store.load();
+
+    expect(store.read("ohmygame:web-game-studio")).toMatchObject({
+      displayName: "Web Game Studio",
+      projectTypes: ["web-game"],
+      skills: [
+        { name: "Game Playtest" },
+        { name: "Game Ui Frontend" },
+        { name: "Phaser 2d Game" },
+        { name: "React Three Fiber Game" },
+        { name: "Sprite Pipeline" },
+        { name: "Three Webgl Game" },
+        { name: "Web 3d Asset Pipeline" },
+        { name: "Web Game Foundations" },
+        { name: "Web Game Studio" },
+      ],
+    });
+  });
 });

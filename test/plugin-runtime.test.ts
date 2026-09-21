@@ -36,6 +36,20 @@ describe("plugin runtime", () => {
       marketplaceDisplayName: "Personal",
     }]);
   });
+
+  it("loads project-scoped skills only for compatible project types", async () => {
+    const plugin = { ...localPlugin(), projectTypes: ["web-game" as const] };
+    const settings = await settingsStore();
+    const local = {
+      list: async () => ({ plugins: [plugin], errors: [] }),
+      installedPath: async () => "/managed/plugin/0.1.0",
+    } as unknown as LocalPluginStore;
+
+    await expect(resolvePluginSkills([local], settings, "web-game")).resolves.toHaveLength(1);
+    await expect(resolvePluginSkills([local], settings, "godot-game")).resolves.toEqual([]);
+    await expect(resolvePluginSkills([local], settings, "interactive-drama")).resolves.toEqual([]);
+    await expect(resolvePluginSkills([local], settings)).resolves.toHaveLength(1);
+  });
 });
 
 async function settingsStore(): Promise<PluginSettingsStore> {

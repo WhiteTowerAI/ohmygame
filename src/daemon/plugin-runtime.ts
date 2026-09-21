@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { PLUGIN_SKILL_CONTENT_MAX_BYTES, pluginComponentKey, type PluginDetail } from "../shared/plugins.js";
+import type { ProjectType } from "../shared/contracts.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
 
 export interface PluginSkillSource {
@@ -61,13 +62,15 @@ export async function resolvePluginSkillFile(
 export async function resolvePluginSkillPaths(
   sources: readonly PluginSkillSource[],
   settings: PluginSettingsStore,
+  projectType?: ProjectType,
 ): Promise<string[]> {
-  return (await resolvePluginSkills(sources, settings)).map((skill) => skill.path);
+  return (await resolvePluginSkills(sources, settings, projectType)).map((skill) => skill.path);
 }
 
 export async function resolvePluginSkills(
   sources: readonly PluginSkillSource[],
   settings: PluginSettingsStore,
+  projectType?: ProjectType,
 ): Promise<PluginSkillRegistration[]> {
   const skills: PluginSkillRegistration[] = [];
   for (const source of sources) {
@@ -76,7 +79,7 @@ export async function resolvePluginSkills(
     for (const plugin of plugins) {
       const root = await source.installedPath(plugin.id);
       const resolved = settings.resolve(plugin);
-      if (!root || !resolved.enabled) continue;
+      if (!root || !resolved.enabled || (projectType && plugin.projectTypes?.length && !plugin.projectTypes.includes(projectType))) continue;
       for (const skill of plugin.skills) {
         if (!resolved.components[pluginComponentKey("skill", skill.id)]) continue;
         skills.push({
