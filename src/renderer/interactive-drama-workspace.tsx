@@ -1417,21 +1417,48 @@ function CanvasStoryPlayer({ nodeId }: { nodeId: string }) {
   </div>;
 }
 
+function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, details, footer, outputs, children }: {
+  className: string;
+  selected: boolean;
+  icon: ReactNode;
+  type: string;
+  title: string;
+  trailing?: ReactNode;
+  details?: ReactNode;
+  footer: ReactNode;
+  outputs?: ReactNode;
+  children: ReactNode;
+}) {
+  return <div className={`story-node story-media-node story-presentation-node-card ${className}${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
+    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
+    <div className="story-media-node-label story-scene-node-label">
+      {icon}
+      <span><b>{type}</b><strong>{title}</strong></span>
+      {trailing}
+    </div>
+    {children}
+    {details}
+    <footer className="story-scene-node-meta">{footer}</footer>
+    {outputs}
+  </div>;
+}
+
 function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const preview = data.openUiPreview;
   const mediaType = preview?.mediaType;
 
-  return <div className={`story-node story-media-node story-node-scene story-node-open-ui${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-scene-node-label">
-      <PanelToggle size={14} />
-      <span><b>Open UI</b><strong>{data.title || "Untitled Story"}</strong></span>
-      {preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
-    </div>
+  return <StoryPresentationNodeCard
+    className="story-node-open-ui"
+    selected={selected}
+    icon={<PanelToggle size={14} />}
+    type="Open UI"
+    title={data.title || "Untitled Story"}
+    trailing={preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
+    footer={<><span>{mediaType === "video" ? "Video" : mediaType === "image" ? "Image" : "No media"}</span><i /><span>Code</span></>}
+    outputs={<Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />}
+  >
     <CanvasStoryPlayer nodeId={id} />
-    <footer className="story-scene-node-meta"><span>{mediaType === "video" ? "Video" : mediaType === "image" ? "Image" : "No media"}</span><i /><span>Code</span></footer>
-    <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-  </div>;
+  </StoryPresentationNodeCard>;
 }
 
 function UpdateStateNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
@@ -1482,68 +1509,71 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 
 function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const mediaCount = data.presentation?.media.items.length ?? 0;
-  return (
-    <div className={`story-node story-media-node story-node-scene${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
-      <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-      <div className="story-media-node-label story-scene-node-label">
-        <Clapperboard size={14} />
-        <span><b>Scene</b><strong>{data.title || "Untitled scene"}</strong></span>
-        {data.sceneDurationMs ? <time>{formatCompactDuration(data.sceneDurationMs)}</time> : null}
-      </div>
-      <CanvasStoryPlayer nodeId={id} />
-      <footer className="story-scene-node-meta">{mediaCount ? <span>{mediaCount} {mediaCount === 1 ? "media item" : "media items"}</span> : <span className="is-placeholder">Add media</span>}</footer>
-      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-    </div>
-  );
+  return <StoryPresentationNodeCard
+    className="story-node-scene"
+    selected={selected}
+    icon={<Clapperboard size={14} />}
+    type="Scene"
+    title={data.title || "Untitled scene"}
+    trailing={data.sceneDurationMs ? <time>{formatCompactDuration(data.sceneDurationMs)}</time> : null}
+    footer={mediaCount ? <span>{mediaCount} {mediaCount === 1 ? "media item" : "media items"}</span> : <span className="is-placeholder">Add media</span>}
+    outputs={<Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />}
+  >
+    <CanvasStoryPlayer nodeId={id} />
+  </StoryPresentationNodeCard>;
 }
 
 function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const outcomes = data.outcomes ?? [];
-  return <div className={`story-node story-media-node story-node-interaction-flow${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>Interaction</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
+  return <StoryPresentationNodeCard
+    className="story-node-interaction-flow"
+    selected={selected}
+    icon={<Code2 size={14} />}
+    type="Interaction"
+    title={data.title || "Untitled interaction"}
+    details={<div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>}
+    footer={<span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span>}
+    outputs={outcomes.map((outcome, index) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
+  >
     <CanvasStoryPlayer nodeId={id} />
-    <div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>
-    <footer className="story-scene-node-meta"><span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span></footer>
-    {outcomes.map((outcome, index) => <Handle key={outcome} className="story-choice-output-handle" id={outcome} type="source" position={Position.Right} style={{ top: `${42 + (index + 1) * (48 / (outcomes.length + 1))}%` }} />)}
-  </div>;
+  </StoryPresentationNodeCard>;
 }
 
 function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const options = data.options ?? [];
-  return <div className={`story-node story-media-node story-node-choice-player${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-scene-node-label">
-      <GitBranch size={14} />
-      <span><b>Choice</b><strong>{data.title || "Make a choice"}</strong></span>
-      {data.timeout?.durationMs ? <time>{formatCompactDuration(data.timeout.durationMs)}</time> : null}
-    </div>
-      <CanvasStoryPlayer nodeId={id} />
-    <footer className="story-scene-node-meta">
-      <span>{options.length} {options.length === 1 ? "option" : "options"}</span>
-      {data.timeout?.durationMs ? <><i /><span>Timed</span></> : null}
-    </footer>
-    {options.map((option, index) => <Handle
+  const outputs = options.map((option, index) => <Handle
       className="story-choice-output-handle"
       id={option.id}
       key={option.id}
       type="source"
       position={Position.Right}
       style={{ top: `${Math.min(88, 42 + (index + 1) * (48 / (options.length + 1)))}%` }}
-    />)}
-  </div>;
+    />);
+  return <StoryPresentationNodeCard
+    className="story-node-choice-player"
+    selected={selected}
+    icon={<GitBranch size={14} />}
+    type="Choice"
+    title={data.title || "Make a choice"}
+    trailing={data.timeout?.durationMs ? <time>{formatCompactDuration(data.timeout.durationMs)}</time> : null}
+    footer={<><span>{options.length} {options.length === 1 ? "option" : "options"}</span>{data.timeout?.durationMs ? <><i /><span>Timed</span></> : null}</>}
+    outputs={outputs}
+  >
+    <CanvasStoryPlayer nodeId={id} />
+  </StoryPresentationNodeCard>;
 }
 
 function EndingNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
-  return <div className={`story-node story-media-node story-node-ending-player${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-scene-node-label">
-      <CircleStop size={14} />
-      <span><b>Ending</b><strong>{data.title || "Untitled ending"}</strong></span>
-    </div>
-      <CanvasStoryPlayer nodeId={id} />
-    <footer className="story-scene-node-meta"><span>Final ending</span></footer>
-  </div>;
+  return <StoryPresentationNodeCard
+    className="story-node-ending-player"
+    selected={selected}
+    icon={<CircleStop size={14} />}
+    type="Ending"
+    title={data.title || "Untitled ending"}
+    footer={<span>Final ending</span>}
+  >
+    <CanvasStoryPlayer nodeId={id} />
+  </StoryPresentationNodeCard>;
 }
 
 function TextNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
@@ -2188,9 +2218,9 @@ function InteractionWorkbench({ node, chapter, config, nodes, libraryAssets, var
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const design = <StoryRuntimeWorkbenchPreview ariaLabel="Interaction live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
-  return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Interaction live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
+  return <NodeWorkbenchLayout className="story-interaction-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
 function ChoiceWorkbench({ node, chapter, config, nodes, libraryAssets, variables, previewSession, onNavigateNode, onUploadAsset, onChange }: {
@@ -2213,9 +2243,8 @@ function ChoiceWorkbench({ node, chapter, config, nodes, libraryAssets, variable
     if (!options.some((option) => option.id === selectedOptionId)) setSelectedOptionId(options[0]?.id);
   }, [options, selectedOptionId]);
 
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Choice live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onChoice={setSelectedOptionId} onNavigateNode={onNavigateNode} />;
-
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} selectedChoiceOptionId={selectedOption?.id} hideHeader hideDelete onSelectChoiceOption={setSelectedOptionId} onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Choice live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onChoice={setSelectedOptionId} onNavigateNode={onNavigateNode} />;
   return <NodeWorkbenchLayout className="story-choice-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
@@ -2231,8 +2260,8 @@ function EndingWorkbench({ node, chapter, config, nodes, libraryAssets, variable
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Ending live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Ending live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   return <NodeWorkbenchLayout className="story-ending-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 
@@ -2312,17 +2341,6 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
     const nextPresentation: StoryOpenUiPresentation = { ...presentation, surface: Object.keys(layout).length ? { ...surface, layout } : surface };
     onChange({ ...node.data, presentation: nextPresentation });
   };
-  const preview = <StoryRuntimeWorkbenchPreview
-    ariaLabel="Open UI live preview"
-    chapter={chapter}
-    variables={variables}
-    config={config}
-    nodeId={node.id}
-    initialSession={previewSession}
-    onNavigateNode={onNavigateNode}
-    onSurfaceLayoutSelect={(selectedNodeId, elementId) => { if (selectedNodeId === node.id) setSelectedLayoutId(elementId); }}
-    onSurfaceLayoutChange={(selectedNodeId, elementId, offset) => { if (selectedNodeId === node.id) updateLayout(elementId, offset); }}
-  />;
   const inspector = <aside className="story-open-ui-inspector story-inspector" aria-label="Open UI inspector">
         <div className="story-inspector-content">
           <section className="story-open-ui-inspector-section">
@@ -2347,6 +2365,17 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
           </section>
         </div>
       </aside>;
+  const preview = <StoryRuntimeWorkbenchPreview
+    ariaLabel="Open UI live preview"
+    chapter={chapter}
+    variables={variables}
+    config={config}
+    nodeId={node.id}
+    initialSession={previewSession}
+    onNavigateNode={onNavigateNode}
+    onSurfaceLayoutSelect={(selectedNodeId, elementId) => { if (selectedNodeId === node.id) setSelectedLayoutId(elementId); }}
+    onSurfaceLayoutChange={(selectedNodeId, elementId, offset) => { if (selectedNodeId === node.id) updateLayout(elementId, offset); }}
+  />;
   return <NodeWorkbenchLayout
     className="story-open-ui-workbench"
     preview={preview}
@@ -2380,8 +2409,8 @@ function SceneWorkbench({ node, chapter, config, nodes, libraryAssets, variables
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
-  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Scene live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   const inspector = <StoryInspector libraryAssets={libraryAssets} nodes={nodes} node={node} variables={variables} hideHeader hideDelete onUploadAsset={onUploadAsset} onChange={onChange} onClose={() => {}} onDelete={() => {}} />;
+  const preview = <StoryRuntimeWorkbenchPreview ariaLabel="Scene live preview" chapter={chapter} variables={variables} config={config} nodeId={node.id} initialSession={previewSession} onNavigateNode={onNavigateNode} />;
   return <NodeWorkbenchLayout className="story-scene-workbench" preview={preview} inspector={inspector} timeline={null} />;
 }
 

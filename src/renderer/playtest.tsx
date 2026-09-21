@@ -470,11 +470,12 @@ function StoryOpenUiPlayer({ chapter, node, hasCheckpoint, paused, layoutEditabl
   const content = useMemo(() => openUiRuntimeContent(node.data.content, hasCheckpoint), [hasCheckpoint, node.data.content]);
   const ready = useReadyParts(onReady, 2);
   useEffect(() => { if (!item || !assetId || media.error) ready("media"); }, [assetId, item, media.error, ready]);
-  return <div className="story-player-menu-stage">
+  const background = <>
     {media.url && item?.type === "image" ? <img src={media.url} alt="" onLoad={() => ready("media")} onError={() => ready("media")} /> : null}
     {media.url && item?.type === "video" ? <video className="story-player-menu-video" src={media.url} autoPlay={!paused} muted loop playsInline onLoadedData={() => ready("media")} onError={() => ready("media")} /> : null}
-    <StoryScreenSurface files={node.data.presentation.surface.files} content={content} mode="runtime" layout={node.data.presentation.surface.layout} layoutEditable={layoutEditable} title={node.data.title || "Open UI"} className="story-player-menu-screen" onReady={() => ready("surface")} onAction={onAction} onLayoutSelect={onLayoutSelect} onLayoutChange={onLayoutChange} />
-  </div>;
+  </>;
+  const surface = <StoryScreenSurface files={node.data.presentation.surface.files} content={content} mode="runtime" layout={node.data.presentation.surface.layout} layoutEditable={layoutEditable} title={node.data.title || "Open UI"} className="story-player-menu-screen" onReady={() => ready("surface")} onAction={onAction} onLayoutSelect={onLayoutSelect} onLayoutChange={onLayoutChange} />;
+  return <StoryPresentationFrame className="story-player-menu-stage" background={background} surface={surface} />;
 }
 
 function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, active, paused, assetUrls, onReady, onComplete }: {
@@ -508,10 +509,17 @@ function StoryInteractionPlayer({ chapter, node, variables, runtime, fit, active
     resolved.current = true;
     onComplete(completion.result, completion.commands, completion.source);
   }, [active, onComplete, paused]);
-  return <div className="story-player-node story-player-interaction-node">
-    <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands, source) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands, source }; return; } resolved.current = true; onComplete(result, commands, source); }} onError={setError} />
-    {error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null}
+  const background = <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />;
+  const surface = <StoryInteractionSurface files={storyNodePresentation(node).surface.files} outcomes={node.data.outcomes} timeout={node.data.timeout} mode="runtime" context={context} active={active} paused={paused} title={node.data.title || "Interaction"} className="story-player-interaction-surface" onReady={() => ready("surface")} onComplete={(result, commands, source) => { if (resolved.current) return; if (!activeRef.current || pausedRef.current) { pending.current = { result, commands, source }; return; } resolved.current = true; onComplete(result, commands, source); }} onError={setError} />;
+  const overlay = error ? <div className="story-player-interaction-error" role="alert">Interaction failed: {error}</div> : null;
+  return <StoryPresentationFrame className="story-player-interaction-node" background={background} surface={surface} overlay={overlay} />;
+}
+
+function StoryPresentationFrame({ className, background, surface, overlay }: { className?: string; background?: ReactNode; surface: ReactNode; overlay?: ReactNode }) {
+  return <div className={`story-player-node${className ? ` ${className}` : ""}`}>
+    {background}
+    {surface}
+    {overlay}
   </div>;
 }
 
@@ -542,13 +550,12 @@ function PauseMenu({ canRestartCheckpoint, onResume, onRestartCheckpoint, onRest
 function StoryEnding({ chapter, node, variables, runtime, fit, assetUrls, onReady, onRestart, onMenu }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "ending" }>; variables: StoryVariable[]; runtime: Extract<PlayerRuntimeState, { mode: "playing" }>; fit: StoryPlayerConfig["videoFit"]; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onRestart: () => void; onMenu: () => void }) {
   const context = storyPresentationContext(node, variables, runtime);
   const ready = useReadyParts(onReady, 2);
-  return <div className="story-player-node story-player-presentation-node">
-    <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Ending"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => {
+  const background = <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />;
+  const surface = <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Ending"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => {
       if (action.type === "restart") onRestart();
       if (action.type === "menu") onMenu();
-    }} />
-  </div>;
+    }} />;
+  return <StoryPresentationFrame className="story-player-presentation-node" background={background} surface={surface} />;
 }
 
 function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, assetUrls, onReady, onSelect }: {
@@ -595,10 +602,9 @@ function StoryChoicePlayer({ chapter, node, variables, runtime, fit, paused, ass
   }
 
   const context = storyPresentationContext(node, variables, runtime, { options: visibleOptions.map(({ id, label }) => ({ id, label })), remainingMs: node.data.timeout ? remainingMs : undefined, durationMs: node.data.timeout?.durationMs });
-  return <div className="story-player-node story-player-presentation-node">
-    <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />
-    <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Choice"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => { if (action.type === "choose") select(action.optionId); }} />
-  </div>;
+  const background = <StoryPresentationMediaLayer chapter={chapter} node={node} fit={fit} assetUrls={assetUrls} onReady={() => ready("media")} />;
+  const surface = <StorySceneSurface files={storyNodePresentation(node).surface.files} context={context} mode="runtime" title={`${node.data.title || "Choice"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onAction={(action) => { if (action.type === "choose") select(action.optionId); }} />;
+  return <StoryPresentationFrame className="story-player-presentation-node" background={background} surface={surface} />;
 }
 
 function storyPresentationContext(node: Extract<StoryNode, { type: "scene" | "interaction" | "choice" | "ending" }>, variables: StoryVariable[], runtime: Extract<PlayerRuntimeState, { mode: "playing" }>, extra: Record<string, unknown> = {}) {
@@ -655,16 +661,16 @@ function StoryScenePlayer({ chapter, variables, node, runtime, fit, paused, asse
       variables: Object.fromEntries(variables.flatMap((variable) => [[variable.id, runtime.variables[variable.id]], [variable.name, runtime.variables[variable.id]]])),
     };
   }, [durationMs, items.length, mediaIndex, node.data.title, node.id, paused, playback?.mediaId, playback?.timeMs, runtime.variables, variables]);
-  if (!item) return <div className="story-player-node">
-    <ReadyEffect onReady={() => ready("media")} />
-    {playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}
-    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
-  </div>;
-  return <div className="story-player-node">
-    {item.type === "video" ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onReady={() => ready("media")} onTime={(time) => onTime(item.id, time)} onDuration={setVideoDurationMs} onEnded={(duration) => onComplete(item.id, duration)} /> : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} onLoad={() => ready("media")} onError={() => ready("media")} /> : null}{playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}</article>}
-    <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />
-    {surfaceError ? <div className="story-player-scene-error" role="alert">Scene code failed: {surfaceError}</div> : null}
-  </div>;
+  const surface = <StorySceneSurface key={node.id} files={storyNodePresentation(node).surface.files} context={sceneSurfaceContext} mode="runtime" title={`${node.data.title || "Untitled scene"} code`} className="story-player-scene-surface" onReady={() => ready("surface")} onError={setSurfaceError} />;
+  if (!item) {
+    const background = <><ReadyEffect onReady={() => ready("media")} />{playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}</>;
+    return <StoryPresentationFrame background={background} surface={surface} />;
+  }
+  const background = item.type === "video"
+    ? <StoryVideoPlayer key={item.id} assetId={assetId} fit={fit} paused={paused} initialTimeMs={playback?.timeMs ?? 0} assetUrls={assetUrls} onReady={() => ready("media")} onTime={(time) => onTime(item.id, time)} onDuration={setVideoDurationMs} onEnded={(duration) => onComplete(item.id, duration)} />
+    : <article className="story-player-video">{asset.url ? <img src={asset.url} alt="" style={{ objectFit: fit }} onLoad={() => ready("media")} onError={() => ready("media")} /> : null}{playback ? <StorySceneTimer key={playback.mediaId} mediaId={playback.mediaId} initialTimeMs={playback.timeMs} durationMs={durationMs} paused={paused} onTime={onTime} onComplete={onComplete} /> : null}</article>;
+  const overlay = surfaceError ? <div className="story-player-scene-error" role="alert">Scene code failed: {surfaceError}</div> : null;
+  return <StoryPresentationFrame background={background} surface={surface} overlay={overlay} />;
 }
 
 function StorySceneTimer({ mediaId, initialTimeMs, durationMs, paused, onTime, onComplete }: {

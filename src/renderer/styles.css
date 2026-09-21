@@ -8453,45 +8453,6 @@ button {
   border-color: #8fa8ff;
 }
 
-.story-interaction-resource-label {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-.story-interaction-resource-label > svg {
-  flex: 0 0 auto;
-  color: #9eabb8;
-}
-.story-interaction-resource-label > span {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 5px;
-}
-.story-interaction-resource-label b {
-  flex: 0 0 auto;
-  color: var(--text-faint);
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.story-interaction-resource-label strong {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-interaction-resource-label small {
-  flex: 0 0 auto;
-  color: var(--text-faint);
-  font-size: 9px;
-  font-weight: 500;
-}
-
 .react-flow__node {
   transition:
     opacity 140ms ease,
@@ -8578,9 +8539,6 @@ button {
   border-color: var(--accent);
 }
 
-.story-node-scene {
-  width: var(--story-media-width, 440px);
-}
 .story-interaction-flow-outcomes {
   display: flex;
   flex-wrap: wrap;
@@ -8595,9 +8553,6 @@ button {
   color: var(--text-muted);
   font-size: 8px;
   text-transform: capitalize;
-}
-.story-node-open-ui {
-  width: var(--story-media-width, 440px);
 }
 .story-open-ui-inspector-section {
   display: grid;
@@ -9158,8 +9113,7 @@ button {
   background: var(--story-editor-stage);
 }
 
-:is(.story-node-scene, .story-node-choice-player, .story-node-ending-player)
-  > .story-media-stage {
+.story-presentation-node-card > .story-media-stage {
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
 }
 
