@@ -11809,6 +11809,12 @@ button {
   list-style: none;
 }
 
+.connection-activity.tool-row-expandable {
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, auto) 14px;
+}
+
 .connection-activity-details > summary::-webkit-details-marker {
   display: none;
 }
@@ -11899,12 +11905,6 @@ button {
 
 .tool-activity-details > summary::-webkit-details-marker {
   display: none;
-}
-
-.connection-activity.tool-row-expandable {
-  width: fit-content;
-  max-width: 100%;
-  grid-template-columns: 14px minmax(0, auto) 14px;
 }
 
 .tool-row-expandable {
