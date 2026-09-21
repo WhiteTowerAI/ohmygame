@@ -64,6 +64,7 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 - \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
 - Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
+- \`player.controls.pause\` controls the shared pause button shown on Scene, Interaction, and Choice nodes.
 - \`variables[].initialValue\` is the only source of new-game state. Use an Update State node only for changes that happen while the story is running.
 - Use a Condition node for automatic variable-based branching; its outgoing edges use \`"true"\` and \`"false"\` as \`sourceHandle\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.

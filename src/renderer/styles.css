@@ -3370,6 +3370,43 @@ button.home-nav-item-active:hover {
 .story-canvas-settings-dialog > footer {
   padding: 0 18px 18px;
 }
+.story-player-settings-dialog {
+  width: min(460px, 100%);
+}
+.story-player-settings-dialog header p {
+  margin: 3px 0 0;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.story-player-settings-content {
+  padding: 18px;
+}
+.story-player-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.story-player-setting > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.story-player-setting strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.story-player-setting > div span {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.story-player-setting > .story-player-switch {
+  flex: 0 0 auto;
+}
+.story-player-settings-dialog > footer {
+  padding: 0 18px 18px;
+}
 .story-variables-dialog {
   width: min(620px, 100%);
 }
@@ -4415,6 +4452,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-switch,
+.story-player-switch,
 .asset-toggle-field button {
   position: relative;
   width: 32px;
@@ -4427,6 +4465,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-switch span,
+.story-player-switch span,
 .asset-toggle-field button > span {
   position: absolute;
   top: 3px;
@@ -4441,17 +4480,20 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-switch[aria-checked="true"],
+.story-player-switch[aria-checked="true"],
 .asset-toggle-field button[aria-checked="true"] {
   background: var(--home-accent);
 }
 
 .plugin-switch[aria-checked="true"] span,
+.story-player-switch[aria-checked="true"] span,
 .asset-toggle-field button[aria-checked="true"] > span {
   background: #fff;
   transform: translateX(14px);
 }
 
 .plugin-switch:disabled,
+.story-player-switch:disabled,
 .asset-toggle-field button:disabled {
   cursor: default;
   opacity: 0.4;
@@ -8097,7 +8139,7 @@ button {
 
 .desktop-macos .story-playtest-page > .window-drag-region {
   z-index: 1000;
-  right: 8px;
+  right: 72px;
   left: 72px;
   height: 40px;
 }
@@ -8599,6 +8641,14 @@ button {
   margin-top: 34px;
 }
 
+.story-player-controls {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  container-type: inline-size;
+  pointer-events: none;
+}
+
 .story-player-pause {
   position: absolute;
   top: max(18px, env(safe-area-inset-top));
@@ -8614,6 +8664,26 @@ button {
   background: rgb(9 10 12 / 72%);
   color: var(--story-player-text);
   cursor: pointer;
+}
+
+.story-player-controls.is-interactive .story-player-pause {
+  pointer-events: auto;
+}
+
+.story-player-controls.is-preview .story-player-pause {
+  top: clamp(7px, 1.4cqw, 18px);
+  right: clamp(7px, 1.4cqw, 18px);
+  width: clamp(18px, 3cqw, 38px);
+  height: clamp(18px, 3cqw, 38px);
+}
+
+.story-player-controls.is-preview:not(.is-interactive) .story-player-pause {
+  cursor: default;
+}
+
+.story-player-controls.is-preview .story-player-pause svg {
+  width: 42%;
+  height: 42%;
 }
 
 .story-player-save-status {
@@ -15539,12 +15609,12 @@ button {
   background: rgb(28 35 31 / 38%);
 }
 
-:root[data-appearance="light"] :is(.plugin-switch, .asset-toggle-field button) {
+:root[data-appearance="light"] :is(.plugin-switch, .story-player-switch, .asset-toggle-field button) {
   border: 1px solid var(--border-strong);
 }
 
 :root[data-appearance="light"]
-  :is(.plugin-switch span, .asset-toggle-field button > span) {
+  :is(.plugin-switch span, .story-player-switch span, .asset-toggle-field button > span) {
   top: 2px;
   left: 2px;
   background: var(--surface);
@@ -15553,6 +15623,7 @@ button {
 :root[data-appearance="light"]
   :is(
     .plugin-switch[aria-checked="true"],
+    .story-player-switch[aria-checked="true"],
     .asset-toggle-field button[aria-checked="true"]
   ) {
   border-color: var(--home-accent);

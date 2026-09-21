@@ -81,6 +81,14 @@ describe("canonical Interactive Drama story", () => {
     expect(() => parseStoryDocument({ ...createPlayableStoryDocument(), chapters: [] })).toThrow("Invalid story document");
   });
 
+  it("requires explicit Player control settings", () => {
+    const story = createPlayableStoryDocument();
+    expect(story.player.controls).toEqual({ pause: true });
+    const { controls: _controls, ...withoutControls } = story.player;
+    expect(isStoryDocument({ ...story, player: withoutControls })).toBe(false);
+    expect(isStoryDocument({ ...story, player: { ...story.player, controls: { pause: "yes" } } })).toBe(false);
+  });
+
   it("rejects legacy and unknown fields instead of normalizing them", () => {
     expect(isStoryDocument({ ...createPlayableStoryDocument(), overlays: [] })).toBe(false);
     const { player: _player, ...withoutPlayer } = createPlayableStoryDocument();

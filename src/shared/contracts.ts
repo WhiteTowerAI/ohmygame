@@ -312,6 +312,9 @@ export interface StoryPlayerConfig {
     textColor: string;
     font: "sans" | "serif";
   };
+  controls: {
+    pause: boolean;
+  };
   videoFit: "contain" | "cover";
   choicePosition: "center" | "bottom";
 }

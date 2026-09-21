@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw } from "./icons.js";
+import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryOpenUiAction, StoryPlayerConfig, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStoryCheckpoint, DEFAULT_STORY_PLAYER_CONFIG, isEntryOpenUiNode, matchesStoryCondition, openUiRuntimeContent, resolveInteractionNode, resolvePresentationMedia, resolveStoryAssetId, restartGame, shouldCreateStoryCheckpoint, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState, type StoryProgressFacts } from "../shared/story.js";
@@ -8,6 +8,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface } from "./story-interaction-surface.js";
 import { StoryScreenSurface } from "./story-screen-surface.js";
 import { StorySceneSurface, type StoryNodeSurfaceAction } from "./story-scene-surface.js";
+import { StoryPlayerControls, StoryPlayerPauseLayer } from "./story-player-controls.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
@@ -213,12 +214,13 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   if (runtime.mode === "menu") return <div className="story-playtest-state" role="alert">The story has not started.</div>;
   const frameKey = `${node?.id ?? "missing"}:${runtime.scenePlayback?.mediaId ?? ""}:${playbackKey}`;
   const frame = { chapter, variables, config, node, runtime, hasCheckpoint, assetUrls } satisfies StoryPlayerFrameData;
+  const canPause = node?.type === "scene" || node?.type === "interaction" || node?.type === "choice";
 
   return <section className={`story-player story-player-${config.choicePosition}`} aria-label="Story player" style={viewportStyle}>
     <div className="story-player-stage">
       <StoryFrameTransition frameKey={frameKey} frame={frame} paused={paused} onAdvanceOpenUi={onAdvanceOpenUi} onContinueGame={onContinueGame} onRestartGame={onRestartGame} onMenu={onMenu} onSceneTime={onSceneTime} onMediaComplete={onMediaComplete} onInteraction={onInteraction} onChoice={onChoice} />
       {saveStatus ? <div className={`story-player-save-status${saveStatus === "error" ? " is-error" : ""}`} role={saveStatus === "error" ? "alert" : "status"}>{saveStatus === "error" ? "Progress could not be saved" : "Saved"}</div> : null}
-      {node?.type !== "ending" ? <button className="story-player-pause" type="button" title="Pause" aria-label="Pause" onClick={onPause}><Pause size={16} fill="currentColor" /></button> : null}
+      <StoryPlayerControls pause={config.controls.pause && canPause} mode="runtime" onPause={onPause} />
       {paused ? <PauseMenu canRestartCheckpoint={hasCheckpoint} onResume={onResume} onRestartCheckpoint={onRestartCheckpoint} onRestartGame={onRestartGame} onMenu={onMenu} /> : null}
     </div>
   </section>;
@@ -375,15 +377,12 @@ function StoryPresentationMediaLayer({ chapter, runtime, fit, assetUrls, onReady
 }
 
 function PauseMenu({ canRestartCheckpoint, onResume, onRestartCheckpoint, onRestartGame, onMenu }: { canRestartCheckpoint: boolean; onResume: () => void; onRestartCheckpoint: () => void; onRestartGame: () => void; onMenu: () => void }) {
-  return <div className="story-player-pause-layer" role="dialog" aria-modal="true" aria-label="Game paused">
-    <div>
-      <span>Paused</span>
-      <button type="button" onClick={onResume}><Play size={15} fill="currentColor" />Resume</button>
-      <button type="button" disabled={!canRestartCheckpoint} onClick={onRestartCheckpoint}><RotateCcw size={15} />Restart checkpoint</button>
-      <button type="button" onClick={onRestartGame}>Restart game</button>
-      <button type="button" onClick={onMenu}>Main menu</button>
-    </div>
-  </div>;
+  return <StoryPlayerPauseLayer modal>
+    <button type="button" onClick={onResume}><Play size={15} fill="currentColor" />Resume</button>
+    <button type="button" disabled={!canRestartCheckpoint} onClick={onRestartCheckpoint}><RotateCcw size={15} />Restart checkpoint</button>
+    <button type="button" onClick={onRestartGame}>Restart game</button>
+    <button type="button" onClick={onMenu}>Main menu</button>
+  </StoryPlayerPauseLayer>;
 }
 
 function StoryEnding({ chapter, node, variables, runtime, viewport, fit, assetUrls, onReady, onRestart, onMenu }: { chapter: StoryChapter; node: Extract<StoryNode, { type: "ending" }>; variables: StoryVariable[]; runtime: Extract<PlayerRuntimeState, { mode: "playing" }>; viewport: StoryPlayerConfig["viewport"]; fit: StoryPlayerConfig["videoFit"]; assetUrls?: Readonly<Record<string, string>>; onReady: () => void; onRestart: () => void; onMenu: () => void }) {

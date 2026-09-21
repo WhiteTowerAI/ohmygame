@@ -39,6 +39,7 @@ export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
   title: "Untitled Story",
   viewport: { width: 1280, height: 720 },
   theme: { accentColor: "#ffffff", textColor: "#ffffff", font: "sans" },
+  controls: { pause: true },
   videoFit: "contain",
   choicePosition: "bottom",
 };
@@ -806,12 +807,13 @@ function isVariables(value: unknown): value is StoryVariable[] {
 
 function isPlayerConfig(value: unknown): value is StoryPlayerConfig {
   if (!isRecord(value) || typeof value.title !== "string" || value.title.length > 120 ||
-    !hasOnlyKeys(value, ["title", "viewport", "theme", "videoFit", "choicePosition"]) ||
+    !hasOnlyKeys(value, ["title", "viewport", "theme", "controls", "videoFit", "choicePosition"]) ||
     !isRecord(value.viewport) || !isViewportDimension(value.viewport.width) || !isViewportDimension(value.viewport.height) ||
     !hasOnlyKeys(value.viewport, ["width", "height"]) ||
     (value.videoFit !== "contain" && value.videoFit !== "cover") ||
     (value.choicePosition !== "center" && value.choicePosition !== "bottom") || !isRecord(value.theme) ||
-    !hasOnlyKeys(value.theme, ["accentColor", "textColor", "font"])) return false;
+    !hasOnlyKeys(value.theme, ["accentColor", "textColor", "font"]) || !isRecord(value.controls) ||
+    !hasOnlyKeys(value.controls, ["pause"]) || typeof value.controls.pause !== "boolean") return false;
   return /^#[0-9a-f]{6}$/i.test(String(value.theme.accentColor)) &&
     /^#[0-9a-f]{6}$/i.test(String(value.theme.textColor)) &&
     (value.theme.font === "sans" || value.theme.font === "serif");

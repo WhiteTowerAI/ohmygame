@@ -28,6 +28,7 @@ import {
   Play,
   Plus,
   Search,
+  SlidersHorizontal,
   Share2,
   Trash2,
   Upload,
@@ -124,6 +125,8 @@ import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
+import { StoryPlayerControls, StoryPlayerPauseLayer } from "./story-player-controls.js";
+import { StoryPlayerSettingsDialog } from "./story-player-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
 import "@xyflow/react/dist/style.css";
 
@@ -373,6 +376,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [importingAssets, setImportingAssets] = useState(false);
   const [building, setBuilding] = useState(false);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
+  const [playerSettingsOpen, setPlayerSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
@@ -1223,12 +1227,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   return (
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
-          <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
-          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
+          <button type="button" title="Canvas format" onClick={() => { setPlayerSettingsOpen(false); setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
+          <button type="button" title="Player" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(false); setPlayerSettingsOpen(true); }}><SlidersHorizontal size={14} /><span>Player</span></button>
+          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setPlayerSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
         </div>
         <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
           <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
@@ -1387,6 +1392,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         onClose={() => setOpenedNodeId(undefined)}
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog viewport={player.viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={(viewport) => setPlayer((current) => ({ ...current, viewport }))} /> : null}
+      {playerSettingsOpen ? <StoryPlayerSettingsDialog controls={player.controls} onClose={() => setPlayerSettingsOpen(false)} onApply={(controls) => setPlayer((current) => ({ ...current, controls }))} /> : null}
       {variablesOpen ? <StoryVariablesDialog variables={variables} usageCounts={variableUsageCounts} onClose={() => setVariablesOpen(false)} onApply={updateVariables} /> : null}
       {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
     </section>
@@ -1525,7 +1531,7 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
         <span><b>Scene</b><strong>{data.title || "Untitled scene"}</strong></span>
         {preview?.totalDurationMs ? <time>{formatCompactDuration(preview.totalDurationMs)}</time> : null}
       </div>
-      <SceneNodePoster sceneId={id} preview={preview} surfaceFiles={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} variables={data.variables ?? []} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} videoFit={data.playerConfig?.videoFit ?? DEFAULT_STORY_PLAYER_CONFIG.videoFit} title={data.title || "Untitled scene"} />
+      <SceneNodePoster sceneId={id} preview={preview} surfaceFiles={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} variables={data.variables ?? []} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} videoFit={data.playerConfig?.videoFit ?? DEFAULT_STORY_PLAYER_CONFIG.videoFit} pause={data.playerConfig?.controls.pause ?? DEFAULT_STORY_PLAYER_CONFIG.controls.pause} title={data.title || "Untitled scene"} />
       <footer className="story-scene-node-meta">{mediaCount ? <span>{mediaCount} {mediaCount === 1 ? "media item" : "media items"}</span> : <span className="is-placeholder">Add media</span>}</footer>
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -1540,6 +1546,7 @@ function InteractionNode({ data, selected }: NodeProps<StoryFlowNode>) {
     <div className="story-media-node-label story-interaction-resource-label"><Code2 size={14} /><span><b>Interaction</b><strong>{data.title || "Untitled interaction"}</strong></span></div>
     <InheritedScenePoster preview={data.inheritedScenePreview} className="story-interaction-flow-preview">
       <StoryInteractionSurface files={data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} outcomes={outcomes} timeout={data.interactionTimeout} mode="preview" context={context} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} title={`${data.title || "Interaction"} preview`} />
+      <StoryPlayerControls pause={data.playerConfig?.controls.pause ?? DEFAULT_STORY_PLAYER_CONFIG.controls.pause} mode="preview" />
     </InheritedScenePoster>
     <div className="story-interaction-flow-outcomes">{outcomes.map((outcome) => <span key={outcome}>{outcome}</span>)}</div>
     <footer className="story-scene-node-meta"><span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span></footer>
@@ -1554,13 +1561,14 @@ function interactionPreviewContext(variables: StoryVariable[]): StoryInteraction
   };
 }
 
-function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, videoFit, title }: {
+function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, videoFit, pause, title }: {
   sceneId: string;
   preview?: SceneCanvasPreviewData;
   surfaceFiles: StorySurfaceFiles;
   variables: StoryVariable[];
   viewport: StoryPlayerConfig["viewport"];
   videoFit: StoryPlayerConfig["videoFit"];
+  pause: boolean;
   title: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -1664,6 +1672,7 @@ function SceneNodePoster({ sceneId, preview, surfaceFiles, variables, viewport, 
       title={`${title} code preview`}
       className="story-scene-code-surface"
     /> : null}
+    <StoryPlayerControls pause={pause} mode="preview" />
     {activeAsset.url && activeSegment?.type === "video" ? <InlineVideoControls
       label="Scene preview"
       playing={playing}
@@ -1688,6 +1697,7 @@ function ChoiceNode({ data, selected }: NodeProps<StoryFlowNode>) {
     </div>
     <InheritedScenePoster preview={data.inheritedScenePreview}>
       <StoryPresentationSurfacePreview nodeType="choice" data={data} viewport={data.playerConfig?.viewport ?? DEFAULT_STORY_PLAYER_CONFIG.viewport} />
+      <StoryPlayerControls pause={data.playerConfig?.controls.pause ?? DEFAULT_STORY_PLAYER_CONFIG.controls.pause} mode="preview" />
     </InheritedScenePoster>
     <footer className="story-scene-node-meta">
       <span>{options.length} {options.length === 1 ? "option" : "options"}</span>
@@ -2315,9 +2325,9 @@ function NodeEditorPage({ node, config, nodes, edges, libraryAssets, variables, 
       : node && sceneMode === "code" && (node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") ? <StoryPresentationCodeWorkbench node={node} />
       : node?.type === "update-state" ? <UpdateStateEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
       : node?.type === "condition" ? <ConditionEditorPage node={node} variables={variables} onNodeChange={onNodeChange} />
-      : node?.type === "scene" ? <SceneWorkbench mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node?.type === "interaction" ? <InteractionWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
-      : node?.type === "choice" ? <ChoiceWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "scene" ? <SceneWorkbench key={node.id} mode="design" node={node} nodes={nodes} viewport={config.viewport} videoFit={config.videoFit} pause={config.controls.pause} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "interaction" ? <InteractionWorkbench key={node.id} node={node} nodes={nodes} edges={edges} viewport={config.viewport} pause={config.controls.pause} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
+      : node?.type === "choice" ? <ChoiceWorkbench key={node.id} node={node} nodes={nodes} edges={edges} viewport={config.viewport} pause={config.controls.pause} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} />
       : node?.type === "ending" ? <EndingWorkbench node={node} nodes={nodes} edges={edges} viewport={config.viewport} libraryAssets={libraryAssets} variables={variables} onUploadAsset={onUploadAsset} onChange={onNodeChange} onPlaytest={onPlaytest} />
       : <div className="story-node-editor-content"><div className="story-node-editor-main"><div className="story-node-editor-preview"><span>{node?.type ?? "Node"}</span><h1>{title}</h1><p>Node editor preview</p></div></div></div>}
   </section>;
@@ -2405,23 +2415,27 @@ function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
   </div>;
 }
 
-function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onUploadAsset, onChange }: {
+function InteractionWorkbench({ node, nodes, edges, viewport, pause, libraryAssets, variables, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   edges: Edge[];
   viewport: StoryPlayerConfig["viewport"];
+  pause: boolean;
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
+  const [paused, setPaused] = usePreviewPause(pause);
   const preview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
   const files = node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES;
   const context = useMemo(() => interactionPreviewContext(variables), [variables]);
   const design = <section className="story-choice-ending-preview" aria-label="Interaction live preview">
     <div className="story-choice-ending-frame">
       <InheritedScenePoster preview={preview} className="story-choice-ending-stage">
-        <StoryInteractionSurface files={files} outcomes={node.data.outcomes ?? []} timeout={node.data.interactionTimeout} mode="preview" context={context} viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
+        <StoryInteractionSurface files={files} outcomes={node.data.outcomes ?? []} timeout={node.data.interactionTimeout} mode="preview" context={context} paused={paused} viewport={viewport} title={`${node.data.title || "Interaction"} preview`} className="story-interaction-workbench-surface" />
+        <StoryPlayerControls pause={pause} mode="preview" onPause={() => setPaused(true)} />
+        {paused ? <StoryPreviewPauseLayer onResume={() => setPaused(false)} /> : null}
       </InheritedScenePoster>
     </div>
   </section>;
@@ -2429,17 +2443,19 @@ function InteractionWorkbench({ node, nodes, edges, viewport, libraryAssets, var
   return <NodeWorkbenchLayout className="story-interaction-workbench" preview={design} inspector={inspector} timeline={null} />;
 }
 
-function ChoiceWorkbench({ node, nodes, edges, viewport, libraryAssets, variables, onUploadAsset, onChange }: {
+function ChoiceWorkbench({ node, nodes, edges, viewport, pause, libraryAssets, variables, onUploadAsset, onChange }: {
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   edges: Edge[];
   viewport: StoryPlayerConfig["viewport"];
+  pause: boolean;
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
   const options = node.data.options ?? [];
+  const [paused, setPaused] = usePreviewPause(pause);
   const [selectedOptionId, setSelectedOptionId] = useState(options[0]?.id);
   const selectedOption = options.find((option) => option.id === selectedOptionId) ?? options[0];
   const inheritedPreview = resolvedPresentationPreview(node, nodes, edges, libraryAssets);
@@ -2453,6 +2469,8 @@ function ChoiceWorkbench({ node, nodes, edges, viewport, libraryAssets, variable
     <div className="story-choice-ending-frame">
       <InheritedScenePoster preview={inheritedPreview} className="story-choice-ending-stage">
         <StoryPresentationSurfacePreview nodeType="choice" data={{ ...node.data, variables, previewValues }} viewport={viewport} onAction={(action) => { if (action.type === "choose") setSelectedOptionId(action.optionId); }} />
+        <StoryPlayerControls pause={pause} mode="preview" onPause={() => setPaused(true)} />
+        {paused ? <StoryPreviewPauseLayer onResume={() => setPaused(false)} /> : null}
       </InheritedScenePoster>
     </div>
   </section>;
@@ -2682,12 +2700,13 @@ function presentationItemPreview(item: StorySceneMedia | undefined, nodes: reado
     : { mediaType: item.type };
 }
 
-function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, variables, onUploadAsset, onChange }: {
+function SceneWorkbench({ mode, node, nodes, viewport, videoFit, pause, libraryAssets, variables, onUploadAsset, onChange }: {
   mode: "design" | "code";
   node: StoryFlowNode;
   nodes: StoryFlowNode[];
   viewport: StoryPlayerConfig["viewport"];
   videoFit: StoryPlayerConfig["videoFit"];
+  pause: boolean;
   libraryAssets: LibraryAsset[];
   variables: StoryVariable[];
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
@@ -2699,6 +2718,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
   const totalMs = Math.max(1_000, segments.reduce((total, segment) => total + segment.durationMs, 0));
   const [currentMs, setCurrentMs] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = usePreviewPause(pause);
   const active = segments.find((segment) => currentMs >= segment.startMs && currentMs < segment.startMs + segment.durationMs) ?? segments.at(-1);
   const localTimeMs = active ? Math.max(0, currentMs - active.startMs) : 0;
   const surfaceVariables = Object.fromEntries(variables.flatMap((variable) => [[variable.id, variable.initialValue], [variable.name, variable.initialValue]]));
@@ -2712,7 +2732,7 @@ function SceneWorkbench({ mode, node, nodes, viewport, videoFit, libraryAssets, 
     setPlaying(nextPlaying);
   }
 
-  const preview = <SceneWorkbenchMedia assetId={active?.assetId} mediaType={active?.item.type} sceneId={node.id} sceneTitle={node.data.title ?? "Scene"} viewport={viewport} videoFit={videoFit} mediaIndex={active?.index ?? -1} mediaCount={items.length} surfaceFiles={node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} surfaceVariables={surfaceVariables} localTimeMs={localTimeMs} playing={playing} currentMs={currentMs} totalMs={totalMs} onPlayingChange={changePlaying} onSeek={setCurrentMs} onTime={(timeMs) => {
+  const preview = <SceneWorkbenchMedia assetId={active?.assetId} mediaType={active?.item.type} sceneId={node.id} sceneTitle={node.data.title ?? "Scene"} viewport={viewport} videoFit={videoFit} pause={pause} paused={paused} mediaIndex={active?.index ?? -1} mediaCount={items.length} surfaceFiles={node.data.presentation?.surface.files ?? DEFAULT_SCENE_SURFACE_FILES} surfaceVariables={surfaceVariables} localTimeMs={localTimeMs} playing={playing} currentMs={currentMs} totalMs={totalMs} onPause={() => setPaused(true)} onResume={() => setPaused(false)} onPlayingChange={changePlaying} onSeek={setCurrentMs} onTime={(timeMs) => {
         setCurrentMs(Math.min(totalMs, (active?.startMs ?? 0) + timeMs));
       }} onEnded={() => {
         const next = active ? segments[active.index + 1] : undefined;
@@ -2759,16 +2779,18 @@ function StoryPresentationCodeWorkbench({ node }: {
   </div>;
 }
 
-function SceneWorkbenchMedia({ assetId, mediaType, sceneId, sceneTitle, viewport, videoFit, mediaIndex, mediaCount, surfaceFiles, surfaceVariables, localTimeMs, playing, currentMs, totalMs, onPlayingChange, onSeek, onTime, onEnded }: { assetId?: string; mediaType?: StorySceneMedia["type"]; sceneId: string; sceneTitle: string; viewport: StoryPlayerConfig["viewport"]; videoFit: StoryPlayerConfig["videoFit"]; mediaIndex: number; mediaCount: number; surfaceFiles: StorySurfaceFiles; surfaceVariables: Record<string, StoryVariableValue>; localTimeMs: number; playing: boolean; currentMs: number; totalMs: number; onPlayingChange: (playing: boolean) => void; onSeek: (timeMs: number) => void; onTime: (timeMs: number) => void; onEnded: () => void }) {
+function SceneWorkbenchMedia({ assetId, mediaType, sceneId, sceneTitle, viewport, videoFit, pause, paused, mediaIndex, mediaCount, surfaceFiles, surfaceVariables, localTimeMs, playing, currentMs, totalMs, onPause, onResume, onPlayingChange, onSeek, onTime, onEnded }: { assetId?: string; mediaType?: StorySceneMedia["type"]; sceneId: string; sceneTitle: string; viewport: StoryPlayerConfig["viewport"]; videoFit: StoryPlayerConfig["videoFit"]; pause: boolean; paused: boolean; mediaIndex: number; mediaCount: number; surfaceFiles: StorySurfaceFiles; surfaceVariables: Record<string, StoryVariableValue>; localTimeMs: number; playing: boolean; currentMs: number; totalMs: number; onPause: () => void; onResume: () => void; onPlayingChange: (playing: boolean) => void; onSeek: (timeMs: number) => void; onTime: (timeMs: number) => void; onEnded: () => void }) {
   const asset = useWorkspaceAssetUrl(undefined, "", 0, assetId);
   const video = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(false);
   useEffect(() => { if (video.current && Math.abs(video.current.currentTime * 1_000 - localTimeMs) > 250) video.current.currentTime = localTimeMs / 1_000; }, [assetId, localTimeMs]);
-  useEffect(() => { if (!video.current) return; if (playing) void video.current.play().catch(() => onPlayingChange(false)); else video.current.pause(); }, [asset.url, onPlayingChange, playing]);
+  useEffect(() => { if (!video.current) return; if (playing && !paused) void video.current.play().catch(() => onPlayingChange(false)); else video.current.pause(); }, [asset.url, onPlayingChange, paused, playing]);
   return <StoryWorkbenchPreview ariaLabel="Scene live preview" viewport={viewport} stageClassName="story-scene-media">
       {asset.url && mediaType === "image" ? <img key={assetId} src={asset.url} alt="" style={{ objectFit: videoFit }} /> : null}
       {asset.url && mediaType === "video" ? <video key={assetId} ref={video} src={asset.url} muted={muted} playsInline style={{ objectFit: videoFit }} onClick={() => onPlayingChange(!playing)} onTimeUpdate={(update) => onTime(Math.round(update.currentTarget.currentTime * 1_000))} onEnded={onEnded} /> : null}
-      <SceneCodeSurface key={sceneId} files={surfaceFiles} context={{ scene: { id: sceneId, title: sceneTitle, mediaIndex, mediaCount, timeMs: localTimeMs, durationMs: totalMs, playing }, variables: surfaceVariables }} mode="preview" viewport={viewport} title={`${sceneTitle} code`} className="story-scene-code-surface" />
+      <SceneCodeSurface key={sceneId} files={surfaceFiles} context={{ scene: { id: sceneId, title: sceneTitle, mediaIndex, mediaCount, timeMs: localTimeMs, durationMs: totalMs, playing: playing && !paused }, variables: surfaceVariables }} mode="preview" viewport={viewport} title={`${sceneTitle} code`} className="story-scene-code-surface" />
+      <StoryPlayerControls pause={pause} mode="preview" onPause={onPause} />
+      {paused ? <StoryPreviewPauseLayer onResume={onResume} /> : null}
       {asset.url && mediaType === "video" ? <InlineVideoControls
         label="Scene preview"
         playing={playing}
@@ -2780,6 +2802,18 @@ function SceneWorkbenchMedia({ assetId, mediaType, sceneId, sceneTitle, viewport
         onToggleMuted={() => setMuted((current) => !current)}
       /> : null}
   </StoryWorkbenchPreview>;
+}
+
+function StoryPreviewPauseLayer({ onResume }: { onResume: () => void }) {
+  return <StoryPlayerPauseLayer>
+    <button type="button" onClick={onResume}><Play size={15} fill="currentColor" />Resume</button>
+  </StoryPlayerPauseLayer>;
+}
+
+function usePreviewPause(enabled: boolean) {
+  const [paused, setPaused] = useState(false);
+  useEffect(() => { if (!enabled) setPaused(false); }, [enabled]);
+  return [paused, setPaused] as const;
 }
 
 const videoPosterFrameCache = new Map<string, Promise<string>>();
