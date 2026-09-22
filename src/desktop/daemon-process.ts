@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
+import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
 
 export interface DaemonRuntime {
   url: string;
@@ -24,6 +25,7 @@ interface StartDaemonOptions {
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   healthTimeoutMs?: number;
+  handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
@@ -46,9 +48,13 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
+      ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: options.handlePlaytestRequest ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
   });
+  const playtestRequests = options.handlePlaytestRequest
+    ? bindPlaytestRequests(child, options.handlePlaytestRequest)
+    : undefined;
   let processError: Error | undefined;
 
   child.stdout?.on("data", (chunk) => process.stdout.write(`[daemon] ${String(chunk)}`));
@@ -71,7 +77,46 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     async stop() {
       if (stopped) return;
       stopped = true;
+      playtestRequests?.close();
       await stopChild(child);
+    },
+  };
+}
+
+function bindPlaytestRequests(
+  child: ChildProcess,
+  handler: NonNullable<StartDaemonOptions["handlePlaytestRequest"]>,
+): { close(): void } {
+  const active = new Map<string, AbortController>();
+  const send = (message: PlaytestIpcMessage) => {
+    if (child.connected) child.send?.(message);
+  };
+  const onMessage = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const message = value as Partial<PlaytestIpcMessage> & { id?: unknown };
+    if (typeof message.id !== "string") return;
+    if (message.channel === "ohmygame:playtest-cancel") {
+      active.get(message.id)?.abort();
+      return;
+    }
+    if (message.channel !== "ohmygame:playtest-request" || !("request" in message)) return;
+    const controller = new AbortController();
+    active.set(message.id, controller);
+    void handler(message.request as PlaytestRequest, controller.signal).then(
+      (result) => send({ channel: "ohmygame:playtest-response", id: message.id as string, result }),
+      (cause) => send({
+        channel: "ohmygame:playtest-response",
+        id: message.id as string,
+        error: cause instanceof Error ? cause.message : String(cause),
+      }),
+    ).finally(() => active.delete(message.id as string));
+  };
+  child.on("message", onMessage);
+  return {
+    close() {
+      child.off("message", onMessage);
+      for (const controller of active.values()) controller.abort();
+      active.clear();
     },
   };
 }
