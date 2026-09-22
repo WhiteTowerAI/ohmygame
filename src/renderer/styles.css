@@ -11071,7 +11071,8 @@ button {
 .timeline {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 18px 18px 24px;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-gutter: stable;
@@ -11653,6 +11654,9 @@ button {
 }
 
 .connection-activity-details {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
 }
 
@@ -11684,12 +11688,15 @@ button {
 }
 
 .connection-activity-error {
+  min-width: 0;
+  max-width: 100%;
   margin: 2px 0 0 21px;
   padding: 4px 0;
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .tool-activity {
