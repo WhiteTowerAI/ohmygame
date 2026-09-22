@@ -464,7 +464,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = item.status === "inProgress" ? <Layers3 size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const icon = <Layers3 size={13} />;
     const labelClass = item.status === "inProgress" ? "activity-shimmer" : undefined;
     if (item.status === "completed" && item.summary) {
       return (
