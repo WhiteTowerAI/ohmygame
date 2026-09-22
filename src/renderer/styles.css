@@ -8685,25 +8685,6 @@ button {
   background: #eb9b8a;
   transform: translateX(-50%) rotate(45deg);
 }
-.story-scene-node-meta {
-  display: flex;
-  min-height: 28px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 2px;
-  color: var(--text-muted);
-  font-size: 9px;
-}
-.story-scene-node-meta i {
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-.story-scene-node-meta .is-placeholder {
-  color: var(--text-faint);
-}
-
 .story-node.story-node-ending-player .react-flow__handle {
   background: #e58888;
 }

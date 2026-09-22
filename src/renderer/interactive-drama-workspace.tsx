@@ -1430,14 +1430,13 @@ function CanvasStoryPlayer({ nodeId }: { nodeId: string }) {
   </div>;
 }
 
-function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, footer, outputs, children }: {
+function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, outputs, children }: {
   className: string;
   selected: boolean;
   icon: ReactNode;
   type: string;
   title: string;
   trailing?: ReactNode;
-  footer: ReactNode;
   outputs?: ReactNode;
   children: ReactNode;
 }) {
@@ -1449,7 +1448,6 @@ function StoryPresentationNodeCard({ className, selected, icon, type, title, tra
       {trailing}
     </div>
     {children}
-    <footer className="story-scene-node-meta">{footer}</footer>
     {outputs}
   </div>;
 }
@@ -1464,7 +1462,6 @@ function StoryNodeOutputs({ outputs }: { outputs: ReadonlyArray<{ id: string; la
 
 function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const preview = data.openUiPreview;
-  const mediaType = preview?.mediaType;
 
   return <StoryPresentationNodeCard
     className="story-node-open-ui"
@@ -1473,7 +1470,6 @@ function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
     type="Open UI"
     title={data.title || "Untitled Story"}
     trailing={preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
-    footer={<><span>{mediaType === "video" ? "Video" : mediaType === "image" ? "Image" : "No media"}</span><i /><span>Code</span></>}
     outputs={<StoryNodeOutputs outputs={[{ id: OUTPUT_HANDLE, label: "Story" }, { id: STORY_MAP_HANDLE, label: "Story map" }]} />}
   >
     <CanvasStoryPlayer nodeId={id} />
@@ -1489,7 +1485,6 @@ function StoryMapNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
     icon={<Layers3 size={14} />}
     type="Story Map"
     title={data.title || "Story Map"}
-    footer={<><span>System UI</span><i /><span>Code</span></>}
   >
     <div className="story-media-stage story-canvas-player-preview" inert>
       {player && node ? <StoryPlayerViewport viewport={player.config.viewport}>
@@ -1543,7 +1538,6 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 }
 
 function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
-  const mediaCount = data.presentation?.media.items.length ?? 0;
   return <StoryPresentationNodeCard
     className="story-node-scene"
     selected={selected}
@@ -1551,7 +1545,6 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     type="Scene"
     title={data.title || "Untitled scene"}
     trailing={data.sceneDurationMs ? <time>{formatCompactDuration(data.sceneDurationMs)}</time> : null}
-    footer={mediaCount ? <span>{mediaCount} {mediaCount === 1 ? "media item" : "media items"}</span> : <span className="is-placeholder">Add media</span>}
     outputs={<Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />}
   >
     <CanvasStoryPlayer nodeId={id} />
@@ -1566,7 +1559,6 @@ function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     icon={<Code2 size={14} />}
     type="Interaction"
     title={data.title || "Untitled interaction"}
-    footer={<span>{outcomes.length} {outcomes.length === 1 ? "outcome" : "outcomes"}</span>}
     outputs={<StoryNodeOutputs outputs={outcomes.map((outcome) => ({ id: outcome, label: outcome }))} />}
   >
     <CanvasStoryPlayer nodeId={id} />
@@ -1582,7 +1574,6 @@ function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     type="Choice"
     title={data.title || "Make a choice"}
     trailing={data.timeout?.durationMs ? <time>{formatCompactDuration(data.timeout.durationMs)}</time> : null}
-    footer={<><span>{options.length} {options.length === 1 ? "option" : "options"}</span>{data.timeout?.durationMs ? <><i /><span>Timed</span></> : null}</>}
     outputs={<StoryNodeOutputs outputs={options.map((option) => ({ id: option.id, label: option.label || "Untitled option" }))} />}
   >
     <CanvasStoryPlayer nodeId={id} />
@@ -1596,7 +1587,6 @@ function EndingNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
     icon={<CircleStop size={14} />}
     type="Ending"
     title={data.title || "Untitled ending"}
-    footer={<span>Final ending</span>}
   >
     <CanvasStoryPlayer nodeId={id} />
   </StoryPresentationNodeCard>;
