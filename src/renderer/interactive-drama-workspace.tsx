@@ -231,6 +231,7 @@ interface StoryCanvasPlayerData {
   chapter: StoryChapter;
   variables: StoryVariable[];
   config: StoryPlayerConfig;
+  onRenameNode: (nodeId: string, title: string) => void;
 }
 
 const StoryCanvasPlayerContext = createContext<StoryCanvasPlayerData | undefined>(undefined);
@@ -1032,7 +1033,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     }
   }
 
-  const canvasPlayer = useMemo(() => activeChapter ? { chapter: activeChapter, variables, config: player } : undefined, [activeChapter, player, variables]);
+  const renameNode = useCallback((nodeId: string, title: string): void => {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, title: nextTitle } } : node));
+  }, []);
+
+  const canvasPlayer = useMemo(() => activeChapter ? { chapter: activeChapter, variables, config: player, onRenameNode: renameNode } : undefined, [activeChapter, player, renameNode, variables]);
   const renderedNodes = nodes.map((node) => {
     if (node.type === "scene") {
       const media = node.data.presentation?.media;
@@ -1437,7 +1444,8 @@ function CanvasStoryPlayer({ nodeId }: { nodeId: string }) {
   </div>;
 }
 
-function StoryPresentationNodeCard({ className, selected, icon, type, title, trailing, outputs, children }: {
+function StoryPresentationNodeCard({ nodeId, className, selected, icon, type, title, trailing, outputs, children }: {
+  nodeId: string;
   className: string;
   selected: boolean;
   icon: ReactNode;
@@ -1447,16 +1455,67 @@ function StoryPresentationNodeCard({ className, selected, icon, type, title, tra
   outputs?: ReactNode;
   children: ReactNode;
 }) {
+  const player = useContext(StoryCanvasPlayerContext);
   return <div className={`story-node story-media-node story-presentation-node-card ${className}${selected ? " is-selected" : ""}`} style={STORY_CANVAS_MEDIA_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       {icon}
-      <span><b>{type}</b><strong>{title}</strong></span>
+      <span><b>{type}</b><InlineNodeTitle nodeId={nodeId} value={title} onRename={player?.onRenameNode} /></span>
       {trailing}
     </div>
     {children}
     {outputs}
   </div>;
+}
+
+function InlineNodeTitle({ nodeId, value, onRename }: { nodeId?: string; value: string; onRename?: (nodeId: string, title: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const input = useRef<HTMLInputElement>(null);
+  const canEdit = Boolean(nodeId && onRename);
+
+  useEffect(() => {
+    if (!editing) return;
+    input.current?.focus();
+    input.current?.select();
+  }, [editing]);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [editing, value]);
+
+  if (!editing || !canEdit) return <strong onDoubleClick={(event) => {
+    if (!canEdit) return;
+    event.stopPropagation();
+    setDraft(value);
+    setEditing(true);
+  }}>{value}</strong>;
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next && nodeId && onRename) onRename(nodeId, next);
+    setEditing(false);
+  };
+  return <input
+    ref={input}
+    className="story-node-title-input"
+    value={draft}
+    maxLength={120}
+    onChange={(event) => setDraft(event.target.value)}
+    onBlur={commit}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => event.stopPropagation()}
+    aria-label="Node title"
+    onDoubleClick={(event) => event.stopPropagation()}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Enter") commit();
+      if (event.key === "Escape") {
+        setDraft(value);
+        setEditing(false);
+      }
+    }}
+  />;
 }
 
 function StoryNodeOutputs({ outputs }: { outputs: ReadonlyArray<{ id: string; label: string }> }) {
@@ -1471,6 +1530,7 @@ function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const preview = data.openUiPreview;
 
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-open-ui"
     selected={selected}
     icon={<PanelToggle size={14} />}
@@ -1487,6 +1547,7 @@ function StoryMapNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const player = useContext(StoryCanvasPlayerContext);
   const node = player?.chapter.nodes.find((candidate): candidate is Extract<StoryNode, { type: "story-map" }> => candidate.id === id && candidate.type === "story-map");
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-story-map"
     selected={selected}
     icon={<Layers3 size={14} />}
@@ -1505,6 +1566,7 @@ function SettingsNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const player = useContext(StoryCanvasPlayerContext);
   const node = player?.chapter.nodes.find((candidate): candidate is Extract<StoryNode, { type: "settings" }> => candidate.id === id && candidate.type === "settings");
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-settings"
     selected={selected}
     icon={<Settings size={14} />}
@@ -1564,6 +1626,7 @@ function StartNode({ selected }: NodeProps<StoryFlowNode>) {
 
 function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-scene"
     selected={selected}
     icon={<Clapperboard size={14} />}
@@ -1579,6 +1642,7 @@ function SceneNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
 function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const outcomes = data.outcomes ?? [];
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-interaction-flow"
     selected={selected}
     icon={<Code2 size={14} />}
@@ -1593,6 +1657,7 @@ function InteractionNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
 function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   const options = data.options ?? [];
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-choice-player"
     selected={selected}
     icon={<GitBranch size={14} />}
@@ -1607,6 +1672,7 @@ function ChoiceNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
 
 function EndingNode({ id, data, selected }: NodeProps<StoryFlowNode>) {
   return <StoryPresentationNodeCard
+    nodeId={id}
     className="story-node-ending-player"
     selected={selected}
     icon={<CircleStop size={14} />}

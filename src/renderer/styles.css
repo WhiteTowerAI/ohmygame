@@ -8569,6 +8569,19 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.story-node-title-input {
+  min-width: 0;
+  width: 100%;
+  padding: 1px 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  outline: 0;
+  background: var(--story-editor-surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
 .story-scene-node-label time {
   flex: 0 0 auto;
   color: var(--text-faint);
