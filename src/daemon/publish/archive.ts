@@ -9,6 +9,8 @@ import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import { resolveStoryAssetId, validatePlayableChapter } from "../../shared/story.js";
 import type { AssetLibrary } from "../asset-library.js";
+import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
+import { resolveStartupDirectory } from "../projects.js";
 import { readStoryCodebase } from "../story-codebase.js";
 
 interface PackageJson {
@@ -45,7 +47,10 @@ export class ArtifactBuilder {
         temporary = await prepareInteractiveDrama(project, this.library, this.playerDirectory);
         source = temporary;
       } else {
-        source = await prepareSource(project.workspacePath, (child) => this.#running.set(project.id, child));
+        const workspacePath = project.type === "web-game"
+          ? await publishStartupDirectory(project)
+          : project.workspacePath;
+        source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
       return await createZip(source, false, cover, maxBytes);
     } finally {
@@ -57,6 +62,14 @@ export class ArtifactBuilder {
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
+  }
+}
+
+async function publishStartupDirectory(project: ProjectState): Promise<string> {
+  try {
+    return (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
+  } catch (cause) {
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
 }
 
@@ -133,7 +146,7 @@ export async function createPluginArchive(source: string): Promise<Buffer> {
   return createZip(source, true, undefined, PUBLISH_ARTIFACT_MAX_BYTES);
 }
 
-async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void): Promise<string> {
+async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void, project?: ProjectState): Promise<string> {
   const packageJson = await readPackageJson(workspacePath);
   if (packageJson) {
     const build = packageJson.scripts?.build;
@@ -141,9 +154,11 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
       throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
     }
     if (hasDependencies(packageJson) && !await exists(path.join(workspacePath, "node_modules"))) {
-      await run(npmCommand(), ["install", "--no-audit", "--no-fund"], workspacePath, track);
+      const packageManager = await resolvePackageManager(workspacePath, project?.packageManager);
+      await run(packageManagerCommand(packageManager), packageManagerInstallArguments(packageManager), workspacePath, track);
     }
-    await run(npmCommand(), ["run", "build"], workspacePath, track);
+    const packageManager = await resolvePackageManager(workspacePath, project?.packageManager);
+    await run(packageManagerCommand(packageManager), packageManagerRunArguments("build"), workspacePath, track);
     const output = await findBuildOutput(workspacePath);
     if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
     return output;
@@ -273,8 +288,4 @@ async function terminate(child: ChildProcess): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
-}
-
-function npmCommand(): string {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
 }

@@ -22,6 +22,8 @@ import {
   type CommunityGame,
   type ConversationDetail,
   type ConversationSummary,
+  type PreviewViewport,
+  type ProjectPackageManager,
   type ProjectState,
   type StoryDocument,
   type StoryTextGenerationRequest,
@@ -49,6 +51,7 @@ import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallIn
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { CreateAssetTemplateRequest, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
+import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 
 const API_BASE = "/api";
 
@@ -97,6 +100,26 @@ export async function listProjects(): Promise<ProjectState[]> {
 
 export async function renameProject(projectId: string, name: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export async function updateProjectStartupDirectory(projectId: string, startupDirectory: string): Promise<ProjectState> {
+  return request(`/projects/${projectId}/settings/startup-directory`, {
+    method: "PUT",
+    body: JSON.stringify({ startupDirectory }),
+  });
+}
+
+export async function updateProjectRunSettings(projectId: string, input: {
+  startupDirectory: string;
+  startupScript: string;
+  packageManager?: ProjectPackageManager;
+  previewPath: string;
+  previewViewport: PreviewViewport;
+}): Promise<ProjectState> {
+  return request(`/projects/${projectId}/settings/run`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function duplicateProject(projectId: string): Promise<ProjectState> {
@@ -191,6 +214,14 @@ export async function listImageModels(): Promise<ImageModel[]> {
 
 export async function updateImageGenerationSettings(input: UpdateImageGenerationSettings): Promise<ImageGenerationSettings> {
   return request("/settings/image-generation", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function getWebSearchSettings(): Promise<WebSearchSettings> {
+  return request("/settings/web-search");
+}
+
+export async function updateWebSearchSettings(input: UpdateWebSearchSettings): Promise<WebSearchSettings> {
+  return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
 export async function listExploreGames(): Promise<CommunityGame[]> {

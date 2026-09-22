@@ -1067,6 +1067,51 @@ body {
   margin-top: 2px;
 }
 
+.settings-web-search-panel { max-width: 760px; gap: 20px; }
+.settings-search-row, .settings-checkbox-row { display: flex; align-items: center; }
+.settings-search-row { justify-content: space-between; gap: 24px; padding: 14px 2px 20px; border-bottom: 1px solid var(--border); }
+.settings-search-row strong, .settings-checkbox-row strong { color: var(--text); font-size: 13px; font-weight: 600; }
+.settings-toggle { flex: 0 0 auto; cursor: pointer; }
+.settings-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.settings-toggle span { display: block; width: 34px; height: 19px; padding: 2px; border-radius: 10px; background: var(--settings-row-surface-emphasis); border: 1px solid var(--border-strong); transition: background 120ms ease; }
+.settings-toggle span::after { content: ""; display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--text-muted); transition: transform 120ms ease, background 120ms ease; }
+.settings-toggle input:checked + span { background: var(--theme-accent); border-color: var(--theme-accent); }
+.settings-toggle input:checked + span::after { background: var(--accent-ink); transform: translateX(15px); }
+.settings-toggle input:focus-visible + span { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.settings-search-section { display: grid; gap: 12px; }
+.settings-web-search-panel > .settings-search-section + .settings-search-section { padding-top: 20px; border-top: 1px solid var(--border); }
+.settings-search-section-header h4 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.settings-search-section-header p { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 18px; }
+.settings-provider-options { display: flex; flex-wrap: wrap; gap: 2px; }
+.settings-provider-option { display: flex; min-width: 0; height: 32px; align-items: center; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; transition: color 120ms ease, background-color 120ms ease; }
+.settings-provider-option input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.settings-provider-option-label { font-size: 12px; font-weight: 550; }
+.settings-provider-option-description { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.settings-provider-option:hover:not(:has(input:disabled)) { background: var(--settings-row-surface-emphasis); color: var(--text); }
+.settings-provider-option:has(input:checked) { background: var(--settings-row-surface-emphasis); color: var(--text); }
+.settings-provider-option:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.settings-provider-option:has(input:disabled) { cursor: not-allowed; opacity: 0.48; }
+.settings-search-credentials, .settings-search-fields { display: grid; gap: 16px; }
+.settings-search-credential { display: grid; gap: 10px; }
+.settings-search-credential > label, .settings-search-fields > label { display: grid; gap: 7px; min-width: 0; }
+.settings-search-field-label { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; color: var(--text); font-size: 12px; font-weight: 600; }
+.settings-search-field-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); font-size: 10px; font-weight: 600; }
+.settings-search-input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; outline: none; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; box-shadow: inset 0 1px rgb(0 0 0 / 2%); transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease; }
+.settings-search-input::placeholder { color: var(--text-faint); opacity: 1; }
+.settings-search-input:hover:not(:disabled) { border-color: var(--border-strong); }
+.settings-search-input:focus:not(:disabled) { border-color: var(--border-strong); }
+.settings-search-input:disabled { cursor: not-allowed; opacity: 0.5; }
+.settings-search-option-row { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 24px; }
+.settings-search-option-row > span { display: grid; gap: 2px; color: var(--text-secondary); font-size: 12px; line-height: 17px; }
+.settings-search-option-row small { color: var(--text-secondary); font-size: 11px; line-height: 16px; }
+.settings-search-option-row .settings-toggle input:disabled + span { cursor: not-allowed; opacity: 0.48; }
+.settings-checkbox-row { align-items: flex-start; gap: 9px; color: var(--text-secondary); font-size: 12px; line-height: 17px; cursor: pointer; }
+.settings-checkbox-row input { width: 15px; height: 15px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--theme-accent); }
+.settings-checkbox-row > span { display: grid; gap: 2px; }
+.settings-checkbox-row small { color: var(--text-secondary); font-size: 11px; line-height: 16px; }
+.settings-checkbox-row input:disabled { cursor: not-allowed; }
+.settings-custom-search-section { margin-top: 2px; }
+
 .settings-primary-button,
 .settings-secondary-button {
   display: inline-flex;
@@ -3137,6 +3182,180 @@ button.home-nav-item-active:hover {
 }
 .project-create-dialog button:disabled,
 .project-create-dialog input:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.project-settings-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 68%);
+  app-region: no-drag;
+}
+.project-settings-dialog {
+  width: min(460px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border-radius: var(--radius-panel);
+  outline: 0;
+  background: var(--surface-raised);
+}
+.project-settings-dialog > header {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 12px 0 16px;
+}
+.project-settings-dialog h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.project-settings-dialog > header button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.project-settings-dialog > header button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.project-settings-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+.project-settings-project {
+  display: grid;
+  gap: 5px;
+}
+.project-settings-project > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-settings-project > strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-settings-section {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.project-settings-section legend {
+  padding: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.project-settings-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr);
+  gap: 10px;
+}
+.project-settings-dialog label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-settings-dialog :is(input, select) {
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--control-surface);
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.project-settings-dialog select {
+  cursor: pointer;
+  font-family: inherit;
+}
+.project-settings-browser {
+  display: inline-flex;
+  width: fit-content;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--control-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.project-settings-browser:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.project-settings-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.project-settings-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+.project-settings-dialog footer button {
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--control-surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+.project-settings-dialog footer button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.project-settings-dialog footer .project-settings-submit {
+  background: var(--composer-accent);
+  color: var(--accent-ink);
+}
+.project-settings-dialog footer .project-settings-submit:hover:not(:disabled) {
+  background: var(--composer-accent-hover);
+}
+.project-settings-dialog :disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -13292,7 +13511,7 @@ button {
   place-items: center;
 }
 
-.preview-external-button {
+.preview-settings-button {
   border: 0;
 }
 
@@ -14278,12 +14497,6 @@ button {
   }
 }
 
-@media (max-width: 900px) {
-  .preview-external-button {
-    display: none;
-  }
-}
-
 @media (min-width: 721px) and (max-width: 800px) {
   .preview-location {
     width: 72px;
@@ -15000,7 +15213,7 @@ button {
 }
 
 :root[data-appearance="light"]
-  :is(.project-create-dialog, .publish-dialog, .library-dialog) {
+  :is(.project-create-dialog, .project-settings-dialog, .publish-dialog, .library-dialog) {
   background: var(--surface-raised);
 }
 
@@ -15414,6 +15627,7 @@ button {
   .preview-location-popover,
   .sign-in-dialog,
   .project-create-dialog,
+  .project-settings-dialog,
   .publish-dialog,
   .library-delete-dialog,
   .library-dialog,
@@ -15430,6 +15644,7 @@ button {
   .model-selector-submenu,
   .sign-in-dialog,
   .project-create-dialog,
+  .project-settings-dialog,
   .publish-dialog,
   .library-delete-dialog,
   .library-dialog,

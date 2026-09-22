@@ -7,7 +7,7 @@ export type SidebarPage =
   | "asset-studio"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "connections" | "about";
+export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "web-search" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community">;
 
@@ -25,7 +25,7 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|connections|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|web-search|connections|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };

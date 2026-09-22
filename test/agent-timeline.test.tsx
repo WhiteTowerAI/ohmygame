@@ -1076,6 +1076,19 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Tests passed");
   });
 
+  it("presents web search as a first-class activity with provider fallback", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "search", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "search", tool: "web_search", status: "completed",
+      arguments: { query: "Godot 4.6 release" }, output: "https://godotengine.org/releases/4.6",
+      webSearch: { provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" },
+    }]} />);
+
+    expect(html).toContain("Searched the web for Godot 4.6 release");
+    expect(html).toContain("Parallel");
+    expect(html).toContain("Fallback used after Exa was unavailable");
+    expect(html).toContain("https://godotengine.org/releases/4.6");
+  });
+
   it("keeps failed tool details collapsed by default", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),

@@ -4,6 +4,8 @@ import { createServer } from "node:net";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
+import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "./package-manager.js";
+import { resolveStartupDirectory } from "./projects.js";
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
@@ -33,14 +35,17 @@ export class PreviewManager {
 
     try {
       this.#assertCurrent(project.id, operation);
-      if (await needsInstall(project.workspacePath)) {
-        await this.#run(project.id, npmCommand(), ["install", "--no-audit", "--no-fund"], project.workspacePath);
+      const startupDirectory = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+      const packageManager = await resolvePackageManager(startupDirectory.absolutePath, project.packageManager);
+      const command = packageManagerCommand(packageManager);
+      if (await needsInstall(startupDirectory.absolutePath)) {
+        await this.#run(project.id, command, packageManagerInstallArguments(packageManager), startupDirectory.absolutePath);
       }
       this.#assertCurrent(project.id, operation);
 
       const port = await availablePort();
-      const child = spawn(npmCommand(), ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
-        cwd: project.workspacePath,
+      const child = spawn(command, packageManagerRunArguments(project.startupScript ?? "dev", ["--host", "127.0.0.1", "--port", String(port), "--strictPort"]), {
+        cwd: startupDirectory.absolutePath,
         env: { ...process.env, BROWSER: "none" },
         stdio: ["ignore", "ignore", "pipe"],
         detached: process.platform !== "win32",
@@ -217,8 +222,4 @@ async function signalProcessTree(child: ChildProcess, force: boolean): Promise<v
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
-}
-
-function npmCommand(): string {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
