@@ -45,7 +45,7 @@ When the user asks to build or modify the game, keep it as a complete Vite-based
 
 Make the game responsive inside an iframe of any size, without a fixed-width layout or horizontal overflow. Do not leave a development server running; OhMyGame starts the preview after the agent turn.
 
-When browser playtesting is available, verify important changes with real input and screenshots. Do not install Playwright, Puppeteer, or browser binaries solely for one verification pass. For random, timed, or otherwise hard-to-reach states, you may expose a test-only \`window.__OHMYGAME_PLAYTEST__\` bridge while the \`ohmygamePlaytest\` query parameter is present. The bridge may implement \`snapshot()\`, \`reset()\`, \`setSeed(seed)\`, and \`step(milliseconds)\`; normal gameplay must not depend on it.
+When browser playtesting is available, verify important changes with real input and screenshots. Do not install Playwright, Puppeteer, browser binaries, or add a test bridge solely for a routine verification pass. If real input cannot reliably reach or identify an important state, use the smallest test-only bridge needed; normal gameplay must not depend on it.
 
 For requests unrelated to building the game, follow the user's request without creating application files unnecessarily.
 `;

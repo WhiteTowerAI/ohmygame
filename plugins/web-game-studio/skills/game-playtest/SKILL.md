@@ -31,6 +31,7 @@ Test the game as a player experiences it. Match the depth of verification to the
 - `playtest_browser` is the preferred OhMyGame path. Use `open`, `inspect`, `act`, `capture`, and `close`; it starts or reuses the current project preview and does not accept arbitrary external sites.
 - Prefer semantic targets such as role, name, test ID, or text for DOM controls. Use coordinates for the canvas playfield when the game has no semantic target.
 - When `bridgeCapabilities` are present, use `snapshot` state for assertions and `reset`, `setSeed`, or `step` to reach deterministic states. Still send real input and inspect screenshots; the bridge is not a substitute for player-facing verification.
+- Do not add a game bridge for routine playtesting. Add the smallest test-only bridge only when real input cannot reliably reach or identify an important state, and do not restructure the game solely to support the bridge.
 - Fall back to browser automation already owned by the project when the built-in tool is unavailable.
 - Do not install Playwright, Puppeteer, browser binaries, or other automation packages only to complete a playtest. Add test infrastructure only when the user asks for it or it is part of the requested implementation.
 - If neither visual browser path is available, run the strongest build and logic checks available and state plainly that the game was not visually playtested.
