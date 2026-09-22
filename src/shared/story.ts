@@ -1,6 +1,6 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
 export const DEFAULT_SCENE_DURATION_MS = 3_000;
 
@@ -49,7 +49,35 @@ export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
     { id: "continue-game", label: "Continue", action: "continue-game" },
     { id: "new-game", label: "New game", action: "new-game" },
     { id: "story-map", label: "Story map", action: "open-story-map" },
+    { id: "settings", label: "Settings", action: "open-settings" },
   ],
+};
+
+export const DEFAULT_SETTINGS_SURFACE_FILES: StorySurfaceFiles = {
+  html: `<main class="settings">
+  <header><button type="button" data-close>Back</button><h1 data-title></h1></header>
+  <section><label><span>Fullscreen</span><input data-fullscreen type="checkbox"></label></section>
+</main>`,
+  css: `* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { color: #f4f5f7; font-family: Inter, system-ui, sans-serif; }
+.settings { display: grid; width: 100%; min-height: 100%; align-content: start; gap: 32px; padding: 48px; background: #0c0d10; }
+header { display: flex; align-items: center; gap: 20px; border-bottom: 1px solid rgb(255 255 255 / 12%); padding-bottom: 20px; }
+header button { height: 36px; padding: 0 12px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 5px; background: #15171b; color: inherit; cursor: pointer; }
+h1 { margin: 0; font-size: 22px; }
+section { display: grid; gap: 20px; }
+label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 20px; color: rgb(244 245 247 / 78%); }
+input { accent-color: var(--accent, #62d6cb); }
+`,
+  javascript: `export function render({ content, actions, root }) {
+  root.documentElement.style.setProperty('--accent', content.accentColor);
+  root.querySelector('[data-title]').textContent = content.title;
+  root.querySelector('[data-close]').onclick = () => actions.run('close');
+  const fullscreen = root.querySelector('[data-fullscreen]');
+  fullscreen.checked = content.fullscreen;
+  fullscreen.disabled = !content.interactive;
+  fullscreen.onchange = () => actions.run('toggle-fullscreen');
+}`,
 };
 
 export const DEFAULT_STORY_MAP_SURFACE_FILES: StorySurfaceFiles = {
@@ -221,7 +249,7 @@ button:hover { border-color: #fff; background: rgb(255 255 255 / 18%); }`,
 }`,
 };
 
-export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
+export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
   return node.data.presentation;
 }
 
@@ -249,7 +277,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
     const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
     const source = surface && isRecord(surface.source) ? surface.source : undefined;
-    return ["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
+    return ["open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
       ? [source.html, source.css, source.javascript]
       : [];
   });
@@ -266,7 +294,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     nodeById.set(node.id, node);
   }
   for (const node of nodeById.values()) {
-    if (node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
+    if (node.type === "open-ui" || node.type === "story-map" || node.type === "settings" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
       const presentation = node.data.presentation;
       for (const item of presentation.media.items) {
         if (item.source.type !== "node") continue;
@@ -288,7 +316,8 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
   }
   if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1 ||
     nodes.filter((node) => isRecord(node) && node.type === "open-ui").length > 1 ||
-    nodes.filter((node) => isRecord(node) && node.type === "story-map").length > 1) return false;
+    nodes.filter((node) => isRecord(node) && node.type === "story-map").length > 1 ||
+    nodes.filter((node) => isRecord(node) && node.type === "settings").length > 1) return false;
   const edgeIds = new Set<string>();
   const outputs = new Set<string>();
   const validEdges = (chapter.edges as unknown[]).every((edge) => {
@@ -301,9 +330,10 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if (outputs.has(output)) return false;
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
-    if (!source || !target || source.type === "ending" || source.type === "story-map" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
+    if (!source || !target || source.type === "ending" || source.type === "story-map" || source.type === "settings" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
     const handle = edge.sourceHandle ?? "out";
     if (target.type === "story-map" ? source.type !== "open-ui" || handle !== "story-map"
+      : target.type === "settings" ? source.type !== "open-ui" || handle !== "settings"
       : source.type === "open-ui" ? handle !== "out"
       : source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
       : source.type === "interaction" ? !source.data.outcomes.includes(handle)
@@ -339,6 +369,11 @@ export function isEntryOpenUiNode(chapter: StoryChapter, nodeId: string): boolea
 export function getStoryMapNode(chapter: StoryChapter, openUiId: string): Extract<StoryNode, { type: "story-map" }> | undefined {
   const target = getNextNode(chapter, openUiId, "story-map");
   return target?.type === "story-map" ? target : undefined;
+}
+
+export function getSettingsNode(chapter: StoryChapter, openUiId: string): Extract<StoryNode, { type: "settings" }> | undefined {
+  const target = getNextNode(chapter, openUiId, "settings");
+  return target?.type === "settings" ? target : undefined;
 }
 
 export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryEdge | undefined {
@@ -450,7 +485,7 @@ export function restoreStorySave(
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || node.type === "settings" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
   } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) return undefined;
@@ -588,7 +623,7 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
   let currentNode = node;
   let automaticSteps = 0;
   while (true) {
-    if (currentNode.type === "story-map") throw new Error("Story Map is a system screen, not a story step");
+    if (currentNode.type === "story-map" || currentNode.type === "settings") throw new Error("System screens are not story steps");
     const entered = {
       ...currentState,
       progress: addStoryProgress(currentState.progress, { nodeId: currentNode.id, endingId: currentNode.type === "ending" ? currentNode.id : undefined }),
@@ -753,6 +788,9 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
   const storyMaps = chapter.nodes.filter((node) => node.type === "story-map");
   if (storyMaps.length !== 1) return { nodeId: storyMaps[0]?.id ?? openUis[0].id, message: "This chapter must have exactly one Story Map node." };
   if (getStoryMapNode(chapter, openUis[0].id)?.id !== storyMaps[0].id) return { nodeId: storyMaps[0].id, message: "Connect Open UI to Story Map." };
+  const settings = chapter.nodes.filter((node) => node.type === "settings");
+  if (settings.length > 1) return { nodeId: settings[1].id, message: "This chapter can have at most one Settings node." };
+  if (settings[0] && getSettingsNode(chapter, openUis[0].id)?.id !== settings[0].id) return { nodeId: settings[0].id, message: "Connect Open UI to Settings." };
   const visited = new Set<string>();
   const pending = [start];
   while (pending.length > 0) {
@@ -812,7 +850,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       presentation.media.items.length <= 1 &&
       hasOnlyKeys(value.data, ["title", "content", "presentation"]);
   }
-  if (value.type === "story-map") {
+  if (value.type === "story-map" || value.type === "settings") {
     if (!isNodePresentation(value.data.presentation)) return false;
     const presentation = value.data.presentation as StoryNodePresentation;
     return typeof value.data.title === "string" && presentation.media.items.length === 0 && hasOnlyKeys(value.data, ["title", "presentation"]);
@@ -959,12 +997,12 @@ function isOpenUiContent(value: unknown): value is StoryOpenUiContent {
   if (!isRecord(value) || !hasOnlyKeys(value, ["title", "buttons"]) || typeof value.title !== "string" || value.title.length > 120 || !Array.isArray(value.buttons)) return false;
   const ids = new Set<string>();
   const actions = new Set<StoryOpenUiAction>();
-  const valid = value.buttons.length === 4 && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && !actions.has(button.action) && Boolean(ids.add(button.id)) && Boolean(actions.add(button.action)));
-  return valid && actions.size === 4;
+  const valid = (value.buttons.length === 4 || value.buttons.length === 5) && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && !actions.has(button.action) && Boolean(ids.add(button.id)) && Boolean(actions.add(button.action)));
+  return valid && actions.has("start-game") && actions.has("continue-game") && actions.has("new-game") && actions.has("open-story-map");
 }
 
 function isOpenUiAction(value: unknown): value is StoryOpenUiAction {
-  return value === "start-game" || value === "continue-game" || value === "new-game" || value === "open-story-map";
+  return value === "start-game" || value === "continue-game" || value === "new-game" || value === "open-story-map" || value === "open-settings";
 }
 
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {

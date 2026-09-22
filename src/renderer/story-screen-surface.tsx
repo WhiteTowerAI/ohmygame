@@ -10,7 +10,7 @@ type ScreenSurfaceMessage =
   | { channel: "ohmygame:screen-surface"; instanceId: string; type: "layout-select"; elementId: string | null }
   | { channel: "ohmygame:screen-surface"; instanceId: string; type: "layout-change"; elementId: string; offset: StorySurfaceLayoutOffset };
 
-export function StoryScreenSurface({ files, content, mode, layout, layoutEditable = false, title, className, onReady, onAction, onError, onLayoutSelect, onLayoutChange }: {
+export function StoryScreenSurface({ files, content, mode, layout, layoutEditable = false, title, className, transparent = true, onReady, onAction, onError, onLayoutSelect, onLayoutChange }: {
   files: StorySurfaceFiles;
   content: unknown;
   mode: "preview" | "runtime";
@@ -18,13 +18,14 @@ export function StoryScreenSurface({ files, content, mode, layout, layoutEditabl
   layoutEditable?: boolean;
   title: string;
   className?: string;
+  transparent?: boolean;
   onReady?: () => void;
   onAction?: (action: StoryScreenAction) => void;
   onError?: (message: string) => void;
   onLayoutSelect?: (elementId?: string) => void;
   onLayoutChange?: (elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
-  const surfaceFiles = transparentStorySurfaceFiles(files, ".open-ui");
+  const surfaceFiles = transparent ? transparentStorySurfaceFiles(files, ".open-ui") : files;
   const iframe = useRef<HTMLIFrameElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
   const [loadRevision, setLoadRevision] = useState(0);
@@ -73,7 +74,7 @@ function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {
   const message = value as Partial<ScreenSurfaceMessage>;
   if (message.channel !== "ohmygame:screen-surface" || typeof message.instanceId !== "string") return false;
   if (message.type === "ready") return true;
-  if (message.type === "action") return message.action === "start-game" || message.action === "continue-game" || message.action === "new-game" || message.action === "open-story-map" || message.action === "close";
+  if (message.type === "action") return message.action === "start-game" || message.action === "continue-game" || message.action === "new-game" || message.action === "open-story-map" || message.action === "open-settings" || message.action === "close" || message.action === "toggle-fullscreen";
   if (message.type === "error") return typeof message.message === "string";
   if (message.type === "layout-select") return message.elementId === null || isLayoutElementId(message.elementId);
   return message.type === "layout-change" && isLayoutElementId(message.elementId) && isLayoutOffset(message.offset);

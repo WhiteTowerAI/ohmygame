@@ -18,7 +18,7 @@ export function duplicateStoryNode(
     id,
     position: snapStoryCanvasPosition(position),
   };
-  if (duplicate.type === "open-ui" || duplicate.type === "story-map" || duplicate.type === "scene" || duplicate.type === "interaction" || duplicate.type === "choice" || duplicate.type === "ending") {
+  if (duplicate.type === "open-ui" || duplicate.type === "story-map" || duplicate.type === "settings" || duplicate.type === "scene" || duplicate.type === "interaction" || duplicate.type === "choice" || duplicate.type === "ending") {
     duplicate.data.presentation.surface.source = undefined;
     duplicate.data.presentation.media.items = duplicate.data.presentation.media.items.filter((item) => item.source.type === "library");
   }

@@ -201,5 +201,6 @@ export {
   WiFiIcon as Wifi,
   WiFiOffIcon as WifiOff,
   SettingsIcon as Wrench,
+  SettingsIcon as Settings,
   ServerIcon as Server,
 };

@@ -251,7 +251,7 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
   if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
   return !records(value.chapter.nodes).some((node) => {
-    if (!["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
+    if (!["open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
     if (!isSourceReference(data.presentation.surface.source) || isRecord(data.presentation.surface.files)) return true;
@@ -268,8 +268,8 @@ function withStableSources(story: StoryDocument): StoryDocument {
   };
 }
 
-function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "story-map" || node.type === "settings" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function withNodePresentationSource(node: StoryNode): StoryNode {
@@ -285,6 +285,7 @@ function withNodePresentationSource(node: StoryNode): StoryNode {
   if (node.type === "scene") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "story-map") return { ...node, data: { ...node.data, presentation } };
+  if (node.type === "settings") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "interaction") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "choice") return { ...node, data: { ...node.data, presentation } };
   return { ...node, data: { ...node.data, presentation } };
