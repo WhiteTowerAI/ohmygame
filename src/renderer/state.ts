@@ -18,6 +18,7 @@ export interface RendererState {
 
 export type RendererAction =
   | { type: "initialized"; project: ProjectState; detail: ConversationDetail }
+  | { type: "project-updated"; project: ProjectState }
   | { type: "conversation-loaded"; detail: ConversationDetail }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
@@ -53,6 +54,7 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       lastEventId: detail.cursor,
     };
   }
+  if (action.type === "project-updated") return { ...state, project: action.project };
   if (action.type === "connection") return { ...state, connection: action.status };
   if (action.type === "conversation-settings") return { ...state, settings: action.settings };
   if (action.type === "notice") return { ...state, notice: action.message };

@@ -39,6 +39,29 @@ describe("PreviewManager", () => {
     expect(project.preview.error).toContain("server error");
   });
 
+  it("starts the preview from the configured startup directory", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-root-"));
+    const startupDirectory = path.join(workspacePath, "apps", "game");
+    await mkdir(path.join(startupDirectory, "node_modules", ".bin"), { recursive: true });
+    await writeFile(path.join(startupDirectory, "node_modules", ".bin", "vite"), "");
+    await writeFile(path.join(startupDirectory, "package.json"), JSON.stringify({
+      private: true,
+      scripts: { start: "node server.mjs" },
+    }));
+    await writeFile(path.join(startupDirectory, "server.mjs"), `
+      import { createServer } from "node:http";
+      const portIndex = process.argv.indexOf("--port");
+      const port = Number(process.argv[portIndex + 1]);
+      createServer((_request, response) => response.end("nested ready")).listen(port, "127.0.0.1");
+    `);
+    const project = { ...createProject(workspacePath), startupDirectory: "apps/game", startupScript: "start" };
+    const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+
+    const url = await manager.start(project);
+    expect(await (await fetch(url)).text()).toBe("nested ready");
+  });
+
 });
 
 async function createWorkspace(fail: boolean): Promise<string> {

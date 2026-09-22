@@ -177,6 +177,55 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("sets a Web Game startup directory when its dev server is nested", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-preview-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-workspace-"));
+    const startupDirectory = path.join(workspacePath, "apps", "game");
+    await mkdir(startupDirectory, { recursive: true });
+    await writeFile(path.join(startupDirectory, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nested workspace", workspacePath } })).json();
+    expect(project.preview).toEqual({ status: "waiting" });
+
+    const configured = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "apps/game" },
+    });
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
+
+    const runSettings = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: {
+        startupDirectory: "apps/game",
+        startupScript: "dev",
+        packageManager: "pnpm",
+        previewPath: "/play",
+        previewViewport: "mobile",
+      },
+    });
+    expect(runSettings.statusCode).toBe(200);
+    expect(runSettings.json()).toMatchObject({
+      startupDirectory: "apps/game",
+      packageManager: "pnpm",
+      previewPath: "/play",
+      previewViewport: "mobile",
+    });
+
+    const invalid = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "../outside" },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual({ error: "Startup directory must be a relative path inside the project workspace" });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),
@@ -838,6 +887,7 @@ describe("daemon", () => {
       "write",
       "edit",
       "bash",
+      "web_search",
       "update_plan",
       "install_plugin",
       "generate_image",

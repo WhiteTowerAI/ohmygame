@@ -561,10 +561,23 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
 
 function ToolDetails({ item }: { item: ToolCallItem }) {
   const args = record(item.arguments);
+  if (item.type === "dynamicToolCall" && item.tool === "web_search") return <WebSearchDetails item={item} args={args} />;
   if (item.type === "dynamicToolCall" && item.tool === "bash") return <ShellDetails item={item} command={text(args?.command)} />;
   if (item.type === "dynamicToolCall" && ["read", "grep", "find", "ls"].includes(item.tool)) return <FileOperationDetails item={item} args={args} />;
   if (item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool)) return <FileChangeDetails item={item} args={args} />;
   return <StructuredToolDetails item={item} />;
+}
+
+function WebSearchDetails({ item, args }: { item: Extract<ThreadItem, { type: "dynamicToolCall" }>; args: Record<string, unknown> | undefined }) {
+  const query = text(args?.query);
+  return <div className="tool-details">
+    {query ? <ToolDetailBlock label="Query"><code>{query}</code></ToolDetailBlock> : null}
+    {item.webSearch ? <ToolDetailBlock label="Provider"><code>{item.webSearch.providerName}</code></ToolDetailBlock> : null}
+    {item.webSearch?.fallbackFrom ? <p className="tool-details-truncated">Fallback used after {providerLabel(item.webSearch.fallbackFrom)} was unavailable.</p> : null}
+    {item.output ? <ToolDetailBlock label="Results"><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">Results truncated</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">Web search failed without output.</p> : null}
+  </div>;
 }
 
 function ShellDetails({ item, command }: { item: ToolCallItem; command: string }) {
@@ -681,6 +694,7 @@ function preparingToolLabel(toolName: string): string {
     case "read": return "Preparing read";
     case "write": return "Preparing file";
     case "edit": return "Preparing edit";
+    case "web_search": return "Preparing web search";
     case "mcp": return "Preparing MCP";
     case "playtest_browser": return "Preparing game playtest";
     case "tool": return "Preparing";
@@ -697,6 +711,7 @@ function runningToolGroupLabel(item: ToolCallItem, label: string): string {
     case "grep":
     case "find": return "Search Files";
     case "ls": return "List Files";
+    case "web_search": return "Search Web";
     default: return item.status === "preparing" ? preparingToolLabel(item.tool) : label;
   }
 }
@@ -716,6 +731,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
     case "find": return { icon: Search, label: searchLabel("Finding", values) };
     case "ls": return { icon: Search, label: withTarget("Listing", values) };
+    case "web_search": return { icon: Search, label: searchLabel("Searching the web for", values) };
     case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, false) };
     default: return { icon: Wrench, label: toolName };
   }
@@ -736,6 +752,7 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "grep": return { icon: Search, label: searchLabel("Searched for", values) };
     case "find": return { icon: Search, label: searchLabel("Searched for", values) };
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
+    case "web_search": return { icon: Search, label: searchLabel("Searched the web for", values) };
     case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, true) };
     default: return { icon: Wrench, label: `Used ${toolName}` };
   }
@@ -754,6 +771,10 @@ function playtestLabel(values: Record<string, unknown> | undefined, completed: b
     case "close": return completed ? "Closed game preview" : "Closing game preview";
     default: return completed ? "Used game playtest" : "Running game playtest";
   }
+}
+
+function providerLabel(provider: "exa" | "parallel" | "custom"): string {
+  return provider === "exa" ? "Exa" : provider === "parallel" ? "Parallel" : "the custom provider";
 }
 
 function searchLabel(action: string, values: Record<string, unknown> | undefined): string {

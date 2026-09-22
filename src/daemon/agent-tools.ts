@@ -8,6 +8,7 @@ import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
 import type { PlaytestDriver } from "../shared/playtest.js";
+import type { WebSearchExecution, WebSearchInput } from "../shared/web-search.js";
 import { createPlaytestTool } from "./playtest-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
@@ -15,26 +16,27 @@ const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
 };
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "update_plan", "questionnaire", "install_plugin"]);
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin"]);
 
-export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][], registeredToolNames: readonly string[] = []): string[] {
+export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
 }
 
-export function planningPiToolNames(): string[] {
-  return ["read", "grep", "find", "ls", "questionnaire", "update_plan"];
+export function planningPiToolNames(webSearchEnabled = true): string[] {
+  return ["read", "grep", "find", "ls", ...(webSearchEnabled ? ["web_search"] : []), "questionnaire", "update_plan"];
 }
 
 export function projectPiToolNames(
   mode: PlanMode,
   enabledTools: readonly ToolDefinition["id"][],
   registeredToolNames: readonly string[] = [],
+  webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? planningPiToolNames()
-    : activePiToolNames(enabledTools, registeredToolNames);
+    ? planningPiToolNames(webSearchEnabled)
+    : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
 export type AskQuestionnaire = (
@@ -51,6 +53,7 @@ export type AskQuestionnaire = (
 ) => Promise<QuestionnaireResult>;
 
 export type InstallPlugin = (sourcePath: string) => Promise<PluginDetail>;
+export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 
 export function createAgentTools(
   project: ProjectState,
@@ -59,6 +62,7 @@ export function createAgentTools(
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
   playtest?: { driver: PlaytestDriver; ensurePreview: () => Promise<string> },
+  searchWeb?: SearchWeb,
 ): PiToolDefinition[] {
   return [defineTool({
     name: "questionnaire",
@@ -88,7 +92,26 @@ export function createAgentTools(
         details: result,
       };
     },
-  }), defineTool({
+  }), ...(searchWeb ? [defineTool({
+    name: "web_search",
+    label: "Search Web",
+    description: "Search the public web for current or external information. Use concise queries and cite the returned source URLs in the response.",
+    parameters: Type.Object({
+      query: Type.String({ minLength: 1, maxLength: 1_000, description: "Search query" }),
+      numResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Number of results; defaults to 8" })),
+      livecrawl: Type.Optional(Type.Union([Type.Literal("fallback"), Type.Literal("preferred")], { description: "Whether live crawling is a fallback or preferred" })),
+      type: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("fast"), Type.Literal("deep")], { description: "Search depth" })),
+      contextMaxCharacters: Type.Optional(Type.Integer({ minimum: 1_000, maximum: 50_000, description: "Maximum returned context characters" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const result = await searchWeb(input, signal);
+      return {
+        content: [{ type: "text" as const, text: result.content }],
+        details: { webSearch: { provider: result.provider, providerName: result.providerName, ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}) } },
+      };
+    },
+  })] : []), defineTool({
     name: "install_plugin",
     label: "Install Plugin",
     description: "Validate and install an OhMyGame plugin directory from the current workspace. Use this after creating or updating a plugin with the plugin-creator skill.",

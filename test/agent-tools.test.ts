@@ -13,21 +13,21 @@ import type { PlaytestDriver } from "../src/shared/playtest.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
-    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
   });
 
   it("uses the shared Pi tools for every project type", () => {
@@ -35,12 +35,15 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
-    )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
+    )).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
+    expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
+      "read", "write", "edit", "bash", "update_plan", "install_plugin",
+    ]);
   });
 
   it("registers browser playtesting only when a desktop driver is available", async () => {
@@ -65,6 +68,26 @@ describe("agent tools", () => {
       undefined,
       { driver, ensurePreview: async () => "http://127.0.0.1:43210/" },
     ).some(({ name }) => name === "playtest_browser")).toBe(true);
+  });
+
+  it("returns provider metadata from the built-in web search tool", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-search-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Search");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const search = createAgentTools(project, runner, projects, undefined, undefined, undefined, async (input, signal) => {
+      expect(input.query).toBe("Godot release notes");
+      signal?.throwIfAborted();
+      return { content: "https://godotengine.org/", provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" };
+    }).find(({ name }) => name === "web_search");
+    if (!search) throw new Error("Expected web search tool");
+
+    const result = await search.execute("search-1", { query: "Godot release notes" }, undefined, undefined, {} as never);
+
+    expect(result.content).toEqual([{ type: "text", text: "https://godotengine.org/" }]);
+    expect(result.details).toEqual({ webSearch: { provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" } });
   });
 
   it("installs a plugin only from inside the current workspace", async () => {

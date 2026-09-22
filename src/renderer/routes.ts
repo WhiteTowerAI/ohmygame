@@ -9,7 +9,7 @@ export type SidebarPage =
 
 export type CommunitySection = "games" | "images" | "videos" | "audio" | "models";
 
-export type SettingsSection = "account" | "usage" | "plans" | "billing" | "appearance" | "providers" | "connections" | "about";
+export type SettingsSection = "account" | "usage" | "plans" | "billing" | "appearance" | "providers" | "web-search" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community">;
 
@@ -27,7 +27,7 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
-  const settingsMatch = /^#\/settings(?:\/(account|usage|plans|billing|appearance|providers|connections|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(account|usage|plans|billing|appearance|providers|web-search|connections|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
   const communityMatch = /^#\/community(?:\/(games|images|videos|audio|models))?$/.exec(hash);
   if (communityMatch) return { page: "community", section: (communityMatch[1] as CommunitySection | undefined) ?? "games" };

@@ -1,8 +1,13 @@
 import type { CreatePublishAssetReleaseResult, PublishCommunityGame, PublishDeployment, PublishExploreAsset } from "./publish-v1.js";
+import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 export type ProjectType = "web-game" | "godot-game" | "interactive-drama";
+export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
+export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
+export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
+export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
 
 export interface AgentContextUsage {
   tokens: number | null;
@@ -117,6 +122,16 @@ export interface ProjectState {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** Directory, relative to the workspace root, in which the Web Game preview starts. */
+  startupDirectory?: string;
+  /** Package script that starts the Web Game preview. Defaults to `dev`. */
+  startupScript?: string;
+  /** Overrides automatic package-manager detection for the Web Game preview and build. */
+  packageManager?: ProjectPackageManager;
+  /** Route shown when a Web Game preview starts. */
+  previewPath?: string;
+  /** Device preset selected when a Web Game preview starts. */
+  previewViewport?: PreviewViewport;
   /** Internal OhMyGame data kept separately from a user-selected workspace. */
   storagePath?: string;
   /** Whether OhMyGame owns the workspace directory or only references it. */
@@ -491,6 +506,7 @@ export type ThreadItem = (
       truncated?: boolean;
       artifact?: ToolArtifact;
       images?: PromptImage[];
+      webSearch?: WebSearchToolMetadata;
     }
   | {
       id: string;

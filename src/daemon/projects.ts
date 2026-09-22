@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
+import type { PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
+import { isProjectPackageManager } from "./package-manager.js";
 import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
 
 interface ProjectMetadata {
@@ -15,6 +16,16 @@ interface ProjectMetadata {
   name: string;
   type: ProjectType;
   updatedAt: string;
+  /** Present only when a Web Game starts from a directory below its workspace root. */
+  startupDirectory?: string;
+  /** Present only when a Web Game starts with a script other than `dev`. */
+  startupScript?: string;
+  /** Present only when automatic package-manager detection is overridden. */
+  packageManager?: ProjectPackageManager;
+  /** Present only when a Web Game preview starts below the root route. */
+  previewPath?: string;
+  /** Present only when a Web Game preview defaults to a device preset other than fit. */
+  previewViewport?: PreviewViewport;
   /** Present only when the user chose a workspace outside OhMyGame storage. */
   workspacePath?: string;
   publication?: PublicationState;
@@ -33,6 +44,14 @@ export class ProjectAssetError extends Error {
 interface LoadedMetadata {
   metadata: ProjectMetadata;
   missing: boolean;
+}
+
+export interface ProjectRunSettings {
+  startupDirectory: string;
+  startupScript: string;
+  packageManager?: ProjectPackageManager;
+  previewPath: string;
+  previewViewport: PreviewViewport;
 }
 
 const PROJECT_COVER_FILE = "cover.webp";
@@ -71,7 +90,7 @@ export class ProjectManager {
       const project = projectState(
         workspacePath,
         metadata,
-        await isRunnableWorkspace(workspacePath),
+        await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript),
         projectDirectory,
         workspaceAvailable,
       );
@@ -101,7 +120,7 @@ export class ProjectManager {
       if (type === "web-game") await writeFile(path.join(workspacePath, "AGENTS.md"), WEB_GAME_AGENT_INSTRUCTIONS, "utf8");
     }
     await writeMetadata(projectDirectory, metadata);
-    const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath), projectDirectory, true);
+    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript), projectDirectory, true);
     this.#projects.set(id, project);
     return project;
   }
@@ -159,6 +178,42 @@ export class ProjectManager {
     return project;
   }
 
+  async setStartupDirectory(id: string, startupDirectory: string): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    return this.setRunSettings(id, { ...projectRunSettings(project), startupDirectory });
+  }
+
+  async setRunSettings(id: string, input: ProjectRunSettings): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (project.type !== "web-game") throw new ProjectWorkspaceError("Run settings are only available for Web Game projects");
+
+    const directory = await resolveStartupDirectory(project.workspacePath, input.startupDirectory);
+    const startupScript = normalizeStartupScript(input.startupScript);
+    if (!startupScript) throw new ProjectWorkspaceError("Startup script must be a package.json script name");
+    const previewPath = normalizePreviewPath(input.previewPath);
+    if (previewPath === undefined) throw new ProjectWorkspaceError("Preview route must be a local path");
+    const previewViewport = input.previewViewport;
+    if (!isPreviewViewport(previewViewport)) throw new ProjectWorkspaceError("Preview device preset is not supported");
+    const packageManager = input.packageManager;
+    if (packageManager !== undefined && !isProjectPackageManager(packageManager)) {
+      throw new ProjectWorkspaceError("Package manager is not supported");
+    }
+    const status = await previewWorkspaceStatus(directory.absolutePath, startupScript);
+    if (!status.runnable) throw new ProjectWorkspaceError(status.error ?? "The startup directory is not runnable");
+
+    await this.#save(project, {
+      startupDirectory: directory.relativePath === "." ? undefined : directory.relativePath,
+      startupScript: startupScript === "dev" ? undefined : startupScript,
+      packageManager,
+      previewPath: previewPath === "/" ? undefined : previewPath,
+      previewViewport: previewViewport === "fit" ? undefined : previewViewport,
+      updatedAt: new Date().toISOString(),
+    });
+    return project;
+  }
+
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);
@@ -171,6 +226,11 @@ export class ProjectManager {
       name: `${source.name} copy`,
       type: source.type,
       updatedAt,
+      ...(source.startupDirectory ? { startupDirectory: source.startupDirectory } : {}),
+      ...(source.startupScript ? { startupScript: source.startupScript } : {}),
+      ...(source.packageManager ? { packageManager: source.packageManager } : {}),
+      ...(source.previewPath ? { previewPath: source.previewPath } : {}),
+      ...(source.previewViewport ? { previewViewport: source.previewViewport } : {}),
     };
     try {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
@@ -190,7 +250,7 @@ export class ProjectManager {
       throw error;
     }
     const workspacePath = path.join(duplicateDirectory, "workspace");
-    const project = projectState(workspacePath, metadata, await isRunnableWorkspace(workspacePath), duplicateDirectory, true);
+    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript), duplicateDirectory, true);
     this.#projects.set(project.id, project);
     return project;
   }
@@ -557,12 +617,22 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "publication">>,
+    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication">>,
   ): Promise<void> {
     const metadata = { ...metadataFor(project), ...changes };
     await writeMetadata(this.#projectDirectory(project.id), metadata);
     project.name = metadata.name;
     project.updatedAt = metadata.updatedAt;
+    if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
+    else delete project.startupDirectory;
+    if (metadata.startupScript) project.startupScript = metadata.startupScript;
+    else delete project.startupScript;
+    if (metadata.packageManager) project.packageManager = metadata.packageManager;
+    else delete project.packageManager;
+    if (metadata.previewPath) project.previewPath = metadata.previewPath;
+    else delete project.previewPath;
+    if (metadata.previewViewport) project.previewViewport = metadata.previewViewport;
+    else delete project.previewViewport;
     if (metadata.publication) project.publication = metadata.publication;
     else delete project.publication;
   }
@@ -629,6 +699,11 @@ function projectState(
     type: metadata.type,
     updatedAt: metadata.updatedAt,
     workspacePath,
+    ...(metadata.startupDirectory ? { startupDirectory: metadata.startupDirectory } : {}),
+    ...(metadata.startupScript ? { startupScript: metadata.startupScript } : {}),
+    ...(metadata.packageManager ? { packageManager: metadata.packageManager } : {}),
+    ...(metadata.previewPath ? { previewPath: metadata.previewPath } : {}),
+    ...(metadata.previewViewport ? { previewViewport: metadata.previewViewport } : {}),
     storagePath,
     workspaceLocation: metadata.workspacePath ? "external" : "managed",
     workspaceAvailable,
@@ -637,8 +712,17 @@ function projectState(
   };
 }
 
-export async function isRunnableWorkspace(workspacePath: string): Promise<boolean> {
-  return (await previewWorkspaceStatus(workspacePath)).runnable;
+export async function isRunnableWorkspace(workspacePath: string, startupScript = "dev"): Promise<boolean> {
+  return (await previewWorkspaceStatus(workspacePath, startupScript)).runnable;
+}
+
+async function isRunnableStartupWorkspace(workspacePath: string, startupDirectory?: string, startupScript?: string): Promise<boolean> {
+  try {
+    const directory = await resolveStartupDirectory(workspacePath, startupDirectory ?? ".");
+    return await isRunnableWorkspace(directory.absolutePath, startupScript ?? "dev");
+  } catch {
+    return false;
+  }
 }
 
 export interface PreviewWorkspaceStatus {
@@ -646,29 +730,105 @@ export interface PreviewWorkspaceStatus {
   error?: string;
 }
 
-export async function previewWorkspaceStatus(workspacePath: string): Promise<PreviewWorkspaceStatus> {
+export async function previewWorkspaceStatus(workspacePath: string, startupScript = "dev"): Promise<PreviewWorkspaceStatus> {
+  const script = normalizeStartupScript(startupScript) ?? "dev";
+  const label = script === "dev" ? "dev script" : `${script} script`;
   try {
     const packageJson = JSON.parse(await readFile(path.join(workspacePath, "package.json"), "utf8")) as {
-      scripts?: { dev?: unknown };
+      scripts?: Record<string, unknown>;
     };
-    const command = packageJson.scripts?.dev;
+    const command = packageJson.scripts?.[script];
     if (typeof command !== "string" || !command.trim()) {
-      return { runnable: false, error: "This folder has no dev script that starts a preview server." };
+      return { runnable: false, error: `This folder has no ${label} that starts a preview server.` };
     }
     if (isNonServerDevCommand(command)) {
       return {
         runnable: false,
-        error: `This folder's dev script runs a non-server task: ${command.trim()}`,
+        error: `This folder's ${label} runs a non-server task: ${command.trim()}`,
       };
     }
     return { runnable: true };
   } catch {
-    return { runnable: false, error: "This folder has no package.json dev script that starts a preview server." };
+    return { runnable: false, error: `This folder has no package.json ${label} that starts a preview server.` };
   }
 }
 
 function isNonServerDevCommand(command: string): boolean {
   return /(?:^|[\s/])(?:build|check|eslint|fmt|format|lint|prettier|test|typecheck)(?:$|[\s./:])/.test(command.toLowerCase());
+}
+
+export async function resolveStartupDirectory(workspacePath: string, input: string): Promise<{ absolutePath: string; relativePath: string }> {
+  if (!isValidStartupDirectory(input)) {
+    throw new ProjectWorkspaceError("Startup directory must be a relative path inside the project workspace");
+  }
+  let workspaceRoot: string;
+  try {
+    workspaceRoot = await realpath(workspacePath);
+  } catch {
+    throw new ProjectWorkspaceError("The project workspace is not available");
+  }
+  const configured = normalizeStartupDirectory(input) ?? ".";
+  const candidate = path.resolve(workspaceRoot, configured);
+  if (!pathContains(workspaceRoot, candidate)) {
+    throw new ProjectWorkspaceError("Startup directory must be inside the project workspace");
+  }
+  let absolutePath: string;
+  try {
+    absolutePath = await realpath(candidate);
+  } catch {
+    throw new ProjectWorkspaceError("Startup directory does not exist");
+  }
+  if (!pathContains(workspaceRoot, absolutePath)) {
+    throw new ProjectWorkspaceError("Startup directory must be inside the project workspace");
+  }
+  if (!(await lstat(absolutePath)).isDirectory()) {
+    throw new ProjectWorkspaceError("Startup directory must be a folder");
+  }
+  const relativePath = path.relative(workspaceRoot, absolutePath).replaceAll(path.sep, "/");
+  return { absolutePath, relativePath: relativePath || "." };
+}
+
+function isValidStartupDirectory(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed === "" || trimmed === "." || normalizeStartupDirectory(trimmed) !== undefined;
+}
+
+function normalizeStartupDirectory(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replaceAll("\\", "/");
+  if (!normalized || normalized === ".") return undefined;
+  if (normalized.startsWith("/") || /^[a-zA-Z]:\//.test(normalized)) return undefined;
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) return undefined;
+  return parts.join("/");
+}
+
+function normalizeStartupScript(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return /^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/.test(normalized) ? normalized : undefined;
+}
+
+function normalizePreviewPath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replaceAll("\\", "/");
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(normalized)) return undefined;
+  return `/${normalized.replace(/^\/+/, "")}`;
+}
+
+function isPreviewViewport(value: unknown): value is PreviewViewport {
+  return value === "fit" || value === "tablet" || value === "mobile";
+}
+
+function projectRunSettings(project: ProjectState): ProjectRunSettings {
+  return {
+    startupDirectory: project.startupDirectory ?? ".",
+    startupScript: project.startupScript ?? "dev",
+    ...(project.packageManager ? { packageManager: project.packageManager } : {}),
+    previewPath: project.previewPath ?? "/",
+    previewViewport: project.previewViewport ?? "fit",
+  };
 }
 
 async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
@@ -677,6 +837,11 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
       (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama") &&
+      (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
+      (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
+      (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
+      (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
+      (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
       (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
@@ -684,6 +849,11 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
         ? parsed.updatedAt
         : fallbackUpdatedAt;
       const type = parsed.type ?? "web-game";
+      const startupDirectory = normalizeStartupDirectory(parsed.startupDirectory);
+      const startupScript = normalizeStartupScript(parsed.startupScript);
+      const packageManager = parsed.packageManager;
+      const previewPath = normalizePreviewPath(parsed.previewPath);
+      const previewViewport = parsed.previewViewport;
       const workspacePath = parsed.workspacePath;
       return {
         metadata: {
@@ -692,10 +862,17 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           name: parsed.name.trim(),
           type,
           updatedAt,
+          ...(startupDirectory ? { startupDirectory } : {}),
+          ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
+          ...(packageManager ? { packageManager } : {}),
+          ...(previewPath && previewPath !== "/" ? { previewPath } : {}),
+          ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
           ...(workspacePath ? { workspacePath } : {}),
           ...(parsed.publication ? { publication: parsed.publication } : {}),
         },
-        missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.workspacePath !== workspacePath,
+        missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
+          parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
+          parsed.previewPath !== previewPath || parsed.previewViewport !== previewViewport || parsed.workspacePath !== workspacePath,
       };
     }
     throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
@@ -712,6 +889,11 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     name: project.name,
     type: project.type,
     updatedAt: project.updatedAt,
+    ...(project.startupDirectory ? { startupDirectory: project.startupDirectory } : {}),
+    ...(project.startupScript ? { startupScript: project.startupScript } : {}),
+    ...(project.packageManager ? { packageManager: project.packageManager } : {}),
+    ...(project.previewPath ? { previewPath: project.previewPath } : {}),
+    ...(project.previewViewport ? { previewViewport: project.previewViewport } : {}),
     ...(project.workspaceLocation === "external" ? { workspacePath: project.workspacePath } : {}),
     ...(project.publication ? { publication: project.publication } : {}),
   };

@@ -766,6 +766,7 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           onPublish={publish}
           onRestart={restartPreview}
+          onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
         />
       ) : <InteractiveDramaWorkspace

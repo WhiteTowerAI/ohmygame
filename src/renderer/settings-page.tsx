@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, Check, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
+import { ArrowLeft, Check, Globe2, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -14,6 +14,7 @@ import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
 import { LibraryIcon } from "@solar-icons/react/linear/library";
 import { AccountPage, type AccountSection } from "../account-ui/account-page.js";
 import { accountApi } from "./api.js";
+import { WebSearchSettingsPanel } from "./web-search-settings.js";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
@@ -22,6 +23,7 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "providers", label: "Providers", icon: Server },
+  { section: "web-search", label: "Web Search", icon: Globe2 },
   { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
 ];
@@ -72,6 +74,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
           {section === "usage" || section === "plans" || section === "billing" ? <AccountSettingsPage section={section} /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
+          {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>

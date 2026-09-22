@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -8,6 +8,33 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("saves the configured project startup directory", async () => {
+    installWindow();
+    const project = { id: "project-1", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1", startupDirectory: "apps/game", preview: { status: "stopped" } };
+    const fetchMock = vi.fn(async () => Response.json(project));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updateProjectStartupDirectory(project.id, project.startupDirectory)).resolves.toEqual(project);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/settings/startup-directory",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ startupDirectory: "apps/game" }) }),
+    );
+  });
+
+  it("saves a project's run and playtest settings together", async () => {
+    installWindow();
+    const project = { id: "project-1", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1", startupDirectory: "apps/game", startupScript: "start", packageManager: "pnpm", previewPath: "/play", previewViewport: "mobile", preview: { status: "stopped" } };
+    const input = { startupDirectory: "apps/game", startupScript: "start", packageManager: "pnpm" as const, previewPath: "/play", previewViewport: "mobile" as const };
+    const fetchMock = vi.fn(async () => Response.json(project));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updateProjectRunSettings(project.id, input)).resolves.toEqual(project);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/settings/run",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(input) }),
+    );
+  });
+
   it("shows the specific API error message", async () => {
     installWindow();
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({

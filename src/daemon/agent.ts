@@ -1887,14 +1887,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[] } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[]; webSearch?: Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] } {
   const artifact = toolArtifact(result);
+  const webSearch = toolWebSearch(result);
   const images = result && typeof result === "object" && "content" in result
     ? imageContent((result as { content?: unknown }).content)
     : [];
   const media = {
     ...(artifact ? { artifact } : {}),
     ...(images.length ? { images } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
@@ -1907,6 +1909,16 @@ function toolOutput(result: unknown): { output?: string; truncated?: boolean; ar
     truncated: true,
     ...media,
   };
+}
+
+function toolWebSearch(result: unknown): Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] {
+  const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
+  const value = details && typeof details === "object" && "webSearch" in details ? (details as { webSearch?: unknown }).webSearch : undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const metadata = value as { provider?: unknown; providerName?: unknown; fallbackFrom?: unknown };
+  if ((metadata.provider !== "exa" && metadata.provider !== "parallel" && metadata.provider !== "custom") || typeof metadata.providerName !== "string") return undefined;
+  const fallbackFrom = metadata.fallbackFrom;
+  return { provider: metadata.provider, providerName: metadata.providerName, ...(fallbackFrom === "exa" || fallbackFrom === "parallel" || fallbackFrom === "custom" ? { fallbackFrom } : {}) };
 }
 
 function toolArtifact(result: unknown): ToolArtifact | undefined {
