@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlaytestDriver, PlaytestSnapshot } from "../shared/playtest.js";
+import type { PlaytestAction, PlaytestDriver, PlaytestSnapshot } from "../shared/playtest.js";
 
 const viewportSchema = Type.Object({
   width: Type.Integer({ minimum: 240, maximum: 4096 }),
@@ -42,21 +42,19 @@ const actionSchema = Type.Union([
   Type.Object({ type: Type.Literal("bridge"), method: Type.Union([Type.Literal("setSeed"), Type.Literal("step")]), value: Type.Number() }, { additionalProperties: false }),
 ]);
 
-const parameters = Type.Union([
-  Type.Object({
-    operation: Type.Literal("open"),
-    path: Type.Optional(Type.String({ maxLength: 1_000, description: "Optional path, query, or hash within the current project preview" })),
-    viewport: Type.Optional(viewportSchema),
-  }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("inspect"), sessionId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({
-    operation: Type.Literal("act"),
-    sessionId: Type.String({ minLength: 1, maxLength: 100 }),
-    actions: Type.Array(actionSchema, { minItems: 1, maxItems: 20 }),
-  }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("capture"), sessionId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ operation: Type.Literal("close"), sessionId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-]);
+const parameters = Type.Object({
+  operation: Type.Union([
+    Type.Literal("open"),
+    Type.Literal("inspect"),
+    Type.Literal("act"),
+    Type.Literal("capture"),
+    Type.Literal("close"),
+  ]),
+  path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within the current project preview; used only by open" })),
+  viewport: Type.Optional(viewportSchema),
+  sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for inspect, act, capture, and close" })),
+  actions: Type.Optional(Type.Array(actionSchema, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
+}, { additionalProperties: false });
 
 export function createPlaytestTool(
   driver: PlaytestDriver,
@@ -88,7 +86,7 @@ export function createPlaytestTool(
         return snapshotResult(result.snapshot);
       }
       if (input.operation === "capture") {
-        const result = await driver.request({ operation: "capture", sessionId: input.sessionId }, signal);
+        const result = await driver.request({ operation: "capture", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
         if (result.operation !== "capture") throw new Error("Unexpected browser playtest response");
         return {
           content: [
@@ -104,16 +102,28 @@ export function createPlaytestTool(
         };
       }
       if (input.operation === "close") {
-        await driver.request({ operation: "close", sessionId: input.sessionId }, signal);
-        return { content: [{ type: "text", text: `Closed browser playtest session ${input.sessionId}` }], details: undefined };
+        const sessionId = requiredSessionId(input.operation, input.sessionId);
+        await driver.request({ operation: "close", sessionId }, signal);
+        return { content: [{ type: "text", text: `Closed browser playtest session ${sessionId}` }], details: undefined };
       }
+      const sessionId = requiredSessionId(input.operation, input.sessionId);
       const result = input.operation === "inspect"
-        ? await driver.request({ operation: "inspect", sessionId: input.sessionId }, signal)
-        : await driver.request({ operation: "act", sessionId: input.sessionId, actions: input.actions }, signal);
+        ? await driver.request({ operation: "inspect", sessionId }, signal)
+        : await driver.request({ operation: "act", sessionId, actions: requiredActions(input.actions) }, signal);
       if (result.operation !== "inspect" && result.operation !== "act") throw new Error("Unexpected browser playtest response");
       return snapshotResult(result.snapshot);
     },
   });
+}
+
+function requiredSessionId(operation: string, sessionId?: string): string {
+  if (!sessionId) throw new Error(`sessionId is required for ${operation}`);
+  return sessionId;
+}
+
+function requiredActions(actions?: PlaytestAction[]): PlaytestAction[] {
+  if (!actions?.length) throw new Error("actions are required for act");
+  return actions;
 }
 
 export function previewUrl(baseValue: string, relativeValue?: string): string {

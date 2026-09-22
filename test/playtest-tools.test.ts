@@ -42,6 +42,14 @@ class FakeDriver implements PlaytestDriver {
 }
 
 describe("playtest browser tool", () => {
+  it("uses a provider-compatible object schema at the function root", () => {
+    const tool = createPlaytestTool(new FakeDriver(), async () => "http://127.0.0.1:43210/");
+
+    expect(tool.parameters.type).toBe("object");
+    expect(tool.parameters).not.toHaveProperty("anyOf");
+    expect(tool.parameters.required).toContain("operation");
+  });
+
   it("starts the current preview and opens a project-local route", async () => {
     const driver = new FakeDriver();
     const ensurePreview = vi.fn(async () => "http://127.0.0.1:43210/");
@@ -91,5 +99,16 @@ describe("playtest browser tool", () => {
       sessionId: "session-1",
     }, undefined, undefined, {} as never)).rejects.toThrow("not available");
   });
-});
 
+  it("validates fields required by session operations", async () => {
+    const tool = createPlaytestTool(new FakeDriver(), async () => "http://127.0.0.1:43210/");
+
+    await expect(tool.execute("inspect-1", {
+      operation: "inspect",
+    }, undefined, undefined, {} as never)).rejects.toThrow("sessionId is required for inspect");
+    await expect(tool.execute("act-1", {
+      operation: "act",
+      sessionId: "session-1",
+    }, undefined, undefined, {} as never)).rejects.toThrow("actions are required for act");
+  });
+});
