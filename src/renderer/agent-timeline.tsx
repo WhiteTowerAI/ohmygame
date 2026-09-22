@@ -597,12 +597,25 @@ function FileChangeDetails({ item, args }: { item: ToolCallItem; args: Record<st
 function StructuredToolDetails({ item }: { item: ToolCallItem }) {
   return (
     <div className="tool-details">
+      {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
       {item.arguments !== undefined ? <ToolDetailBlock label="Input"><pre>{formatToolValue(item.arguments)}</pre></ToolDetailBlock> : null}
       {item.output ? <ToolDetailBlock label="Output"><pre>{item.output}</pre></ToolDetailBlock> : null}
       {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
       {!item.output && item.status === "failed" ? <p className="tool-details-error">The tool call failed without output.</p> : null}
     </div>
   );
+}
+
+function ToolImagePreviews({ images }: { images: PromptImage[] }) {
+  return <div className="tool-result-images">
+    {images.map((image, index) => (
+      <img
+        key={`${image.mediaType}:${index}`}
+        src={imageSource(image)}
+        alt={image.name ?? (images.length === 1 ? "Tool result image" : `Tool result image ${index + 1}`)}
+      />
+    ))}
+  </div>;
 }
 
 function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
@@ -620,10 +633,10 @@ function ToolDetailBlock({ label, children }: { label: string; children: ReactNo
 
 function hasToolDetails(item: ToolCallItem): boolean {
   if (item.status === "failed" || item.truncated) return true;
-  if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output);
+  if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["read", "grep", "find", "ls", "edit", "write"].includes(item.tool)) return Boolean(item.output);
-  return item.arguments !== undefined || Boolean(item.output);
+  return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 
 function formatToolValue(value: unknown): string {

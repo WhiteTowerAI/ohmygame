@@ -440,6 +440,33 @@ describe("conversationItems", () => {
     expect(items[1]?.type === "dynamicToolCall" && items[1].output).toContain("-end");
   });
 
+  it("restores images returned by tools", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Capture", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "capture-1", name: "playtest_browser", arguments: { operation: "capture", sessionId: "session-1" } }],
+        stopReason: "toolUse",
+      }),
+      sessionMessage("tool", {
+        role: "toolResult",
+        toolCallId: "capture-1",
+        toolName: "playtest_browser",
+        content: [
+          { type: "text", text: "{\"width\":780,\"height\":1688}" },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+        isError: false,
+      }),
+    ] as never, false);
+
+    expect(items[1]).toMatchObject({
+      type: "dynamicToolCall",
+      status: "completed",
+      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+    });
+  });
+
   it("keeps only display-safe arguments for built-in tools", () => {
     const items = conversationItems([
       sessionMessage("user", { role: "user", content: "Change it", timestamp: 1 }),
@@ -951,7 +978,13 @@ describe("AgentManager", () => {
       session.emit({ type: "auto_retry_end", success: true, attempt: 2 });
       session.emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts", oldText: "private", newText: "source" } });
       session.emit({ type: "tool_execution_update", toolCallId: "call-1", toolName: "edit", args: { path: "src/app.ts" }, partialResult: { content: [{ type: "text", text: "working" }] } });
-      session.emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: { content: [{ type: "text", text: "patched" }] }, isError: false });
+      session.emit({
+        type: "tool_execution_end",
+        toolCallId: "call-1",
+        toolName: "edit",
+        result: { content: [{ type: "text", text: "patched" }, { type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
+        isError: false,
+      });
     });
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => session });
@@ -973,7 +1006,7 @@ describe("AgentManager", () => {
       { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "retry", status: "completed", attempt: 2 }) } },
       { type: "item.started", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", toolCallId: "call-1", tool: "edit", status: "inProgress", arguments: { path: "src/app.ts" } }) } },
       { type: "item.updated", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", output: "working" }) } },
-      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", status: "completed", output: "patched" }) } },
+      { type: "item.completed", data: { item: expect.objectContaining({ id: expect.any(String), type: "dynamicToolCall", status: "completed", output: "patched", images: [{ mediaType: "image/png", data: "aW1hZ2U=" }] }) } },
       { type: "agent.completed", data: {} },
     ]);
     expect(published.every((event) => (

@@ -810,6 +810,29 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("playtest_browser tools");
   });
 
+  it("shows a captured playtest frame inside the tool details", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "capture",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "capture",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "capture", sessionId: "session-1" },
+        output: "{\"width\":780,\"height\":1688}",
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+      },
+      assistant("final", "Verified.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Captured game screenshot");
+    expect(html).toContain('class="tool-result-images"');
+    expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+    expect(html.indexOf("tool-result-images")).toBeLessThan(html.indexOf("Input"));
+  });
+
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,

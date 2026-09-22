@@ -11618,6 +11618,21 @@ button {
   background: transparent;
 }
 
+.tool-result-images {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-result-images img {
+  display: block;
+  width: min(100%, 420px);
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  object-fit: contain;
+}
+
 .tool-shell-details {
   gap: 0;
   margin: 2px 0 0;

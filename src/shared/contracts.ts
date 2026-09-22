@@ -490,6 +490,7 @@ export type ThreadItem = (
       output?: string;
       truncated?: boolean;
       artifact?: ToolArtifact;
+      images?: PromptImage[];
     }
   | {
       id: string;
@@ -503,6 +504,7 @@ export type ThreadItem = (
       output?: string;
       truncated?: boolean;
       artifact?: ToolArtifact;
+      images?: PromptImage[];
     }
   | {
       id: string;
