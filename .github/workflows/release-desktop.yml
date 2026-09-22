@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -42,6 +43,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-Windows-x64
+          retention-days: 1
           if-no-files-found: error
           path: |
             release/*.exe
@@ -95,6 +97,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-macOS-arm64
+          retention-days: 1
           if-no-files-found: error
           path: |
             release/*.dmg
@@ -173,3 +176,17 @@ jobs:
         run: |
           curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest.yml" >/dev/null
           curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest-mac.yml" >/dev/null
+      - name: Delete intermediate GitHub artifacts
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --jq '.artifacts[].id' \
+            | while read -r artifact_id; do
+                gh api --method DELETE \
+                  -H "Accept: application/vnd.github+json" \
+                  "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+              done
