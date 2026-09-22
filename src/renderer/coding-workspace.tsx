@@ -210,9 +210,16 @@ export function CodingWorkspace({
         </div>
       </header>
 
-      {supportsPreview && activeTab === "preview" ? (
-        <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
-      ) : activeTab === "code" ? (
+      {supportsPreview ? (
+        <div
+          className="coding-workspace-preview-panel"
+          hidden={activeTab !== "preview"}
+          aria-hidden={activeTab !== "preview"}
+        >
+          <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
+        </div>
+      ) : null}
+      {activeTab === "code" ? (
         <CodeView
           files={files.filter((file) => !file.mediaType)}
           selectedPath={selectedCodePath}
@@ -221,7 +228,7 @@ export function CodingWorkspace({
           error={filesError}
           onSelect={selectFile}
         />
-      ) : (
+      ) : activeTab === "assets" ? (
         <AssetsView
           projectId={project?.id}
           files={files.filter((file) => file.mediaType)}
@@ -230,7 +237,7 @@ export function CodingWorkspace({
           revision={workspaceRevision}
           onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
-      )}
+      ) : null}
       {project && publishDialogOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishDialogOpen(false)} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog project={project} previewUrl={previewPageUrl} onClose={() => setProjectSettingsOpen(false)} onSaved={async (updated) => {
         const restartRequired = updated.startupDirectory !== project.startupDirectory ||
