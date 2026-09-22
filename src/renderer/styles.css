@@ -13029,6 +13029,11 @@ button {
   font-size: 11px;
 }
 
+.message-queue-actions button[aria-label="Edit queued message"] {
+  width: 24px;
+  justify-content: center;
+}
+
 .message-queue-actions button:disabled {
   cursor: default;
   opacity: 0.45;
