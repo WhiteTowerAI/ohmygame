@@ -23,25 +23,39 @@ The schema checks the shape of one JSON document. OhMyGame additionally validate
 - node IDs are unique;
 - edges reference nodes in the same chapter;
 - Choice handles match option IDs;
+- Condition handles are exactly \`"true"\` and \`"false"\`;
 - the chapter has at most one Start node;
 - IDs for nodes, edges, Choice options, and presentation media are unique in their scope;
 - Choice timeouts reference an option in the same Choice;
+- Interaction timeouts reference an outcome in the same Interaction;
 - actions and conditions reference compatible declared Variables;
-- Hotspot rectangles fit completely inside the normalized viewport;
+- Interaction outcomes are unique within each node and match its outgoing edge handles;
 - \`editor/layout.json\` contains exactly one position for every Story node;
 - referenced source files exist and stay inside the workspace.
 
-Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses \`mode: "own" | "inherit" | "none"\`. A Start node has an empty \`data\` object.
+Presentation source objects use the exact keys \`html\`, \`css\`, and \`javascript\`. Presentation media uses an \`items\` array; an empty array means no media. A Start node has an empty \`data\` object.
+
+A Scene with no media or any image requires \`data.durationMs\` from 1000 to 300000 milliseconds. It controls how long each image or an empty Scene remains visible. A Scene containing only videos must omit \`durationMs\`; videos advance when playback actually ends.
+
+Choice and Update State actions use \`type: "update-variable"\` with an \`operator\` of \`"set"\`, \`"add"\`, \`"subtract"\`, \`"multiply"\`, or \`"divide"\`. Only \`"set"\` supports Text and Boolean Variables; arithmetic operators require a Number Variable and numeric \`value\`.
+
+A Condition node reads one declared Variable and immediately follows its \`"true"\` or \`"false"\` edge. Number conditions support equality plus \`"greater-than"\`, \`"greater-than-or-equal"\`, \`"less-than"\`, and \`"less-than-or-equal"\`; Text and Boolean conditions support equality only.
 
 The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the existing view and viewport unless the user explicitly asks to change them.
 
 ## Runtime surfaces
 
-Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries contain an \`action\` string; call \`actions.run(button.action)\`.
+Each chapter has exactly one Open UI node directly after Start and one Story Map node connected from Open UI's \`"story-map"\` output. Story Map is a system screen, not a story step. Use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant.
+
+Story Map JavaScript exports \`render({ content, actions, root })\`. The runtime supplies read-only derived map nodes, edges, discovery state, and counts through \`content\`; call \`actions.run("close")\` to return without changing story state.
+
+Open UI HTML may mark movable elements with a unique \`data-layout-id\`. Its optional \`presentation.surface.layout\` object stores logical-pixel \`offsetX\` and \`offsetY\` values by that ID; the player applies those offsets without replacing the element's authored CSS layout.
 
 Scene, Choice, and Ending JavaScript exports \`render({ node, scene, variables, actions, mode, root })\` and may export \`update(...)\`. The runtime \`node\` view contains \`id\`, \`type\`, and \`title\`, plus type-specific values such as Choice \`options\` or Ending \`description\`. Choices call \`actions.choose(option.id)\`; endings may call \`actions.restart()\` and \`actions.menu()\`.
 
-Interaction JavaScript exports \`run({ game, ui, signal })\` and returns an outcome such as \`success\`, \`timeout\`, \`continue\`, or \`out\`.
+Interaction JavaScript exports \`run({ game, ui, signal })\` and returns one of the strings declared in that node's \`data.outcomes\`. The code fully owns the interaction behavior; names such as Hotspot, QTE, and Continue describe starter templates, not runtime types. Optional \`data.timeout\` defines the overall pause-aware deadline and the outcome returned when it expires; the runtime owns this deadline and cancels unfinished code. On timeout, buffered Variable commands are discarded and any later code result is ignored.
+
+\`ui\` provides \`root\`, \`querySelector(selector)\`, \`waitForClick(target)\`, \`waitForKey(code)\`, and \`waitForTimeout(duration)\`. Use \`ui.waitForTimeout\` for delays inside behavior, not for the node's overall deadline. These wait helpers pause and resume with the Player; raw browser timers do not. \`game.variables.get(idOrName)\`, \`set(idOrName, value)\`, and \`increment(idOrName, amount)\` read or update declared Variables. Use \`signal\` to cancel additional asynchronous work when the node stops.
 `;
 const BASE_AGENT_INSTRUCTIONS = `# Interactive Drama Project
 
@@ -49,18 +63,22 @@ This workspace is the source of truth for an OhMyGame Interactive Drama.
 
 ## Contract
 
-- \`story.json\` contains the story graph, content, stable IDs, declared runtime behavior, and references to source files.
+- \`story.json\` contains the story graph, content, stable IDs, declared Interaction outcomes, and references to source files.
 - \`editor/layout.json\` contains canvas positions, viewport, and the active workspace view. It has no game runtime meaning.
 - \`schemas/story.schema.json\` defines the exact persisted \`story.json\` structure. Read it before editing Story data; do not guess field names.
 - \`schemas/editor-layout.schema.json\` defines the exact persisted \`editor/layout.json\` structure. Its \`view\` is \`"canvas"\` or \`"code"\`.
 - \`README.md\` explains graph semantics and runtime surface APIs.
 - Every presentation node owns HTML, CSS, and JavaScript through \`data.presentation.surface.source\`; new nodes default to \`nodes/<derived-node-id>/\`.
-- Every player-visible Story node owns \`data.presentation\`: a media \`mode\` (\`own\`, \`inherit\`, or \`none\`) and a code surface. Interaction nodes additionally own declarative \`data.behavior\`.
+- Every player-visible Story node owns \`data.presentation\`: a media \`items\` array and a code surface. Interaction nodes additionally declare the graph ports in \`data.outcomes\`.
+- The player shows its shared pause button on Scene, Interaction, and Choice nodes.
+- \`variables[].initialValue\` is the only source of new-game state. Use an Update State node only for changes that happen while the story is running.
+- Use a Condition node for automatic variable-based branching; its outgoing edges use \`"true"\` and \`"false"\` as \`sourceHandle\`.
 - Source files referenced by \`story.json\` are authoritative. Do not inline a \`files\` object into Open UI or node presentations.
 - Keep existing IDs and source paths stable when editing an object. Use new unique IDs for new objects.
-- A Scene contains only \`title\` and \`presentation\`; its code surface owns any visual overlay UI.
-- An Interaction contains only \`title\`, \`behavior\`, and \`presentation\`; connect its outcomes directly in Story Flow.
+- A Scene contains \`title\` and \`presentation\`; its code surface owns any visual overlay UI. Add \`durationMs\` for an empty Scene or one containing images, and omit it when every media item is a video. Images use \`durationMs\`; videos advance when playback actually ends.
+- An Interaction contains \`title\`, \`outcomes\`, optional \`timeout\`, and \`presentation\`. Its JavaScript owns all behavior and must return one declared outcome; connect every outcome directly in Story Flow. The runtime owns the optional overall timeout.
 - Open UI is an ordinary Story node that owns its media, content, and code.
+- An Open UI element is visually movable only when its HTML declares a unique \`data-layout-id\`; optional offsets live in \`presentation.surface.layout\` and affect the final runtime.
 - Keep \`story.json\` valid JSON and preserve its \`version\`.
 
 Use \`README.md\` as the source of truth for runtime JavaScript interfaces.
@@ -133,9 +151,9 @@ const BASIC_TEMPLATE_INSTRUCTIONS = `## Basic template path
 
 When the user asks for a basic Interactive Drama template without specifying its structure, create a compact playable story that demonstrates the standard Story capabilities:
 
-\`start -> open-ui -> scene -> choice -> project-state -> scene -> interaction -> ending-a / ending-b\`
+\`start -> open-ui -> scene -> choice -> update-state -> scene -> interaction -> ending-a / ending-b\`
 
-Declare at least one Variable and use it through a Project State action, Choice action or condition, or Interaction outcome. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
+Declare at least one Variable with its new-game \`initialValue\` and use it through an Update State action, Choice action or condition, or Interaction code. Include one Start, one Open UI, at least two Scenes, one Choice with two branches, one Interaction, and two Endings. Add an Update State node only when the story needs a state change at that point in the flow. Keep the graph compact; do not add nodes merely to demonstrate every available feature. Preserve existing Image, Video, and other asset nodes without changing their configuration, and do not generate media unless requested.
 
 For a Choice, each option has a stable \`id\` and the matching outgoing edge uses that option ID as \`sourceHandle\`. For all other standard flow edges, use the node's default outgoing handle. Every edge source and target must reference a node in the same chapter.
 
@@ -233,14 +251,13 @@ export function isCanonicalStoryCodebase(value: unknown): boolean {
   if (!isRecord(value.player)) return false;
   if (!isRecord(value.player.viewport) || !Number.isInteger(value.player.viewport.width) || !Number.isInteger(value.player.viewport.height)) return false;
   return !records(value.chapter.nodes).some((node) => {
-    if (!["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
+    if (!["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type))) return false;
     const data = node.data;
     if (!isRecord(data) || !isRecord(data.presentation) || !isRecord(data.presentation.surface)) return true;
     if (!isSourceReference(data.presentation.surface.source) || isRecord(data.presentation.surface.files)) return true;
-    if (node.type === "scene") return !isRecord(data.presentation.media) ||
-      (data.presentation.media.mode === "own" && !Array.isArray(data.presentation.media.items)) ||
+    if (node.type === "scene") return !isRecord(data.presentation.media) || !Array.isArray(data.presentation.media.items) ||
       ["clips", "events", "media", "surface", "overlayIds"].some((key) => key in data);
-    return node.type === "interaction" && (!isRecord(data.behavior) || "event" in data || "interactionId" in data);
+    return node.type === "interaction" && (!Array.isArray(data.outcomes) || "event" in data || "interactionId" in data || "behavior" in data);
   });
 }
 
@@ -251,8 +268,8 @@ function withStableSources(story: StoryDocument): StoryDocument {
   };
 }
 
-function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }> {
-  return node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
+function isPresentationNode(node: StoryNode): node is Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }> {
+  return node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending";
 }
 
 function withNodePresentationSource(node: StoryNode): StoryNode {
@@ -267,6 +284,7 @@ function withNodePresentationSource(node: StoryNode): StoryNode {
   };
   if (node.type === "scene") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation } };
+  if (node.type === "story-map") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "interaction") return { ...node, data: { ...node.data, presentation } };
   if (node.type === "choice") return { ...node, data: { ...node.data, presentation } };
   return { ...node, data: { ...node.data, presentation } };

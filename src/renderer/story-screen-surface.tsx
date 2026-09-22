@@ -1,76 +1,90 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { StorySurfaceFiles, StoryOpenUiAction } from "../shared/contracts.js";
+import { useEffect, useRef, useState } from "react";
+import type { StoryScreenAction, StorySurfaceFiles, StorySurfaceLayout, StorySurfaceLayoutOffset } from "../shared/contracts.js";
+import { transparentStorySurfaceFiles } from "../shared/story.js";
+import { StorySurfaceViewport } from "./story-surface-viewport.js";
 
-interface ScreenSurfaceMessage {
-  channel: "ohmygame:screen-surface";
-  instanceId: string;
-  type: "action" | "error";
-  action?: StoryOpenUiAction;
-  message?: string;
-}
+type ScreenSurfaceMessage =
+  | { channel: "ohmygame:screen-surface"; instanceId: string; type: "ready" }
+  | { channel: "ohmygame:screen-surface"; instanceId: string; type: "action"; action: StoryScreenAction }
+  | { channel: "ohmygame:screen-surface"; instanceId: string; type: "error"; message: string }
+  | { channel: "ohmygame:screen-surface"; instanceId: string; type: "layout-select"; elementId: string | null }
+  | { channel: "ohmygame:screen-surface"; instanceId: string; type: "layout-change"; elementId: string; offset: StorySurfaceLayoutOffset };
 
-export function StoryScreenSurface({ files, content, mode, title, className, designViewport, onAction, onError }: {
+export function StoryScreenSurface({ files, content, mode, layout, layoutEditable = false, title, className, onReady, onAction, onError, onLayoutSelect, onLayoutChange }: {
   files: StorySurfaceFiles;
   content: unknown;
   mode: "preview" | "runtime";
+  layout?: StorySurfaceLayout;
+  layoutEditable?: boolean;
   title: string;
   className?: string;
-  designViewport?: { width: number; height: number };
-  onAction?: (action: StoryOpenUiAction) => void;
+  onReady?: () => void;
+  onAction?: (action: StoryScreenAction) => void;
   onError?: (message: string) => void;
+  onLayoutSelect?: (elementId?: string) => void;
+  onLayoutChange?: (elementId: string, offset: StorySurfaceLayoutOffset) => void;
 }) {
+  const surfaceFiles = transparentStorySurfaceFiles(files, ".open-ui");
   const iframe = useRef<HTMLIFrameElement>(null);
-  const container = useRef<HTMLDivElement>(null);
   const [instanceId] = useState(() => crypto.randomUUID());
-  const [loaded, setLoaded] = useState(false);
-  const [scale, setScale] = useState(1);
+  const [loadRevision, setLoadRevision] = useState(0);
+  const onReadyRef = useRef(onReady);
   const onActionRef = useRef(onAction);
   const onErrorRef = useRef(onError);
-  useEffect(() => { onActionRef.current = onAction; }, [onAction]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  const onLayoutSelectRef = useRef(onLayoutSelect);
+  const onLayoutChangeRef = useRef(onLayoutChange);
+  onReadyRef.current = onReady;
+  onActionRef.current = onAction;
+  onErrorRef.current = onError;
+  onLayoutSelectRef.current = onLayoutSelect;
+  onLayoutChangeRef.current = onLayoutChange;
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {
       if (event.source !== iframe.current?.contentWindow || !isScreenSurfaceMessage(event.data) || event.data.instanceId !== instanceId) return;
-      if (event.data.type === "action" && event.data.action) onActionRef.current?.(event.data.action);
-      else if (event.data.type === "error") onErrorRef.current?.(event.data.message ?? "Screen code failed");
+      if (event.data.type === "ready") onReadyRef.current?.();
+      else if (event.data.type === "action") onActionRef.current?.(event.data.action);
+      else if (event.data.type === "layout-select") onLayoutSelectRef.current?.(event.data.elementId ?? undefined);
+      else if (event.data.type === "layout-change") onLayoutChangeRef.current?.(event.data.elementId, event.data.offset);
+      else {
+        onErrorRef.current?.(event.data.message);
+        onReadyRef.current?.();
+      }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
   }, [instanceId]);
   useEffect(() => {
-    if (!loaded) return;
-    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files, content, mode }, "*");
-  }, [content, files.css, files.html, files.javascript, instanceId, loaded, mode]);
-  useLayoutEffect(() => {
-    if (!designViewport || !container.current) return;
-    const update = () => {
-      const element = container.current;
-      if (element) setScale(Math.min(element.clientWidth / designViewport.width, element.clientHeight / designViewport.height));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container.current);
-    return () => observer.disconnect();
-  }, [designViewport?.height, designViewport?.width]);
-  const frameStyle = designViewport ? {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    width: designViewport.width,
-    height: designViewport.height,
-    border: 0,
-    background: "transparent",
-    transform: `translate(-50%, -50%) scale(${scale})`,
-    transformOrigin: "center",
-  } satisfies CSSProperties : undefined;
-  const frame = <iframe ref={iframe} title={title} sandbox="allow-scripts" src="screen-surface.html" style={frameStyle} onLoad={() => setLoaded(true)} />;
-  return designViewport
-    ? <div ref={container} className={className} style={{ overflow: "hidden" }}>{frame}</div>
-    : <iframe ref={iframe} className={className} title={title} sandbox="allow-scripts" src="screen-surface.html" onLoad={() => setLoaded(true)} />;
+    if (!loadRevision) return;
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "init", files: surfaceFiles, content, mode, layout: layout ?? {}, layoutEditable }, "*");
+  }, [content, instanceId, loadRevision, mode, surfaceFiles.css, surfaceFiles.html, surfaceFiles.javascript]);
+  useEffect(() => {
+    if (!loadRevision) return;
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "layout", layout: layout ?? {} }, "*");
+  }, [instanceId, layout, loadRevision]);
+  useEffect(() => {
+    if (!loadRevision) return;
+    iframe.current?.contentWindow?.postMessage({ channel: "ohmygame:screen-surface", instanceId, type: "layout-editing", editable: layoutEditable }, "*");
+  }, [instanceId, layoutEditable, loadRevision]);
+  return <StorySurfaceViewport iframeRef={iframe} className={className} title={title} src="screen-surface.html" onLoad={() => setLoadRevision((current) => current + 1)} />;
 }
 
 function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<ScreenSurfaceMessage>;
-  return message.channel === "ohmygame:screen-surface" && typeof message.instanceId === "string" && (message.type === "action" || message.type === "error");
+  if (message.channel !== "ohmygame:screen-surface" || typeof message.instanceId !== "string") return false;
+  if (message.type === "ready") return true;
+  if (message.type === "action") return message.action === "start-game" || message.action === "continue-game" || message.action === "new-game" || message.action === "open-story-map" || message.action === "close";
+  if (message.type === "error") return typeof message.message === "string";
+  if (message.type === "layout-select") return message.elementId === null || isLayoutElementId(message.elementId);
+  return message.type === "layout-change" && isLayoutElementId(message.elementId) && isLayoutOffset(message.offset);
+}
+
+function isLayoutElementId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 120;
+}
+
+function isLayoutOffset(value: unknown): value is StorySurfaceLayoutOffset {
+  if (!value || typeof value !== "object") return false;
+  const offset = value as Partial<StorySurfaceLayoutOffset>;
+  return typeof offset.offsetX === "number" && Number.isFinite(offset.offsetX) && typeof offset.offsetY === "number" && Number.isFinite(offset.offsetY);
 }

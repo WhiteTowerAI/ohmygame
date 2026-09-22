@@ -1,21 +1,37 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
-import { createPublishApp } from "../src/publish-server/app.js";
 import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
+const webRepository = process.env.OHMYGAME_WEB_ROOT
+  ? path.resolve(process.env.OHMYGAME_WEB_ROOT)
+  : path.resolve(import.meta.dirname, "../../ohmygame-web");
+const publishServerModule = path.join(webRepository, "src", "publish-server", "app.ts");
+const publishServerDependencies = path.join(webRepository, "node_modules", "fastify", "package.json");
+const createPublishApp = existsSync(publishServerModule) && existsSync(publishServerDependencies)
+  ? (await import(pathToFileURL(publishServerModule).href) as {
+      createPublishApp: (options: {
+        dataDirectory: string;
+        playOrigin?: string;
+        verifyPublisherToken: (token: string) => Promise<string | undefined>;
+      }) => FastifyInstance;
+    }).createPublishApp
+  : undefined;
+const describePublishContract = createPublishApp ? describe : describe.skip;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
-describe("remote publish", () => {
+describePublishContract("remote publish", () => {
   it("saves, publishes, and loads an Asset Template from Explore", async () => {
     const runtime = await testRuntime();
     const saved = await runtime.daemon.inject({
@@ -417,12 +433,12 @@ describe("remote publish", () => {
     })).json();
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
-    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
+    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
+    const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
     const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
-    if (!initialState || !ending) throw new Error("Playable story fixture is incomplete");
-    chapter.edges = chapter.edges.filter((edge: { source: string }) => edge.source !== initialState.id);
-    chapter.edges.push({ id: "state-scene", source: initialState.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
+    if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");
+    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
+    chapter.edges.push({ id: "open-scene", source: openUi.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
     syncStoryLayout(story);
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
 
@@ -455,9 +471,6 @@ describe("remote publish", () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
     const story = createPlayableStoryDocument();
-    const chapter = story.chapter;
-    const initialState = chapter.nodes.find((node: { type: string }) => node.type === "project-state");
-    expect(initialState).toBeDefined();
     expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
@@ -777,7 +790,7 @@ function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>):
 
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("ohmygame-publish-server-");
-  const publishServer = createPublishApp({
+  const publishServer = createPublishApp!({
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
     verifyPublisherToken: async (value) => value === token ? "publisher" : undefined,

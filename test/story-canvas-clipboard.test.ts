@@ -15,7 +15,8 @@ describe("story canvas clipboard", () => {
       position: { x: 100, y: 200 },
       data: {
         title: "Opening",
-        presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
+        durationMs: 3_000,
+        presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } },
       },
     };
     const duplicate = duplicateStoryNode(source, { x: 123, y: 238 }, "copy");

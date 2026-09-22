@@ -10,8 +10,33 @@ const action = ref("action");
 const condition = ref("condition");
 const presentation = ref("presentation");
 const singleMediaPresentation = ref("singleMediaPresentation");
-const interactionOutcome = ref("interactionOutcome");
-const interactionBehavior = ref("interactionBehavior");
+const openUiPresentation = ref("openUiPresentation");
+const storyMapPresentation = ref("storyMapPresentation");
+
+const sceneDurationRequirement = {
+  if: {
+    properties: {
+      presentation: {
+        properties: {
+          media: {
+            properties: {
+              items: {
+                type: "array",
+                minItems: 1,
+                items: { properties: { type: { const: "video" } }, required: ["type"] },
+              },
+            },
+            required: ["items"],
+          },
+        },
+        required: ["media"],
+      },
+    },
+    required: ["presentation"],
+  },
+  then: { not: { required: ["durationMs"] } },
+  else: { required: ["durationMs"] },
+} as const;
 
 const idSchema = { type: "string", minLength: 1 } as const;
 const sourcePathSchema = { type: "string", minLength: 1, pattern: "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$" } as const;
@@ -34,10 +59,19 @@ const assetReferenceSchema = {
   ],
 } as const;
 const actionSchema = {
-  oneOf: [
-    { type: "object", additionalProperties: false, required: ["type", "variableId", "value"], properties: { type: { const: "set-variable" }, variableId: id, value: {} } },
-    { type: "object", additionalProperties: false, required: ["type", "variableId", "amount"], properties: { type: { const: "increment-variable" }, variableId: id, amount: { type: "number" } } },
-  ],
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "variableId", "operator", "value"],
+  properties: {
+    type: { const: "update-variable" },
+    variableId: id,
+    operator: { enum: ["set", "add", "subtract", "multiply", "divide"] },
+    value: {},
+  },
+  allOf: [{
+    if: { properties: { operator: { const: "divide" } }, required: ["operator"] },
+    then: { properties: { value: { type: "number", not: { const: 0 } } } },
+  }],
 } as const;
 const conditionSchema = {
   type: "object",
@@ -45,11 +79,11 @@ const conditionSchema = {
   required: ["variableId", "operator", "value"],
   properties: {
     variableId: id,
-    operator: { enum: ["equals", "not-equals", "greater-than", "less-than"] },
+    operator: { enum: ["equals", "not-equals", "greater-than", "greater-than-or-equal", "less-than", "less-than-or-equal"] },
     value: {},
   },
 } as const;
-function presentationSchema(maxItems?: number) {
+function presentationSchema(maxItems?: number, movable = false) {
   const items = {
     type: "array",
     ...(maxItems === undefined ? {} : { maxItems }),
@@ -66,25 +100,28 @@ function presentationSchema(maxItems?: number) {
   required: ["media", "surface"],
   properties: {
     media: {
-      oneOf: [
-        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "none" } } },
-        { type: "object", additionalProperties: false, required: ["mode"], properties: { mode: { const: "inherit" } } },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: ["mode", "items"],
-          properties: {
-            mode: { const: "own" },
-            items,
-          },
-        },
-      ],
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: { items },
     },
     surface: {
       type: "object",
       additionalProperties: false,
       required: ["source"],
-      properties: { source },
+      properties: {
+        source,
+        ...(movable ? { layout: {
+          type: "object",
+          propertyNames: { minLength: 1, maxLength: 120, pattern: "\\S" },
+          additionalProperties: {
+            type: "object",
+            additionalProperties: false,
+            required: ["offsetX", "offsetY"],
+            properties: { offsetX: { type: "number" }, offsetY: { type: "number" } },
+          },
+        } } : {}),
+      },
     },
   },
   } as const;
@@ -98,48 +135,15 @@ function node(type: string, data: object) {
   };
 }
 
-const interactionOutcomeSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["actions"],
-  properties: { actions: { type: "array", items: action } },
-} as const;
-const interactionBehaviorSchema = {
-  oneOf: [
-    { type: "object", additionalProperties: false, required: ["type", "actions"], properties: { type: { const: "actions" }, actions: { type: "array", items: action } } },
-    { type: "object", additionalProperties: false, required: ["type", "label"], properties: { type: { const: "continue" }, label: { type: "string", maxLength: 80 } } },
-    {
-      type: "object", additionalProperties: false,
-      required: ["type", "durationMs", "label", "region", "success", "timeout"],
-      properties: {
-        type: { const: "hotspot" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, label: { type: "string", maxLength: 80 },
-        region: {
-          type: "object", additionalProperties: false, required: ["x", "y", "width", "height"],
-          properties: {
-            x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 },
-            width: { type: "number", exclusiveMinimum: 0, maximum: 1 }, height: { type: "number", exclusiveMinimum: 0, maximum: 1 },
-          },
-        },
-        success: interactionOutcome, timeout: interactionOutcome,
-      },
-    },
-    {
-      type: "object", additionalProperties: false,
-      required: ["type", "durationMs", "prompt", "key", "success", "timeout"],
-      properties: {
-        type: { const: "qte" }, durationMs: { type: "integer", minimum: 500, maximum: 60000 }, prompt: { type: "string", maxLength: 120 },
-        key: { type: "string", pattern: "^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$" },
-        success: interactionOutcome, timeout: interactionOutcome,
-      },
-    },
-  ],
-} as const;
-
 const nodes = [
   node("start", { type: "object", additionalProperties: false }),
-  node("project-state", {
+  node("update-state", {
     type: "object", additionalProperties: false, required: ["title", "actions"],
     properties: { title: { type: "string" }, actions: { type: "array", items: action } },
+  }),
+  node("condition", {
+    type: "object", additionalProperties: false, required: ["title"],
+    properties: { title: { type: "string" }, condition },
   }),
   node("open-ui", {
     type: "object", additionalProperties: false, required: ["title", "content", "presentation"],
@@ -150,16 +154,41 @@ const nodes = [
         properties: {
           title: { type: "string", maxLength: 120 },
           buttons: {
-            type: "array", minItems: 1, maxItems: 8,
-            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { const: "enter-game" } } },
+            type: "array", minItems: 4, maxItems: 4,
+            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { enum: ["start-game", "continue-game", "new-game", "open-story-map"] } } },
+            allOf: [
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "start-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "continue-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "new-game" } } } },
+              { contains: { type: "object", required: ["action"], properties: { action: { const: "open-story-map" } } } },
+            ],
           },
         },
+      },
+      presentation: openUiPresentation,
+    },
+  }),
+  node("story-map", {
+    type: "object", additionalProperties: false, required: ["title", "presentation"],
+    properties: { title: { type: "string", maxLength: 120 }, presentation: storyMapPresentation },
+  }),
+  node("scene", {
+    type: "object", additionalProperties: false, required: ["title", "presentation"],
+    properties: { title: { type: "string" }, durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, presentation },
+    allOf: [sceneDurationRequirement],
+  }),
+  node("interaction", {
+    type: "object", additionalProperties: false, required: ["title", "outcomes", "presentation"],
+    properties: {
+      title: { type: "string" },
+      outcomes: { type: "array", minItems: 1, maxItems: 8, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 80, pattern: "\\S" } },
+      timeout: {
+        type: "object", additionalProperties: false, required: ["durationMs", "outcome"],
+        properties: { durationMs: { type: "integer", minimum: 1000, maximum: 300000 }, outcome: { type: "string", minLength: 1, maxLength: 80, pattern: "\\S" } },
       },
       presentation: singleMediaPresentation,
     },
   }),
-  node("scene", { type: "object", additionalProperties: false, required: ["title", "presentation"], properties: { title: { type: "string" }, presentation } }),
-  node("interaction", { type: "object", additionalProperties: false, required: ["title", "behavior", "presentation"], properties: { title: { type: "string" }, behavior: interactionBehavior, presentation: singleMediaPresentation } }),
   node("choice", {
     type: "object", additionalProperties: false, required: ["title", "options", "presentation"],
     properties: {
@@ -210,8 +239,8 @@ export const STORY_CODEBASE_SCHEMA = {
     condition: conditionSchema,
     presentation: presentationSchema(),
     singleMediaPresentation: presentationSchema(1),
-    interactionOutcome: interactionOutcomeSchema,
-    interactionBehavior: interactionBehaviorSchema,
+    openUiPresentation: presentationSchema(1, true),
+    storyMapPresentation: presentationSchema(0),
   },
   type: "object",
   additionalProperties: false,
@@ -240,7 +269,16 @@ export const STORY_CODEBASE_SCHEMA = {
     chapter: {
       type: "object", additionalProperties: false, required: ["id", "title", "nodes", "edges"],
       properties: {
-        id, title: { type: "string" }, nodes: { type: "array", items: { oneOf: nodes } },
+        id, title: { type: "string" },
+        nodes: {
+          type: "array",
+          items: { oneOf: nodes },
+          allOf: [
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "start" } } }, minContains: 0, maxContains: 1 },
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "open-ui" } } }, minContains: 0, maxContains: 1 },
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "story-map" } } }, minContains: 0, maxContains: 1 },
+          ],
+        },
         edges: {
           type: "array",
           items: { type: "object", additionalProperties: false, required: ["id", "source", "target"], properties: { id, source: id, target: id, sourceHandle: { type: "string" } } },

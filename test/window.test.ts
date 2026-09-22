@@ -16,6 +16,7 @@ vi.mock("electron", () => ({
     };
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
+    readonly setAspectRatio = vi.fn();
     onNavigate?: (event: { preventDefault(): void }, url: string) => void;
     onWindowOpen?: (details: { url: string }) => { action: string };
 
@@ -27,7 +28,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { createDesktopWindow } from "../src/desktop/window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } from "../src/desktop/window.js";
 
 beforeEach(() => {
   electron.windows.length = 0;
@@ -91,6 +92,48 @@ describe("desktop window", () => {
     const navigation = { preventDefault: vi.fn() };
     window.onNavigate?.(navigation, "http://127.0.0.1:43120/#/playtest/project/chapter");
     expect(navigation.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("supports a fixed content aspect ratio for playtest windows", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      contentSize: { width: 1280, height: 720 },
+      aspectRatio: 16 / 9,
+      minWidth: 640,
+      minHeight: 360,
+    });
+    const window = electron.windows[0] as {
+      options: Record<string, unknown>;
+      setAspectRatio: ReturnType<typeof vi.fn>;
+    };
+
+    expect(window.options).toMatchObject({
+      width: 1280,
+      height: 720,
+      minWidth: 640,
+      minHeight: 360,
+      useContentSize: true,
+    });
+    expect(window.setAspectRatio).toHaveBeenCalledWith(16 / 9);
+  });
+
+  it.each([
+    ["landscape", { width: 1280, height: 720 }, { width: 1280, height: 720 }],
+    ["portrait", { width: 720, height: 1280 }, { width: 450, height: 800 }],
+    ["square", { width: 1080, height: 1080 }, { width: 800, height: 800 }],
+    ["custom", { width: 1000, height: 500 }, { width: 1280, height: 640 }],
+  ])("fits a %s playtest viewport within the initial window bounds", (_label, viewport, expected) => {
+    expect(fitPlaytestContentSize(viewport)).toEqual(expected);
+  });
+
+  it("validates playtest viewport dimensions", () => {
+    expect(isValidPlaytestViewport({ width: 1280, height: 720 })).toBe(true);
+    expect(isValidPlaytestViewport({ width: 239, height: 720 })).toBe(false);
+    expect(isValidPlaytestViewport({ width: 1280.5, height: 720 })).toBe(false);
+    expect(isValidPlaytestViewport({ width: 1280, height: 8193 })).toBe(false);
+    expect(isValidPlaytestViewport(null)).toBe(false);
   });
 
   it("limits sidebar window effects to windows that request them", async () => {

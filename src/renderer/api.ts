@@ -93,7 +93,7 @@ declare global {
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
-      openPlaytest: (projectId: string, chapterId: string) => Promise<void>;
+      openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
       updates: {
         state: () => Promise<DesktopUpdateState | null>;
         check: () => Promise<void>;

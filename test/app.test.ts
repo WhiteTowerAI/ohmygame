@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
-import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, resolveStoryAssetId, validatePlayableChapter } from "../src/shared/story.js";
+import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -195,43 +195,35 @@ describe("daemon", () => {
 
     const storyJson: unknown = (await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/story` })).json();
     const assets = (await app.inject({ method: "GET", url: "/library/assets" })).json();
-    const assetIds = new Set<string>(assets.map((asset: { id: string }) => asset.id));
+    expect(assets).toEqual([]);
     expect(isStoryDocument(storyJson), JSON.stringify(storyJson, null, 2)).toBe(true);
     const story = storyJson as StoryDocument;
-    expect(validatePlayableChapter(story.chapter, { availableAssets: new Map([...assetIds].map((id) => [id, "video" as const])) })).toBeUndefined();
+    expect(validatePlayableChapter(story.chapter, { availableAssets: new Map() })).toBeUndefined();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui");
+    const storyMaps = story.chapter.nodes.filter((node) => node.type === "story-map");
+    expect(storyMaps).toHaveLength(1);
+    expect(story.chapter.edges).toContainEqual(expect.objectContaining({ source: openUi?.id, sourceHandle: "story-map", target: storyMaps[0]?.id }));
     const scene = story.chapter.nodes.find((node) => node.type === "scene");
-    expect(scene?.type === "scene" && scene.data.presentation.media.mode === "own" && scene.data.presentation.media.items.every((item) => assetIds.has(resolveStoryAssetId(story.chapter, item.source)!))).toBe(true);
+    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ items: [] });
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
 
-  it("uses updated sample media only for newly created projects", async () => {
+  it("creates the Interactive Drama sample without scene media", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-sample-media-"));
     const examplesDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-samples-"));
     const sampleDirectory = path.join(examplesDirectory, "night-train");
     await mkdir(sampleDirectory);
     await writeFile(path.join(sampleDirectory, "mara.jpg"), "cover");
-    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "first video");
     const app = createApp({ dataDirectory, interactiveDramaExamplesDirectory: examplesDirectory });
     apps.push(app);
 
-    const firstProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
-    await writeFile(path.join(sampleDirectory, "night-train.mp4"), "updated video");
-    const secondProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json() as StoryDocument;
+    const scene = story.chapter.nodes.find((node) => node.type === "scene");
 
-    const assetId = async (projectId: string) => {
-      const story = (await app.inject({ method: "GET", url: `/projects/${projectId}/story` })).json() as StoryDocument;
-      const scene = story.chapter.nodes.find((node) => node.type === "scene");
-      if (scene?.type !== "scene") throw new Error("Sample scene not found");
-      const media = scene.data.presentation.media;
-      if (media.mode !== "own" || !media.items[0]) throw new Error("Sample video not found");
-      return resolveStoryAssetId(story.chapter, media.items[0].source)!;
-    };
-    const firstAssetId = await assetId(firstProject.id);
-    const secondAssetId = await assetId(secondProject.id);
-
-    expect(secondAssetId).not.toBe(firstAssetId);
-    expect((await app.inject({ method: "GET", url: `/library/assets/${firstAssetId}/content` })).rawPayload.toString()).toBe("first video");
-    expect((await app.inject({ method: "GET", url: `/library/assets/${secondAssetId}/content` })).rawPayload.toString()).toBe("updated video");
+    expect(scene?.type === "scene" && scene.data.presentation.media).toEqual({ items: [] });
+    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
   });
 
   it("rejects an Interactive Drama template for another project type", async () => {
@@ -461,7 +453,7 @@ describe("daemon", () => {
       data: {
         title: "Opening",
         presentation: {
-          media: { mode: "own", items: [
+          media: { items: [
             { id: "library-clip", type: "video", source: { type: "library", assetId: first[0].id } },
             { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
           ] },
@@ -649,7 +641,7 @@ describe("daemon", () => {
     const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
     story.chapter.nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
-      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { mode: "own", items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
+      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
     syncStoryLayout(story);
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);

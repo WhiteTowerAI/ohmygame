@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
-import { createStoryDocument, isStoryDocument } from "../shared/story.js";
+import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
@@ -473,7 +473,7 @@ export class ProjectManager {
         throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
       if (story.chapter.nodes.some((node) => (
-        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation?.media.mode === "own" && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
+        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
         (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
         (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
         ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
@@ -504,7 +504,12 @@ export class ProjectManager {
           ...chapter,
           nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
             if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "scene") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
+            if (node.type === "scene") {
+              const presentation = removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds);
+              const durationMs = sceneDurationForMedia(presentation.media.items, node.data.durationMs);
+              const { durationMs: _durationMs, ...data } = node.data;
+              return { ...node, data: { ...data, ...(durationMs === undefined ? {} : { durationMs }), presentation } };
+            }
             if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
             if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
             if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
@@ -595,11 +600,9 @@ export class ProjectManager {
 }
 
 function removePresentationAssetReferences(presentation: StoryNodePresentation, assetId: string, removedNodeIds: ReadonlySet<string>): StoryNodePresentation {
-  if (presentation.media.mode !== "own") return presentation;
   return {
     ...presentation,
     media: {
-      mode: "own",
       items: presentation.media.items.filter((item) =>
         (item.source.type !== "library" || item.source.assetId !== assetId) &&
         (item.source.type !== "node" || !removedNodeIds.has(item.source.nodeId))),

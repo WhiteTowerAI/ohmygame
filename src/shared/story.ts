@@ -1,15 +1,30 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionBehavior, type StoryInteractionCommand, type StorySurfaceFiles, type StoryInteractionOutcome, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "project-state", "open-ui", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const MAX_AUTOMATIC_STORY_STEPS = 100;
+export const DEFAULT_SCENE_DURATION_MS = 3_000;
+
+export function isVideoOnlySceneMedia(items: readonly StorySceneMedia[]): boolean {
+  return items.length > 0 && items.every((item) => item.type === "video");
+}
+
+export function sceneDurationForMedia(items: readonly StorySceneMedia[], durationMs?: number): number | undefined {
+  return isVideoOnlySceneMedia(items) ? undefined : durationMs ?? DEFAULT_SCENE_DURATION_MS;
+}
+
+export function sceneStillDurationMs(items: readonly StorySceneMedia[], durationMs?: number): number {
+  if (isVideoOnlySceneMedia(items) || durationMs === undefined) throw new Error("This Scene does not have a still duration");
+  return durationMs;
+}
 
 export const DEFAULT_OPEN_UI_CODE: StorySurfaceFiles = {
     html: `<main class="open-ui">
-  <h1 data-content="title"></h1>
-  <div class="actions" data-content="buttons"></div>
+  <h1 data-layout-id="title" data-content="title"></h1>
+  <div data-layout-id="actions" class="actions" data-content="buttons"></div>
 </main>`,
     css: `* { box-sizing: border-box; }
-body { margin: 0; color: #fff; font-family: Inter, system-ui, sans-serif; background: #090b0d; }
-.open-ui { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 18px; padding: 48px; text-align: center; background: radial-gradient(circle at 50% 20%, #203236, #090b0d 70%); }
+body { margin: 0; color: #fff; font-family: Inter, system-ui, sans-serif; }
+.open-ui { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 18px; padding: 48px; text-align: center; }
 h1 { margin: 0; font-size: clamp(42px, 8vw, 88px); line-height: 1; }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 button { margin-top: 18px; padding: 12px 22px; border: 1px solid #44d6b2; border-radius: 7px; background: rgb(68 214 178 / 14%); color: inherit; font: inherit; cursor: pointer; }
@@ -30,8 +45,86 @@ button { margin-top: 18px; padding: 12px 22px; border: 1px solid #44d6b2; border
 export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
   title: "Untitled Story",
   buttons: [
-    { id: "enter-game", label: "Start game", action: "enter-game" },
+    { id: "start-game", label: "Start game", action: "start-game" },
+    { id: "continue-game", label: "Continue", action: "continue-game" },
+    { id: "new-game", label: "New game", action: "new-game" },
+    { id: "story-map", label: "Story map", action: "open-story-map" },
   ],
+};
+
+export const DEFAULT_STORY_MAP_SURFACE_FILES: StorySurfaceFiles = {
+  html: `<main class="story-map">
+  <header><button type="button" data-close>Back</button><div><span data-screen-title></span><strong data-title></strong></div><p><span data-discovered></span><span data-endings></span></p></header>
+  <div class="map-scroll"><div class="map-canvas"><svg aria-hidden="true"></svg><ol></ol></div></div>
+</main>`,
+  css: `* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { color: #f4f5f7; font-family: Inter, system-ui, sans-serif; }
+.story-map { display: grid; width: 100%; height: 100%; grid-template-rows: 74px minmax(0, 1fr); background: #0c0d10; }
+header { display: grid; min-width: 0; grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr); align-items: center; gap: 20px; padding: 0 28px; border-bottom: 1px solid rgb(255 255 255 / 12%); }
+header button { width: max-content; height: 36px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 5px; background: #15171b; color: inherit; cursor: pointer; }
+header div { display: grid; min-width: 0; justify-items: center; gap: 3px; }
+header div span { color: rgb(244 245 247 / 58%); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+header strong { max-width: 420px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+header p { display: flex; min-width: 0; justify-content: flex-end; gap: 14px; margin: 0; color: rgb(244 245 247 / 62%); font-size: 10px; font-variant-numeric: tabular-nums; }
+.map-scroll { min-width: 0; min-height: 0; overflow: auto; scrollbar-color: rgb(255 255 255 / 24%) transparent; }
+.map-canvas { position: relative; min-width: 100%; min-height: 100%; }
+svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+path { fill: none; stroke: rgb(255 255 255 / 15%); stroke-width: 2; }
+path.discovered { stroke: color-mix(in srgb, var(--accent) 72%, #fff); }
+ol { margin: 0; padding: 0; list-style: none; }
+li { position: absolute; display: grid; align-content: center; gap: 5px; padding: 9px 12px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 6px; background: #17191e; }
+li span { overflow: hidden; color: rgb(244 245 247 / 52%); font-size: 8px; font-weight: 700; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+li strong { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+li.locked { border-style: dashed; background: #111216; color: rgb(244 245 247 / 44%); }
+li.discovered { border-color: color-mix(in srgb, var(--accent) 58%, transparent); }
+li.current { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) { header { grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 0 14px; } header div { justify-items: end; } header p { display: none; } }`,
+  javascript: `export function render({ content, actions, root }) {
+  root.documentElement.style.setProperty('--accent', content.accentColor);
+  root.querySelector('[data-screen-title]').textContent = content.screenTitle;
+  root.querySelector('[data-title]').textContent = content.title;
+  root.querySelector('[data-discovered]').textContent = content.discoveredCount + '/' + content.nodes.length + ' discovered';
+  root.querySelector('[data-endings]').textContent = content.unlockedEndingCount + '/' + content.endingCount + ' endings';
+  root.querySelector('[data-close]').onclick = () => actions.run('close');
+  const canvas = root.querySelector('.map-canvas');
+  canvas.style.width = content.width + 'px';
+  canvas.style.height = content.height + 'px';
+  const positions = new Map(content.nodes.map((node) => [node.id, node]));
+  const svg = root.querySelector('svg');
+  svg.setAttribute('width', content.width);
+  svg.setAttribute('height', content.height);
+  svg.setAttribute('viewBox', '0 0 ' + content.width + ' ' + content.height);
+  for (const edge of content.edges) {
+    const source = positions.get(edge.source);
+    const target = positions.get(edge.target);
+    if (!source || !target) continue;
+    const x1 = source.x + source.width;
+    const y1 = source.y + source.height / 2;
+    const x2 = target.x;
+    const y2 = target.y + target.height / 2;
+    const bend = Math.max(28, (x2 - x1) / 2);
+    const path = root.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + bend) + ' ' + y1 + ', ' + (x2 - bend) + ' ' + y2 + ', ' + x2 + ' ' + y2);
+    if (edge.discovered) path.classList.add('discovered');
+    svg.append(path);
+  }
+  const list = root.querySelector('ol');
+  for (const node of content.nodes) {
+    const item = root.createElement('li');
+    item.className = node.state + (node.current ? ' current' : '');
+    item.style.left = node.x + 'px';
+    item.style.top = node.y + 'px';
+    item.style.width = node.width + 'px';
+    item.style.height = node.height + 'px';
+    const type = root.createElement('span');
+    type.textContent = node.label;
+    const title = root.createElement('strong');
+    title.textContent = node.title;
+    item.append(type, title);
+    list.append(item);
+  }
+}`,
 };
 
 export const DEFAULT_STORY_PLAYER_CONFIG: StoryPlayerConfig = {
@@ -60,15 +153,17 @@ export function defaultStoryNodeSource(nodeId: string): StorySourceFiles {
 export function openUiRuntimeContent(content: StoryOpenUiContent, hasCheckpoint: boolean): StoryOpenUiContent {
   return {
     ...content,
-    buttons: content.buttons.map((button) => button.action === "enter-game"
-      ? { ...button, label: hasCheckpoint ? "Continue" : "Start game" }
-      : button),
+    buttons: content.buttons.filter((button) => {
+      if (button.action === "start-game") return !hasCheckpoint;
+      if (button.action === "continue-game" || button.action === "new-game") return hasCheckpoint;
+      return true;
+    }),
   };
 }
 
-export function openUiSurfaceFiles(presentation: StoryNodePresentation, transparent: boolean): StorySurfaceFiles {
-  const files = presentation.surface.files;
-  return transparent ? { ...files, css: `${files.css}\nhtml,body,body>*{background:transparent!important}` } : files;
+export function transparentStorySurfaceFiles(files: StorySurfaceFiles, rootSelector?: string): StorySurfaceFiles {
+  const selectors = rootSelector ? `html,body,${rootSelector}` : "html,body";
+  return { ...files, css: `${files.css}\n${selectors}{background:transparent!important}` };
 }
 
 export const DEFAULT_SCENE_SURFACE_FILES: StorySurfaceFiles = {
@@ -126,7 +221,7 @@ button:hover { border-color: #fff; background: rgb(255 255 255 / 18%); }`,
 }`,
 };
 
-export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
+export function storyNodePresentation(node: Extract<StoryNode, { type: "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" }>): StoryNodePresentation {
   return node.data.presentation;
 }
 
@@ -154,7 +249,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const presentation = data && isRecord(data.presentation) ? data.presentation : undefined;
     const surface = presentation && isRecord(presentation.surface) ? presentation.surface : undefined;
     const source = surface && isRecord(surface.source) ? surface.source : undefined;
-    return ["open-ui", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
+    return ["open-ui", "story-map", "scene", "interaction", "choice", "ending"].includes(String(node.type)) && source && typeof source.html === "string" && typeof source.css === "string" && typeof source.javascript === "string"
       ? [source.html, source.css, source.javascript]
       : [];
   });
@@ -171,13 +266,11 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     nodeById.set(node.id, node);
   }
   for (const node of nodeById.values()) {
-    if (node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
+    if (node.type === "open-ui" || node.type === "story-map" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") {
       const presentation = node.data.presentation;
-      if (presentation?.media.mode === "own") {
-        for (const item of presentation.media.items) {
-          if (item.source.type !== "node") continue;
-          if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
-        }
+      for (const item of presentation.media.items) {
+        if (item.source.type !== "node") continue;
+        if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
       }
     }
     if (node.type === "image") {
@@ -193,7 +286,9 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
       nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
   }
-  if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1) return false;
+  if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1 ||
+    nodes.filter((node) => isRecord(node) && node.type === "open-ui").length > 1 ||
+    nodes.filter((node) => isRecord(node) && node.type === "story-map").length > 1) return false;
   const edgeIds = new Set<string>();
   const outputs = new Set<string>();
   const validEdges = (chapter.edges as unknown[]).every((edge) => {
@@ -206,10 +301,13 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     if (outputs.has(output)) return false;
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
-    if (!source || !target || source.type === "ending" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
+    if (!source || !target || source.type === "ending" || source.type === "story-map" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
     const handle = edge.sourceHandle ?? "out";
-    if (source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
-      : source.type === "interaction" ? !storyInteractionNodeOutcomes(source.data.behavior).includes(handle)
+    if (target.type === "story-map" ? source.type !== "open-ui" || handle !== "story-map"
+      : source.type === "open-ui" ? handle !== "out"
+      : source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
+      : source.type === "interaction" ? !source.data.outcomes.includes(handle)
+      : source.type === "condition" ? handle !== "true" && handle !== "false"
       : handle !== "out") return false;
     edgeIds.add(edge.id);
     outputs.add(output);
@@ -233,13 +331,14 @@ export function getStartNode(chapter: StoryChapter): StoryNode | undefined {
   return chapter.nodes.find((node) => node.type === "start");
 }
 
-export function getProjectStateNode(chapter: StoryChapter): Extract<StoryNode, { type: "project-state" }> | undefined {
-  return chapter.nodes.find((node): node is Extract<StoryNode, { type: "project-state" }> => node.type === "project-state");
-}
-
 export function isEntryOpenUiNode(chapter: StoryChapter, nodeId: string): boolean {
   const start = getStartNode(chapter);
   return Boolean(start && getNextNode(chapter, start.id)?.id === nodeId);
+}
+
+export function getStoryMapNode(chapter: StoryChapter, openUiId: string): Extract<StoryNode, { type: "story-map" }> | undefined {
+  const target = getNextNode(chapter, openUiId, "story-map");
+  return target?.type === "story-map" ? target : undefined;
 }
 
 export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryEdge | undefined {
@@ -249,11 +348,6 @@ export function getOutgoingEdge(chapter: StoryChapter, nodeId: string, sourceHan
 export function getNextNode(chapter: StoryChapter, nodeId: string, sourceHandle = "out"): StoryNode | undefined {
   const edge = getOutgoingEdge(chapter, nodeId, sourceHandle);
   return edge ? chapter.nodes.find((node) => node.id === edge.target) : undefined;
-}
-
-export function storyInteractionNodeOutcomes(behavior: StoryInteractionBehavior): string[] {
-  if (behavior.type === "hotspot" || behavior.type === "qte") return ["success", "timeout"];
-  return behavior.type === "continue" ? ["continue"] : ["out"];
 }
 
 export function resolveStoryImageAssetId(chapter: StoryChapter, reference: StoryAssetReference): string | undefined {
@@ -288,23 +382,20 @@ export interface ScenePlaybackState {
   timeMs: number;
 }
 
-export interface PresentationMediaState {
-  nodeId: string;
-  mediaId: string;
-}
-
 interface PlayerRuntimeStateBase {
   chapterId: string;
   variables: Record<string, StoryVariableValue>;
   progress?: StoryProgressFacts;
-  presentationMedia?: PresentationMediaState;
 }
 
-export interface StoryProgressFacts {
-  currentNodeId?: string;
+export interface StoryDiscoveries {
   visitedNodeIds: string[];
   selectedOptionIds: string[];
   unlockedEndingIds: string[];
+}
+
+export interface StoryProgressFacts extends StoryDiscoveries {
+  currentNodeId?: string;
 }
 
 export type PlayerRuntimeState =
@@ -318,46 +409,59 @@ export interface StorySaveDataV1 {
   storyVersion: 1;
   storySignature: string;
   savedAt: string;
-  checkpoint: PlayingRuntimeState;
+  discoveries: StoryDiscoveries;
+  checkpoint?: PlayingRuntimeState;
 }
 
-export function createStoryCheckpoint(storySignature: string, state: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
+export interface RestoredStorySave {
+  discoveries: StoryDiscoveries;
+  checkpoint?: PlayingRuntimeState;
+}
+
+export function createStorySave(storySignature: string, progress: StoryProgressFacts | StoryDiscoveries | undefined, checkpoint?: PlayerRuntimeState, savedAt = new Date().toISOString()): StorySaveDataV1 {
   if (!storySignature) throw new Error("Story signature is required");
-  if (state.mode !== "playing") throw new Error("Only a playing state can be saved");
-  return { version: 1, storyVersion: 1, storySignature, savedAt, checkpoint: clonePlayingState(state) };
+  if (checkpoint?.mode === "menu") throw new Error("Only a playing state can be checkpointed");
+  return {
+    version: 1,
+    storyVersion: 1,
+    storySignature,
+    savedAt,
+    discoveries: storyDiscoveries(progress),
+    ...(checkpoint ? { checkpoint: clonePlayingState(checkpoint) } : {}),
+  };
 }
 
-export function restoreStoryCheckpoint(
+export function restoreStorySave(
   value: unknown,
   storySignature: string,
   chapter: StoryChapter,
   variables: readonly StoryVariable[],
-): PlayingRuntimeState | undefined {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 1 || value.storySignature !== storySignature ||
-    typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt)) || !isRecord(value.checkpoint)) return undefined;
+): RestoredStorySave | undefined {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["version", "storyVersion", "storySignature", "savedAt", "discoveries", "checkpoint"]) || value.version !== 1 || value.storyVersion !== 1 || value.storySignature !== storySignature ||
+    typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt))) return undefined;
+  const discoveries = validStoryDiscoveries(value.discoveries, chapter);
+  if (!discoveries) return undefined;
+  if (value.checkpoint === undefined) return { discoveries };
+  if (!isRecord(value.checkpoint)) return undefined;
   const checkpoint = value.checkpoint;
   if (checkpoint.mode !== "playing" || checkpoint.chapterId !== chapter.id || !nonEmptyString(checkpoint.nodeId) ||
-    !isRecord(checkpoint.variables) || !hasOnlyKeys(checkpoint, ["mode", "chapterId", "nodeId", "variables", "progress", "scenePlayback", "presentationMedia"])) return undefined;
+    !isRecord(checkpoint.variables) || !hasOnlyKeys(checkpoint, ["mode", "chapterId", "nodeId", "variables", "progress", "scenePlayback"])) return undefined;
   const definitions = new Map(variables.map((variable) => [variable.id, variable]));
   const values = Object.entries(checkpoint.variables);
   if (values.length !== definitions.size || values.some(([id, current]) => !variableValueMatches(definitions.get(id)?.type, current))) return undefined;
   const node = chapter.nodes.find((candidate) => candidate.id === checkpoint.nodeId);
-  if (!node || node.type === "start" || node.type === "project-state" || node.type === "open-ui" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
+  if (!node || node.type === "start" || node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || isCanvasOnlyNode(node) || !reachableStoryNodeIds(chapter).has(node.id)) return undefined;
   if (node.type !== "scene") {
     if (checkpoint.scenePlayback !== undefined) return undefined;
-  } else {
-    const media = node.data.presentation.media;
-    const hasPlayableMedia = media.mode === "own" && media.items.length > 0;
-    if (hasPlayableMedia ? !validSavedScenePlayback(node, checkpoint.scenePlayback) : checkpoint.scenePlayback !== undefined) return undefined;
-  }
-  if (!validPresentationMediaState(chapter, checkpoint.presentationMedia)) return undefined;
-  return clonePlayingState({
+  } else if (!validSavedScenePlayback(node, checkpoint.scenePlayback)) return undefined;
+  const restored = clonePlayingState({
     ...(checkpoint as unknown as PlayingRuntimeState),
-    progress: validStoryProgressFacts(checkpoint.progress, chapter) ?? progressFromCurrentNode(checkpoint.nodeId, chapter),
+    progress: mergeStoryProgress(validStoryProgressFacts(checkpoint.progress, chapter) ?? progressFromCurrentNode(checkpoint.nodeId, chapter), discoveries),
   });
+  return { discoveries: storyDiscoveries(restored.progress), checkpoint: restored };
 }
 
-export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): next is PlayingRuntimeState {
+export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): boolean {
   if (next.mode !== "playing") return false;
   if (!previous || previous.chapterId !== next.chapterId || previous.nodeId !== next.nodeId) return true;
   if (!sameRecord(previous.variables, next.variables)) return true;
@@ -367,8 +471,16 @@ export function shouldCreateStoryCheckpoint(previous: PlayingRuntimeState | unde
   return before.mediaId !== after.mediaId;
 }
 
-export function createPlayerState(chapterId: string, variables: readonly StoryVariable[]): PlayerRuntimeState {
-  return { mode: "menu", chapterId, variables: initialStoryVariables(variables), progress: { visitedNodeIds: [], selectedOptionIds: [], unlockedEndingIds: [] } };
+export function shouldPersistStoryCheckpoint(previous: PlayingRuntimeState | undefined, next: PlayerRuntimeState): boolean {
+  if (shouldCreateStoryCheckpoint(previous, next)) return true;
+  if (next.mode !== "playing" || !previous) return false;
+  const before = previous.scenePlayback;
+  const after = next.scenePlayback;
+  return Boolean(before && after && before.mediaId === after.mediaId && Math.floor(before.timeMs / 1_000) !== Math.floor(after.timeMs / 1_000));
+}
+
+export function createPlayerState(chapterId: string, variables: readonly StoryVariable[], discoveries?: StoryDiscoveries): PlayerRuntimeState {
+  return { mode: "menu", chapterId, variables: initialStoryVariables(variables), progress: { ...storyDiscoveries(discoveries) } };
 }
 
 export function startGame(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
@@ -406,20 +518,27 @@ export function resolveInteractionNode(
   if (state.mode !== "playing") throw new Error("The game is not playing");
   const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
   if (node?.type !== "interaction") throw new Error("The current node is not an Interaction");
-  const behavior = node.data.behavior;
-  const outcomes = storyInteractionNodeOutcomes(behavior);
-  const handle = outcomes.includes(result) ? result : undefined;
+  const handle = node.data.outcomes.includes(result) ? result : undefined;
   if (!handle || !result || result.length > 80) throw new Error("The Interaction outcome is invalid");
-  const outcome = (behavior.type === "hotspot" || behavior.type === "qte") && (result === "success" || result === "timeout") ? behavior[result] : undefined;
-  const appliedBehavior = applyRuntimeActions(state.variables, outcome?.actions ?? (behavior.type === "actions" ? behavior.actions : []));
-  const applied = applyStoryInteractionCommands(appliedBehavior, commands, variables);
+  const applied = applyStoryInteractionCommands(state.variables, commands, variables);
   const next = getNextNode(chapter, node.id, handle);
   if (!next) throw new Error(`The ${result} outcome is not connected`);
   return enterStoryNode(chapter, { ...state, variables: applied }, next);
 }
 
-export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[]): PlayingRuntimeState {
-  return startGame(chapter, createPlayerState(chapter.id, variables));
+export function restartGame(chapter: StoryChapter, variables: readonly StoryVariable[], discoveries?: StoryDiscoveries): PlayingRuntimeState {
+  return startGame(chapter, createPlayerState(chapter.id, variables, discoveries));
+}
+
+export function previewStoryNode(chapter: StoryChapter, variables: readonly StoryVariable[], nodeId: string): PlayingRuntimeState {
+  const node = chapter.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node || !isPresentationNode(node)) throw new Error("The preview node is not playable");
+  const initial = createPlayerState(chapter.id, variables);
+  return enterStoryNode(chapter, {
+    ...initial,
+    mode: "playing",
+    progress: { visitedNodeIds: [], selectedOptionIds: [], unlockedEndingIds: [] },
+  }, node);
 }
 
 export function advanceSceneTime(chapter: StoryChapter, state: PlayerRuntimeState, mediaId: string, timeMs: number): PlayingRuntimeState {
@@ -442,10 +561,10 @@ function applyStoryInteractionCommands(
     const variable = matches[0]!;
     if (command.type === "increment-variable") {
       if (variable.type !== "number" || typeof command.amount !== "number" || !Number.isFinite(command.amount)) throw new Error(`${variable.name || variable.id} is not a number variable`);
-      next = applyRuntimeActions(next, [{ type: command.type, variableId: variable.id, amount: command.amount }]);
+      next = applyRuntimeActions(next, [{ type: "update-variable", variableId: variable.id, operator: "add", value: command.amount }]);
     } else {
       if (!variableValueMatches(variable.type, command.value)) throw new Error(`Value does not match ${variable.name || variable.id}`);
-      next = applyRuntimeActions(next, [{ type: command.type, variableId: variable.id, value: command.value }]);
+      next = applyRuntimeActions(next, [{ type: "update-variable", variableId: variable.id, operator: "set", value: command.value }]);
     }
   }
   return next;
@@ -453,53 +572,51 @@ function applyStoryInteractionCommands(
 
 export function completeSceneMedia(chapter: StoryChapter, state: PlayerRuntimeState, mediaId: string, durationMs: number): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
-  const current = chapter.nodes.find((node) => node.id === state.nodeId);
-  if (current?.type === "scene" && !state.scenePlayback) return advanceFromScene(chapter, state);
   const advanced = advanceSceneTime(chapter, state, mediaId, durationMs);
   const { node } = currentScenePlayback(chapter, advanced, mediaId);
-  const media = node.data.presentation.media;
-  const items = media.mode === "own" ? media.items : [];
+  const items = node.data.presentation.media.items;
+  if (items.length === 0 && mediaId === node.id) return advanceFromScene(chapter, advanced);
   const next = items[items.findIndex((item) => item.id === mediaId) + 1];
   return next ? {
     ...advanced,
-    presentationMedia: { nodeId: node.id, mediaId: next.id },
     scenePlayback: { mediaId: next.id, timeMs: 0 },
   } : advanceFromScene(chapter, advanced);
 }
 
 function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & { mode: "playing" }, node: StoryNode): PlayingRuntimeState {
-  const presentation = isPresentationNode(node) ? node.data.presentation : undefined;
-  const ownMedia = presentation?.media.mode === "own" ? presentation.media.items[0] : undefined;
-  const presentationMedia = presentation?.media.mode === "none"
-    ? undefined
-    : ownMedia
-      ? { nodeId: node.id, mediaId: ownMedia.id }
-      : state.presentationMedia;
-  const entered = {
-    ...state,
-    progress: addStoryProgress(state.progress, { nodeId: node.id, endingId: node.type === "ending" ? node.id : undefined }),
-    nodeId: node.id,
-    presentationMedia,
-    scenePlayback: undefined,
-  };
-  if (node.type === "project-state") {
-    const next = getNextNode(chapter, node.id);
-    if (!next) throw new Error("Project State is not connected");
-    return enterStoryNode(chapter, { ...entered, variables: applyRuntimeActions(entered.variables, node.data.actions) }, next);
+  let currentState = state;
+  let currentNode = node;
+  let automaticSteps = 0;
+  while (true) {
+    if (currentNode.type === "story-map") throw new Error("Story Map is a system screen, not a story step");
+    const entered = {
+      ...currentState,
+      progress: addStoryProgress(currentState.progress, { nodeId: currentNode.id, endingId: currentNode.type === "ending" ? currentNode.id : undefined }),
+      nodeId: currentNode.id,
+      scenePlayback: undefined,
+    };
+    if (currentNode.type === "update-state") {
+      if (++automaticSteps > MAX_AUTOMATIC_STORY_STEPS) throw new Error("Story has too many consecutive automatic nodes");
+      const next = getNextNode(chapter, currentNode.id);
+      if (!next) throw new Error("Update State is not connected");
+      currentState = { ...entered, variables: applyRuntimeActions(entered.variables, currentNode.data.actions) };
+      currentNode = next;
+      continue;
+    }
+    if (currentNode.type === "condition") {
+      if (++automaticSteps > MAX_AUTOMATIC_STORY_STEPS) throw new Error("Story has too many consecutive automatic nodes");
+      if (!currentNode.data.condition) throw new Error("Condition is not configured");
+      const outcome = matchesStoryCondition(currentNode.data.condition, entered.variables) ? "true" : "false";
+      const next = getNextNode(chapter, currentNode.id, outcome);
+      if (!next) throw new Error(`Condition ${outcome} outcome is not connected`);
+      currentState = entered;
+      currentNode = next;
+      continue;
+    }
+    if (currentNode.type !== "scene") return entered;
+    const firstMedia = currentNode.data.presentation.media.items[0];
+    return { ...entered, scenePlayback: { mediaId: firstMedia?.id ?? currentNode.id, timeMs: 0 } };
   }
-  const media = node.type === "scene" ? node.data.presentation.media : undefined;
-  const firstMedia = media?.mode === "own" ? media.items[0] : undefined;
-  return node.type === "scene" && firstMedia
-    ? { ...entered, scenePlayback: { mediaId: firstMedia.id, timeMs: 0 } }
-    : entered;
-}
-
-export function resolvePresentationMedia(chapter: StoryChapter, state: { presentationMedia?: PresentationMediaState }): StorySceneMedia | undefined {
-  const reference = state.presentationMedia;
-  if (!reference) return undefined;
-  const owner = chapter.nodes.find((node) => node.id === reference.nodeId);
-  if (!owner || !isPresentationNode(owner) || owner.data.presentation.media.mode !== "own") return undefined;
-  return owner.data.presentation.media.items.find((item) => item.id === reference.mediaId);
 }
 
 export function advanceOpenUi(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
@@ -524,7 +641,10 @@ export function matchesStoryCondition(condition: StoryVariableCondition | undefi
   if (condition.operator === "equals") return current === condition.value;
   if (condition.operator === "not-equals") return current !== condition.value;
   if (typeof current !== "number" || typeof condition.value !== "number") return false;
-  return condition.operator === "greater-than" ? current > condition.value : current < condition.value;
+  if (condition.operator === "greater-than") return current > condition.value;
+  if (condition.operator === "greater-than-or-equal") return current >= condition.value;
+  if (condition.operator === "less-than") return current < condition.value;
+  return current <= condition.value;
 }
 
 export function applyStoryActions(actions: readonly StoryAction[] | undefined, values: Readonly<Record<string, StoryVariableValue>>): Record<string, StoryVariableValue> {
@@ -534,14 +654,18 @@ export function applyStoryActions(actions: readonly StoryAction[] | undefined, v
 export function applyRuntimeActions(values: Readonly<Record<string, StoryVariableValue>>, actions: readonly StoryAction[] | undefined): Record<string, StoryVariableValue> {
   const variables = { ...values };
   for (const action of actions ?? []) {
-    if (action.type === "set-variable") variables[action.variableId] = action.value;
-    else if (action.type === "increment-variable") {
-      const current = variables[action.variableId];
-      if (typeof current !== "number") throw new Error(`Cannot increment non-number variable: ${action.variableId}`);
-      const incremented = current + action.amount;
-      if (!Number.isFinite(incremented)) throw new Error(`Variable increment is not finite: ${action.variableId}`);
-      variables[action.variableId] = incremented;
+    if (action.operator === "set") {
+      variables[action.variableId] = action.value;
+      continue;
     }
+    const current = variables[action.variableId];
+    if (typeof current !== "number" || typeof action.value !== "number") throw new Error(`Cannot apply ${action.operator} to non-number variable: ${action.variableId}`);
+    const result = action.operator === "add" ? current + action.value
+      : action.operator === "subtract" ? current - action.value
+        : action.operator === "multiply" ? current * action.value
+          : current / action.value;
+    if (!Number.isFinite(result)) throw new Error(`Variable result is not finite: ${action.variableId}`);
+    variables[action.variableId] = result;
   }
   return variables;
 }
@@ -557,39 +681,22 @@ export function resolveStoryChoice(chapter: StoryChapter, state: StoryRuntimeSta
   return { ...state, nodeId: next.id, variables: applyRuntimeActions(state.variables, option.actions) };
 }
 
-export function countStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): number {
-  return options.reduce((count, option) => count + Number(option.condition?.variableId === variableId) + (option.actions ?? []).filter((action) => "variableId" in action && action.variableId === variableId).length, 0);
-}
-
-export function removeStoryVariableReferences(options: readonly StoryChoiceOption[], variableId: string): StoryChoiceOption[] {
-  return options.map((option) => {
-    const actions = option.actions?.filter((action) => !("variableId" in action) || action.variableId !== variableId);
-    return {
-      ...option,
-      ...(option.condition?.variableId === variableId ? { condition: undefined } : {}),
-      ...(actions?.length ? { actions } : { actions: undefined }),
-    };
-  });
-}
-
 export function normalizeStoryVariableReferences(options: readonly StoryChoiceOption[], variables: ReadonlyMap<string, StoryVariable>): StoryChoiceOption[] {
   return options.map((option) => {
-    const actions = normalizeActions(option.actions ?? [], variables);
+    const actions = normalizeStoryActions(option.actions ?? [], variables);
     return {
       ...option,
-      ...(option.condition ? { condition: normalizeCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
+      ...(option.condition ? { condition: normalizeStoryCondition(option.condition, variables.get(option.condition.variableId)) } : {}),
       ...(actions.length ? { actions } : { actions: undefined }),
     };
   });
 }
 
-function normalizeActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
+export function normalizeStoryActions(actions: readonly StoryAction[], variables: ReadonlyMap<string, StoryVariable>): StoryAction[] {
   return actions.reduce<StoryAction[]>((normalized, action) => {
     const variable = variables.get(action.variableId);
-    if (!variable || (action.type === "increment-variable" && variable.type !== "number")) return normalized;
-    normalized.push(action.type === "set-variable"
-      ? { ...action, value: variableValue(action.value, variable.type) }
-      : { ...action, amount: Number.isFinite(action.amount) ? action.amount : 0 });
+    if (!variable || (action.operator !== "set" && variable.type !== "number")) return normalized;
+    normalized.push({ ...action, value: variableValue(action.value, variable.type) });
     return normalized;
   }, []);
 }
@@ -599,18 +706,26 @@ export function parseStoryDocument(value: unknown): StoryDocument {
   return value;
 }
 
-function isNodePresentation(value: unknown): value is StoryNodePresentation {
+function isNodePresentation(value: unknown, movable = false): value is StoryNodePresentation | StoryOpenUiPresentation {
   if (!isRecord(value) || !isRecord(value.media) || !isRecord(value.surface) ||
-    !hasOnlyKeys(value, ["media", "surface"]) || !hasOnlyKeys(value.surface, ["source", "files"]) ||
-    (value.surface.source !== undefined && !isSourceFiles(value.surface.source)) || !isSurfaceFiles(value.surface.files)) return false;
-  if (value.media.mode === "inherit" || value.media.mode === "none") return Object.keys(value.media).length === 1;
-  if (value.media.mode !== "own" || !Array.isArray(value.media.items)) return false;
+    !hasOnlyKeys(value, ["media", "surface"]) || !hasOnlyKeys(value.surface, movable ? ["source", "files", "layout"] : ["source", "files"]) ||
+    (value.surface.source !== undefined && !isSourceFiles(value.surface.source)) || !isSurfaceFiles(value.surface.files) ||
+    (movable && value.surface.layout !== undefined && !isSurfaceLayout(value.surface.layout))) return false;
+  if (!hasOnlyKeys(value.media, ["items"]) || !Array.isArray(value.media.items)) return false;
   const ids = new Set<string>();
   return value.media.items.every((item) => {
     if (!isRecord(item) || !hasOnlyKeys(item, ["id", "type", "source"]) || !nonEmptyString(item.id) || ids.has(item.id) || (item.type !== "image" && item.type !== "video") || !isAssetReference(item.source)) return false;
     ids.add(item.id);
     return true;
   });
+}
+
+function isSurfaceLayout(value: unknown): boolean {
+  return isRecord(value) && Object.entries(value).every(([elementId, offset]) =>
+    elementId.trim().length > 0 && elementId.length <= 120 && isRecord(offset) &&
+    hasOnlyKeys(offset, ["offsetX", "offsetY"]) &&
+    typeof offset.offsetX === "number" && Number.isFinite(offset.offsetX) &&
+    typeof offset.offsetY === "number" && Number.isFinite(offset.offsetY));
 }
 
 function storyRecords(value: unknown): Array<Record<string, unknown>> {
@@ -632,6 +747,12 @@ export interface StoryPlayValidationOptions {
 export function validatePlayableChapter(chapter: StoryChapter, options: StoryPlayValidationOptions = {}): StoryPlayIssue | undefined {
   const start = getStartNode(chapter);
   if (!start) return { nodeId: "", message: "This chapter has no Start node." };
+  const openUis = chapter.nodes.filter((node) => node.type === "open-ui");
+  if (openUis.length !== 1) return { nodeId: openUis[0]?.id ?? start.id, message: "This chapter must have exactly one Open UI node." };
+  if (getNextNode(chapter, start.id)?.id !== openUis[0].id) return { nodeId: openUis[0].id, message: "Connect Start directly to Open UI." };
+  const storyMaps = chapter.nodes.filter((node) => node.type === "story-map");
+  if (storyMaps.length !== 1) return { nodeId: storyMaps[0]?.id ?? openUis[0].id, message: "This chapter must have exactly one Story Map node." };
+  if (getStoryMapNode(chapter, openUis[0].id)?.id !== storyMaps[0].id) return { nodeId: storyMaps[0].id, message: "Connect Open UI to Story Map." };
   const visited = new Set<string>();
   const pending = [start];
   while (pending.length > 0) {
@@ -641,15 +762,17 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
     if (isCanvasOnlyNode(node)) continue;
     if (isPresentationNode(node) && options.availableAssets) {
       const media = node.data.presentation.media;
-      const missing = media.mode === "own" && media.items.find((item) => {
+      const missing = media.items.find((item) => {
         const assetId = resolveStoryAssetId(chapter, item.source);
         return !assetId || options.availableAssets!.get(assetId) !== item.type;
       });
       if (missing) return { nodeId: node.id, message: `Media used by this ${node.type} is missing from Library or has the wrong type.` };
     }
     if (node.type === "ending") continue;
+    if (node.type === "condition" && !node.data.condition) return { nodeId: node.id, message: `Configure "${node.data.title || "Condition"}" before playtesting.` };
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id)
-      : node.type === "interaction" ? storyInteractionNodeOutcomes(node.data.behavior)
+      : node.type === "interaction" ? node.data.outcomes
+      : node.type === "condition" ? ["true", "false"]
       : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
@@ -659,8 +782,10 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
           ? `Connect the choice "${node.data.options.find((option) => option.id === handle)?.label || "Untitled option"}".`
           : node.type === "interaction" && handle !== "out"
               ? `Connect the ${handle} outcome in "${node.data.title || "Untitled interaction"}".`
-            : node.type === "project-state"
-              ? `Connect ${node.data.title || "Project State"} to the next story node.`
+            : node.type === "condition"
+              ? `Connect the ${handle} outcome in "${node.data.title || "Condition"}".`
+            : node.type === "update-state"
+              ? `Connect ${node.data.title || "Update State"} to the next story node.`
               : `Connect ${node.type === "start" ? "Start" : `the scene "${node.data.title || "Untitled scene"}"`} to a next node.`,
       };
       const target = chapter.nodes.find((candidate) => candidate.id === edge.target);
@@ -676,30 +801,44 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     !STORY_NODE_TYPES.has(value.type) || !isPosition(value.position) || !isRecord(value.data) ||
     !hasOnlyKeys(value, ["id", "type", "position", "data"])) return false;
   if (value.type === "start") return Object.keys(value.data).length === 0;
-  if (value.type === "project-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
+  if (value.type === "update-state") return typeof value.data.title === "string" && Array.isArray(value.data.actions) &&
     value.data.actions.every((action) => isAction(action, variables)) && hasOnlyKeys(value.data, ["title", "actions"]);
-  if (["open-ui", "scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
+  if (value.type === "condition") return typeof value.data.title === "string" && (value.data.condition === undefined || isCondition(value.data.condition, variables)) &&
+    hasOnlyKeys(value.data, ["title", "condition"]);
   if (value.type === "open-ui") {
-    const presentation = value.data.presentation as StoryNodePresentation;
+    if (!isNodePresentation(value.data.presentation, true)) return false;
+    const presentation = value.data.presentation as StoryOpenUiPresentation;
     return typeof value.data.title === "string" && isOpenUiContent(value.data.content) &&
-      (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
+      presentation.media.items.length <= 1 &&
       hasOnlyKeys(value.data, ["title", "content", "presentation"]);
   }
+  if (value.type === "story-map") {
+    if (!isNodePresentation(value.data.presentation)) return false;
+    const presentation = value.data.presentation as StoryNodePresentation;
+    return typeof value.data.title === "string" && presentation.media.items.length === 0 && hasOnlyKeys(value.data, ["title", "presentation"]);
+  }
+  if (["scene", "interaction", "choice", "ending"].includes(value.type) && !isNodePresentation(value.data.presentation)) return false;
   if (value.type === "scene") {
-    return typeof value.data.title === "string" && Object.keys(value.data).every((key) => key === "title" || key === "presentation");
+    const presentation = value.data.presentation as StoryNodePresentation;
+    const videoOnly = isVideoOnlySceneMedia(presentation.media.items);
+    const durationValid = typeof value.data.durationMs === "number" && Number.isInteger(value.data.durationMs) && value.data.durationMs >= 1_000 && value.data.durationMs <= 300_000;
+    return typeof value.data.title === "string" && (videoOnly ? value.data.durationMs === undefined : durationValid) &&
+      hasOnlyKeys(value.data, ["title", "durationMs", "presentation"]);
   }
   if (value.type === "interaction") {
     const data = value.data;
+    const outcomes = isInteractionOutcomes(data.outcomes) ? data.outcomes : undefined;
     const presentation = data.presentation as StoryNodePresentation;
     return typeof data.title === "string" &&
-      (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
-      isRecord(data.behavior) && isInteractionBehavior(data.behavior, variables) &&
-      Object.keys(data).every((key) => key === "title" || key === "behavior" || key === "presentation");
+      presentation.media.items.length <= 1 &&
+      outcomes !== undefined &&
+      (data.timeout === undefined || isInteractionTimeout(data.timeout, outcomes)) &&
+      Object.keys(data).every((key) => key === "title" || key === "outcomes" || key === "timeout" || key === "presentation");
   }
   if (value.type === "ending") {
     const presentation = value.data.presentation as StoryNodePresentation;
     return typeof value.data.title === "string" && typeof value.data.description === "string" &&
-      (presentation.media.mode !== "own" || presentation.media.items.length <= 1) &&
+      presentation.media.items.length <= 1 &&
       hasOnlyKeys(value.data, ["title", "description", "presentation"]);
   }
   if (value.type === "asset") return nonEmptyString(value.data.assetId) &&
@@ -742,7 +881,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   });
   const presentation = value.data.presentation as StoryNodePresentation;
   if (!validOptions || !hasOnlyKeys(value.data, ["title", "options", "timeout", "presentation"]) ||
-    (presentation.media.mode === "own" && presentation.media.items.length > 1)) return false;
+    presentation.media.items.length > 1) return false;
   if (value.data.timeout === undefined) return true;
   const timeout = value.data.timeout;
   return isRecord(timeout) && hasOnlyKeys(timeout, ["durationMs", "defaultOptionId"]) && typeof timeout.durationMs === "number" && Number.isInteger(timeout.durationMs) &&
@@ -769,40 +908,21 @@ function isWorkspaceSourcePath(value: string): boolean {
   return Boolean(normalized) && !normalized.startsWith("/") && !normalized.split("/").some((part) => !part || part === "." || part === "..");
 }
 
-function isInteractionBehavior(value: Record<string, unknown>, variables: ReadonlyMap<string, StoryVariable>): value is Record<string, unknown> & StoryInteractionBehavior {
-  if (value.type === "actions") return hasOnlyKeys(value, ["type", "actions"]) && Array.isArray(value.actions) && value.actions.every((action) => isAction(action, variables));
-  if (value.type === "continue") return hasOnlyKeys(value, ["type", "label"]) && typeof value.label === "string" && value.label.length <= 80;
-  if ((value.type !== "hotspot" && value.type !== "qte") || !validInteractionDuration(value.durationMs) ||
-    !isOutcome(value.success, variables) || !isOutcome(value.timeout, variables)) return false;
-  if (value.type === "qte") return hasOnlyKeys(value, ["type", "durationMs", "prompt", "key", "success", "timeout"]) && typeof value.prompt === "string" && value.prompt.length <= 120 && isQteKey(value.key);
-  return hasOnlyKeys(value, ["type", "durationMs", "label", "region", "success", "timeout"]) && typeof value.label === "string" && value.label.length <= 80 && isHotspotRegion(value.region);
+function isInteractionOutcomes(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= 8 && new Set(value).size === value.length &&
+    value.every((outcome) => nonEmptyString(outcome) && outcome.length <= 80);
+}
+
+function isInteractionTimeout(value: unknown, outcomes: readonly string[]): boolean {
+  return isRecord(value) && hasOnlyKeys(value, ["durationMs", "outcome"]) &&
+    typeof value.durationMs === "number" && Number.isInteger(value.durationMs) && value.durationMs >= 1_000 && value.durationMs <= 300_000 &&
+    nonEmptyString(value.outcome) && outcomes.includes(value.outcome);
 }
 
 function isSurfaceFiles(value: unknown): value is StorySurfaceFiles {
   return isRecord(value) && hasOnlyKeys(value, ["html", "css", "javascript"]) && typeof value.html === "string" && value.html.length <= 20_000 &&
     typeof value.css === "string" && value.css.length <= 30_000 &&
     typeof value.javascript === "string" && value.javascript.length <= 20_000;
-}
-
-function validInteractionDuration(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 500 && value <= 60_000;
-}
-
-function isOutcome(value: unknown, variables: ReadonlyMap<string, StoryVariable>): value is StoryInteractionOutcome {
-  return isRecord(value) && hasOnlyKeys(value, ["actions"]) &&
-    Array.isArray(value.actions) && value.actions.every((action) => isAction(action, variables));
-}
-
-function isHotspotRegion(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["x", "y", "width", "height"])) return false;
-  const { x, y, width, height } = value;
-  return [x, y, width, height].every((part) => typeof part === "number" && Number.isFinite(part)) &&
-    Number(width) > 0 && Number(height) > 0 && Number(x) >= 0 && Number(y) >= 0 &&
-    Number(x) + Number(width) <= 1 && Number(y) + Number(height) <= 1;
-}
-
-function isQteKey(value: unknown): boolean {
-  return typeof value === "string" && /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter)$/.test(value);
 }
 
 function isVariables(value: unknown): value is StoryVariable[] {
@@ -838,21 +958,23 @@ function isViewportDimension(value: unknown): value is number {
 function isOpenUiContent(value: unknown): value is StoryOpenUiContent {
   if (!isRecord(value) || !hasOnlyKeys(value, ["title", "buttons"]) || typeof value.title !== "string" || value.title.length > 120 || !Array.isArray(value.buttons)) return false;
   const ids = new Set<string>();
-  return value.buttons.length <= 8 && value.buttons.some((button) => isRecord(button) && button.action === "enter-game") && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && Boolean(ids.add(button.id)));
+  const actions = new Set<StoryOpenUiAction>();
+  const valid = value.buttons.length === 4 && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && !actions.has(button.action) && Boolean(ids.add(button.id)) && Boolean(actions.add(button.action)));
+  return valid && actions.size === 4;
 }
 
 function isOpenUiAction(value: unknown): value is StoryOpenUiAction {
-  return value === "enter-game";
+  return value === "start-game" || value === "continue-game" || value === "new-game" || value === "open-story-map";
 }
 
 function isCondition(value: unknown, variables: ReadonlyMap<string, StoryVariable>): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["variableId", "operator", "value"]) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "less-than"].includes(String(value.operator))) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["variableId", "operator", "value"]) || !nonEmptyString(value.variableId) || !["equals", "not-equals", "greater-than", "greater-than-or-equal", "less-than", "less-than-or-equal"].includes(String(value.operator))) return false;
   const variable = variables.get(value.variableId);
   return Boolean(variable && variableValueMatches(variable.type, value.value) &&
     (variable.type === "number" || value.operator === "equals" || value.operator === "not-equals"));
 }
 
-function normalizeCondition(condition: StoryVariableCondition, variable?: StoryVariable): StoryVariableCondition | undefined {
+export function normalizeStoryCondition(condition: StoryVariableCondition, variable?: StoryVariable): StoryVariableCondition | undefined {
   if (!variable) return undefined;
   const operator = variable.type === "number" || condition.operator === "equals" || condition.operator === "not-equals"
     ? condition.operator
@@ -871,8 +993,12 @@ function isAction(value: unknown, variables: ReadonlyMap<string, StoryVariable>)
   if (!nonEmptyString(value.variableId)) return false;
   const variable = variables.get(value.variableId);
   if (!variable) return false;
-  if (value.type === "set-variable") return hasOnlyKeys(value, ["type", "variableId", "value"]) && variableValueMatches(variable.type, value.value);
-  return value.type === "increment-variable" && hasOnlyKeys(value, ["type", "variableId", "amount"]) && variable.type === "number" && typeof value.amount === "number" && Number.isFinite(value.amount);
+  if (value.type !== "update-variable" || !hasOnlyKeys(value, ["type", "variableId", "operator", "value"]) ||
+    !["set", "add", "subtract", "multiply", "divide"].includes(String(value.operator))) return false;
+  return value.operator === "set"
+    ? variableValueMatches(variable.type, value.value)
+    : variable.type === "number" && typeof value.value === "number" && Number.isFinite(value.value) &&
+      (value.operator !== "divide" || value.value !== 0);
 }
 
 function variableValueMatches(type: unknown, value: unknown): boolean {
@@ -882,15 +1008,7 @@ function variableValueMatches(type: unknown, value: unknown): boolean {
 function validSavedScenePlayback(node: Extract<StoryNode, { type: "scene" }>, value: unknown): value is ScenePlaybackState {
   if (!isRecord(value) || !nonEmptyString(value.mediaId) || !Number.isInteger(value.timeMs) || Number(value.timeMs) < 0 || Object.keys(value).some((key) => key !== "mediaId" && key !== "timeMs")) return false;
   const media = node.data.presentation.media;
-  return media.mode === "own" && media.items.some((item) => item.id === value.mediaId);
-}
-
-function validPresentationMediaState(chapter: StoryChapter, value: unknown): value is PresentationMediaState | undefined {
-  if (value === undefined) return true;
-  if (!isRecord(value) || !hasOnlyKeys(value, ["nodeId", "mediaId"]) || !nonEmptyString(value.nodeId) || !nonEmptyString(value.mediaId)) return false;
-  const owner = chapter.nodes.find((node) => node.id === value.nodeId);
-  return Boolean(owner && isPresentationNode(owner) && owner.data.presentation.media.mode === "own" &&
-    owner.data.presentation.media.items.some((item) => item.id === value.mediaId));
+  return media.items.length === 0 ? value.mediaId === node.id : media.items.some((item) => item.id === value.mediaId);
 }
 
 function reachableStoryNodeIds(chapter: StoryChapter): Set<string> {
@@ -911,7 +1029,6 @@ function clonePlayingState(state: PlayingRuntimeState): PlayingRuntimeState {
     ...state,
     variables: { ...state.variables },
     progress: state.progress ? { ...state.progress, visitedNodeIds: [...state.progress.visitedNodeIds], selectedOptionIds: [...state.progress.selectedOptionIds], unlockedEndingIds: [...state.progress.unlockedEndingIds] } : undefined,
-    ...(state.presentationMedia ? { presentationMedia: { ...state.presentationMedia } } : {}),
     ...(state.scenePlayback ? { scenePlayback: { ...state.scenePlayback } } : {}),
   };
 }
@@ -924,6 +1041,27 @@ function addStoryProgress(progress: StoryProgressFacts | undefined, addition: { 
     selectedOptionIds: uniqueAppend(current.selectedOptionIds, addition.optionId),
     unlockedEndingIds: uniqueAppend(current.unlockedEndingIds, addition.endingId),
   };
+}
+
+export function storyDiscoveries(progress?: StoryProgressFacts | StoryDiscoveries): StoryDiscoveries {
+  return {
+    visitedNodeIds: [...(progress?.visitedNodeIds ?? [])],
+    selectedOptionIds: [...(progress?.selectedOptionIds ?? [])],
+    unlockedEndingIds: [...(progress?.unlockedEndingIds ?? [])],
+  };
+}
+
+function mergeStoryProgress(progress: StoryProgressFacts, discoveries: StoryDiscoveries): StoryProgressFacts {
+  return {
+    ...progress,
+    visitedNodeIds: uniqueValues(discoveries.visitedNodeIds, progress.visitedNodeIds),
+    selectedOptionIds: uniqueValues(discoveries.selectedOptionIds, progress.selectedOptionIds),
+    unlockedEndingIds: uniqueValues(discoveries.unlockedEndingIds, progress.unlockedEndingIds),
+  };
+}
+
+function uniqueValues(...groups: readonly string[][]): string[] {
+  return [...new Set(groups.flat())];
 }
 
 function uniqueAppend(values: readonly string[], value: string | undefined): string[] {
@@ -944,6 +1082,16 @@ function validStoryProgressFacts(value: unknown, chapter: StoryChapter): StoryPr
   if (value.currentNodeId !== undefined && (typeof value.currentNodeId !== "string" || !nodeIds.has(value.currentNodeId))) return undefined;
   if (value.visitedNodeIds.some((id) => !nodeIds.has(id)) || value.selectedOptionIds.some((id) => !optionIds.has(id)) || value.unlockedEndingIds.some((id) => !endingIds.has(id))) return undefined;
   return { ...(typeof value.currentNodeId === "string" ? { currentNodeId: value.currentNodeId } : {}), visitedNodeIds: [...value.visitedNodeIds], selectedOptionIds: [...value.selectedOptionIds], unlockedEndingIds: [...value.unlockedEndingIds] };
+}
+
+function validStoryDiscoveries(value: unknown, chapter: StoryChapter): StoryDiscoveries | undefined {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["visitedNodeIds", "selectedOptionIds", "unlockedEndingIds"]) || !Array.isArray(value.visitedNodeIds) || !Array.isArray(value.selectedOptionIds) || !Array.isArray(value.unlockedEndingIds)) return undefined;
+  if (!uniqueStrings(value.visitedNodeIds) || !uniqueStrings(value.selectedOptionIds) || !uniqueStrings(value.unlockedEndingIds)) return undefined;
+  const nodeIds = new Set(chapter.nodes.map((node) => node.id));
+  const optionIds = new Set(chapter.nodes.flatMap((node) => node.type === "choice" ? node.data.options.map((option) => option.id) : []));
+  const endingIds = new Set(chapter.nodes.filter((node) => node.type === "ending").map((node) => node.id));
+  if (value.visitedNodeIds.some((id) => !nodeIds.has(id)) || value.selectedOptionIds.some((id) => !optionIds.has(id)) || value.unlockedEndingIds.some((id) => !endingIds.has(id))) return undefined;
+  return { visitedNodeIds: [...value.visitedNodeIds], selectedOptionIds: [...value.selectedOptionIds], unlockedEndingIds: [...value.unlockedEndingIds] };
 }
 
 function uniqueStrings(value: unknown[]): value is string[] {

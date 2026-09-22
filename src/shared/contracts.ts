@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "project-state" | "open-ui" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -153,17 +153,27 @@ export interface StoryVariable {
 
 export interface StoryVariableCondition {
   variableId: string;
-  operator: "equals" | "not-equals" | "greater-than" | "less-than";
+  operator: "equals" | "not-equals" | "greater-than" | "greater-than-or-equal" | "less-than" | "less-than-or-equal";
   value: StoryVariableValue;
 }
 
-export type StoryAction =
-  | { type: "set-variable"; variableId: string; value: StoryVariableValue }
-  | { type: "increment-variable"; variableId: string; amount: number };
+export type StoryVariableOperator = "set" | "add" | "subtract" | "multiply" | "divide";
+
+export interface StoryAction {
+  type: "update-variable";
+  variableId: string;
+  operator: StoryVariableOperator;
+  value: StoryVariableValue;
+}
 
 export interface StoryChoiceTimeout {
   durationMs: number;
   defaultOptionId: string;
+}
+
+export interface StoryInteractionTimeout {
+  durationMs: number;
+  outcome: string;
 }
 
 export type StorySceneMedia =
@@ -176,26 +186,21 @@ export interface StorySceneSurface {
   files: StorySurfaceFiles;
 }
 
-export type StoryPresentationMedia =
-  | { mode: "own"; items: StorySceneMedia[] }
-  | { mode: "inherit" }
-  | { mode: "none" };
+export type StorySurfaceLayout = Record<string, StorySurfaceLayoutOffset>;
+
+export interface StorySurfaceLayoutOffset {
+  offsetX: number;
+  offsetY: number;
+}
 
 /** Shared player-facing presentation owned by every visible Story node. */
 export interface StoryNodePresentation {
-  media: StoryPresentationMedia;
+  media: { items: StorySceneMedia[] };
   surface: StorySceneSurface;
 }
 
-export interface StoryInteractionOutcome {
-  actions: StoryAction[];
-}
-
-export interface StoryHotspotRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+export interface StoryOpenUiPresentation extends StoryNodePresentation {
+  surface: StorySceneSurface & { layout?: StorySurfaceLayout };
 }
 
 export interface StorySurfaceFiles {
@@ -214,12 +219,6 @@ export interface StorySourceFiles {
 export type StoryInteractionCommand =
   | { type: "set-variable"; variable: string; value: StoryVariableValue }
   | { type: "increment-variable"; variable: string; amount: number };
-
-export type StoryInteractionBehavior =
-  | { type: "actions"; actions: StoryAction[] }
-  | { type: "continue"; label: string }
-  | { type: "hotspot"; durationMs: number; label: string; region: StoryHotspotRegion; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome }
-  | { type: "qte"; durationMs: number; prompt: string; key: string; success: StoryInteractionOutcome; timeout: StoryInteractionOutcome };
 
 export interface StoryEditorLayout {
   version: 1;
@@ -249,17 +248,23 @@ export interface StoryTextGenerationResponse {
 
 export type StoryNode = (
   | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "project-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
+  | { id: string; type: "update-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
+  | { id: string; type: "condition"; position: StoryPosition; data: { title: string; condition?: StoryVariableCondition } }
   | { id: string; type: "open-ui"; position: StoryPosition; data: {
     title: string;
     content: StoryOpenUiContent;
+    presentation: StoryOpenUiPresentation;
+  } }
+  | { id: string; type: "story-map"; position: StoryPosition; data: {
+    title: string;
     presentation: StoryNodePresentation;
   } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;
+    durationMs?: number;
     presentation: StoryNodePresentation;
   } }
-  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; behavior: StoryInteractionBehavior; presentation: StoryNodePresentation } }
+  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; timeout?: StoryInteractionTimeout; presentation: StoryNodePresentation } }
   | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout; presentation: StoryNodePresentation } }
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
@@ -322,7 +327,8 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
-export type StoryOpenUiAction = "enter-game";
+export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map";
+export type StoryScreenAction = StoryOpenUiAction | "close";
 
 export interface StoryOpenUiButton {
   id: string;

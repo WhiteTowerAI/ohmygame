@@ -1,6 +1,0 @@
-[build]
-buildCommand = "npm run prepare:preinstalled-plugins && npm run build:node"
-
-[deploy]
-startCommand = "npm run start:publish"
-healthcheckPath = "/health"

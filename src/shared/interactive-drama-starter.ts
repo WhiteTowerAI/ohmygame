@@ -1,50 +1,32 @@
-import type { StoryDocument, StoryInteractionBehavior, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT } from "./story.js";
-import { createStoryInteractionFiles } from "./story-interaction-code.js";
+import type { StoryDocument, StorySurfaceFiles } from "./contracts.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES } from "./story.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
   id: "night-train",
   name: "Last Train Home",
 } as const;
 
-export function createInteractiveDramaStarterStory(assets: { videoId: string }, title: string = INTERACTIVE_DRAMA_STARTER.name): StoryDocument {
+export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_DRAMA_STARTER.name): StoryDocument {
   const id = () => crypto.randomUUID();
   const chapterId = id();
   const startId = id();
   const openUiId = id();
-  const stateId = id();
+  const storyMapId = id();
   const sceneId = id();
   const choiceId = id();
+  const leaveStateId = id();
+  const stayStateId = id();
+  const courageConditionId = id();
   const leaveEndingId = id();
   const stayEndingId = id();
-  const mediaId = id();
   const hotspotId = id();
   const qteId = id();
   const courageId = id();
   const ticketId = id();
   const leaveOptionId = id();
   const stayOptionId = id();
-  const hotspotBehavior: StoryInteractionBehavior = {
-    type: "hotspot",
-    durationMs: 3_000,
-    label: "Inspect the glowing ticket",
-    region: { x: 0.4, y: 0.46, width: 0.2, height: 0.2 },
-    success: {
-      actions: [
-        { type: "set-variable", variableId: ticketId, value: true },
-        { type: "increment-variable", variableId: courageId, amount: 1 },
-      ],
-    },
-    timeout: { actions: [] },
-  };
-  const qteBehavior: StoryInteractionBehavior = {
-    type: "qte",
-    durationMs: 2_500,
-    prompt: "Press Space to board",
-    key: "Space",
-    success: { actions: [{ type: "increment-variable", variableId: courageId, amount: 1 }] },
-    timeout: { actions: [{ type: "increment-variable", variableId: courageId, amount: -1 }] },
-  };
+  const hotspotFiles = starterHotspotSurfaceFiles(ticketId, courageId);
+  const qteFiles = starterQteSurfaceFiles(courageId);
 
   return {
     version: 1,
@@ -53,13 +35,16 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       nodes: {
         [startId]: { x: 80, y: 240 },
         [openUiId]: { x: 250, y: 210 },
-        [stateId]: { x: 760, y: 210 },
-        [sceneId]: { x: 1_160, y: 210 },
-        [hotspotId]: { x: 1_660, y: 120 },
-        [qteId]: { x: 2_000, y: 120 },
-        [choiceId]: { x: 2_340, y: 210 },
-        [leaveEndingId]: { x: 2_700, y: 100 },
-        [stayEndingId]: { x: 2_700, y: 340 },
+        [storyMapId]: { x: 500, y: 520 },
+        [sceneId]: { x: 760, y: 210 },
+        [hotspotId]: { x: 1_260, y: 120 },
+        [qteId]: { x: 1_600, y: 120 },
+        [choiceId]: { x: 1_940, y: 210 },
+        [leaveStateId]: { x: 2_300, y: 120 },
+        [stayStateId]: { x: 2_300, y: 360 },
+        [courageConditionId]: { x: 2_580, y: 210 },
+        [leaveEndingId]: { x: 2_900, y: 100 },
+        [stayEndingId]: { x: 2_900, y: 340 },
       },
       viewport: { x: 40, y: 90, zoom: 0.45 },
       view: "canvas",
@@ -80,36 +65,37 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
       title: "Platform 13",
       nodes: [
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
-        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { mode: "own", items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
-        { id: stateId, type: "project-state", position: { x: 760, y: 210 }, data: { title: "Initial State", actions: [] } },
+        { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
+        { id: storyMapId, type: "story-map", position: { x: 500, y: 520 }, data: { title: "Story Map", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_STORY_MAP_SURFACE_FILES) } } } },
         {
           id: sceneId,
           type: "scene",
-          position: { x: 1_160, y: 210 },
+          position: { x: 760, y: 210 },
           data: {
             title: "The empty platform",
+            durationMs: DEFAULT_SCENE_DURATION_MS,
             presentation: {
-              media: { mode: "own", items: [{ id: mediaId, type: "video", source: { type: "library", assetId: assets.videoId } }] },
-              surface: { files: starterSceneSurfaceFiles(courageId) },
+              media: { items: [] },
+              surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) },
             },
           },
         },
         {
           id: hotspotId,
           type: "interaction",
-          position: { x: 1_660, y: 120 },
-          data: { title: "Inspect the ticket", behavior: hotspotBehavior, presentation: { media: { mode: "inherit" }, surface: { files: createStoryInteractionFiles(hotspotBehavior) } } },
+          position: { x: 1_260, y: 120 },
+          data: { title: "Inspect the ticket", outcomes: ["success", "timeout"], timeout: { durationMs: 3_000, outcome: "timeout" }, presentation: { media: { items: [] }, surface: { files: hotspotFiles } } },
         },
         {
           id: qteId,
           type: "interaction",
-          position: { x: 2_000, y: 120 },
-          data: { title: "Board the train", behavior: qteBehavior, presentation: { media: { mode: "inherit" }, surface: { files: createStoryInteractionFiles(qteBehavior) } } },
+          position: { x: 1_600, y: 120 },
+          data: { title: "Board the train", outcomes: ["success", "timeout"], timeout: { durationMs: 2_500, outcome: "timeout" }, presentation: { media: { items: [] }, surface: { files: qteFiles } } },
         },
         {
           id: choiceId,
           type: "choice",
-          position: { x: 2_340, y: 210 },
+          position: { x: 1_940, y: 210 },
           data: {
             title: "The doors are closing. What will Mara do?",
             options: [
@@ -117,64 +103,98 @@ export function createInteractiveDramaStarterStory(assets: { videoId: string }, 
                 id: leaveOptionId,
                 label: "Take the train",
                 condition: { variableId: courageId, operator: "greater-than", value: 2 },
-                actions: [{ type: "increment-variable", variableId: courageId, amount: 1 }],
               },
               {
                 id: stayOptionId,
                 label: "Stay on the platform",
-                actions: [{ type: "increment-variable", variableId: courageId, amount: -1 }],
               },
             ],
             timeout: { durationMs: 6_000, defaultOptionId: stayOptionId },
-            presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
+            presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_CHOICE_SURFACE_FILES) } },
           },
+        },
+        {
+          id: leaveStateId,
+          type: "update-state",
+          position: { x: 2_300, y: 120 },
+          data: { title: "Build courage", actions: [{ type: "update-variable", variableId: courageId, operator: "add", value: 1 }] },
+        },
+        {
+          id: stayStateId,
+          type: "update-state",
+          position: { x: 2_300, y: 360 },
+          data: { title: "Lose courage", actions: [{ type: "update-variable", variableId: courageId, operator: "subtract", value: 1 }] },
+        },
+        {
+          id: courageConditionId,
+          type: "condition",
+          position: { x: 2_580, y: 210 },
+          data: { title: "Enough courage?", condition: { variableId: courageId, operator: "greater-than-or-equal", value: 4 } },
         },
         {
           id: leaveEndingId,
           type: "ending",
-          position: { x: 2_700, y: 100 },
-          data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
+          position: { x: 2_900, y: 100 },
+          data: { title: "Into the Dawn", description: "Mara steps aboard and chooses the unknown.", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
         {
           id: stayEndingId,
           type: "ending",
-          position: { x: 2_700, y: 340 },
-          data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { mode: "inherit" }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
+          position: { x: 2_900, y: 340 },
+          data: { title: "One More Night", description: "The train leaves. Mara decides to wait for another chance.", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } },
         },
       ],
       edges: [
         { id: id(), source: startId, target: openUiId },
-        { id: id(), source: openUiId, target: stateId },
-        { id: id(), source: stateId, target: sceneId },
+        { id: id(), source: openUiId, target: sceneId },
+        { id: id(), source: openUiId, sourceHandle: "story-map", target: storyMapId },
         { id: id(), source: sceneId, target: hotspotId },
         { id: id(), source: hotspotId, sourceHandle: "success", target: qteId },
         { id: id(), source: hotspotId, sourceHandle: "timeout", target: qteId },
         { id: id(), source: qteId, sourceHandle: "success", target: choiceId },
         { id: id(), source: qteId, sourceHandle: "timeout", target: choiceId },
-        { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveEndingId },
-        { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayEndingId },
+        { id: id(), source: choiceId, sourceHandle: leaveOptionId, target: leaveStateId },
+        { id: id(), source: choiceId, sourceHandle: stayOptionId, target: stayStateId },
+        { id: id(), source: leaveStateId, target: courageConditionId },
+        { id: id(), source: stayStateId, target: courageConditionId },
+        { id: id(), source: courageConditionId, sourceHandle: "true", target: leaveEndingId },
+        { id: id(), source: courageConditionId, sourceHandle: "false", target: stayEndingId },
       ],
     },
   };
 }
 
-function starterSceneSurfaceFiles(courageId: string): StorySurfaceFiles {
+function starterHotspotSurfaceFiles(ticketId: string, courageId: string): StorySurfaceFiles {
   return {
-    html: '<div id="scene-hud"><strong>Mara</strong><span>Courage <b id="courage">0</b>/5</span><i><em id="courage-fill"></em></i></div>',
-    css: `html, body { width: 100%; height: 100%; margin: 0; background: transparent; }
-#scene-hud { position: absolute; top: 24px; left: 24px; display: grid; gap: 7px; min-width: 168px; padding: 14px 16px; border: 1px solid rgb(255 255 255 / 28%); border-radius: 6px; background: rgb(8 12 15 / 72%); color: white; font: 500 13px Inter, sans-serif; box-sizing: border-box; }
-#scene-hud strong { font-size: 16px; }
-#scene-hud span { display: flex; justify-content: space-between; gap: 18px; }
-#scene-hud i { display: block; width: 100%; height: 5px; overflow: hidden; background: rgb(255 255 255 / 18%); }
-#scene-hud em { display: block; width: 0; height: 100%; background: #62d6cb; transition: width 160ms ease; }`,
-    javascript: `const courageId = ${JSON.stringify(courageId)};
-function paint({ variables }) {
-  const courage = Math.max(0, Math.min(5, Number(variables[courageId]) || 0));
-  document.querySelector("#courage").textContent = String(courage);
-  document.querySelector("#courage-fill").style.width = String(courage / 5 * 100) + "%";
+    html: '<button id="hotspot" type="button">Inspect the glowing ticket</button>',
+    css: `html, body { width: 100%; height: 100%; margin: 0; }
+body { position: relative; font-family: Inter, system-ui, sans-serif; }
+#hotspot { position: absolute; left: 40%; top: 46%; width: 20%; height: 20%; border: 1px solid rgb(255 255 255 / 78%); border-radius: 4px; background: rgb(17 18 20 / 42%); color: white; font: inherit; cursor: pointer; }`,
+    javascript: `export async function run({ ui, game }) {
+  await ui.waitForClick("#hotspot");
+  game.variables.set(${JSON.stringify(ticketId)}, true);
+  game.variables.increment(${JSON.stringify(courageId)}, 1);
+  return "success";
 }
-export function render(context) { paint(context); }
-export function update(context) { paint(context); }
+`,
+  };
+}
+
+function starterQteSurfaceFiles(courageId: string): StorySurfaceFiles {
+  return {
+    html: '<div id="qte"><span>Press Space to board</span><button id="action" type="button">Space</button></div>',
+    css: `html, body { width: 100%; height: 100%; margin: 0; }
+body { display: grid; place-items: center; font-family: Inter, system-ui, sans-serif; }
+#qte { display: grid; justify-items: center; gap: 14px; color: white; font-weight: 700; text-shadow: 0 2px 10px #000; }
+#action { min-width: 62px; min-height: 54px; border: 2px solid #fff; border-radius: 6px; background: rgb(9 10 12 / 84%); color: white; font: 700 16px Inter, system-ui, sans-serif; cursor: pointer; }`,
+    javascript: `export async function run({ ui, game }) {
+  await Promise.race([
+    ui.waitForClick("#action").then(() => "success"),
+    ui.waitForKey("Space").then(() => "success"),
+  ]);
+  game.variables.increment(${JSON.stringify(courageId)}, 1);
+  return "success";
+}
 `,
   };
 }

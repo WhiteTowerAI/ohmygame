@@ -3,30 +3,51 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-ohmygame-interaction-surface' blob:; font-src data:"
     />
+    <script nonce="ohmygame-interaction-surface">document.documentElement.style.colorScheme = new URLSearchParams(location.search).get("color-scheme") === "dark" ? "dark" : "light";</script>
     <style>html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }</style>
   </head>
   <body>
     <script nonce="ohmygame-interaction-surface">
       (() => {
         const CHANNEL = "ohmygame:interaction-surface";
-        let controller;
         let moduleUrl;
+        let session;
 
         function post(instanceId, type, payload = {}) {
           parent.postMessage({ channel: CHANNEL, instanceId, type, ...payload }, "*");
         }
 
-        window.addEventListener("message", async (message) => {
+        window.addEventListener("message", (message) => {
           const data = message.data;
-          if (message.source !== parent || !data || data.channel !== CHANNEL || data.type !== "init" || typeof data.instanceId !== "string") return;
-          controller?.abort();
+          if (message.source !== parent || !data || data.channel !== CHANNEL || typeof data.instanceId !== "string") return;
+          if (data.type === "lifecycle") {
+            if (!session || session.instanceId !== data.instanceId) return;
+            session.active = Boolean(data.active);
+            session.lifecycle.setPaused(Boolean(data.paused));
+            if (!session.active && session.started) session.controller.abort();
+            else start(session);
+            return;
+          }
+          if (data.type !== "init") return;
+          void initialize(data);
+        });
+
+        async function initialize(data) {
+          session?.controller.abort();
           if (moduleUrl) URL.revokeObjectURL(moduleUrl);
-          controller = new AbortController();
+          const current = {
+            instanceId: data.instanceId,
+            controller: new AbortController(),
+            lifecycle: createLifecycle(Boolean(data.paused)),
+            active: Boolean(data.active),
+            started: false,
+            completed: false,
+          };
+          session = current;
           document.body.innerHTML = data.files.html;
           document.getElementById("interaction-surface-style")?.remove();
           const style = document.createElement("style");
@@ -37,20 +58,61 @@
             moduleUrl = URL.createObjectURL(new Blob([data.files.javascript], { type: "text/javascript" }));
             const interactionModule = await import(moduleUrl);
             if (typeof interactionModule.run !== "function") throw new Error('interaction.js must export an async function named "run"');
+            if (session !== current || current.controller.signal.aborted) return;
             document.documentElement.dataset.interactionSurfaceReady = "ready";
-            const signal = controller.signal;
-            const commands = [];
-            const variables = { ...(data.context?.variables || {}) };
-            const ui = createUi(document, signal);
-            const game = createGame(data.mode, variables, commands);
-            const result = await interactionModule.run({ ui, game, signal });
-            post(data.instanceId, "complete", { result: typeof result === "string" ? result : "continue", commands: data.mode === "runtime" ? commands : [] });
+            current.run = interactionModule.run;
+            current.mode = data.mode;
+            current.outcomes = data.outcomes;
+            current.timeout = data.timeout;
+            current.commands = [];
+            current.variables = { ...(data.context?.variables || {}) };
+            current.variableDefinitions = data.context?.variableDefinitions || [];
+            post(data.instanceId, "ready");
+            start(current);
           } catch (error) {
             if (!(error instanceof DOMException && error.name === "AbortError")) post(data.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
           }
-        });
+        }
 
-        function createUi(root, signal) {
+        function start(current) {
+          if (session !== current || current.started || !current.active || current.lifecycle.paused || typeof current.run !== "function") return;
+          current.started = true;
+          const signal = current.controller.signal;
+          const ui = createUi(document, signal, current.lifecycle);
+          const game = createGame(current.mode, current.variables, current.variableDefinitions, current.commands);
+          if (current.timeout) {
+            waitForTimeout(current.timeout.durationMs, signal, current.lifecycle).then(() => {
+              complete(current, current.timeout.outcome, [], "timeout");
+            }).catch((error) => {
+              if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
+            });
+          }
+          Promise.resolve().then(() => current.run({ ui, game, signal })).then((result) => {
+            if (signal.aborted || current.completed) return;
+            if (typeof result !== "string" || !Array.isArray(current.outcomes) || !current.outcomes.includes(result)) {
+              throw new Error(`Interaction code must return one of: ${(current.outcomes || []).join(", ")}`);
+            }
+            complete(current, result, current.mode === "runtime" ? current.commands : [], "behavior");
+          }).catch((error) => {
+            if (!(error instanceof DOMException && error.name === "AbortError")) reportError(current, error);
+          });
+        }
+
+        function complete(current, result, commands, source) {
+          if (session !== current || current.completed) return;
+          current.completed = true;
+          current.controller.abort();
+          post(current.instanceId, "complete", { result, commands, source });
+        }
+
+        function reportError(current, error) {
+          if (session !== current || current.completed) return;
+          current.completed = true;
+          current.controller.abort();
+          post(current.instanceId, "error", { message: error instanceof Error ? error.message : String(error) });
+        }
+
+        function createUi(root, signal, lifecycle) {
           return Object.freeze({
               root,
               querySelector: (selector) => root.querySelector(selector),
@@ -60,7 +122,12 @@
                 const activeSignal = options.signal || signal;
                 const abort = () => reject(new DOMException("Interaction stopped", "AbortError"));
                 if (activeSignal.aborted) { abort(); return; }
-                element.addEventListener("click", () => resolve(element), { once: true, signal: activeSignal });
+                const click = () => {
+                  if (lifecycle.paused) return;
+                  element.removeEventListener("click", click);
+                  resolve(element);
+                };
+                element.addEventListener("click", click, { signal: activeSignal });
                 activeSignal.addEventListener("abort", abort, { once: true });
               }),
               waitForKey: (code, options = {}) => new Promise((resolve, reject) => {
@@ -69,7 +136,7 @@
                 const abort = () => reject(new DOMException("Interaction stopped", "AbortError"));
                 if (activeSignal.aborted) { abort(); return; }
                 const keydown = (event) => {
-                  if (event.code !== code || event.repeat) return;
+                  if (lifecycle.paused || event.code !== code || event.repeat) return;
                   event.preventDefault();
                   window.removeEventListener("keydown", keydown);
                   resolve(event.code);
@@ -77,30 +144,81 @@
                 window.addEventListener("keydown", keydown, { signal: activeSignal });
                 activeSignal.addEventListener("abort", abort, { once: true });
               }),
-              waitForTimeout: (duration, options = {}) => new Promise((resolve, reject) => {
-                if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) { reject(new Error("ui.waitForTimeout requires a non-negative duration")); return; }
-                const activeSignal = options.signal || signal;
-                const timer = setTimeout(resolve, duration);
-                activeSignal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Interaction stopped", "AbortError")); }, { once: true });
+              waitForTimeout: (duration, options = {}) => waitForTimeout(duration, options.signal || signal, lifecycle),
+            });
+        }
+
+        function createGame(mode, variables, definitions, commands) {
+          const record = (command) => { commands.push(command); };
+          const resolve = (reference) => {
+            const matches = definitions.filter((variable) => variable.id === reference || variable.name === reference);
+            if (matches.length !== 1) throw new Error(matches.length ? `Variable name is ambiguous: ${reference}` : `Unknown variable: ${reference}`);
+            return matches[0];
+          };
+          const validate = (variable, value) => {
+            if (variable.type === "boolean" && typeof value !== "boolean") throw new Error(`${variable.name} requires a boolean value`);
+            if (variable.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) throw new Error(`${variable.name} requires a finite number`);
+            if (variable.type === "text" && typeof value !== "string") throw new Error(`${variable.name} requires a text value`);
+          };
+          return Object.freeze({
+              mode,
+              variables: Object.freeze({
+                get: (reference) => variables[resolve(reference).id],
+                set: (reference, value) => {
+                  const variable = resolve(reference);
+                  validate(variable, value);
+                  record({ type: "set-variable", variable: variable.id, value });
+                  variables[variable.id] = value;
+                },
+                increment: (reference, amount) => {
+                  const variable = resolve(reference);
+                  const current = variables[variable.id];
+                  if (variable.type !== "number" || typeof current !== "number" || typeof amount !== "number" || !Number.isFinite(amount)) throw new Error(`${variable.name} requires a numeric increment`);
+                  record({ type: "increment-variable", variable: variable.id, amount });
+                  variables[variable.id] = current + amount;
+                },
               }),
             });
         }
 
-        function createGame(mode, variables, commands) {
-          const record = (command) => { commands.push(command); };
-          return Object.freeze({
-              mode,
-              variables: Object.freeze({
-                get: (variable) => variables[variable],
-                set: (variable, value) => { record({ type: "set-variable", variable, value }); variables[variable] = value; },
-                increment: (variable, amount) => {
-                  const current = variables[variable];
-                  if (typeof current !== "number" || typeof amount !== "number" || !Number.isFinite(amount)) throw new Error("game.variables.increment requires a number variable and finite amount");
-                  record({ type: "increment-variable", variable, amount });
-                  variables[variable] = current + amount;
-                },
-              }),
+        function createLifecycle(paused) {
+          const listeners = new Set();
+          return {
+            get paused() { return paused; },
+            setPaused(next) {
+              if (paused === next) return;
+              paused = next;
+              for (const listener of listeners) listener(paused);
+            },
+            subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+          };
+        }
+
+        function waitForTimeout(duration, signal, lifecycle) {
+          return new Promise((resolve, reject) => {
+            if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) { reject(new Error("ui.waitForTimeout requires a non-negative duration")); return; }
+            let remaining = duration;
+            let startedAt;
+            let timer;
+            let settled = false;
+            const cleanup = () => { clearTimeout(timer); unsubscribe(); signal.removeEventListener("abort", abort); };
+            const finish = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+            const abort = () => { if (settled) return; settled = true; cleanup(); reject(new DOMException("Interaction stopped", "AbortError")); };
+            const schedule = () => {
+              if (settled || lifecycle.paused) return;
+              startedAt = performance.now();
+              timer = setTimeout(finish, remaining);
+            };
+            const unsubscribe = lifecycle.subscribe((paused) => {
+              if (paused) {
+                remaining = Math.max(0, remaining - (performance.now() - startedAt));
+                clearTimeout(timer);
+              } else schedule();
             });
+            if (signal.aborted) { abort(); return; }
+            signal.addEventListener("abort", abort, { once: true });
+            schedule();
+          });
         }
       })();
     </script>
