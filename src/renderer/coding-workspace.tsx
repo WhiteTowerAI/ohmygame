@@ -147,7 +147,7 @@ export function CodingWorkspace({
   }
 
   return (
-    <section className="viewer-pane coding-workspace" aria-label="Coding workspace">
+    <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <nav

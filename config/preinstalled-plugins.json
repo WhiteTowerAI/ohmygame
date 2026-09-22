@@ -8,7 +8,7 @@
       "commit": "dede5909be4e494b228c801a55dda47439143932",
       "release": "v1.5.1",
       "version": "1.5.1",
-      "artifactSha256": "fc3f5e8c35009395c3c8bca0b97124b0f62571e1800fba4bea40836885b64356",
+      "artifactSha256": "e3b5d2bb9e5e4b6b0afd1b2e3ba1da6ff9334b6e584bda0cd59978a88a734d93",
       "candidate": "agent-skills:root",
       "publisher": {
         "id": "github:img2threejs",

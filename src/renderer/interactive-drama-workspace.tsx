@@ -1208,16 +1208,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   return (
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
           <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
           <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
         </div>
-        <nav className="interactive-drama-workspace-switch" aria-label="Workspace mode">
-          <button type="button" className={workspaceView === "canvas" ? "is-active" : undefined} aria-current={workspaceView === "canvas" ? "page" : undefined} onClick={() => setWorkspaceView("canvas")}><Clapperboard size={12} />Canvas</button>
-          <button type="button" className={workspaceView === "code" ? "is-active" : undefined} aria-current={workspaceView === "code" ? "page" : undefined} onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={12} />Code</button>
+        <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+          <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
+          <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
         </nav>
         <div className="interactive-drama-header-actions">
           <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
