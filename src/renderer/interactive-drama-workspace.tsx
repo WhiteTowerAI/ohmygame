@@ -1257,9 +1257,9 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Build game" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
+          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
-            <span>{building ? "Building" : "Build game"}</span>
+            <span>{building ? "Exporting" : "Export"}</span>
           </button>
         </div>
       </header>
