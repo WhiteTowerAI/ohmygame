@@ -11882,11 +11882,11 @@ button {
   background-clip: text;
   background-size: 200% 100%;
   color: transparent;
-  animation: activity-shimmer 1.7s linear infinite;
+  animation: activity-shimmer 2.1s linear infinite;
 }
 
 .activity-pulse {
-  animation: activity-pulse 1.7s ease-in-out infinite;
+  animation: activity-pulse 2.1s ease-in-out infinite;
 }
 
 :root[data-appearance="light"] .activity-shimmer {
@@ -11898,13 +11898,14 @@ button {
 }
 
 @keyframes activity-shimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
+  0% { background-position: 100% 0; }
+  42% { background-position: -100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 @keyframes activity-pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
+  0%, 42%, 100% { opacity: 0.55; }
+  22% { opacity: 1; }
 }
 
 @keyframes tool-details-reveal {
