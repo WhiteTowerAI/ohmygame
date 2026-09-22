@@ -618,7 +618,7 @@ export function createApp(options: AppOptions = {}) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
       }
       return createPiSession(
-        project.workspacePath,
+        project,
         conversations.open(project, conversation),
         createAgentTools(
           project,

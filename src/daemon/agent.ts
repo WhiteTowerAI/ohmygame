@@ -19,6 +19,7 @@ import type { StoredConversation } from "./conversations.js";
 import { ensureOhMyGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
+import { appendSystemPromptForProject } from "./agent-prompts.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -1086,7 +1087,7 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
 
     const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
-      state.workspacePath,
+      state,
       SessionManager.open(stored.sessionPath, sessionDirectory(state), state.workspacePath),
       [],
     )))(project, conversation);
@@ -2071,14 +2072,8 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
-export const OHMYGAME_SYSTEM_PROMPT = [
-  "You are OhMyGame's game creation agent. Help users create and evolve games in the current workspace while honoring their intent and preserving existing work.",
-  "Match the request: establish a runnable core for a new game, integrate features with existing systems, and fix bugs with the smallest reliable change. Verify affected behavior proportionately.",
-  "Keep plans and progress updates brief and limited to meaningful multi-step work. Respond directly without creating files when the request needs no project changes.",
-] as const;
-
 export async function createPiSession(
-  workspacePath: string,
+  project: Pick<ProjectState, "workspacePath" | "type">,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
   modelRuntime?: ModelRuntime,
@@ -2087,9 +2082,12 @@ export async function createPiSession(
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
+  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
+    resolvePluginSkills,
+    appendSystemPrompt: appendSystemPromptForProject(project.type),
+  });
   const { session } = await createAgentSession({
-    cwd: workspacePath,
+    cwd: project.workspacePath,
     agentDir,
     customTools,
     model,
@@ -2109,7 +2107,7 @@ export async function loadPiSkills(
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<SkillCatalogItem[]> {
-  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
+  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, { resolvePluginSkills });
   return skillCatalog(resourceLoader.getSkills().skills, pluginSkills);
 }
 
@@ -2131,20 +2129,25 @@ export async function loadPiSkillCatalog(
 async function createPiResourceLoader(
   workspacePath: string,
   agentDir: string,
-  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+  options: {
+    resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>;
+    appendSystemPrompt?: readonly string[];
+  } = {},
 ): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
   await ensureOhMyGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
   sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
-  const pluginSkills = await resolvePluginSkills?.() ?? [];
+  const pluginSkills = await options.resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
-    appendSystemPrompt: [...OHMYGAME_SYSTEM_PROMPT],
+    appendSystemPrompt: options.appendSystemPrompt
+      ? [...options.appendSystemPrompt]
+      : [],
   });
   await resourceLoader.reload();
   return { resourceLoader, sessionSettings, pluginSkills };
