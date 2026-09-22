@@ -57,6 +57,24 @@ interface PiPromptImage {
 
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
+/**
+ * Some OpenAI-compatible endpoints advertise a GPT-5.6 model while rejecting
+ * the optional Responses API `prompt_cache_options` field. Keep prompt-cache
+ * keys available, but avoid that provider-specific opt-in until compatibility
+ * can be established by the endpoint.
+ */
+export function compatibleRuntimeModel(model: RuntimeModel): RuntimeModel {
+  const compat = model.compat as (RuntimeModel["compat"] & { supportsExplicitPromptCacheMode?: boolean }) | undefined;
+  if (model.api !== "openai-responses" || !compat?.supportsExplicitPromptCacheMode) return model;
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      supportsExplicitPromptCacheMode: false,
+    },
+  };
+}
+
 export type AgentRunResult = "completed" | "cancelled";
 type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
@@ -402,7 +420,7 @@ export class AgentManager {
       return;
     }
     if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
-    await managed.session.setModel(model);
+    await managed.session.setModel(compatibleRuntimeModel(model));
   }
 
   async setReasoningLevel(
@@ -2112,7 +2130,7 @@ export async function createPiSession(
     cwd: workspacePath,
     agentDir,
     customTools,
-    model,
+    model: model ? compatibleRuntimeModel(model) : undefined,
     modelRuntime,
     resourceLoader,
     sessionManager,
