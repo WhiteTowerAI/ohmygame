@@ -19,6 +19,8 @@ describe("Web Game project codebase", () => {
     expect(instructions).toContain("complete Vite-based browser project");
     expect(instructions).toContain("scripts.dev");
     expect(instructions).toContain("responsive inside an iframe");
+    expect(instructions).toContain("window.__OHMYGAME_PLAYTEST__");
+    expect(instructions).toContain("normal gameplay must not depend on it");
   });
 });
 
