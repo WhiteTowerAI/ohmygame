@@ -2281,13 +2281,6 @@ button.home-nav-item-active:hover {
   color: #f7f7f8;
 }
 
-.home-whats-new-icon img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .home-whats-new-copy {
   display: flex;
   min-width: 0;

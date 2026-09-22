@@ -112,7 +112,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getStory, listImageModels, runTool, updateStory, uploadLibraryAsset } from "./api.js";
+import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, runTool, setProjectCover, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -120,6 +120,7 @@ import { playtestHash } from "./routes.js";
 import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
+import { findStoryCoverSource } from "../shared/story-cover.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
@@ -448,6 +449,22 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     [chapter, edges, editorLayout, nodes, player, variables, workspaceView],
   );
   latestStory.current = document;
+
+  useEffect(() => {
+    if (phase !== "ready" || !document || libraryAssets.length === 0) return;
+    let disposed = false;
+    void (async () => {
+      const source = findStoryCoverSource(document);
+      const asset = source && libraryAssets.find((candidate) => candidate.id === source.assetId);
+      if (!source || !asset || (asset.mediaType !== "image" && asset.mediaType !== "video") || asset.contentType === "image/svg+xml" || asset.name.toLowerCase().endsWith(".svg")) return;
+      // A manually supplied cover is authoritative. Automatic covers only fill an empty slot.
+      if (await getProjectCover(projectId)) return;
+      const blob = await getLibraryAsset(asset.id);
+      const cover = await mediaBlobToWebP(blob, asset.mediaType);
+      if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover);
+    })().catch(() => {});
+    return () => { disposed = true; };
+  }, [document, libraryAssets, phase, projectId]);
 
   function updateHistoryControls(): void {
     setHistoryRevision((revision) => revision + 1);
@@ -3909,4 +3926,53 @@ function titleCase(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function mediaBlobToWebP(blob: Blob, mediaType: "image" | "video"): Promise<Blob | undefined> {
+  if (mediaType === "image") {
+    const image = await createImageBitmap(blob);
+    try {
+      return bitmapToWebP(image);
+    } finally {
+      image.close();
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.src = url;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.addEventListener("loadeddata", () => resolve(), { once: true });
+      video.addEventListener("error", () => reject(new Error("Could not read video cover")), { once: true });
+      video.load();
+    });
+    video.currentTime = 0;
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      await new Promise<void>((resolve) => video.addEventListener("seeked", () => resolve(), { once: true }));
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    return canvasToWebP(canvas);
+  } finally {
+    URL.revokeObjectURL(url);
+    video.remove();
+  }
+}
+
+function bitmapToWebP(image: ImageBitmap): Promise<Blob | undefined> {
+  const canvas = document.createElement("canvas");
+  const width = Math.min(800, image.width);
+  canvas.width = width;
+  canvas.height = Math.max(1, Math.round(image.height * width / image.width));
+  canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvasToWebP(canvas);
+}
+
+function canvasToWebP(canvas: HTMLCanvasElement): Promise<Blob | undefined> {
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob ?? undefined), "image/webp", 0.8));
 }

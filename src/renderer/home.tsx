@@ -10,7 +10,6 @@ import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import dialogueDirector from "./assets/home/dialogue-director.svg";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -21,7 +20,6 @@ interface HomeProps {
 const RECENT_PROJECT_MAX_COLUMNS = 4;
 const WHATS_NEW_ITEM = {
   title: "Interactive Drama is here",
-  image: dialogueDirector,
   page: "interactive-drama" as SidebarPage,
 };
 
@@ -133,7 +131,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           </div>
           <div className="home-whats-new-grid">
             <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
-              <span className="home-whats-new-icon"><img src={WHATS_NEW_ITEM.image} alt="" /></span>
+              <span className="home-whats-new-icon" aria-hidden="true" />
               <span className="home-whats-new-copy">
                 <strong>{WHATS_NEW_ITEM.title}</strong>
               </span>
