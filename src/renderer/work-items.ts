@@ -64,6 +64,7 @@ function toolCategory(tool: ToolItem): string {
   if (toolName === "edit" || toolName === "write") return "edit";
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return "read";
   if (toolName === "bash") return "command";
+  if (toolName === "playtest_browser") return "playtest";
   return `tool:${toolName}`;
 }
 
@@ -78,6 +79,7 @@ function categoryPhrase(category: string, tools: ToolItem[]): string {
   if (category === "edit") return filePhrase("edited", tools);
   if (category === "read") return tools.length === 1 ? "read a file" : "read files";
   if (category === "command") return tools.length === 1 ? "ran a command" : "ran commands";
+  if (category === "playtest") return "playtested the game";
   if (category.startsWith("mcp:")) {
     const name = singularToolName(mcpServerName(category.slice("mcp:".length) || undefined));
     return tools.length === 1 ? `used ${indefiniteArticle(name)} ${name} tool` : `used ${name} tools`;

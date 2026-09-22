@@ -63,10 +63,11 @@ export function createPlaytestTool(
   return defineTool<typeof parameters, unknown>({
     name: "playtest_browser",
     label: "Game Playtest",
-    description: "Open and control the current browser-game preview, inspect interactive elements, canvas state, console and network failures, capture screenshots, and call an optional OhMyGame playtest bridge. Reuse the returned sessionId and close the session when finished.",
+    description: "Open and control the current browser-game preview, inspect interactive elements, canvas state, console and network failures, capture screenshots, and call an optional OhMyGame playtest bridge. Open and act return a fresh state snapshot. Reuse the returned sessionId and close the session when finished.",
     promptSnippet: "Playtest the current browser game with real input, runtime inspection, and screenshots",
     promptGuidelines: [
       "Use playtest_browser for browser-game runtime or visual verification; a successful build alone is not a playtest",
+      "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
       "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
     ],
     parameters,

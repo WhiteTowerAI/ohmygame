@@ -754,6 +754,59 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Godot: Run project");
   });
 
+  it("describes browser playtest operations with player-facing labels", () => {
+    const playtest = (id: string, operation: string, status: "inProgress" | "completed", extra: Record<string, unknown> = {}): ThreadItem => ({
+      id,
+      turnId: "turn-1",
+      type: "dynamicToolCall",
+      toolCallId: id,
+      tool: "playtest_browser",
+      status,
+      arguments: { operation, ...extra },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      playtest("open", "open", "completed"),
+      playtest("act", "act", "completed", { actions: [{ type: "press", key: "Space" }, { type: "wait", milliseconds: 100 }] }),
+      playtest("capture", "capture", "inProgress"),
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Capturing game screenshot");
+    expect(html).toContain("Opened game preview");
+    expect(html).toContain("Ran 2 playtest actions");
+    expect(html).toContain("solar-gamepad-linear");
+    expect(html).not.toContain("Used playtest_browser");
+  });
+
+  it("summarizes completed browser checks as a game playtest", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "open",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "open",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "open" },
+      },
+      {
+        id: "close",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "close",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "close", sessionId: "session-1" },
+      },
+      assistant("final", "Verified.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Playtested the game");
+    expect(html).toContain("Closed game preview");
+    expect(html).not.toContain("playtest_browser tools");
+  });
+
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
