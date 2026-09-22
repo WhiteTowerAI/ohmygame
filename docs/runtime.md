@@ -105,7 +105,8 @@ cover semantic or coordinate clicks, text input, key presses, touch, bounded
 waits, viewport resizing, and the optional game bridge below. Calls are
 sequential, abort with the Agent turn, and time out after 30 seconds. Sessions
 are destroyed when explicitly closed, when the daemon or Electron app shuts
-down, or after an open failure.
+down, or after an open failure. At most four sessions may remain open at once,
+which bounds hidden-window resource use if an Agent misses cleanup.
 
 Playtest windows use an isolated partition with sandboxing, context isolation,
 and Node integration disabled. Main-frame navigation stays on the original

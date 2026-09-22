@@ -23,6 +23,7 @@ interface PlaytestSession {
 
 const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
+const MAX_SESSIONS = 4;
 
 export class ElectronPlaytestDriver implements PlaytestDriver {
   readonly available = true;
@@ -51,6 +52,9 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
   async #open(urlValue: string, viewport: PlaytestViewport, signal?: AbortSignal): Promise<PlaytestSnapshot> {
     const url = validatedPlaytestUrl(urlValue);
     validateViewport(viewport);
+    if (this.#sessions.size >= MAX_SESSIONS) {
+      throw new Error(`Close an existing browser playtest session before opening more than ${MAX_SESSIONS}`);
+    }
     url.searchParams.set("ohmygamePlaytest", "1");
     const id = randomUUID();
     const window = new BrowserWindow({
@@ -71,9 +75,11 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     this.#sessions.set(id, state);
     window.once("closed", () => this.#sessions.delete(id));
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    window.webContents.on("will-navigate", (event, destination) => {
+    const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
       if (!sameOrigin(destination, state.origin)) event.preventDefault();
-    });
+    };
+    window.webContents.on("will-navigate", preventCrossOriginNavigation);
+    window.webContents.on("will-redirect", preventCrossOriginNavigation);
     window.webContents.on("console-message", (details) => {
       state.logs.push({
         level: details.level,
@@ -84,8 +90,14 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
       });
       if (state.logs.length > MAX_LOGS) state.logs.splice(0, state.logs.length - MAX_LOGS);
     });
-    window.webContents.session.setPermissionRequestHandler((contents, permission, callback) => {
-      callback(contents === window.webContents && (permission === "pointerLock" || permission === "keyboardLock"));
+    window.webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+      const requestingUrl = details.requestingUrl ?? requestingOrigin;
+      return contents === window.webContents && permission === "pointerLock" && details.isMainFrame &&
+        sameOrigin(requestingUrl, state.origin);
+    });
+    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+      callback(contents === window.webContents && (permission === "pointerLock" || permission === "keyboardLock") &&
+        details.isMainFrame && sameOrigin(details.requestingUrl, state.origin));
     });
     window.webContents.session.on("will-download", (event) => event.preventDefault());
     window.webContents.session.webRequest.onErrorOccurred((details) => {
@@ -417,4 +429,3 @@ const PAGE_INSPECTION_SCRIPT = `(async () => { ${TARGET_HELPERS}
     ...(capabilities.length ? { bridgeCapabilities: capabilities } : {}),
   };
 })()`;
-

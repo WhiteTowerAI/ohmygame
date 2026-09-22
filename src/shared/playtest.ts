@@ -107,4 +107,3 @@ export type PlaytestIpcMessage =
   | { channel: "ohmygame:playtest-request"; id: string; request: PlaytestRequest }
   | { channel: "ohmygame:playtest-cancel"; id: string }
   | { channel: "ohmygame:playtest-response"; id: string; result?: PlaytestResult; error?: string };
-

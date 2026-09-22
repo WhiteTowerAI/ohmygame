@@ -20,9 +20,11 @@ const electron = vi.hoisted(() => {
   }
 
   class FakeSession {
-    permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void) => void;
+    permissionCheckHandler?: (contents: unknown, permission: string, requestingOrigin: string, details: { requestingUrl?: string; isMainFrame: boolean }) => boolean;
+    permissionHandler?: (contents: unknown, permission: string, callback: (allowed: boolean) => void, details: { requestingUrl: string; isMainFrame: boolean }) => void;
     downloadHandler?: (event: { preventDefault(): void }) => void;
     requestErrorHandler?: (details: Record<string, unknown>) => void;
+    setPermissionCheckHandler = vi.fn((handler) => { this.permissionCheckHandler = handler; });
     setPermissionRequestHandler = vi.fn((handler) => { this.permissionHandler = handler; });
     on = vi.fn((event: string, handler) => { if (event === "will-download") this.downloadHandler = handler; });
     readonly webRequest = { onErrorOccurred: vi.fn((handler) => { this.requestErrorHandler = handler; }) };
@@ -36,6 +38,7 @@ const electron = vi.hoisted(() => {
     destroyed = false;
     loadedUrl = "";
     navigateHandler?: (event: { preventDefault(): void }, url: string) => void;
+    redirectHandler?: (event: { preventDefault(): void }, url: string) => void;
     consoleHandler?: (details: { level: "error"; message: string; sourceId: string; lineNumber: number }) => void;
     closedHandler?: () => void;
     readonly setContentSize = vi.fn();
@@ -47,6 +50,7 @@ const electron = vi.hoisted(() => {
       setWindowOpenHandler: vi.fn(),
       on: vi.fn((event: string, handler: any) => {
         if (event === "will-navigate") this.navigateHandler = handler;
+        if (event === "will-redirect") this.redirectHandler = handler;
         if (event === "console-message") this.consoleHandler = handler;
       }),
       executeJavaScript: vi.fn(async (script: string) => {
@@ -110,7 +114,7 @@ describe("electron playtest driver", () => {
     driver.close();
   });
 
-  it("blocks navigation away from the preview origin", async () => {
+  it("blocks navigation and redirects away from the preview origin", async () => {
     const driver = new ElectronPlaytestDriver();
     await driver.request({ operation: "open", url: "http://127.0.0.1:43123/", viewport: { width: 800, height: 600 } });
     const window = electron.windows[0]!;
@@ -119,9 +123,51 @@ describe("electron playtest driver", () => {
 
     window.navigateHandler?.(sameOrigin, "http://127.0.0.1:43123/level-2");
     window.navigateHandler?.(external, "https://example.com/");
+    const externalRedirect = { preventDefault: vi.fn() };
+    window.redirectHandler?.(externalRedirect, "https://example.com/redirected");
 
     expect(sameOrigin.preventDefault).not.toHaveBeenCalled();
     expect(external.preventDefault).toHaveBeenCalledOnce();
+    expect(externalRedirect.preventDefault).toHaveBeenCalledOnce();
+    driver.close();
+  });
+
+  it("allows only same-origin main-frame game input permissions", async () => {
+    const driver = new ElectronPlaytestDriver();
+    await driver.request({ operation: "open", url: "http://127.0.0.1:43123/", viewport: { width: 800, height: 600 } });
+    const window = electron.windows[0]!;
+    const check = window.session.permissionCheckHandler!;
+    const request = window.session.permissionHandler!;
+    const localMainFrame = { requestingUrl: "http://127.0.0.1:43123/game", isMainFrame: true };
+
+    expect(check(window.webContents, "pointerLock", "http://127.0.0.1:43123", localMainFrame)).toBe(true);
+    expect(check(window.webContents, "pointerLock", "https://example.com", { requestingUrl: "https://example.com", isMainFrame: true })).toBe(false);
+    expect(check(window.webContents, "fullscreen", "http://127.0.0.1:43123", localMainFrame)).toBe(false);
+
+    const pointerLock = vi.fn();
+    const keyboardLock = vi.fn();
+    const crossOrigin = vi.fn();
+    request(window.webContents, "pointerLock", pointerLock, localMainFrame);
+    request(window.webContents, "keyboardLock", keyboardLock, localMainFrame);
+    request(window.webContents, "pointerLock", crossOrigin, { requestingUrl: "https://example.com", isMainFrame: true });
+    expect(pointerLock).toHaveBeenCalledWith(true);
+    expect(keyboardLock).toHaveBeenCalledWith(true);
+    expect(crossOrigin).toHaveBeenCalledWith(false);
+    driver.close();
+  });
+
+  it("bounds retained browser sessions", async () => {
+    const driver = new ElectronPlaytestDriver();
+    for (let index = 0; index < 4; index++) {
+      await driver.request({ operation: "open", url: `http://127.0.0.1:43123/${index}`, viewport: { width: 800, height: 600 } });
+    }
+
+    await expect(driver.request({
+      operation: "open",
+      url: "http://127.0.0.1:43123/overflow",
+      viewport: { width: 800, height: 600 },
+    })).rejects.toThrow("Close an existing browser playtest session");
+    expect(electron.windows).toHaveLength(4);
     driver.close();
   });
 
