@@ -11481,6 +11481,12 @@ button {
   margin: 0;
 }
 
+.image-read-details > summary {
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, auto) 14px;
+}
+
 .image-read-details > summary::-webkit-details-marker {
   display: none;
 }
@@ -11511,6 +11517,12 @@ button {
 
 .compaction-details {
   margin: 0;
+}
+
+.compaction-details > summary {
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: 14px minmax(0, auto) 14px;
 }
 
 .compaction-details > summary::-webkit-details-marker {
@@ -11661,7 +11673,7 @@ button {
   transition: transform 120ms ease;
 }
 
-:is(.tool-activity-details, .connection-activity-details) .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) .tool-detail-chevron {
   opacity: 0;
   transition:
     color 120ms ease,
@@ -11669,8 +11681,8 @@ button {
     transform 120ms ease;
 }
 
-:is(.tool-activity-details, .connection-activity-details) > summary:hover .tool-detail-chevron,
-:is(.tool-activity-details, .connection-activity-details) > summary:focus-visible .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) > summary:hover .tool-detail-chevron,
+:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) > summary:focus-visible .tool-detail-chevron {
   opacity: 1;
 }
 
@@ -11892,10 +11904,6 @@ button {
   animation: activity-shimmer 2.1s linear infinite;
 }
 
-.activity-pulse {
-  animation: activity-pulse 2.1s ease-in-out infinite;
-}
-
 :root[data-appearance="light"] .activity-shimmer {
   background-image: linear-gradient(90deg, var(--text-faint) 35%, #fff 50%, var(--text-faint) 65%);
 }
@@ -11908,11 +11916,6 @@ button {
   0% { background-position: 100% 0; }
   42% { background-position: -100% 0; }
   100% { background-position: -100% 0; }
-}
-
-@keyframes activity-pulse {
-  0%, 42%, 100% { opacity: 0.55; }
-  22% { opacity: 1; }
 }
 
 @keyframes tool-details-reveal {

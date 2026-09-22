@@ -464,13 +464,14 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = item.status === "inProgress" ? <Layers3 className="activity-pulse" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const icon = item.status === "inProgress" ? <Layers3 size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const labelClass = item.status === "inProgress" ? "activity-shimmer" : undefined;
     if (item.status === "completed" && item.summary) {
       return (
         <details className="compaction-details">
           <summary className="timeline-event timeline-event-expandable">
             {icon}
-            <span>{label}</span>
+            <span className={labelClass}>{label}</span>
             <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
           </summary>
           <div className="compaction-content">
@@ -483,7 +484,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
         {icon}
-        <span>{label}</span>
+        <span className={labelClass}>{label}</span>
       </div>
     );
   }
