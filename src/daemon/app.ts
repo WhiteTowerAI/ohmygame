@@ -522,7 +522,7 @@ export function createApp(options: AppOptions = {}) {
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
   const publisher = new RemotePublisher({
-    apiUrl: options.publishApiUrl ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
+    apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
   const assetTemplates = new AssetTemplateStore(dataDirectory);
@@ -557,7 +557,10 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
-  const accountServiceClient = new AccountServiceClient(options.accountServiceUrl ?? process.env.ACCOUNT_SERVICE_URL ?? "https://account.ohmygame.ai", options.accountServiceFetch);
+  const accountServiceClient = new AccountServiceClient(
+    options.accountServiceUrl ?? process.env.CLOUD_API_URL ?? process.env.ACCOUNT_SERVICE_URL ?? "https://cloud.ohmygame.ai",
+    options.accountServiceFetch,
+  );
   const accountConnection = new AccountConnection(
     getModelRuntime,
     accountServiceClient,

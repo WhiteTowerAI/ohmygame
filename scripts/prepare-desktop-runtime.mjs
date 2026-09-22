@@ -75,16 +75,16 @@ async function prepareDesktopConfig() {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const publishApiUrl = process.env.PUBLISH_API_URL?.trim();
-  if (publishApiUrl) {
-    const parsed = new URL(publishApiUrl);
+  const cloudApiUrl = (process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)?.trim();
+  if (cloudApiUrl) {
+    const parsed = new URL(cloudApiUrl);
     if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password) {
-      throw new Error("PUBLISH_API_URL must be an HTTP(S) URL without credentials");
+      throw new Error("CLOUD_API_URL must be an HTTP(S) URL without credentials");
     }
   }
   await writeFile(
     path.join(runtimeRoot, "desktop-config.json"),
-    `${JSON.stringify({ ...(publishApiUrl ? { publishApiUrl } : {}) }, null, 2)}\n`,
+    `${JSON.stringify({ ...(cloudApiUrl ? { cloudApiUrl } : {}) }, null, 2)}\n`,
     "utf8",
   );
 }

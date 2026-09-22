@@ -45,7 +45,7 @@ reload the project shell. A generated workspace still updates its own preview.
 
 The local API above is the current single-user runtime. The separate public
 publishing contract is documented in the
-[`ohmygame-web` repository](https://github.com/WhiteTowerAI/ohmygame-web/blob/main/docs/publish-v1.md). It keeps
+[`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md). It keeps
 immutable deployments and Community discovery as distinct remote resources and
 does not expose Pi or workspace data.
 
