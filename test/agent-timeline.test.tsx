@@ -767,13 +767,16 @@ describe("AgentTimeline", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       playtest("open", "open", "completed"),
+      playtest("single-act", "act", "completed", { actions: [{ type: "press", key: "Enter" }] }),
       playtest("act", "act", "completed", { actions: [{ type: "press", key: "Space" }, { type: "wait", milliseconds: 100 }] }),
       playtest("capture", "capture", "inProgress"),
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Capturing game screenshot");
     expect(html).toContain("Opened game preview");
-    expect(html).toContain("Ran 2 playtest actions");
+    expect(html).toContain("Ran a playtest action");
+    expect(html).toContain("Ran playtest actions");
+    expect(html).not.toContain("Ran 2 playtest actions");
     expect(html).toContain("solar-gamepad-linear");
     expect(html).not.toContain("Used playtest_browser");
   });

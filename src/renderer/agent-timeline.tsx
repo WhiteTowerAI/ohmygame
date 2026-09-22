@@ -734,7 +734,7 @@ function playtestLabel(values: Record<string, unknown> | undefined, completed: b
     case "inspect": return completed ? "Inspected game state" : "Inspecting game state";
     case "act": {
       const count = Array.isArray(values?.actions) ? values.actions.length : 0;
-      const target = count > 0 ? `${count} playtest ${count === 1 ? "action" : "actions"}` : "playtest actions";
+      const target = count === 1 ? "a playtest action" : "playtest actions";
       return completed ? `Ran ${target}` : `Running ${target}`;
     }
     case "capture": return completed ? "Captured game screenshot" : "Capturing game screenshot";
