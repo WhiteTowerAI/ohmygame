@@ -151,6 +151,7 @@ describe("plugin catalog API", () => {
     expect(catalog.json()).toMatchObject({
       plugins: [
         { id: "ohmygame:godot", installed: true },
+        { id: "ohmygame:web-game-studio", installed: true },
       ],
       explore: [],
       errors: [],

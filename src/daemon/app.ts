@@ -607,7 +607,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -634,7 +634,7 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings),
+        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
       );
     }),
     activeToolNames: (project, mode, session) => {

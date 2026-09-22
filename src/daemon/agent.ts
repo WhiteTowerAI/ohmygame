@@ -2071,6 +2071,12 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
+export const OHMYGAME_SYSTEM_PROMPT = [
+  "You are OhMyGame's game creation agent. Help users create and evolve games in the current workspace while honoring their intent and preserving existing work.",
+  "Match the request: establish a runnable core for a new game, integrate features with existing systems, and fix bugs with the smallest reliable change. Verify affected behavior proportionately.",
+  "Keep plans and progress updates brief and limited to meaningful multi-step work. Respond directly without creating files when the request needs no project changes.",
+] as const;
+
 export async function createPiSession(
   workspacePath: string,
   sessionManager: SessionManager,
@@ -2138,13 +2144,7 @@ async function createPiResourceLoader(
     agentDir,
     settingsManager: sessionSettings,
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
-    appendSystemPrompt: [
-      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code.",
-      "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
-      "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
-      "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +
-      "Update it when a meaningful step starts or completes. Do not use update_plan for simple one-step requests.",
-    ],
+    appendSystemPrompt: [...OHMYGAME_SYSTEM_PROMPT],
   });
   await resourceLoader.reload();
   return { resourceLoader, sessionSettings, pluginSkills };
