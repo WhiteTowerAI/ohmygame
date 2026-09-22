@@ -13243,6 +13243,15 @@ button {
   flex-direction: column;
   background: var(--surface);
 }
+.coding-workspace-preview-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.coding-workspace-preview-panel[hidden] {
+  display: none;
+}
 
 .viewer-header {
   container: workspace-header / inline-size;

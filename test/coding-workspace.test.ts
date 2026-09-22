@@ -83,6 +83,29 @@ describe("coding workspace", () => {
     expect(html).toContain("viewer-stage-mobile");
     expect(html).toContain('src="http://127.0.0.1:43121/play"');
   });
+
+  it("keeps the preview panel mounted while the workspace is rendered", () => {
+    const html = renderToStaticMarkup(
+      createElement(CodingWorkspace, {
+        project: {
+          id: "project-1",
+          name: "Persistent game",
+          type: "web-game",
+          updatedAt: new Date(0).toISOString(),
+          workspacePath: "/tmp/project-1",
+          preview: { status: "ready", url: "http://127.0.0.1:43121" },
+        },
+        agentBusy: false,
+        publishing: false,
+        workspaceRevision: 0,
+        onPublish: async () => true,
+        onRestart: () => undefined,
+      }),
+    );
+
+    expect(html).toContain('class="coding-workspace-preview-panel"');
+    expect(html).toContain('class="preview-frame"');
+  });
 });
 
 describe("preview path", () => {
