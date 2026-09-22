@@ -6,7 +6,7 @@ import {
   FileText,
   Gamepad2,
   Image,
-  LoaderCircle,
+  Layers3,
   Pencil,
   Plug,
   Search,
@@ -464,7 +464,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const icon = item.status === "inProgress" ? <Layers3 className="activity-pulse" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
     if (item.status === "completed" && item.summary) {
       return (
         <details className="compaction-details">
