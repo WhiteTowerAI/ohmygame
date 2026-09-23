@@ -332,7 +332,7 @@ export interface StoryPlayerConfig {
 }
 
 export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map" | "open-settings";
-export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen";
+export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen" | { type: "exit"; exitId: string };
 
 export interface StoryOpenUiButton {
   id: string;
@@ -340,9 +340,15 @@ export interface StoryOpenUiButton {
   action: StoryOpenUiAction;
 }
 
+export interface StoryOpenUiExit {
+  id: string;
+  label: string;
+}
+
 export interface StoryOpenUiContent {
   title: string;
   buttons: StoryOpenUiButton[];
+  exits?: StoryOpenUiExit[];
 }
 
 export interface StoryDocument {
