@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AgentManager, conversationItems, lastAssistantError, loadPiSkills, OHMYGAME_SYSTEM_PROMPT, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
+import { AgentManager, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -49,17 +49,6 @@ describe("Pi skills", () => {
     )).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ name: "review" })]));
     expect(resolvePluginSkills).toHaveBeenCalledOnce();
   }, 15_000);
-});
-
-describe("OhMyGame system prompt", () => {
-  it("keeps the game-making guidance focused and compact", () => {
-    const prompt = OHMYGAME_SYSTEM_PROMPT.join("\n\n");
-
-    expect(prompt).toContain("create and evolve games");
-    expect(prompt).toContain("preserving existing work");
-    expect(prompt).toContain("without creating files");
-    expect(prompt.length).toBeLessThan(550);
-  });
 });
 
 describe("conversationItems", () => {
