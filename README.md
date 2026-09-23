@@ -56,19 +56,19 @@ Publish v1 service. Later publishes reuse the same remote Game while creating a
 new immutable Deployment.
 
 The hosted Community website and Publish v1 service live in the separate
-[`ohmygame-web`](https://github.com/WhiteTowerAI/ohmygame-web) repository. Set
+[`ohmygame-cloud`](https://github.com/WhiteTowerAI/ohmygame-cloud) repository. Set
 the desktop client endpoint in the ignored `.env.local` when developing against
 a local or preview deployment:
 
 ```dotenv
-PUBLISH_API_URL=http://127.0.0.1:43130
+CLOUD_API_URL=http://127.0.0.1:43130
 ```
 
 The desktop owns only the HTTP client side of the versioned contract. The user
 token is forwarded only for the active request and is never stored by the
 daemon, written to a project, sent to Pi, or included in an uploaded artifact.
 The server contract and deployment documentation are maintained in
-[`ohmygame-web/docs/publish-v1.md`](https://github.com/WhiteTowerAI/ohmygame-web/blob/main/docs/publish-v1.md).
+[`ohmygame-cloud/docs/publish-v1.md`](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).
 
 ## Desktop
 

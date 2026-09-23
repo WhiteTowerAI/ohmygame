@@ -14,11 +14,12 @@ import { createPlayableStoryDocument } from "./story-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
-const webRepository = process.env.OHMYGAME_WEB_ROOT
-  ? path.resolve(process.env.OHMYGAME_WEB_ROOT)
-  : path.resolve(import.meta.dirname, "../../ohmygame-web");
-const publishServerModule = path.join(webRepository, "src", "publish-server", "app.ts");
-const publishServerDependencies = path.join(webRepository, "node_modules", "fastify", "package.json");
+const configuredCloudRepository = process.env.OHMYGAME_CLOUD_ROOT ?? process.env.OHMYGAME_WEB_ROOT;
+const cloudRepository = configuredCloudRepository
+  ? path.resolve(configuredCloudRepository)
+  : path.resolve(import.meta.dirname, "../../ohmygame-cloud");
+const publishServerModule = path.join(cloudRepository, "apps", "api", "src", "app.ts");
+const publishServerDependencies = path.join(cloudRepository, "node_modules", "fastify", "package.json");
 const createPublishApp = existsSync(publishServerModule) && existsSync(publishServerDependencies)
   ? (await import(pathToFileURL(publishServerModule).href) as {
       createPublishApp: (options: {

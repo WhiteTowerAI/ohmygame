@@ -30,7 +30,7 @@ const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "ohmygame"];
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   const openProvider = (provider: ProviderSummary): void => {
     if (provider.kind === "account") {
-      void openExternal("https://account.ohmygame.ai");
+      void openExternal("https://ohmygame.ai/account/billing");
       return;
     }
     onViewChange({ page: "provider", provider });

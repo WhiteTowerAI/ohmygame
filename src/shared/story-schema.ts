@@ -154,8 +154,8 @@ const nodes = [
         properties: {
           title: { type: "string", maxLength: 120 },
           buttons: {
-            type: "array", minItems: 4, maxItems: 4,
-            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { enum: ["start-game", "continue-game", "new-game", "open-story-map"] } } },
+            type: "array", minItems: 4, maxItems: 5,
+            items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { enum: ["start-game", "continue-game", "new-game", "open-story-map", "open-settings"] } } },
             allOf: [
               { contains: { type: "object", required: ["action"], properties: { action: { const: "start-game" } } } },
               { contains: { type: "object", required: ["action"], properties: { action: { const: "continue-game" } } } },
@@ -169,6 +169,10 @@ const nodes = [
     },
   }),
   node("story-map", {
+    type: "object", additionalProperties: false, required: ["title", "presentation"],
+    properties: { title: { type: "string", maxLength: 120 }, presentation: storyMapPresentation },
+  }),
+  node("settings", {
     type: "object", additionalProperties: false, required: ["title", "presentation"],
     properties: { title: { type: "string", maxLength: 120 }, presentation: storyMapPresentation },
   }),
@@ -277,6 +281,7 @@ export const STORY_CODEBASE_SCHEMA = {
             { contains: { type: "object", required: ["type"], properties: { type: { const: "start" } } }, minContains: 0, maxContains: 1 },
             { contains: { type: "object", required: ["type"], properties: { type: { const: "open-ui" } } }, minContains: 0, maxContains: 1 },
             { contains: { type: "object", required: ["type"], properties: { type: { const: "story-map" } } }, minContains: 0, maxContains: 1 },
+            { contains: { type: "object", required: ["type"], properties: { type: { const: "settings" } } }, minContains: 0, maxContains: 1 },
           ],
         },
         edges: {

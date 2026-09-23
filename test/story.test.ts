@@ -41,8 +41,8 @@ describe("canonical Interactive Drama story", () => {
   });
 
   it("shows only Open UI actions that are available in the current session", () => {
-    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, false).buttons.map((button) => button.action)).toEqual(["start-game", "open-story-map"]);
-    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, true).buttons.map((button) => button.action)).toEqual(["continue-game", "new-game", "open-story-map"]);
+    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, false).buttons.map((button) => button.action)).toEqual(["start-game", "open-story-map", "open-settings"]);
+    expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, true).buttons.map((button) => button.action)).toEqual(["continue-game", "new-game", "open-story-map", "open-settings"]);
   });
 
   it("starts an isolated preview without carrying upstream media", () => {

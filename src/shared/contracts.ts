@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -259,6 +259,10 @@ export type StoryNode = (
     title: string;
     presentation: StoryNodePresentation;
   } }
+  | { id: string; type: "settings"; position: StoryPosition; data: {
+    title: string;
+    presentation: StoryNodePresentation;
+  } }
   | { id: string; type: "scene"; position: StoryPosition; data: {
     title: string;
     durationMs?: number;
@@ -327,8 +331,8 @@ export interface StoryPlayerConfig {
   choicePosition: "center" | "bottom";
 }
 
-export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map";
-export type StoryScreenAction = StoryOpenUiAction | "close";
+export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map" | "open-settings";
+export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen";
 
 export interface StoryOpenUiButton {
   id: string;

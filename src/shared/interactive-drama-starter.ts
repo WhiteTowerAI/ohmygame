@@ -1,5 +1,5 @@
 import type { StoryDocument, StorySurfaceFiles } from "./contracts.js";
-import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES } from "./story.js";
+import { DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES } from "./story.js";
 
 export const INTERACTIVE_DRAMA_STARTER = {
   id: "night-train",
@@ -12,6 +12,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
   const startId = id();
   const openUiId = id();
   const storyMapId = id();
+  const settingsId = id();
   const sceneId = id();
   const choiceId = id();
   const leaveStateId = id();
@@ -36,6 +37,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
         [startId]: { x: 80, y: 240 },
         [openUiId]: { x: 250, y: 210 },
         [storyMapId]: { x: 500, y: 520 },
+        [settingsId]: { x: 500, y: 680 },
         [sceneId]: { x: 760, y: 210 },
         [hotspotId]: { x: 1_260, y: 120 },
         [qteId]: { x: 1_600, y: 120 },
@@ -67,6 +69,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
         { id: startId, type: "start", position: { x: 80, y: 240 }, data: {} },
         { id: openUiId, type: "open-ui", position: { x: 250, y: 210 }, data: { title, content: { ...structuredClone(DEFAULT_OPEN_UI_CONTENT), title }, presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } } } },
         { id: storyMapId, type: "story-map", position: { x: 500, y: 520 }, data: { title: "Story Map", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_STORY_MAP_SURFACE_FILES) } } } },
+        { id: settingsId, type: "settings", position: { x: 500, y: 680 }, data: { title: "Settings", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_SETTINGS_SURFACE_FILES) } } } },
         {
           id: sceneId,
           type: "scene",
@@ -148,6 +151,7 @@ export function createInteractiveDramaStarterStory(title: string = INTERACTIVE_D
         { id: id(), source: startId, target: openUiId },
         { id: id(), source: openUiId, target: sceneId },
         { id: id(), source: openUiId, sourceHandle: "story-map", target: storyMapId },
+        { id: id(), source: openUiId, sourceHandle: "settings", target: settingsId },
         { id: id(), source: sceneId, target: hotspotId },
         { id: id(), source: hotspotId, sourceHandle: "success", target: qteId },
         { id: id(), source: hotspotId, sourceHandle: "timeout", target: qteId },

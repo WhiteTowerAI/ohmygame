@@ -47,7 +47,7 @@ try {
       .map((origin) => origin.trim())
       .filter(Boolean),
     logger: true,
-    publishApiUrl: process.env.PUBLISH_API_URL,
+    publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,
     playtestDriver,
   });
   await app.listen({ host: process.env.DAEMON_HOST ?? "127.0.0.1", port: Number(process.env.DAEMON_PORT ?? 43110) });

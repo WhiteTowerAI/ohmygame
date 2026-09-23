@@ -193,12 +193,16 @@ async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   } catch (error) {
     console.warn("Could not resolve the system proxy", error);
   }
-  if (!environment.PUBLISH_API_URL) {
+  if (!environment.CLOUD_API_URL && !environment.PUBLISH_API_URL) {
     const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
+      cloudApiUrl?: unknown;
       publishApiUrl?: unknown;
     };
-    if (typeof config.publishApiUrl === "string" && config.publishApiUrl) {
-      environment.PUBLISH_API_URL = config.publishApiUrl;
+    const cloudApiUrl = typeof config.cloudApiUrl === "string" && config.cloudApiUrl
+      ? config.cloudApiUrl
+      : typeof config.publishApiUrl === "string" && config.publishApiUrl ? config.publishApiUrl : undefined;
+    if (cloudApiUrl) {
+      environment.CLOUD_API_URL = cloudApiUrl;
     }
   }
   return environment;
