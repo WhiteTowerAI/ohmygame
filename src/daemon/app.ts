@@ -11,7 +11,7 @@ import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createStoryDocument } from "../shared/story.js";
-import { PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType } from "../shared/publish-v1.js";
+import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -172,33 +172,6 @@ const saveConnectionSchema = {
       id: { type: "string", minLength: 1 },
       transport: connectionTransportSchema,
     },
-  },
-} as const;
-
-const publishAccessTokenBody = {
-  type: "object",
-  additionalProperties: false,
-  required: ["accessToken"],
-  properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
-} as const;
-
-const communitySubjectParams = {
-  type: "object",
-  additionalProperties: false,
-  required: ["type", "id"],
-  properties: {
-    type: { enum: ["game"] },
-    id: { type: "string", minLength: 1, maxLength: 200 },
-  },
-} as const;
-
-const communityLikeBody = {
-  type: "object",
-  additionalProperties: false,
-  required: ["accessToken", "liked"],
-  properties: {
-    accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
-    liked: { type: "boolean" },
   },
 } as const;
 
@@ -1119,45 +1092,6 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
     }
   });
-
-  app.post<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string } }>(
-    "/community/:type/:id/viewer",
-    { schema: { params: communitySubjectParams, body: publishAccessTokenBody } },
-    async (request, reply) => {
-      try {
-        return await publisher.communityViewerState(request.params.type, request.params.id, request.body.accessToken);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
-
-  app.put<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string; liked: boolean } }>(
-    "/community/:type/:id/like",
-    { schema: { params: communitySubjectParams, body: communityLikeBody } },
-    async (request, reply) => {
-      try {
-        return await publisher.setCommunityLike(request.params.type, request.params.id, request.body.liked, request.body.accessToken);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
-
-  app.post<{ Params: { type: CommunitySubjectType; id: string }; Body: { accessToken: string } }>(
-    "/community/:type/:id/use",
-    { schema: { params: communitySubjectParams, body: publishAccessTokenBody } },
-    async (request, reply) => {
-      try {
-        return await publisher.recordCommunityUse(request.params.type, request.params.id, request.body.accessToken);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
 
   app.get<{ Params: { gameId: string } }>("/community/games/:gameId", async (request, reply) => {
     try {

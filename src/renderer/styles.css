@@ -3631,23 +3631,6 @@ button.home-nav-item-active:hover {
   padding: 0 11px 10px;
   font-size: 10px;
 }
-.explore-asset-card > .community-meta .community-author > :is(img, span) {
-  width: 17px;
-  height: 17px;
-  flex-basis: 17px;
-  font-size: 8px;
-}
-.explore-asset-card > .community-meta .community-like-button {
-  padding: 2px;
-}
-.explore-asset-card
-  > .community-meta
-  .community-stats
-  > span:last-child::before {
-  content: "·";
-  margin-right: 5px;
-  color: var(--text-faint);
-}
 .library-state {
   display: flex;
   min-height: 240px;
@@ -3954,10 +3937,6 @@ button.home-nav-item-active:hover {
 }
 .library-dialog-footer-actions > button.is-primary:hover:not(:disabled) {
   background: var(--theme-accent-hover);
-}
-.library-dialog-footer-actions > .community-like-button.is-liked {
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  color: var(--theme-accent);
 }
 .library-dialog-footer-actions > button:disabled {
   cursor: default;
@@ -4644,32 +4623,6 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 6px;
   margin-top: 7px;
-}
-
-.plugin-detail-hero-actions .community-like-button {
-  height: 28px;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 5px;
-  background: rgb(255 255 255 / 5%);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.plugin-detail-hero-actions .community-like-button:hover {
-  border-color: rgb(255 255 255 / 24%);
-  background: rgb(255 255 255 / 9%);
-}
-
-.plugin-detail-hero-actions .community-like-button.is-liked {
-  border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent);
-  color: var(--theme-accent);
-}
-
-.plugin-detail-hero-actions .community-like-button.is-liked svg {
-  fill: currentColor;
 }
 
 @media (max-width: 760px) {
@@ -14778,71 +14731,6 @@ button {
   }
 }
 
-.community-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 16px;
-}
-.community-author,
-.community-stats {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-.community-author > img,
-.community-author > span {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-.community-author > span {
-  display: grid;
-  place-items: center;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 10px;
-}
-.community-author strong {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.community-author-verified {
-  flex: 0 0 auto;
-  color: var(--theme-accent);
-}
-.community-like-button {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.community-stats .community-like-button:hover,
-.community-stats .community-like-button.is-liked {
-  color: var(--theme-accent);
-}
-.community-like-button.is-liked svg {
-  fill: currentColor;
-}
-.community-like-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
 .library-dialog-footer > div:first-child {
   display: grid;
   min-width: 0;
@@ -15194,17 +15082,11 @@ button {
   color: #5970aa;
 }
 
-:root[data-appearance="light"]
-  .plugin-detail-hero-actions
-  .community-like-button,
 :root[data-appearance="light"] .plugin-detail-secondary {
   border-color: var(--border);
   background: var(--surface);
 }
 
-:root[data-appearance="light"]
-  .plugin-detail-hero-actions
-  .community-like-button:hover,
 :root[data-appearance="light"] .plugin-detail-secondary:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface-hover);

@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import type {
-  CommunityInteractionResult,
-  CommunityStats,
-  CommunitySubjectType,
-  CommunityViewerState,
   CreatePublishDeploymentResult,
   PublishApiError,
   PublishDeployment,
@@ -52,20 +48,6 @@ export class RemotePublisher {
       `/v1/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
     );
     return Buffer.from(await response.arrayBuffer());
-  }
-
-  communityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {
-    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/viewer`, {}, accessToken);
-  }
-
-  setCommunityLike(type: CommunitySubjectType, id: string, liked: boolean, accessToken: string): Promise<CommunityInteractionResult> {
-    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/like`, {
-      method: liked ? "PUT" : "DELETE",
-    }, accessToken);
-  }
-
-  recordCommunityUse(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityStats> {
-    return this.#request(`/v1/community/${type}/${encodeURIComponent(id)}/use`, { method: "POST" }, accessToken);
   }
 
   async #game(project: ProjectState, metadata: { title: string; description?: string }, accessToken: string): Promise<PublishGame> {

@@ -65,7 +65,7 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).statusCode).toBe(404);
     expect((await runtime.daemon.inject({
       method: "POST", url: "/community/template/template/use", payload: { accessToken: token },
-    })).statusCode).toBe(400);
+    })).statusCode).toBe(404);
     const deleted = await runtime.daemon.inject({ method: "DELETE", url: `/asset-templates/${saved.json().id}` });
     expect(deleted.statusCode).toBe(204);
     expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([]);
@@ -79,7 +79,7 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "POST", url: "/plugins/personal%3Atools/publication" })).statusCode).toBe(404);
     expect((await runtime.daemon.inject({
       method: "POST", url: "/community/plugin/plugin/use", payload: { accessToken: token },
-    })).statusCode).toBe(400);
+    })).statusCode).toBe(404);
     expect((await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json()).not.toHaveProperty("explore");
   });
 
@@ -120,8 +120,11 @@ describePublishContract("remote publish", () => {
     expect(await readFile(path.join(runtime.publishData, "artifacts", published.deployment.id, PUBLISH_GAME_COVER_PATH))).toEqual(cover);
     expect(await readdir(path.join(runtime.publishData, "artifacts", published.deployment.id))).not.toContain(".env");
     expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([
-      { ...published.game, author: { id: "publisher", displayName: "OhMyGame Creator" }, stats: { likes: 0, uses: 0 } },
+      { ...published.game, author: { id: "publisher", displayName: "OhMyGame Creator" } },
     ]);
+    expect((await runtime.daemon.inject({ method: "POST", url: `/community/game/${published.game.id}/viewer`, payload: { accessToken: token } })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/community/game/${published.game.id}/like`, payload: { accessToken: token, liked: true } })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({ method: "POST", url: `/community/game/${published.game.id}/use`, payload: { accessToken: token } })).statusCode).toBe(404);
   });
 
   it("builds and publishes an Interactive Drama as a static game", async () => {

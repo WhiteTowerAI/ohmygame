@@ -4,25 +4,10 @@ export const PUBLISH_GAME_COVER_PATH = "__ohmygame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
 
-export type CommunitySubjectType = "game";
-
 export interface CommunityAuthor {
   id: string;
   displayName: string;
   avatarUrl?: string;
-}
-
-export interface CommunityStats {
-  likes: number;
-  uses: number;
-}
-
-export interface CommunityViewerState {
-  liked: boolean;
-}
-
-export interface CommunityInteractionResult extends CommunityViewerState {
-  stats: CommunityStats;
 }
 
 export interface PublishGame {
@@ -64,7 +49,6 @@ export interface PublishCommunityGame {
   coverUrl?: string;
   publishedAt: string;
   author: CommunityAuthor;
-  stats: CommunityStats;
 }
 
 export interface CreatePublishGameRequest {

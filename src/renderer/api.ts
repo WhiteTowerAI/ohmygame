@@ -47,7 +47,6 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
-import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState } from "../shared/publish-v1.js";
 import type { CreateAssetTemplateRequest, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import type { AccountApi } from "../shared/account.js";
@@ -486,24 +485,6 @@ export async function getAssetTemplateCover(templateId: string): Promise<Blob | 
 
 export async function deleteAssetTemplate(templateId: string): Promise<void> {
   await request(`/asset-templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
-}
-
-export async function getCommunityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {
-  return request(`/community/${type}/${encodeURIComponent(id)}/viewer`, {
-    method: "POST", body: JSON.stringify({ accessToken }),
-  });
-}
-
-export async function setCommunityLike(type: CommunitySubjectType, id: string, liked: boolean, accessToken: string): Promise<CommunityInteractionResult> {
-  return request(`/community/${type}/${encodeURIComponent(id)}/like`, {
-    method: "PUT", body: JSON.stringify({ accessToken, liked }),
-  });
-}
-
-export async function recordCommunityUse(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityStats> {
-  return request(`/community/${type}/${encodeURIComponent(id)}/use`, {
-    method: "POST", body: JSON.stringify({ accessToken }),
-  });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {

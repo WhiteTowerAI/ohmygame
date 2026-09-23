@@ -10,7 +10,6 @@ import brandMark from "../shared/assets/ohmygame-mark.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
-import { CommunityLikeButton, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 
 const RELATED_GAMES_LIMIT = 10;
 
@@ -207,14 +206,10 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
   onOhMyGame: (gameId: string) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
-  const recorded = useRef(false);
-  const recordUse = useCommunityUseRecorder();
-  const like = useCommunityLike("game", game.id, game.stats);
   const coverUrl = useGameCover(game);
   const [shared, setShared] = useState(false);
 
   useEffect(() => {
-    recorded.current = false;
     setShared(false);
   }, [game.id]);
 
@@ -245,11 +240,6 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             title={game.title}
             sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
             allow="autoplay; fullscreen"
-            onLoad={() => {
-              if (recorded.current) return;
-              recorded.current = true;
-              void recordUse("game", game.id).catch(() => undefined);
-            }}
           />
         </div>
         <div className="electron-game-toolbar">
@@ -257,12 +247,11 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             <span className="electron-game-thumbnail" aria-hidden="true">{coverUrl ? <img src={coverUrl} alt="" /> : <img className="is-placeholder" src={brandMark} alt="" />}</span>
             <div className="electron-game-identity">
               <strong>{game.title}</strong>
-              <span>by {game.author.displayName} · {like.counts.uses} {like.counts.uses === 1 ? "player" : "players"} · {publishedDate(game.publishedAt)}</span>
+              <span>by {game.author.displayName} · {publishedDate(game.publishedAt)}</span>
               {game.description ? <p>{game.description}</p> : null}
             </div>
           </div>
           <div className="electron-game-toolbar-actions">
-            <CommunityLikeButton busy={like.busy} count={like.counts.likes} liked={like.liked} onToggle={() => void like.toggle()} />
             <button type="button" onClick={() => void shareGame()} title={shared ? "Link copied" : "Share game"} aria-label="Share game"><Share2 size={17} /></button>
             <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
           </div>

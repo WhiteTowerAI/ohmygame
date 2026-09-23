@@ -426,7 +426,7 @@ export type CommunityGame = PublishCommunityGame;
 
 export interface PublishResult {
   deployment: PublishDeployment;
-  game: Omit<CommunityGame, "author" | "stats">;
+  game: Omit<CommunityGame, "author">;
 }
 
 export interface PublishProjectRequest {
