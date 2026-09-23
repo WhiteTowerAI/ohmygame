@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import type { AccountPlan, AccountSubscription, AccountUsage } from "../shared/account.js";
 import type { StagedVideoReference, VideoReferenceAsset } from "./seedance-video.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -28,37 +27,6 @@ export class AccountServiceClient {
     const apiKey = string(data.api_key);
     if (!baseUrl || !apiKey) throw new Error("Account service returned an invalid credential");
     return { baseUrl: normalizeApiUrl(baseUrl), apiKey };
-  }
-
-  plans(): Promise<AccountPlan[]> {
-    return this.accountRequest("/api/plans");
-  }
-
-  subscription(accessToken: string): Promise<AccountSubscription> {
-    return this.accountRequest("/api/subscription", accessToken);
-  }
-
-  usage(accessToken: string, page: number): Promise<AccountUsage> {
-    return this.accountRequest(`/api/usage?page=${page}`, accessToken);
-  }
-
-  checkout(accessToken: string, planId: number): Promise<{ url: string }> {
-    return this.accountRequest("/api/subscription/checkout", accessToken, {
-      method: "POST",
-      body: JSON.stringify({ plan_id: planId }),
-      headers: { "content-type": "application/json" },
-    });
-  }
-
-  manageSubscription(accessToken: string): Promise<{ url: string }> {
-    return this.accountRequest("/api/subscription/manage", accessToken, { method: "POST" });
-  }
-
-  private async accountRequest<T>(path: string, accessToken?: string, init: RequestInit = {}): Promise<T> {
-    const response = await this.request(path, accessToken, undefined, init);
-    const body = await json(response);
-    if (body.data === undefined) throw new Error("Invalid account response");
-    return body.data as T;
   }
 
   async modelIds(credential: AccountCredential, signal?: AbortSignal): Promise<string[]> {

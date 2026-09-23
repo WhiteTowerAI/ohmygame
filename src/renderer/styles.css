@@ -1567,6 +1567,18 @@ body {
   justify-self: start;
 }
 
+.settings-billing-panel p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settings-billing-panel > .settings-primary-button {
+  justify-self: start;
+}
+
 .settings-account-row {
   display: flex;
   min-height: 64px;

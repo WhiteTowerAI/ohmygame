@@ -1420,38 +1420,6 @@ describe("daemon", () => {
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
   });
 
-  it("proxies account requests through the local daemon", async () => {
-    const accountServiceFetch = vi.fn(async () => Response.json({ data: [{ id: 1, name: "Plus" }] }));
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-")),
-      accountServiceFetch,
-    });
-    apps.push(app);
-
-    const plans = await app.inject({ method: "GET", url: "/account/plans" });
-    const usage = await app.inject({
-      method: "POST",
-      url: "/account/usage?page=1",
-      payload: { accessToken: "supabase-token" },
-    });
-
-    expect(plans.json()).toEqual([{ id: 1, name: "Plus" }]);
-    expect(accountServiceFetch).toHaveBeenCalledWith(new URL("https://account.ohmygame.ai/api/plans"), expect.any(Object));
-    expect(usage.statusCode).toBe(200);
-    expect(accountServiceFetch).toHaveBeenCalledWith(
-      new URL("https://account.ohmygame.ai/api/usage?page=1"),
-      expect.objectContaining({
-        headers: expect.objectContaining({ authorization: "Bearer supabase-token" }),
-      }),
-    );
-    const invalidPage = await app.inject({
-      method: "POST",
-      url: "/account/usage?page=0",
-      payload: { accessToken: "supabase-token" },
-    });
-    expect(invalidPage.statusCode).toBe(400);
-  });
-
   it("uses the connected Account credential for Meshy 7 generation", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),

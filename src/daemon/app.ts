@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import Fastify, { type FastifyReply } from "fastify";
+import Fastify from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -75,17 +75,6 @@ export interface AppOptions {
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
   playtestDriver?: PlaytestDriver;
-}
-
-async function accountReply<T>(
-  reply: FastifyReply,
-  operation: () => Promise<T>,
-): Promise<T | FastifyReply> {
-  try {
-    return await operation();
-  } catch {
-    return reply.code(502).send({ error: "OhMyGame account service is temporarily unavailable" });
-  }
 }
 
 const createProjectSchema = {
@@ -1452,65 +1441,6 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/account/connection", async () => accountConnection.get());
-
-  app.get("/account/plans", async (_request, reply) =>
-    accountReply(reply, () => accountServiceClient.plans()),
-  );
-  app.post<{ Body: { accessToken: string } }>(
-    "/account/subscription",
-    { schema: accountConnectionSchema },
-    async (request, reply) =>
-      accountReply(reply, () => accountServiceClient.subscription(request.body.accessToken)),
-  );
-  app.post<{ Querystring: { page?: string }; Body: { accessToken: string } }>(
-    "/account/usage",
-    {
-      schema: {
-        ...accountConnectionSchema,
-        querystring: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            page: {
-              type: "string",
-              pattern: "^(?:[1-9][0-9]{0,3}|10000)$",
-              default: "1",
-            },
-          },
-        },
-      },
-    },
-    async (request, reply) =>
-      accountReply(reply, () =>
-        accountServiceClient.usage(request.body.accessToken, Number(request.query.page ?? "1")),
-      ),
-  );
-  app.post<{ Body: { accessToken: string; planId: number } }>(
-    "/account/checkout",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["accessToken", "planId"],
-          properties: {
-            accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
-            planId: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-          },
-        },
-      },
-    },
-    async (request, reply) =>
-      accountReply(reply, () =>
-        accountServiceClient.checkout(request.body.accessToken, request.body.planId),
-      ),
-  );
-  app.post<{ Body: { accessToken: string } }>(
-    "/account/manage",
-    { schema: accountConnectionSchema },
-    async (request, reply) =>
-      accountReply(reply, () => accountServiceClient.manageSubscription(request.body.accessToken)),
-  );
 
   app.put<{ Body: { accessToken: string } }>(
     "/account/connection",

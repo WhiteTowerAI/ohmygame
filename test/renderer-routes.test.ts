@@ -32,10 +32,12 @@ describe("renderer routes", () => {
 
   it("parses and formats Settings routes", () => {
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "account" });
-    for (const section of ["account", "usage", "plans", "billing", "appearance", "providers", "connections", "about"] as const) {
+    for (const section of ["account", "billing", "appearance", "providers", "connections", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
+    expect(parseAppRoute("#/settings/usage")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/settings/plans")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/unknown")).toEqual({ page: "home" });
   });
 
