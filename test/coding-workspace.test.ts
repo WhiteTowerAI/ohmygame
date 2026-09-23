@@ -168,6 +168,14 @@ describe("workspace file tree", () => {
   it("returns an empty tree for an empty workspace", () => {
     expect(workspaceFileTree([])).toEqual([]);
   });
+
+  it("keeps explicit empty directories in the workspace tree", () => {
+    expect(workspaceFileTree([{ path: "assets/empty", size: 0, directory: true }])).toEqual([{
+      id: "assets",
+      name: "assets",
+      children: [{ id: "assets/empty", name: "empty", directory: true, children: [] }],
+    }]);
+  });
 });
 
 describe("workspace language", () => {

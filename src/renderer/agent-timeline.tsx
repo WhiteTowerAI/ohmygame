@@ -7,6 +7,7 @@ import {
   Gamepad2,
   Image,
   Layers3,
+  LoaderCircle,
   Pencil,
   Plug,
   Search,
@@ -17,7 +18,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ConversationAttachment, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
@@ -35,13 +36,17 @@ type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall
 interface AgentTimelineProps {
   turns: ThreadTurn[];
   projectId?: string;
+  workspacePath?: string;
+  onOpenWorkspaceFile?: (path: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
   onAddToChat?: (text: string) => void;
   waitingForInput?: boolean;
 }
 
-export function AgentTimeline({ turns, projectId = "", revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+
+export function AgentTimeline({ turns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
@@ -49,13 +54,18 @@ export function AgentTimeline({ turns, projectId = "", revisionDisabled, onRevis
   const [copiedItemId, setCopiedItemId] = useState<string>();
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+  const active = turns.some((turn) => turn.status === "inProgress");
   useEffect(() => {
-    if (!turns.some((turn) => turn.status === "inProgress")) return;
+    if (!active) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [turns]);
+  }, [active]);
 
   const displays = turns.map((turn) => projectTurnDisplay(turn, now, waitingForInput));
+  const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
+  const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
+  const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
   const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)
@@ -102,34 +112,39 @@ export function AgentTimeline({ turns, projectId = "", revisionDisabled, onRevis
     }
   }
 
-  return <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
-    {turns.map((turn, index) => (
-      <Turn
-        key={turn.id}
-        projectId={projectId}
-        display={displays[index]}
-        now={now}
-        assistantControls={{
-          copiedItemId: copiedAssistantId,
-          latestItemId: latestAssistantId,
-          onCopy: copyAssistant,
-        }}
-        userControls={{
-          editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-          draft,
-          copied: displays[index].user?.id === copiedItemId,
-          canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
-          disabled: Boolean(revisionDisabled || submitting),
-          onCopy: copy,
-          onEdit: edit,
-          onDraftChange: setDraft,
-          onCancel: () => setEditingItemId(undefined),
-          onSubmit: submitRevision,
-        }}
-      />
-    ))}
-    {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
-  </div>;
+  return (
+    <WorkspaceLinkContext.Provider value={{ workspacePath, onOpenWorkspaceFile }}>
+      <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+        {turns.map((turn, index) => (
+          <Turn
+            key={turn.id}
+            projectId={projectId}
+            display={displays[index]}
+            now={now}
+            steeringPending={steeringPending && index === latestSteeringIndex}
+            assistantControls={{
+              copiedItemId: copiedAssistantId,
+              latestItemId: latestAssistantId,
+              onCopy: copyAssistant,
+            }}
+            userControls={{
+              editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
+              draft,
+              copied: displays[index].user?.id === copiedItemId,
+              canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
+              disabled: Boolean(revisionDisabled || submitting),
+              onCopy: copy,
+              onEdit: edit,
+              onDraftChange: setDraft,
+              onCancel: () => setEditingItemId(undefined),
+              onSubmit: submitRevision,
+            }}
+          />
+        ))}
+        {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
+      </div>
+    </WorkspaceLinkContext.Provider>
+  );
 }
 
 interface UserControls {
@@ -151,7 +166,14 @@ interface AssistantControls {
   onCopy: (id: string, text: string) => void;
 }
 
-function Turn({ display, projectId, now, userControls, assistantControls }: { display: TurnDisplay; projectId: string; now: number; userControls: UserControls; assistantControls: AssistantControls }) {
+function Turn({ display, projectId, now, steeringPending = false, userControls, assistantControls }: {
+  display: TurnDisplay;
+  projectId: string;
+  now: number;
+  steeringPending?: boolean;
+  userControls: UserControls;
+  assistantControls: AssistantControls;
+}) {
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
@@ -161,7 +183,16 @@ function Turn({ display, projectId, now, userControls, assistantControls }: { di
       {display.finalMessages.length > 0
         ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} />
         : display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
+      {steeringPending ? <SteeringActivity /> : null}
     </article>
+  );
+}
+
+function SteeringActivity() {
+  return (
+    <div className="thinking-activity" role="status">
+      <ShimmerText text="Waiting to steer" />
+    </div>
   );
 }
 
@@ -265,11 +296,28 @@ function UserAttachments({ attachments }: { attachments: ConversationAttachment[
   </div>;
 }
 
+function ShimmerText({ text, active = true, className, title, role }: {
+  text: string;
+  active?: boolean;
+  className?: string;
+  title?: string;
+  role?: "status";
+}) {
+  const classes = [className, active ? "activity-shimmer" : undefined].filter(Boolean).join(" ") || undefined;
+  return (
+    <span className={classes} title={title} role={role}>
+      {text}
+      {active ? <span className="activity-shimmer-highlight" aria-hidden="true">{text}</span> : null}
+    </span>
+  );
+}
+
 function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
+  const label = display.working ? `Working for ${activeTurnDuration(display, now)}` : "Thinking";
   return (
     <section className="work-activity work-activity-active">
       <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
-        <span className={display.working ? undefined : "activity-shimmer"}>{display.working ? `Working for ${activeTurnDuration(display, now)}` : "Thinking"}</span>
+        <ShimmerText text={label} active={!display.working} />
       </div>
       {display.work.length > 0 ? (
         <div className="active-work-items">
@@ -287,11 +335,11 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
       <div className="stopped-work-note">{display.hadThinking ? "Stopped while thinking" : "Stopped before work began"}</div>
     ) : null}
   </div>;
-  if (display.status === "cancelled") {
+  if (display.status === "cancelled" || display.status === "failed") {
     return (
-      <section className="work-activity work-activity-stopped">
-        <div className="work-summary work-summary-stopped">
-          <span>You stopped after {turnDuration(display)}</span>
+      <section className={`work-activity ${display.status === "cancelled" ? "work-activity-stopped" : "work-activity-failed"}`}>
+        <div className={`work-summary ${display.status === "cancelled" ? "work-summary-stopped" : "work-summary-failed"}`}>
+          <span>{display.status === "cancelled" ? `You stopped after ${turnDuration(display)}` : `Worked for ${turnDuration(display)}`}</span>
         </div>
         {content}
       </section>
@@ -340,7 +388,7 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
     <details className="tool-activity-group">
       <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
         {showThinking ? null : <Icon size={13} aria-hidden="true" />}
-        <span className={`tool-label${runningTool || showThinking ? " activity-shimmer" : ""}`} title={summaryLabel} role={showThinking ? "status" : undefined}>{summaryLabel}</span>
+        <ShimmerText text={summaryLabel} active={Boolean(runningTool || showThinking)} className="tool-label" title={summaryLabel} role={showThinking ? "status" : undefined} />
         <ChevronRight className="tool-group-chevron" size={13} aria-hidden="true" />
       </summary>
       <div className="tool-group-items">
@@ -354,7 +402,8 @@ type ToolIcon = IconComponent | typeof GodotIcon;
 
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
-  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find" || tool.tool === "read" || tool.tool === "ls"))) return Search;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "read" || tool.tool === "ls"))) return FileText;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find"))) return Search;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "playtest_browser")) return Gamepad2;
   const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
@@ -411,12 +460,13 @@ function formatDuration(milliseconds: number): string {
 function ThinkingActivity() {
   return (
     <div className="thinking-activity" role="status">
-      <span className="activity-shimmer">Thinking</span>
+      <ShimmerText text="Thinking" />
     </div>
   );
 }
 
 function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; images?: PromptImage[]; hideError?: boolean }) {
+  const workspaceLinks = useContext(WorkspaceLinkContext);
   if (item.type === "reasoning") return null;
   if (item.type === "modelChange") {
     return (
@@ -464,19 +514,19 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = <Layers3 size={13} />;
-    const labelClass = item.status === "inProgress" ? "activity-shimmer" : undefined;
+    const icon = item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const shimmering = item.status === "inProgress";
     if (item.status === "completed" && item.summary) {
       return (
         <details className="compaction-details">
           <summary className="timeline-event timeline-event-expandable">
             {icon}
-            <span className={labelClass}>{label}</span>
+            <ShimmerText text={label} active={shimmering} />
             <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
           </summary>
           <div className="compaction-content">
             {item.tokensBefore !== undefined ? <p className="compaction-stats">{compactionStats(item.tokensBefore, item.estimatedTokensAfter)}</p> : null}
-            <MarkdownContent text={item.summary} />
+            <MarkdownContent text={item.summary} {...workspaceLinks} />
           </div>
         </details>
       );
@@ -484,7 +534,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     return (
       <div className={`timeline-event${item.status === "failed" ? " timeline-event-error" : ""}`}>
         {icon}
-        <span className={labelClass}>{label}</span>
+        <ShimmerText text={label} active={shimmering} />
       </div>
     );
   }
@@ -493,7 +543,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     if (!item.text.trim() && hideError) return null;
     const message = (
       <div className={`assistant-message assistant-${item.status}`}>
-        {item.text ? <MarkdownContent text={item.text} /> : null}
+        {item.text ? <MarkdownContent text={item.text} {...workspaceLinks} /> : null}
         {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
         {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
       </div>
@@ -728,10 +778,10 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "bash": return { icon: Terminal, label: `Running ${text(values?.command) || "command"}` };
     case "edit": return { icon: FilePenLine, label: withTarget("Editing", values) };
     case "write": return { icon: FileText, label: withTarget("Writing", values) };
-    case "read": return { icon: Search, label: withTarget("Reading", values) };
+    case "read": return { icon: FileText, label: withTarget("Reading", values) };
     case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
     case "find": return { icon: Search, label: searchLabel("Finding", values) };
-    case "ls": return { icon: Search, label: withTarget("Listing", values) };
+    case "ls": return { icon: FileText, label: withTarget("Listing", values) };
     case "web_search": return { icon: Search, label: searchLabel("Searching the web for", values) };
     case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, false) };
     default: return { icon: Wrench, label: toolName };

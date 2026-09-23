@@ -1,4 +1,5 @@
 import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
+import { finalizeTurnItems } from "../shared/turns.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
@@ -40,6 +41,7 @@ export const initialRendererState: RendererState = {
 export function rendererReducer(state: RendererState, action: RendererAction): RendererState {
   if (action.type === "conversation-loaded" || action.type === "initialized") {
     const detail = action.detail;
+    const steering = detail.pendingPrompts.filter((item) => item.steering);
     return {
       ...state,
       phase: "ready",
@@ -48,8 +50,8 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
       agent: detail.agent,
       settings: detail.settings,
       plan: detail.plan,
-      turns: detail.turns,
-      pendingPrompts: detail.pendingPrompts,
+      turns: appendSteeringTurns(detail.turns, detail.conversation.id, steering),
+      pendingPrompts: detail.pendingPrompts.filter((item) => !item.steering),
       notice: undefined,
       lastEventId: detail.cursor,
     };
@@ -103,40 +105,40 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       const replacementId = event.data.revision === "last-turn"
         ? state.turns.findLast((turn) => turn.items.some((item) => item.type === "userMessage"))?.id
         : undefined;
-      const turn: Turn = {
-        id: event.turnId,
-        conversationId: conversation.id,
-        status: "inProgress",
-        items: [{
-          id: `${event.turnId}:user`,
-          turnId: event.turnId,
-          type: "userMessage",
-          text: event.data.prompt,
-          ...(event.data.mentions?.length ? { mentions: event.data.mentions } : {}),
-          ...(event.data.images?.length ? { images: event.data.images } : {}),
-          ...(event.data.attachments?.length ? { attachments: event.data.attachments } : {}),
-          timestamp: eventTime(event),
-        }, ...(event.data.images?.length ? [{
-          id: `${event.turnId}:images`,
-          turnId: event.turnId,
-          type: "imageRead" as const,
-          count: event.data.images.length,
-          status: "completed" as const,
-          timestamp: eventTime(event),
-        }] : [])],
-      };
+      const turn = promptTurn(conversation.id, event.turnId, event.data, "inProgress", eventTime(event));
+      const previousTurns = state.turns.map((item) => item.status === "inProgress" && item.id !== event.turnId
+        ? { ...item, status: "completed" as const, items: finalizeTurnItems(item.items, "completed") }
+        : item);
+      const retainedTurns = previousTurns.filter((item) => item.id !== replacementId);
+      const replacesSteeringTurn = retainedTurns.some((item) => item.id === turn.id);
       return {
         ...next,
         agent: { status: "running" },
         pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
-        turns: [...state.turns.filter((item) => item.id !== replacementId && item.id !== turn.id), turn],
+        turns: replacesSteeringTurn
+          ? retainedTurns.map((item) => item.id === turn.id ? turn : item)
+          : [...retainedTurns, turn],
       };
     }
     case "prompt.queued":
       if (!event.turnId) return next;
       return { ...next, pendingPrompts: [...state.pendingPrompts, { turnId: event.turnId, prompt: event.data.prompt, mentions: event.data.mentions ?? [], references: event.data.references, images: event.data.images ?? [], attachments: event.data.attachments ?? [] }] };
+    case "prompt.steered":
+      if (!event.turnId || !conversation) return next;
+      return {
+        ...next,
+        pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
+        turns: [
+          ...state.turns.filter((turn) => turn.id !== event.turnId),
+          promptTurn(conversation.id, event.turnId, event.data, "completed", eventTime(event), true),
+        ],
+      };
     case "prompt.removed":
-      return { ...next, pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId) };
+      return {
+        ...next,
+        pendingPrompts: state.pendingPrompts.filter((item) => item.turnId !== event.turnId),
+        turns: state.turns.filter((turn) => turn.id !== event.turnId || !turn.steering),
+      };
     case "item.started":
     case "item.updated": {
       if (!conversation) return next;
@@ -181,8 +183,55 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
 function finishAgent(state: RendererState, turnId: string | undefined, status: TurnStatus, error?: string): RendererState {
   return {
     ...state,
-    turns: turnId ? updateTurn(state.turns, turnId, (turn) => ({ ...turn, status })) : state.turns,
+    turns: turnId ? updateTurn(state.turns, turnId, (turn) => ({ ...turn, status, items: finalizeTurnItems(turn.items, status) })) : state.turns,
     agent: status === "failed" ? { status: "error", ...(error ? { error } : {}) } : { status: "idle" },
+  };
+}
+
+function appendSteeringTurns(turns: Turn[], conversationId: string, prompts: PendingPrompt[]): Turn[] {
+  return prompts.reduce((current, prompt) => current.some((turn) => turn.id === prompt.turnId)
+    ? current
+    : [...current, promptTurn(conversationId, prompt.turnId, prompt, "completed", undefined, true)], turns);
+}
+
+function promptTurn(
+  conversationId: string,
+  turnId: string,
+  prompt: Pick<PendingPrompt, "prompt" | "mentions" | "images" | "attachments"> | {
+    prompt: string;
+    mentions?: PendingPrompt["mentions"];
+    images?: PendingPrompt["images"];
+    attachments?: PendingPrompt["attachments"];
+  },
+  status: TurnStatus,
+  timestamp?: number,
+  steering = false,
+): Turn {
+  const mentions = prompt.mentions ?? [];
+  const images = prompt.images ?? [];
+  const attachments = prompt.attachments ?? [];
+  return {
+    id: turnId,
+    conversationId,
+    status,
+    ...(steering ? { steering: true } : {}),
+    items: [{
+      id: `${turnId}:user`,
+      turnId,
+      type: "userMessage",
+      text: prompt.prompt,
+      ...(mentions.length ? { mentions } : {}),
+      ...(images.length ? { images } : {}),
+      ...(attachments.length ? { attachments } : {}),
+      ...(timestamp === undefined ? {} : { timestamp }),
+    }, ...(images.length ? [{
+      id: `${turnId}:images`,
+      turnId,
+      type: "imageRead" as const,
+      count: images.length,
+      status: "completed" as const,
+      ...(timestamp === undefined ? {} : { timestamp }),
+    }] : [])],
   };
 }
 

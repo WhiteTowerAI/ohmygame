@@ -24,6 +24,7 @@ import {
   type ConversationSummary,
   type PreviewViewport,
   type ProjectPackageManager,
+  type ProjectFileOpenMode,
   type ProjectState,
   type StoryDocument,
   type StoryTextGenerationRequest,
@@ -67,6 +68,7 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
