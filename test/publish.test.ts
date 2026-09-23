@@ -198,7 +198,7 @@ describePublishContract("remote publish", () => {
     expect(second.game.id).toBe(first.game.id);
     expect(second.game).toMatchObject({ title: "Persistent update", description: "Second release" });
     expect(second.deployment.id).not.toBe(first.deployment.id);
-    expect(await readFile(path.join(runtime.publishData, "artifacts", first.deployment.id, "index.html"), "utf8")).toBe("one");
+    expect(existsSync(path.join(runtime.publishData, "artifacts", first.deployment.id))).toBe(false);
     expect(await readFile(path.join(runtime.publishData, "artifacts", second.deployment.id, "index.html"), "utf8")).toBe("two");
 
     await runtime.daemon.close();
@@ -338,7 +338,7 @@ describePublishContract("remote publish", () => {
     expect(failed.statusCode).toBe(502);
     expect(recovered.statusCode).toBe(201);
     expect(recovered.json().deployment.id).not.toBe(first.json().deployment.id);
-    expect(await readdir(path.join(runtime.publishData, "artifacts"))).toHaveLength(2);
+    expect(await readdir(path.join(runtime.publishData, "artifacts"))).toEqual([recovered.json().deployment.id]);
   });
 
   it("uploads current workspace changes instead of recovering a different remote artifact", async () => {
@@ -369,7 +369,7 @@ describePublishContract("remote publish", () => {
       path.join(runtime.publishData, "artifacts", published.json().deployment.id, "index.html"),
       "utf8",
     )).toBe("three");
-    expect(await readdir(path.join(runtime.publishData, "artifacts"))).toHaveLength(3);
+    expect(await readdir(path.join(runtime.publishData, "artifacts"))).toEqual([published.json().deployment.id]);
   });
 
   it("rejects a concurrent publish for the same project", async () => {
