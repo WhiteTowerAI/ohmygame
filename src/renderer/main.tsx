@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { init as initSentry } from "@sentry/electron/renderer";
 import { App } from "./app.js";
 import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
@@ -9,6 +10,7 @@ import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
+if (window.ohMyGameDesktop) initSentry();
 initializeAnalytics();
 applyAppearance(readAppearance());
 if (window.ohMyGameDesktop?.platform === "darwin") {

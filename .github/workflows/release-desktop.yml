@@ -28,6 +28,7 @@ jobs:
       - run: npm run prepare:desktop-runtime -- win32-x64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       - run: npm run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -66,6 +67,7 @@ jobs:
       - run: npm run prepare:desktop-runtime -- darwin-arm64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       - run: npm run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
