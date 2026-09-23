@@ -6,14 +6,11 @@ import type {
   CommunityStats,
   CommunitySubjectType,
   CommunityViewerState,
-  CreatePublishAssetReleaseResult,
   CreatePublishDeploymentResult,
   CreatePublishPluginReleaseResult,
   CreatePublishTemplateReleaseResult,
   PublishExplorePlugin,
   PublishExploreTemplate,
-  PublishAsset,
-  PublishAssetMediaType,
   PublishApiError,
   PublishDeployment,
   PublishGame,
@@ -23,7 +20,6 @@ import type {
   PublishPluginOrigin,
   PublishPluginSkill,
   PublishTemplate,
-  PublishExploreAsset,
 } from "../../shared/publish-v1.js";
 
 export interface RemotePublisherOptions {
@@ -67,71 +63,6 @@ export class RemotePublisher {
       `/v1/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
     );
     return Buffer.from(await response.arrayBuffer());
-  }
-
-  async publishAsset(input: {
-    projectId: string;
-    path: string;
-    title: string;
-    description?: string;
-    mediaType: PublishAssetMediaType;
-    fileName: string;
-    contentType: string;
-    contents: Buffer;
-    assetId?: string;
-  }, accessToken: string): Promise<CreatePublishAssetReleaseResult> {
-    const artifactSha256 = createHash("sha256").update(input.contents).digest("hex");
-    let asset = input.assetId
-      ? await this.#request<PublishAsset>(`/v1/assets/${encodeURIComponent(input.assetId)}`, {}, accessToken).catch((error) => {
-        if (error instanceof RemotePublishError && error.statusCode === 404) return undefined;
-        throw error;
-      })
-      : undefined;
-    asset ??= await this.#request<PublishAsset>("/v1/assets", {
-      method: "POST",
-      headers: { "idempotency-key": `asset-${input.projectId}-${createHash("sha256").update(input.path).digest("hex")}` },
-      body: JSON.stringify({ title: input.title, description: input.description, mediaType: input.mediaType }),
-    }, accessToken);
-    const metadata = {
-      artifactSha256,
-      artifactBytes: input.contents.length,
-      fileName: input.fileName,
-      contentType: input.contentType,
-    };
-    const form = new FormData();
-    form.set("metadata", JSON.stringify(metadata));
-    form.set("artifact", new Blob([new Uint8Array(input.contents)], { type: input.contentType }), input.fileName);
-    const releaseKey = createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
-    const result = await this.#request<CreatePublishAssetReleaseResult>(`/v1/assets/${asset.id}/releases`, {
-      method: "POST",
-      headers: { "idempotency-key": `asset-release-${asset.id}-${releaseKey}` },
-      body: form,
-    }, accessToken);
-    await this.#request(`/v1/assets/${asset.id}/listing`, {
-      method: "PUT",
-      body: JSON.stringify({ status: "listed" }),
-    }, accessToken);
-    return result;
-  }
-
-  exploreAssets(): Promise<PublishExploreAsset[]> {
-    return this.#request("/v1/explore/assets");
-  }
-
-  exploreAsset(assetId: string): Promise<PublishExploreAsset> {
-    return this.#request(`/v1/explore/assets/${encodeURIComponent(assetId)}`);
-  }
-
-  async assetContent(assetId: string, releaseId: string): Promise<Buffer> {
-    const response = await this.#response(`/v1/explore/assets/${encodeURIComponent(assetId)}/releases/${encodeURIComponent(releaseId)}/content`);
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  setAssetListing(assetId: string, status: "listed" | "unlisted", accessToken: string): Promise<import("../../shared/publish-v1.js").PublishAssetListing> {
-    return this.#request(`/v1/assets/${encodeURIComponent(assetId)}/listing`, {
-      method: "PUT",
-      body: JSON.stringify({ status }),
-    }, accessToken);
   }
 
   async publishPlugin(input: {

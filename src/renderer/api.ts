@@ -1,7 +1,6 @@
 import {
   RUNTIME_EVENT_TYPES,
   type AddedProjectAsset,
-  type AssetPublicationState,
   type AgentContextUsage,
   type AddToolResultRequest,
   type AnswerQuestionnaireRequest,
@@ -21,8 +20,6 @@ import {
   type ProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
-  type ExploreAsset,
-  type PublishAssetResult,
   type ConversationDetail,
   type ConversationSummary,
   type ProjectState,
@@ -357,20 +354,6 @@ export async function getToolRunFile(runId: string, fileName: string): Promise<B
   return response.blob();
 }
 
-export async function publishToolResult(runId: string, fileName: string, accessToken: string): Promise<PublishAssetResult> {
-  return request(`/tool-runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(fileName)}/publish`, {
-    method: "POST",
-    body: JSON.stringify({ accessToken }),
-  });
-}
-
-export async function setToolResultPublicationStatus(runId: string, fileName: string, status: "listed" | "unlisted", accessToken: string): Promise<AssetPublicationState> {
-  return request(`/tool-runs/${encodeURIComponent(runId)}/files/${encodeURIComponent(fileName)}/publication`, {
-    method: "PUT",
-    body: JSON.stringify({ status, accessToken }),
-  });
-}
-
 export async function addToolResultToProject(
   projectId: string,
   input: AddToolResultRequest,
@@ -496,47 +479,6 @@ export async function listLibraryAssetReferences(assetId: string): Promise<Libra
 
 export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
   await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
-}
-
-export async function publishLibraryAsset(assetId: string, accessToken: string): Promise<PublishAssetResult> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/publish`, { method: "POST", body: JSON.stringify({ accessToken }) });
-}
-
-export async function setLibraryAssetPublicationStatus(assetId: string, status: "listed" | "unlisted", accessToken: string): Promise<AssetPublicationState> {
-  return request(`/library/assets/${encodeURIComponent(assetId)}/publication`, {
-    method: "PUT",
-    body: JSON.stringify({ accessToken, status }),
-  });
-}
-
-export async function publishAsset(projectId: string, filePath: string, accessToken: string): Promise<PublishAssetResult> {
-  return request(`/projects/${projectId}/assets/publish?path=${encodeURIComponent(filePath)}`, {
-    method: "POST",
-    body: JSON.stringify({ accessToken }),
-  });
-}
-
-export async function setAssetPublicationStatus(projectId: string, filePath: string, status: "listed" | "unlisted", accessToken: string): Promise<NonNullable<WorkspaceFile["publication"]>> {
-  return request(`/projects/${projectId}/assets/publication?path=${encodeURIComponent(filePath)}`, {
-    method: "PUT",
-    body: JSON.stringify({ accessToken, status }),
-  });
-}
-
-export async function listExploreAssets(): Promise<ExploreAsset[]> {
-  return request("/explore/assets");
-}
-
-export async function getExploreAssetContent(assetId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/explore/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
-
-export async function addExploreAssetToProject(projectId: string, assetId: string): Promise<{ path: string }> {
-  return request(`/projects/${projectId}/explore-assets/${encodeURIComponent(assetId)}`, {
-    method: "POST",
-  });
 }
 
 export async function listAssetTemplates(): Promise<LocalAssetTemplate[]> {

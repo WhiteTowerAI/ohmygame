@@ -8,8 +8,7 @@ import {
 } from "../shared/game-mosaic.js";
 import brandMark from "../shared/assets/ohmygame-mark.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
-import type { AppNavigationTarget, CommunitySection } from "./routes.js";
-import { CommunityCategories } from "./community.js";
+import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { CommunityLikeButton, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 
@@ -18,11 +17,9 @@ const RELATED_GAMES_LIMIT = 10;
 export function GamesPage({
   onNavigate,
   onOhMyGame,
-  onSectionChange,
 }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOhMyGame: (gameId: string) => void;
-  onSectionChange: (section: CommunitySection) => void;
 }) {
   const [games, setGames] = useState<CommunityGame[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -47,7 +44,6 @@ export function GamesPage({
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
       <SidebarPageHeader title="Community">
         <div className="library-toolbar">
-          <CommunityCategories active="games" onChange={onSectionChange} />
           <button className="icon-button quiet-button" type="button" onClick={() => void load()} title="Refresh" aria-label="Refresh">
             <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
           </button>

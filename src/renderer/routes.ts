@@ -7,8 +7,6 @@ export type SidebarPage =
   | "asset-studio"
   | "community";
 
-export type CommunitySection = "games" | "images" | "videos" | "audio" | "models";
-
 export type SettingsSection = "account" | "usage" | "plans" | "billing" | "appearance" | "providers" | "connections" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community">;
@@ -19,7 +17,7 @@ const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
 
 export type AppRoute =
   | { page: SidebarRoutePage }
-  | { page: "community"; section: CommunitySection }
+  | { page: "community" }
   | { page: "settings"; section: SettingsSection }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string; chapterId: string }
@@ -29,8 +27,8 @@ export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const settingsMatch = /^#\/settings(?:\/(account|usage|plans|billing|appearance|providers|connections|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
-  const communityMatch = /^#\/community(?:\/(games|images|videos|audio|models))?$/.exec(hash);
-  if (communityMatch) return { page: "community", section: (communityMatch[1] as CommunitySection | undefined) ?? "games" };
+  const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
+  if (communityMatch) return { page: "community" };
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);
   if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarRoutePage)) {
     return { page: sidebarMatch[1] as SidebarRoutePage };
@@ -94,8 +92,8 @@ export function gameHash(gameId: string): string {
   return `#/community/games/${encodeURIComponent(gameId)}`;
 }
 
-export function communityHash(section: CommunitySection = "games"): string {
-  return `#/community/${section}`;
+export function communityHash(): string {
+  return "#/community/games";
 }
 
 export function playtestHash(projectId: string, chapterId: string): string {

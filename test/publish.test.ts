@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
-import { PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
+import { PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
 import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
@@ -233,153 +233,6 @@ describePublishContract("remote publish", () => {
       version: "0.1.0",
       skills: [{ name: "Levels" }],
     });
-  });
-
-  it("shares a project Asset, browses it, and imports it into an existing project", async () => {
-    const runtime = await testRuntime();
-    const source = await createProject(runtime.daemon, "Source");
-    const target = await createProject(runtime.daemon, "Target");
-    await writeFile(path.join(source.workspacePath, "sprite.png"), "image-one");
-    await mkdir(path.join(source.workspacePath, ".data"), { recursive: true });
-    await writeFile(path.join(source.workspacePath, ".data", "assets.json"), JSON.stringify({
-      version: 1,
-      prompts: { "sprite.png": "A forest sprite" },
-      previews: {},
-      publications: {},
-    }));
-
-    const shared = await publishAsset(runtime.daemon, source.id, "sprite.png");
-    expect(shared.statusCode).toBe(201);
-    const first = shared.json();
-    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${source.id}/files` })).json()).toContainEqual(expect.objectContaining({
-      path: "sprite.png",
-      publication: expect.objectContaining({ assetId: first.asset.id, releaseId: first.release.id, status: "listed" }),
-    }));
-    const explored = await runtime.daemon.inject({ method: "GET", url: "/explore/assets" });
-    expect(explored.json()).toMatchObject([{ id: first.asset.id, title: "sprite", description: "A forest sprite", mediaType: "image" }]);
-
-    const unlisted = await runtime.daemon.inject({
-      method: "PUT", url: `/projects/${source.id}/assets/publication?path=sprite.png`,
-      payload: { accessToken: token, status: "unlisted" },
-    });
-    expect(unlisted.statusCode, unlisted.body).toBe(200);
-    expect(unlisted.json().status).toBe("unlisted");
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toEqual([]);
-
-    const relisted = await runtime.daemon.inject({
-      method: "PUT", url: `/projects/${source.id}/assets/publication?path=sprite.png`,
-      payload: { accessToken: token, status: "listed" },
-    });
-    expect(relisted.statusCode, relisted.body).toBe(200);
-    expect(relisted.json().status).toBe("listed");
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toHaveLength(1);
-
-    await writeFile(path.join(source.workspacePath, "sprite.png"), "image-two");
-    const updated = (await publishAsset(runtime.daemon, source.id, "sprite.png")).json();
-    expect(updated.asset.id).toBe(first.asset.id);
-    expect(updated.release.id).not.toBe(first.release.id);
-
-    const renamed = await runtime.daemon.inject({
-      method: "PATCH",
-      url: `/projects/${source.id}/assets?path=sprite.png`,
-      payload: { name: "hero" },
-    });
-    expect(renamed.statusCode).toBe(200);
-    const republished = await publishAsset(runtime.daemon, source.id, "hero.png");
-    expect(republished.statusCode).toBe(201);
-    expect(republished.json().asset.id).toBe(first.asset.id);
-    expect(republished.json().release.fileName).toBe("hero.png");
-
-    const imported = await runtime.daemon.inject({ method: "POST", url: `/projects/${target.id}/explore-assets/${first.asset.id}` });
-    expect(imported.statusCode).toBe(201);
-    expect(imported.json().path).toBe("assets/imported/hero.png");
-    expect(await readFile(path.join(target.workspacePath, imported.json().path), "utf8")).toBe("image-two");
-    const duplicate = await runtime.daemon.inject({ method: "POST", url: `/projects/${target.id}/explore-assets/${first.asset.id}` });
-    expect(duplicate.json()).toEqual(imported.json());
-    expect(await readdir(path.join(target.workspacePath, "assets", "imported"))).toEqual(["hero.png"]);
-
-    const metadata = JSON.parse(await readFile(path.join(source.workspacePath, ".data", "assets.json"), "utf8"));
-    expect(metadata.publications["hero.png"]).toMatchObject({ assetId: first.asset.id, releaseId: republished.json().release.id, status: "listed" });
-    expect(JSON.stringify(metadata)).not.toContain(token);
-  });
-
-  it("publishes a generated Asset directly from tool history", async () => {
-    const dataDirectory = await temporary("ohmygame-tool-publish-");
-    const runtime = await testRuntime(dataDirectory, undefined, {
-      generate: async () => ({ bytes: Buffer.from("generated-image"), mediaType: "image/webp" }),
-    });
-    const generated = await runtime.daemon.inject({
-      method: "POST",
-      url: "/tools/generate-image/runs",
-      payload: { prompt: "A forest sprite" },
-    });
-    expect(generated.statusCode, generated.body).toBe(201);
-    const run = generated.json();
-
-    const published = await runtime.daemon.inject({
-      method: "POST",
-      url: `/tool-runs/${run.id}/files/output.webp/publish`,
-      payload: { accessToken: token },
-    });
-    expect(published.statusCode, published.body).toBe(201);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toContainEqual(
-      expect.objectContaining({ title: "A forest sprite", description: "A forest sprite", mediaType: "image" }),
-    );
-    expect((await runtime.daemon.inject({ method: "GET", url: "/tool-runs" })).json()[0].files[0].publication)
-      .toMatchObject({ assetId: published.json().asset.id, status: "listed" });
-
-    const unlisted = await runtime.daemon.inject({
-      method: "PUT",
-      url: `/tool-runs/${run.id}/files/output.webp/publication`,
-      payload: { accessToken: token, status: "unlisted" },
-    });
-    expect(unlisted.statusCode, unlisted.body).toBe(200);
-    expect(unlisted.json().status).toBe("unlisted");
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/assets" })).json()).toEqual([]);
-
-    await runtime.daemon.close();
-    apps.splice(apps.indexOf(runtime.daemon), 1);
-    const restored = createApp({ dataDirectory, imageGenerator: { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) } });
-    apps.push(restored);
-    expect((await restored.inject({ method: "GET", url: "/tool-runs" })).json()[0].files[0].publication.status).toBe("unlisted");
-  });
-
-  it("truncates a generated Asset prompt to the publish description limit", async () => {
-    const runtime = await testRuntime();
-    const project = await createProject(runtime.daemon, "Long prompt");
-    await writeFile(path.join(project.workspacePath, "asset.png"), "image");
-    await mkdir(path.join(project.workspacePath, ".data"), { recursive: true });
-    await writeFile(path.join(project.workspacePath, ".data", "assets.json"), JSON.stringify({
-      version: 1,
-      prompts: { "asset.png": "x".repeat(PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH + 1) },
-      previews: {},
-      publications: {},
-    }));
-
-    const published = await publishAsset(runtime.daemon, project.id, "asset.png");
-
-    expect(published.statusCode, published.body).toBe(201);
-    expect(published.json().asset.description).toHaveLength(PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH);
-  });
-
-  it("rejects a downloaded Asset whose contents fail integrity verification", async () => {
-    const asset = {
-      id: "asset-1", title: "Asset", description: "", mediaType: "image", releaseId: "release-1",
-      artifactSha256: "0".repeat(64), artifactBytes: 4, fileName: "asset.png", contentType: "image/png",
-      publishedAt: new Date(0).toISOString(),
-    };
-    const daemon = createApp({
-      dataDirectory: await temporary("ohmygame-daemon-"),
-      publishApiUrl: "https://publish.example",
-      publishFetch: async (input) => String(input).endsWith("/content")
-        ? new Response("fake", { headers: { "content-type": "image/png" } })
-        : Response.json(asset),
-    });
-    apps.push(daemon);
-    const project = await createProject(daemon, "Target");
-    const response = await daemon.inject({ method: "POST", url: `/projects/${project.id}/explore-assets/${asset.id}` });
-    expect(response.statusCode).toBe(502);
-    expect(response.json()).toEqual({ error: "Downloaded asset failed integrity verification" });
   });
 
   it("requires a user access token for each publish", async () => {
@@ -824,14 +677,6 @@ async function publishProject(app: FastifyInstance, projectId: string, metadata?
     method: "POST",
     url: `/projects/${projectId}/publish`,
     payload: { accessToken: token, title: metadata?.title ?? project.name, description: metadata?.description ?? "" },
-  });
-}
-
-function publishAsset(app: FastifyInstance, projectId: string, assetPath: string) {
-  return app.inject({
-    method: "POST",
-    url: `/projects/${projectId}/assets/publish?path=${encodeURIComponent(assetPath)}`,
-    payload: { accessToken: token },
   });
 }
 

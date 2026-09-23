@@ -5,13 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishAssetRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createStoryDocument } from "../shared/story.js";
-import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH, PUBLISH_ASSET_TITLE_MAX_LENGTH, PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishAssetMediaType, type PublishPluginOrigin } from "../shared/publish-v1.js";
+import { PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -197,7 +197,7 @@ const communitySubjectParams = {
   additionalProperties: false,
   required: ["type", "id"],
   properties: {
-    type: { enum: ["game", "asset", "plugin", "template"] },
+    type: { enum: ["game", "plugin", "template"] },
     id: { type: "string", minLength: 1, maxLength: 200 },
   },
 } as const;
@@ -235,11 +235,6 @@ const publishPluginSchema = {
       version: { type: "string", minLength: 1, maxLength: 256 },
     },
   },
-} as const;
-
-const publishAssetSchema = {
-  querystring: assetPathQuerySchema,
-  body: publishAccessTokenBody,
 } as const;
 
 const promptSchema = {
@@ -1078,69 +1073,6 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { runId: string; fileName: string }; Body: PublishAssetRequest }>(
-    "/tool-runs/:runId/files/:fileName/publish",
-    { schema: { body: publishAccessTokenBody } },
-    async (request, reply) => {
-      const file = await tools.file(request.params.runId, request.params.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      if (file.bytes.length > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
-      const mediaType = publishMediaType(file.mediaType);
-      if (!mediaType) return reply.code(400).send({ error: "Unsupported asset type" });
-      try {
-        const result = await publisher.publishAsset({
-          projectId: `tool-run-${request.params.runId}`,
-          path: request.params.fileName,
-          title: (file.title ?? path.parse(request.params.fileName).name).slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
-          ...(file.prompt?.trim() ? { description: file.prompt.trim().slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
-          mediaType,
-          fileName: request.params.fileName,
-          contentType: file.mediaType,
-          contents: file.bytes,
-          ...(file.publication ? { assetId: file.publication.assetId } : {}),
-        }, request.body.accessToken);
-        const publication = {
-          assetId: result.asset.id,
-          releaseId: result.release.id,
-          publishedAt: result.release.publishedAt,
-          status: "listed" as const,
-        };
-        await tools.setFilePublication(request.params.runId, request.params.fileName, publication);
-        if (file.assetId && library.get(file.assetId)) await library.setPublication(file.assetId, publication);
-        return reply.code(201).send(result);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof ToolRunError ? cause.statusCode
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
-  app.put<{ Params: { runId: string; fileName: string }; Body: PublishAssetRequest & { status: "listed" | "unlisted" } }>(
-    "/tool-runs/:runId/files/:fileName/publication",
-    { schema: { body: publicationStatusBody } },
-    async (request, reply) => {
-      const file = await tools.file(request.params.runId, request.params.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      if (!file.publication) return reply.code(404).send({ error: "Published Asset not found" });
-      try {
-        const listing = await publisher.setAssetListing(file.publication.assetId, request.body.status, request.body.accessToken);
-        const publication = { ...file.publication, status: listing.status };
-        await tools.setFilePublication(request.params.runId, request.params.fileName, publication);
-        if (file.assetId && library.get(file.assetId)) await library.setPublication(file.assetId, publication);
-        return publication;
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof ToolRunError ? cause.statusCode
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
   app.post<{ Params: { projectId: string }; Body: AddToolResultRequest }>(
     "/projects/:projectId/tool-results",
     { schema: addToolResultSchema },
@@ -1375,15 +1307,6 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.get("/explore/assets", async (_request, reply) => {
-    try {
-      return await publisher.exploreAssets();
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
   app.get("/asset-templates", async (_request, reply) => {
     try {
       return await assetTemplates.list();
@@ -1490,21 +1413,6 @@ export function createApp(options: AppOptions = {}) {
     try {
       const cover = await publisher.templateCover(request.params.templateId, request.params.releaseId);
       return reply.type("image/webp").header("cache-control", "private, max-age=31536000, immutable").header("x-content-type-options", "nosniff").send(cover);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
-  app.get<{ Params: { assetId: string } }>("/explore/assets/:assetId/content", async (request, reply) => {
-    try {
-      const asset = await publisher.exploreAsset(request.params.assetId);
-      const contents = await publisher.assetContent(asset.id, asset.releaseId);
-      return reply.type(asset.contentType)
-        .header("content-length", contents.length)
-        .header("cache-control", "no-store")
-        .header("x-content-type-options", "nosniff")
-        .send(contents);
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
@@ -1647,58 +1555,6 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { assetId: string }; Body: PublishAssetRequest }>(
-    "/library/assets/:assetId/publish",
-    { schema: { body: publishAccessTokenBody } },
-    async (request, reply) => {
-      try {
-        const { asset, absolutePath } = await library.content(request.params.assetId);
-        if (asset.size > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
-        const result = await publisher.publishAsset({
-          projectId: "library",
-          path: asset.id,
-          title: path.parse(asset.name).name.slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
-          ...(asset.prompt ? { description: asset.prompt.slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
-          mediaType: asset.mediaType,
-          fileName: asset.name,
-          contentType: asset.contentType,
-          contents: await readFile(absolutePath),
-          ...(asset.publication ? { assetId: asset.publication.assetId } : {}),
-        }, request.body.accessToken);
-        await library.setPublication(asset.id, {
-          assetId: result.asset.id,
-          releaseId: result.release.id,
-          publishedAt: result.release.publishedAt,
-          status: "listed",
-        });
-        return reply.code(201).send(result);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof AssetLibraryError ? cause.statusCode
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
-  app.put<{ Params: { assetId: string }; Body: PublishAssetRequest & { status: "listed" | "unlisted" } }>(
-    "/library/assets/:assetId/publication",
-    { schema: { body: publicationStatusBody } },
-    async (request, reply) => {
-      const asset = library.get(request.params.assetId);
-      if (!asset) return reply.code(404).send({ error: "Library asset not found" });
-      if (!asset.publication) return reply.code(404).send({ error: "Published Asset not found" });
-      try {
-        const listing = await publisher.setAssetListing(asset.publication.assetId, request.body.status, request.body.accessToken);
-        return (await library.setPublication(asset.id, { ...asset.publication, status: listing.status })).publication;
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
-
   app.get<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     return project ?? reply.code(404).send({ error: "Project not found" });
@@ -1757,69 +1613,6 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string }; Querystring: { path: string }; Body: PublishAssetRequest }>(
-    "/projects/:projectId/assets/publish",
-    { schema: publishAssetSchema },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      try {
-        const media = await getWorkspaceMedia(project.workspacePath, request.query.path);
-        if (media.size > PUBLISH_ARTIFACT_MAX_BYTES) return reply.code(413).send({ error: "Asset is too large to share" });
-        const publication = await projects.assetPublication(project.id, media.relativePath);
-        const prompt = await projects.generatedAssetPrompt(project.id, media.relativePath);
-        const result = await publisher.publishAsset({
-          projectId: project.id,
-          path: media.relativePath,
-          title: path.parse(media.relativePath).name.slice(0, PUBLISH_ASSET_TITLE_MAX_LENGTH),
-          ...(prompt?.trim() ? { description: prompt.trim().slice(0, PUBLISH_ASSET_DESCRIPTION_MAX_LENGTH) } : {}),
-          mediaType: media.mediaType,
-          fileName: path.basename(media.relativePath),
-          contentType: media.contentType,
-          contents: await readFile(media.absolutePath),
-          ...(publication ? { assetId: publication.assetId } : {}),
-        }, request.body.accessToken);
-        await projects.setAssetPublication(project.id, media.relativePath, {
-          assetId: result.asset.id,
-          releaseId: result.release.id,
-          publishedAt: result.release.publishedAt,
-          status: "listed",
-        });
-        return reply.code(201).send(result);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof WorkspaceError ? 400
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
-  app.put<{ Params: { projectId: string }; Querystring: { path: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>(
-    "/projects/:projectId/assets/publication",
-    { schema: { querystring: assetPathQuerySchema, body: publicationStatusBody } },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      try {
-        const media = await getWorkspaceMedia(project.workspacePath, request.query.path);
-        const publication = await projects.assetPublication(project.id, media.relativePath);
-        if (!publication) return reply.code(404).send({ error: "Published Asset not found" });
-        const listing = await publisher.setAssetListing(publication.assetId, request.body.status, request.body.accessToken);
-        const updated = { ...publication, status: listing.status };
-        await projects.setAssetPublication(project.id, media.relativePath, updated);
-        return updated;
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof WorkspaceError ? 400
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
   app.post<{ Params: { projectId: string; assetId: string } }>(
     "/projects/:projectId/library-assets/:assetId",
     async (request, reply) => {
@@ -1830,37 +1623,6 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
         const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode : 500;
-        return reply.code(statusCode).send({ error });
-      }
-    },
-  );
-
-  app.post<{ Params: { projectId: string; assetId: string } }>(
-    "/projects/:projectId/explore-assets/:assetId",
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      try {
-        const asset = await publisher.exploreAsset(request.params.assetId);
-        const media = workspaceMediaInfo(asset.fileName);
-        if (!media || media.mediaType !== asset.mediaType || media.contentType !== asset.contentType) {
-          return reply.code(502).send({ error: "Remote asset metadata is invalid" });
-        }
-        const contents = await publisher.assetContent(asset.id, asset.releaseId);
-        const sha256 = createHash("sha256").update(contents).digest("hex");
-        if (contents.length !== asset.artifactBytes || sha256 !== asset.artifactSha256) {
-          return reply.code(502).send({ error: "Downloaded asset failed integrity verification" });
-        }
-        const libraryAsset = await library.add(asset.fileName, contents, {
-          ...(asset.description ? { prompt: asset.description } : {}),
-          sourceKey: `explore:${asset.id}:${asset.releaseId}`,
-        });
-        return reply.code(201).send(await projects.materializeLibraryAsset(project.id, libraryAsset.id));
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode
-          : cause instanceof RemotePublishError ? cause.statusCode
-          : 502;
         return reply.code(statusCode).send({ error });
       }
     },
@@ -2836,14 +2598,6 @@ async function addConversationImageToProject(
   const digest = createHash("sha256").update(contents).digest("hex");
   const asset = await library.add(`${stem}${extension}`, contents, { sourceKey: `conversation-image:${image.mediaType}:${digest}` });
   await projects.materializeLibraryAsset(projectId, asset.id);
-}
-
-function publishMediaType(contentType: string): PublishAssetMediaType | undefined {
-  if (contentType.startsWith("image/")) return "image";
-  if (contentType.startsWith("video/")) return "video";
-  if (contentType.startsWith("audio/")) return "audio";
-  if (contentType === "model/gltf-binary") return "model";
-  return undefined;
 }
 
 async function availableModel(

@@ -3,7 +3,7 @@ import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename
 import path from "node:path";
 import type { ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata, writeAssetPublication, type AssetPublication } from "./asset-metadata.js";
+import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -126,7 +126,6 @@ export class ProjectManager {
         const media = await getWorkspaceMedia(project.workspacePath, file.path);
         const asset = await this.assetLibrary.addFile(path.basename(file.path), media.absolutePath, {
           ...(file.prompt ? { prompt: file.prompt } : {}),
-          ...(file.publication ? { publication: file.publication } : {}),
           sourceKey: `project:${project.id}:${file.path}`,
         });
         await this.#writeAssetMetadata(project.id, () => writeAssetMetadata(project.workspacePath, file.path, { libraryAssetId: asset.id }));
@@ -299,19 +298,6 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     return (await readAssetMetadata(project.workspacePath)).prompts[assetPath];
-  }
-
-  async assetPublication(id: string, assetPath: string): Promise<AssetPublication | undefined> {
-    const project = this.#projects.get(id);
-    if (!project) throw new Error(`Project not found: ${id}`);
-    return (await readAssetMetadata(project.workspacePath)).publications[assetPath];
-  }
-
-  async setAssetPublication(id: string, assetPath: string, publication: AssetPublication): Promise<void> {
-    const project = this.#projects.get(id);
-    if (!project) throw new Error(`Project not found: ${id}`);
-    await getWorkspaceMedia(project.workspacePath, assetPath);
-    await this.#writeAssetMetadata(id, () => writeAssetPublication(project.workspacePath, assetPath, publication));
   }
 
   async materializeLibraryAsset(id: string, assetId: string): Promise<{ path: string; assetId: string }> {

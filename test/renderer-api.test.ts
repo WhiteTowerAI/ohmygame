@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountApi, addExploreAssetToProject, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreAssets, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAsset, publishAssetTemplate, publishPlugin, publishProject, publishToolResult, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetPublicationStatus, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, setToolResultPublicationStatus, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -270,32 +270,6 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/project/publish", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ accessToken: "user-access-token", title: "Game", description: "Description" }),
-    }));
-  });
-
-  it("publishes, browses, and imports Assets through the daemon API", async () => {
-    installWindow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ asset: {}, release: {} }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({ assetId: "asset-1", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "unlisted" }))
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(Response.json({ path: "assets/imported/sprite.png" }, { status: 201 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await publishAsset("project", "assets/sprite.png", "user-access-token");
-    await setAssetPublicationStatus("project", "assets/sprite.png", "unlisted", "user-access-token");
-    await listExploreAssets();
-    await addExploreAssetToProject("project", "asset-1");
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project/assets/publish?path=assets%2Fsprite.png", expect.objectContaining({
-      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
-    }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project/assets/publication?path=assets%2Fsprite.png", expect.objectContaining({
-      method: "PUT", body: JSON.stringify({ accessToken: "user-access-token", status: "unlisted" }),
-    }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/explore/assets", expect.anything());
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/projects/project/explore-assets/asset-1", expect.objectContaining({
-      method: "POST",
     }));
   });
 
@@ -801,21 +775,6 @@ describe("renderer tools API", () => {
       method: "POST",
       body: JSON.stringify({ runId: "run-1", fileName: "output.webp" }),
     }));
-  });
-
-  it("publishes and updates a tool result listing", async () => {
-    installWindow();
-    const published = { asset: { id: "asset-1" }, release: { id: "release-1" } };
-    const publication = { assetId: "asset-1", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "unlisted" as const };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(published, { status: 201 }))
-      .mockResolvedValueOnce(Response.json(publication));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(publishToolResult("run-1", "output.webp", "token")).resolves.toEqual(published);
-    await expect(setToolResultPublicationStatus("run-1", "output.webp", "unlisted", "token")).resolves.toEqual(publication);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tool-runs/run-1/files/output.webp/publish", expect.objectContaining({ method: "POST", body: JSON.stringify({ accessToken: "token" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-runs/run-1/files/output.webp/publication", expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "unlisted", accessToken: "token" }) }));
   });
 
 });

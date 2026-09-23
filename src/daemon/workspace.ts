@@ -34,8 +34,6 @@ export async function listWorkspaceFiles(workspacePath: string): Promise<Workspa
     if (prompt) file.prompt = prompt;
     const previewPath = metadata.previews[file.path];
     if (previewPath) file.previewPath = previewPath;
-    const publication = metadata.publications[file.path];
-    if (publication) file.publication = publication;
     const libraryAssetId = metadata.libraryAssets[file.path];
     if (libraryAssetId) file.libraryAssetId = libraryAssetId;
   }

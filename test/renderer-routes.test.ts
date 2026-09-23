@@ -12,14 +12,10 @@ describe("renderer routes", () => {
     }
     expect(sidebarHash("home")).toBe("#/");
     expect(sidebarHash("community")).toBe("#/community/games");
-    expect(parseAppRoute("#/community")).toEqual({ page: "community", section: "games" });
-    expect(parseAppRoute("#/community/games")).toEqual({ page: "community", section: "games" });
-    expect(parseAppRoute("#/community/images")).toEqual({ page: "community", section: "images" });
-    expect(parseAppRoute("#/community/videos")).toEqual({ page: "community", section: "videos" });
-    expect(parseAppRoute("#/community/audio")).toEqual({ page: "community", section: "audio" });
-    expect(parseAppRoute("#/community/models")).toEqual({ page: "community", section: "models" });
+    expect(parseAppRoute("#/community")).toEqual({ page: "community" });
+    expect(parseAppRoute("#/community/games")).toEqual({ page: "community" });
+    expect(parseAppRoute("#/community/images")).toEqual({ page: "home" });
     expect(communityHash()).toBe("#/community/games");
-    expect(communityHash("images")).toBe("#/community/images");
     expect(parseAppRoute("#/tools")).toEqual({ page: "home" });
   });
 

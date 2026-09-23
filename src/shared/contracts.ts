@@ -1,4 +1,4 @@
-import type { CreatePublishAssetReleaseResult, PublishCommunityGame, PublishDeployment, PublishExploreAsset } from "./publish-v1.js";
+import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -435,14 +435,6 @@ export interface PublishProjectRequest {
   description?: string;
 }
 
-export type ExploreAsset = PublishExploreAsset;
-
-export interface PublishAssetRequest {
-  accessToken: string;
-}
-
-export type PublishAssetResult = CreatePublishAssetReleaseResult;
-
 export type AgentMessagePhase = "commentary" | "final_answer";
 
 export type PlanStepStatus = "pending" | "in_progress" | "completed";
@@ -661,7 +653,6 @@ export interface WorkspaceFile {
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
-  publication?: AssetPublicationState;
   libraryAssetId?: string;
 }
 
@@ -674,7 +665,6 @@ export interface LibraryAsset {
   createdAt: string;
   duration?: number;
   prompt?: string;
-  publication?: AssetPublicationState;
 }
 
 export type LibraryUploadMediaType =
@@ -690,13 +680,6 @@ export type LibraryUploadMediaType =
 export interface CreateLibraryImageRequest {
   name: string;
   image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
-}
-
-export interface AssetPublicationState {
-  assetId: string;
-  releaseId: string;
-  publishedAt: string;
-  status: "listed" | "unlisted";
 }
 
 export interface WorkspaceFileContent {
@@ -829,7 +812,6 @@ export interface ToolRunFile {
   name: string;
   mediaType: string;
   assetId?: string;
-  publication?: AssetPublicationState;
 }
 
 export interface ToolRun {

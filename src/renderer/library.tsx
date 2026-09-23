@@ -107,10 +107,6 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
         onClose={() => setSelectedAsset(undefined)}
         onRename={() => void rename(selectedAsset)}
         onDelete={() => void remove(selectedAsset)}
-        onPublicationChange={(publication) => {
-          setAssets((assets) => assets.map((asset) => asset.id === selectedAsset.id ? { ...asset, publication } : asset));
-          setSelectedAsset((asset) => asset ? { ...asset, publication } : asset);
-        }}
       /> : null}
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>
