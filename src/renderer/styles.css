@@ -11368,7 +11368,8 @@ button {
   cursor: default;
 }
 
-.work-summary-stopped {
+.work-summary-stopped,
+.work-summary-failed {
   grid-template-columns: minmax(0, 1fr);
   cursor: default;
 }
@@ -12012,18 +12013,30 @@ button {
 }
 
 .activity-shimmer {
+  position: relative;
+  display: inline-block;
   width: fit-content;
   max-width: 100%;
-  background: linear-gradient(90deg, var(--text-faint) 35%, var(--text) 50%, var(--text-faint) 65%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  background-size: 200% 100%;
-  color: transparent;
-  animation: activity-shimmer 2.1s linear infinite;
+  color: var(--text-faint);
 }
 
-:root[data-appearance="light"] .activity-shimmer {
-  background-image: linear-gradient(90deg, var(--text-faint) 35%, #fff 50%, var(--text-faint) 65%);
+.activity-shimmer-highlight {
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  background: linear-gradient(90deg, transparent 40%, var(--text) 50%, transparent 60%);
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: activity-shimmer 4s linear infinite;
+}
+
+:root[data-appearance="light"] .activity-shimmer-highlight {
+  background-image: linear-gradient(90deg, transparent 40%, #fff 50%, transparent 60%);
 }
 
 .tool-activity-details[open] > .tool-details {
@@ -12031,9 +12044,22 @@ button {
 }
 
 @keyframes activity-shimmer {
-  0% { background-position: 100% 0; }
-  42% { background-position: -100% 0; }
-  100% { background-position: -100% 0; }
+  0% {
+    background-position: 200% 0;
+    opacity: 1;
+  }
+  44% {
+    background-position: -200% 0;
+    opacity: 1;
+  }
+  44.01% {
+    background-position: -200% 0;
+    opacity: 0;
+  }
+  100% {
+    background-position: 200% 0;
+    opacity: 0;
+  }
 }
 
 @keyframes tool-details-reveal {
@@ -12108,6 +12134,15 @@ button {
 
 .markdown-content a:hover {
   text-decoration: underline;
+}
+
+.markdown-content .workspace-file-link > svg {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+  color: color-mix(in srgb, currentColor 82%, var(--text-muted));
+  vertical-align: -2px;
 }
 
 .markdown-content code {
@@ -14558,15 +14593,199 @@ button {
 }
 
 .file-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   flex: 0 0 auto;
   padding: 8px 14px;
-  overflow: hidden;
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
+  white-space: nowrap;
+}
+
+.file-content-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-open-actions {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.file-open-actions > button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.file-open-actions > button:hover,
+.file-open-actions > button[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.file-open-actions > .file-open-menu-button {
+  width: 20px;
+}
+
+.file-open-menu {
+  position: absolute;
+  z-index: 8;
+  top: 28px;
+  right: 0;
+  display: grid;
+  width: 176px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--menu-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+}
+
+.file-open-menu > button {
+  display: grid;
+  height: 30px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-open-menu > button:hover,
+.file-open-menu > button:focus-visible {
+  background: var(--menu-hover);
+  color: var(--text);
+}
+
+.file-open-menu > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.file-open-error {
+  margin: 4px 6px 3px;
+  overflow-wrap: anywhere;
+  color: var(--danger);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 9px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.workspace-tree-context-menu {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  width: 196px;
+  padding: 4px;
+  border: 1px solid var(--menu-border);
+  border-radius: 7px;
+  outline: 0;
+  background: var(--menu-surface);
+  box-shadow: var(--menu-shadow);
+}
+
+.workspace-tree-context-menu > button {
+  display: grid;
+  width: 100%;
+  min-height: 34px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-tree-context-menu > button > svg {
+  justify-self: center;
+}
+
+.workspace-tree-context-menu > button > span {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-tree-context-menu > button:hover:not(:disabled),
+.workspace-tree-context-menu > button:focus-visible {
+  outline: 0;
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.workspace-tree-context-menu > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.workspace-media-preview {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  background: #0c0d10;
+}
+
+.workspace-media-preview > img,
+.workspace-media-preview > video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.workspace-media-preview > audio {
+  width: min(520px, calc(100% - 48px));
+}
+
+.workspace-media-preview > .model-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+}
+
+.workspace-media-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.workspace-media-error {
+  color: var(--danger);
 }
 
 .file-content .workspace-code {
@@ -15089,7 +15308,7 @@ button {
   .workspace-tabs::after {
     transition: none;
   }
-  .activity-shimmer,
+  .activity-shimmer-highlight,
   .tool-activity-group[open] > .tool-group-items,
   .tool-activity-details[open] > .tool-details {
     animation: none;

@@ -49,7 +49,7 @@ import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
-import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { PlaytestDriver } from "../shared/playtest.js";
@@ -1825,6 +1825,21 @@ export function createApp(options: AppOptions = {}) {
     return listWorkspaceFiles(project.workspacePath);
   });
 
+  app.get<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/files/location",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return { path: await locateWorkspaceEntry(project.workspacePath, request.query.path) };
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
   app.patch<{ Params: { projectId: string }; Querystring: { path: string }; Body: { name: string } }>(
     "/projects/:projectId/assets",
     { schema: renameAssetSchema },
@@ -2822,7 +2837,7 @@ export function createApp(options: AppOptions = {}) {
     reply.raw.write(": connected\n\n");
     const send = (event: RuntimeEvent) => {
       const images = agents.eventImages(event.projectId, event.conversationId, event.turnId);
-      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued")
+      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued" || event.type === "prompt.steered")
         ? { ...event, data: { ...event.data, images } }
         : event;
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(hydrated)}\n\n`);

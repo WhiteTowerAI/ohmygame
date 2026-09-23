@@ -97,6 +97,7 @@ export function ProjectShell({
   const [resizingAgent, setResizingAgent] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [chatReference, setChatReference] = useState<ChatReference>();
@@ -346,7 +347,7 @@ export function ProjectShell({
   const project = state.project;
   const conversation = state.conversation;
   const displayedModel = state.settings.model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
-  const activeTurn = state.turns.find((turn) => turn.status === "inProgress");
+  const activeTurn = state.turns.findLast((turn) => turn.status === "inProgress");
   const items = state.turns.flatMap((turn) => turn.items);
   const questionnaire = activeTurn?.items.find((item): item is Extract<ThreadItem, { type: "userInputRequest" }> => (
     item.type === "userInputRequest" && item.status === "inProgress"
@@ -585,6 +586,12 @@ export function ProjectShell({
   }
 
   const isGodotProject = project?.type === "godot-game";
+
+  function openWorkspaceFile(path: string): void {
+    setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
+    if (isGodotProject) setGodotWorkspaceVisibility(true);
+  }
+
   const agentIsCollapsed = !isGodotProject && agentCollapsed;
   const viewerCollapsed = isGodotProject && !godotWorkspaceOpen;
 
@@ -664,6 +671,8 @@ export function ProjectShell({
             <AgentTimeline
               turns={state.turns}
               projectId={projectId}
+              workspacePath={project?.workspacePath}
+              onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
               revisionDisabled={agentBusy || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
               waitingForInput={Boolean(questionnaire)}
               onRevise={revisePrompt}
@@ -769,6 +778,7 @@ export function ProjectShell({
           agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
+          openFileRequest={openFileRequest}
           onPublish={publish}
           onRestart={restartPreview}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
@@ -779,6 +789,7 @@ export function ProjectShell({
         agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}
+        openFileRequest={openFileRequest}
         onPublish={publish}
       />}
     </main>

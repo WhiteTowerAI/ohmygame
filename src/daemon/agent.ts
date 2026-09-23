@@ -807,7 +807,14 @@ export class AgentManager {
       await this.#rebuildQueue(projectId, conversationId, steering, pending);
       this.#steeringPrompts.set(key, steering);
       this.#pendingPrompts.set(key, pending);
-      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId });
+      const steered = current[index];
+      this.events.publish(projectId, "prompt.steered", {
+        prompt: steered.prompt,
+        ...(steered.mentions.length ? { mentions: steered.mentions } : {}),
+        references: steered.references,
+        ...(steered.images.length ? { images: steered.images } : {}),
+        ...(steered.attachments.length ? { attachments: steered.attachments } : {}),
+      }, { conversationId, turnId }, steered.images.length ? { prompt: steered.prompt, references: steered.references } : undefined);
       return true;
     });
   }
@@ -859,6 +866,7 @@ export class AgentManager {
     this.#steeringPrompts.delete(key);
     for (const item of steering) {
       if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: item.turnId });
     }
     for (const item of pending) {
       if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
@@ -867,9 +875,14 @@ export class AgentManager {
   }
 
   pendingPrompts(projectId: string, conversationId: string): PendingPrompt[] {
-    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
+    const key = conversationKey(projectId, conversationId);
+    const steering = (this.#steeringPrompts.get(key) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
+      turnId, prompt, mentions, references, images, attachments, steering: true,
+    }));
+    const pending = (this.#pendingPrompts.get(key) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
       turnId, prompt, mentions, references, images, attachments,
     }));
+    return [...steering, ...pending];
   }
 
   askQuestionnaire(
@@ -1140,7 +1153,6 @@ export class AgentManager {
       else this.#pendingPrompts.set(key, pending.slice(1));
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
       if (started.images.length) this.events.expireThrough(projectId, started.queuedEventId);
-      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
       active.turnId = started.turnId;
       active.prompt = started.prompt;
       active.mentions = started.mentions;
@@ -1167,6 +1179,7 @@ export class AgentManager {
       );
       active.startedEventId = startedEvent.id;
       active.startedAt = Date.parse(startedEvent.timestamp);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_start") {
       const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
       active.assistantItemIds.set(event.assistantMessageEvent.contentIndex, itemId);

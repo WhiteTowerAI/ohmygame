@@ -46,7 +46,7 @@ describe("AgentTimeline", () => {
       { id: "thinking", turnId: "turn-1", type: "reasoning", text: "**Planning Vite app creation**", status: "inProgress" },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('<span class="activity-shimmer">Thinking</span>');
+    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).not.toContain("Planning Vite app creation");
   });
 
@@ -60,7 +60,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Thinking");
     expect(html).toContain("Read package.json");
     expect(html).toContain('class="tool-activity-group"');
-    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
     expect(html).not.toContain('class="thinking-activity"');
     expect(html).not.toContain('class="tool-activity-group" open');
@@ -70,7 +70,7 @@ describe("AgentTimeline", () => {
   it("shimmers the initial Thinking header without a loading icon", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('<span class="activity-shimmer">Thinking</span>');
+    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).not.toContain("solar-refresh-linear spin");
   });
 
@@ -269,7 +269,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Planning the next edit");
     expect(html).toContain("package.json");
     expect(html).toContain("tool-activity-group");
-    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
     expect(html).not.toContain('class="thinking-activity"');
   });
@@ -353,6 +353,8 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Connection error");
     expect(html).toContain("OpenAI Responses stream ended before a terminal response event");
     expect(html).toContain('class="connection-activity-details connection-activity-failed"');
+    expect(html).toContain('class="work-activity work-activity-failed"');
+    expect(html).not.toContain('<details class="work-activity"');
     expect(html).not.toContain('class="message-error"');
   });
 
@@ -576,7 +578,7 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('class="tool-label activity-shimmer" title="Edit Files">Edit Files</span>');
+    expect(html).toContain('class="tool-label activity-shimmer" title="Edit Files">Edit Files<span class="activity-shimmer-highlight" aria-hidden="true">Edit Files</span></span>');
     expect(html).toContain('class="tool-label" title="Editing src/app.ts">Editing src/app.ts</span>');
     expect(html).toContain("package.json");
     expect(html).toContain('class="tool-activity-group"');
@@ -602,6 +604,7 @@ describe("AgentTimeline", () => {
     ]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Read files");
+    expect(html).toMatch(/<summary class="tool-group-summary"><svg[^>]*class="solar solar-file-text-linear"/);
     expect(html).toContain("Now I will run the checks.");
     expect(html).toContain("Running npm test");
     expect(html.indexOf("Read files")).toBeLessThan(html.indexOf("Now I will run the checks."));
@@ -632,7 +635,7 @@ describe("AgentTimeline", () => {
       },
     ]} activeTurnId="turn-1" />);
 
-    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking</span>');
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Thinking" role="status">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
     expect(html).toContain('<summary class="tool-group-summary tool-group-summary-thinking"><span class="tool-label activity-shimmer"');
     expect(html).not.toContain('class="thinking-activity"');
     expect(html).not.toContain("Edited a file, read a file, ran a command");
@@ -1084,9 +1087,67 @@ describe("AgentTimeline", () => {
     }]} />);
 
     expect(html).toContain("Searched the web for Godot 4.6 release");
+    expect(html).toContain("solar-global-linear");
+    expect(html).not.toContain("solar-magnifier-linear");
     expect(html).toContain("Parallel");
     expect(html).toContain("Fallback used after Exa was unavailable");
     expect(html).toContain("https://godotengine.org/releases/4.6");
+  });
+
+  it("keeps existing work with its original prompt while a steer waits", () => {
+    const activeTurn: Turn = {
+      id: "turn-1",
+      conversationId: "conversation-1",
+      status: "inProgress",
+      items: [
+        user(),
+        { ...tool(), status: "inProgress" },
+      ],
+    };
+    const steeredTurn: Turn = {
+      id: "turn-2",
+      conversationId: "conversation-1",
+      status: "completed",
+      steering: true,
+      items: [{ id: "steer-user", turnId: "turn-2", type: "userMessage", text: "Change direction" }],
+    };
+
+    const html = renderToStaticMarkup(<ThreadTimeline turns={[activeTurn, steeredTurn]} />);
+
+    expect(html.indexOf("Working for")).toBeLessThan(html.indexOf("Change direction"));
+    expect(html.indexOf("Working for")).toBeLessThan(html.indexOf("Reading package.json"));
+    expect(html.indexOf("Change direction")).toBeLessThan(html.indexOf("Waiting to steer"));
+    expect(html.match(/class="work-activity work-activity-active"/g)).toHaveLength(1);
+  });
+
+  it("shows the pending steer state only after the latest steered message", () => {
+    const activeTurn: Turn = {
+      id: "turn-1",
+      conversationId: "conversation-1",
+      status: "inProgress",
+      items: [user(), { ...tool(), status: "inProgress" }],
+    };
+    const firstSteer: Turn = {
+      id: "turn-2",
+      conversationId: "conversation-1",
+      status: "completed",
+      steering: true,
+      items: [{ id: "steer-user-1", turnId: "turn-2", type: "userMessage", text: "First change" }],
+    };
+    const secondSteer: Turn = {
+      id: "turn-3",
+      conversationId: "conversation-1",
+      status: "completed",
+      steering: true,
+      items: [{ id: "steer-user-2", turnId: "turn-3", type: "userMessage", text: "Final change" }],
+    };
+
+    const html = renderToStaticMarkup(<ThreadTimeline turns={[activeTurn, firstSteer, secondSteer]} />);
+
+    expect(html.indexOf("Working for")).toBeLessThan(html.indexOf("First change"));
+    expect(html.indexOf("Final change")).toBeLessThan(html.indexOf("Waiting to steer"));
+    expect(html.match(/Waiting to steer/g)).toHaveLength(2);
+    expect(html.match(/class="work-activity work-activity-active"/g)).toHaveLength(1);
   });
 
   it("keeps failed tool details collapsed by default", () => {
