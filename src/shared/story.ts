@@ -1,6 +1,6 @@
 import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 
-const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "model-3d", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
 export const DEFAULT_SCENE_DURATION_MS = 3_000;
 
@@ -308,7 +308,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
         if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
       }
     }
-    if (node.type === "image") {
+    if (node.type === "image" || node.type === "model-3d") {
       for (const image of node.data.images) {
         if (image.type === "node" && (image.nodeId === node.id || !isImageSourceNode(nodeById.get(image.nodeId)))) return false;
       }
@@ -318,7 +318,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
         if (reference.type === "node" && (reference.nodeId === node.id || !isVideoReferenceSourceNode(nodeById.get(reference.nodeId)))) return false;
       }
     }
-    if ((node.type === "image" || node.type === "video") && node.data.promptSource &&
+    if ((node.type === "image" || node.type === "video" || node.type === "model-3d") && node.data.promptSource &&
       nodeById.get(node.data.promptSource.nodeId)?.type !== "text") return false;
   }
   if (nodes.filter((node) => isRecord(node) && node.type === "start").length > 1 ||
@@ -890,7 +890,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       hasOnlyKeys(value.data, ["title", "description", "presentation"]);
   }
   if (value.type === "asset") return nonEmptyString(value.data.assetId) &&
-    (value.data.mediaType === "image" || value.data.mediaType === "video" || value.data.mediaType === "audio") &&
+    (value.data.mediaType === "image" || value.data.mediaType === "video" || value.data.mediaType === "audio" || value.data.mediaType === "model") &&
     Object.keys(value.data).length === 2;
   if (value.type === "text") return typeof value.data.text === "string" &&
     typeof value.data.instruction === "string" &&
@@ -917,6 +917,15 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       Array.isArray(data.references) && data.references.length <= 15 && data.references.every(isAssetReference) &&
       (data.assetId === undefined || nonEmptyString(data.assetId)) &&
       hasOnlyKeys(data, ["prompt", "promptSource", "model", "resolution", "aspectRatio", "duration", "references", "assetId"]);
+  }
+  if (value.type === "model-3d") {
+    const data = value.data;
+    return typeof data.prompt === "string" && (data.promptSource === undefined || isTextReference(data.promptSource)) &&
+      (data.model === undefined || data.model === "meshy-7" || data.model === "meshy-t2") &&
+      (data.source === "text" || data.source === "image") &&
+      Array.isArray(data.images) && data.images.length <= 4 && data.images.every(isAssetReference) &&
+      (data.assetId === undefined || nonEmptyString(data.assetId)) &&
+      hasOnlyKeys(data, ["prompt", "promptSource", "model", "source", "images", "assetId"]);
   }
   if (value.type !== "choice" || typeof value.data.title !== "string" || !Array.isArray(value.data.options) || value.data.options.length < 1) return false;
   const optionIds = new Set<string>();
@@ -1194,8 +1203,8 @@ function isTextReference(value: unknown): boolean {
   return isRecord(value) && value.type === "node" && nonEmptyString(value.nodeId) && Object.keys(value).length === 2;
 }
 
-function isCanvasOnlyNode(node: StoryNode): node is Extract<StoryNode, { type: "text" | "image" | "video" | "asset" }> {
-  return node.type === "text" || node.type === "image" || node.type === "video" || node.type === "asset";
+function isCanvasOnlyNode(node: StoryNode): node is Extract<StoryNode, { type: "text" | "image" | "video" | "model-3d" | "asset" }> {
+  return node.type === "text" || node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "asset";
 }
 
 function isImageSourceNode(node: StoryNode | undefined): boolean {

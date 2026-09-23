@@ -18,6 +18,63 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(true);
   });
 
+  it("accepts canvas-only 3D generation and model asset nodes", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [
+      {
+        id: "model-generator",
+        type: "model-3d",
+        position: { x: 80, y: 120 },
+        data: { prompt: "A low-poly treasure chest", model: "meshy-7", source: "text", images: [] },
+      },
+      {
+        id: "model-asset",
+        type: "asset",
+        position: { x: 560, y: 120 },
+        data: { assetId: "library-model", mediaType: "model" },
+      },
+    ];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 }, "model-asset": { x: 560, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("rejects non-image node references in 3D generation nodes", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [
+      {
+        id: "model-generator",
+        type: "model-3d",
+        position: { x: 80, y: 120 },
+        data: { prompt: "", source: "image", images: [{ type: "node", nodeId: "model-asset" }] },
+      },
+      {
+        id: "model-asset",
+        type: "asset",
+        position: { x: 560, y: 120 },
+        data: { assetId: "library-model", mediaType: "model" },
+      },
+    ];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 }, "model-asset": { x: 560, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("rejects 3D generation nodes without an explicit input source", () => {
+    const story = createStoryDocument();
+    const node: StoryNode = {
+      id: "model-generator",
+      type: "model-3d",
+      position: { x: 80, y: 120 },
+      data: { prompt: "A low-poly treasure chest", source: "text", images: [] },
+    };
+    Reflect.deleteProperty(node.data, "source");
+    story.chapter.nodes = [node];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
   it("derives stable source paths for presentation nodes", () => {
     expect(defaultStoryNodeSource("Scene One")).toEqual({
       html: "nodes/scene-one-4ott8j/index.html",

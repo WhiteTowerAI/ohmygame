@@ -127,7 +127,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "model-3d" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -273,7 +273,7 @@ export type StoryNode = (
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
     assetId: string;
-    mediaType: "image" | "video" | "audio";
+    mediaType: "image" | "video" | "audio" | "model";
   } }
   | { id: string; type: "text"; position: StoryPosition; data: {
     text: string;
@@ -297,6 +297,14 @@ export type StoryNode = (
     aspectRatio: VideoAspectRatio;
     duration: number;
     references: StoryAssetReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "model-3d"; position: StoryPosition; data: {
+    prompt: string;
+    promptSource?: StoryTextReference;
+    model?: Model3DModel;
+    source: "text" | "image";
+    images: StoryAssetReference[];
     assetId?: string;
   } }
 );

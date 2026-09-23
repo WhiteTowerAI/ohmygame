@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  Box,
   ChevronLeft,
   ChevronRight,
   CircleStop,
@@ -78,10 +79,12 @@ import {
   type ImageModel,
   type ImageModelRef,
   type ImageResolution,
+  type Model3DModel,
   type LibraryUploadMediaType,
   type PromptImage,
   type ProjectState,
   type RunImageToolRequest,
+  type Run3DToolRequest,
   type RunVideoToolRequest,
   type StoryAction,
   type StoryChoiceTimeout,
@@ -123,6 +126,7 @@ import { createStoryInteractionTemplate, type StoryInteractionTemplate } from ".
 import { findStoryCoverSource } from "../shared/story-cover.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { ModelPreview } from "./model-preview.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
@@ -217,6 +221,7 @@ const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: "Text", description: "Write a reusable prompt", icon: FileText, action: { kind: "node", type: "text" } },
       { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
       { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
+      { label: "Model 3D", description: "Generate a 3D model on canvas", icon: Box, action: { kind: "node", type: "model-3d" } },
     ],
   },
 ];
@@ -226,7 +231,10 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
 }
 
 function canvasCreationGroups(assetCanvas: boolean): CanvasNodeCreationGroup[] {
-  return assetCanvas ? CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets") : CANVAS_NODE_CREATION_GROUPS;
+  if (assetCanvas) return CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets");
+  return CANVAS_NODE_CREATION_GROUPS.map((group) => group.label === "Assets"
+    ? { ...group, items: group.items.filter((item) => !isCanvasNodeCreationLeaf(item) || item.action.kind !== "node" || item.action.type !== "model-3d") }
+    : group);
 }
 
 function isSingletonStoryNode(node: { type?: string }): boolean {
@@ -260,7 +268,9 @@ type StoryFlowData = {
   images?: StoryAssetReference[];
   references?: StoryAssetReference[];
   assetId?: string;
-  mediaType?: "image" | "video" | "audio";
+  mediaType?: "image" | "video" | "audio" | "model";
+  model3DModel?: Model3DModel;
+  model3DSource?: "text" | "image";
   contentType?: string;
   assetDuration?: number;
   name?: string;
@@ -278,6 +288,7 @@ type StoryFlowData = {
   variables?: StoryVariable[];
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
+  model3DRuntime?: ReferenceMediaNodeRuntime;
   textRuntime?: TextNodeRuntime;
 };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
@@ -344,6 +355,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   text: TextNode,
   image: ImageNode,
   video: VideoNode,
+  "model-3d": Model3DNode,
   asset: AssetNode,
 };
 
@@ -580,7 +592,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }, [document, workspaceView]);
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
-    if (node.type === "image") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
+    if (node.type === "image" || (node.type === "model-3d" && model3DSource(node) === "image")) derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
       id: assetEdgeId("image", node.id, image.nodeId),
       source: image.nodeId,
       target: node.id,
@@ -598,7 +610,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
       data: { relation: "video-reference", referenceId: reference.nodeId },
     }] : []));
-    if ((node.type === "image" || node.type === "video") && node.data.promptSource) derived.push({
+    if ((node.type === "image" || node.type === "video" || (node.type === "model-3d" && model3DSource(node) === "text")) && node.data.promptSource) derived.push({
       id: assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       source: node.data.promptSource.nodeId,
       target: node.id,
@@ -665,13 +677,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
         const relation = edge?.data?.relation;
         const referenceId = edge?.data?.referenceId;
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
-          if (relation === "media-image" && node.id === edge.target && node.type === "image") {
+          if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d")) {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
           }
           if (relation === "video-reference" && node.id === edge.target && node.type === "video") {
             return { ...node, data: { ...node.data, references: (node.data.references ?? []).filter((reference) => reference.type !== "node" || reference.nodeId !== referenceId) } };
           }
-          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video")) {
+          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video" || node.type === "model-3d")) {
             return { ...node, data: { ...node.data, promptSource: undefined } };
           }
           if (relation === "presentation-media" && node.id === edge.target && isVisiblePresentationFlowNode(node)) {
@@ -693,8 +705,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
     const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels);
-    if (relation === "image-reference" && target.type === "image") {
-      setNodes((current) => current.map((node) => node.id === target.id && node.type === "image"
+    if (relation === "image-reference" && (target.type === "image" || target.type === "model-3d")) {
+      setNodes((current) => current.map((node) => node.id === target.id && (node.type === "image" || node.type === "model-3d")
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
         : node));
       return;
@@ -705,7 +717,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
         : node));
       return;
     }
-    if (relation === "prompt" && (target.type === "image" || target.type === "video")) {
+    if (relation === "prompt" && (target.type === "image" || target.type === "video" || target.type === "model-3d")) {
       setNodes((current) => current.map((node) => node.id === target.id
         ? { ...node, data: { ...node.data, promptSource: { type: "node", nodeId: source.id } } }
         : node));
@@ -746,7 +758,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
-    if (assetCanvas && type !== "text" && type !== "image" && type !== "video") return;
+    if (assetCanvas && type !== "text" && type !== "image" && type !== "video" && type !== "model-3d") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
     const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
@@ -754,7 +766,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration">, position: { x: number; y: number }): void {
-    if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio") return;
+    if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio" && asset.mediaType !== "model") return;
+    if (!assetCanvas && asset.mediaType === "model") return;
     const node: StoryFlowNode = {
       id: crypto.randomUUID(),
       type: "asset",
@@ -957,6 +970,33 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     }
   }
 
+  async function generateModel3D(node: StoryFlowNode): Promise<void> {
+    if (node.type !== "model-3d" || generatingNodeId) return;
+    const source = model3DSource(node);
+    const prompt = resolveNodePrompt(node, nodes).trim();
+    try {
+      const images = source === "image" ? await resolveModelReferenceImages(node) : [];
+      if (source === "text" && !prompt) throw new Error("Add a prompt before generating.");
+      if (source === "image" && !images.length) throw new Error("Add a reference image before generating.");
+      if (node.data.model3DModel === "meshy-t2" && images.length !== 1) throw new Error("Meshy T2 requires exactly one reference image.");
+      await generateMedia(node, "image-to-3d", {
+        ...(source === "image" ? { images } : { prompt }),
+        ...(node.data.model3DModel ? { model: node.data.model3DModel } : {}),
+      }, "3D model");
+    } catch (error) {
+      setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+    }
+  }
+
+  async function resolveModelReferenceImages(node: StoryFlowNode): Promise<PromptImage[]> {
+    if (node.type !== "model-3d" || !activeChapter) return [];
+    return Promise.all((node.data.images ?? []).map(async (reference) => {
+      const assetId = resolveStoryImageAssetId(activeChapter, reference);
+      if (!assetId) throw new Error("Generate every connected image before running this node.");
+      return modelPromptImage(await getLibraryAsset(assetId));
+    }));
+  }
+
   function resolveVideoReferences(node: StoryFlowNode): VideoGenerationReference[] {
     if (node.type !== "video" || !activeChapter) return [];
     const references = (node.data.references ?? []).map((reference) => {
@@ -984,8 +1024,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function uploadReferenceImages(node: StoryFlowNode, files: File[]): Promise<void> {
-    if (node.type !== "image" || files.length === 0 || generatingNodeId || uploadingNodeId) return;
-    const available = imageReferenceLimit(node, imageModels) - (node.data.images?.length ?? 0);
+    if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || generatingNodeId || uploadingNodeId) return;
+    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : model3DReferenceLimit(node)) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
       return;
@@ -999,7 +1039,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     try {
       const images = await Promise.all(files.map(readUploadImage));
       const assets = await Promise.all(images.map(({ name, image }) => createLibraryImage({ name, image })));
-      setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "image"
+      setNodes((current) => current.map((candidate) => candidate.id === node.id && (candidate.type === "image" || candidate.type === "model-3d")
         ? {
             ...candidate,
             data: {
@@ -1039,7 +1079,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     }
   }
 
-  async function generateMedia(node: StoryFlowNode, toolId: "generate-image" | "generate-video", input: RunImageToolRequest | RunVideoToolRequest, label: string): Promise<void> {
+  async function generateMedia(node: StoryFlowNode, toolId: "generate-image" | "generate-video" | "image-to-3d", input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest, label: string): Promise<void> {
     setGeneratingNodeId(node.id);
     setGenerationError(undefined);
     try {
@@ -1121,6 +1161,37 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
         },
       },
     };
+    if (node.type === "model-3d") {
+      const source = model3DSource(node);
+      const linkedPrompt = source === "text" ? resolveLinkedPrompt(node, nodes) : undefined;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          model3DRuntime: {
+            generating: generatingNodeId === node.id,
+            busy: Boolean(generatingNodeId || uploadingNodeId),
+            ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            onChange: (data: StoryFlowData) => {
+              setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
+              setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
+            },
+            onGenerate: () => void generateModel3D(node),
+            ...(linkedPrompt !== undefined ? { linkedPrompt } : {}),
+            onDisconnectPrompt: () => setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data: { ...candidate.data, promptSource: undefined } } : candidate)),
+            references: source === "image" ? imageReferenceViews(node, nodes, libraryAssets) : [],
+            maxReferences: source === "image" ? model3DReferenceLimit(node) : 0,
+            uploading: uploadingNodeId === node.id,
+            accept: "image/png,image/jpeg,image/webp",
+            addLabel: "Upload reference images",
+            onRemoveReference: (index: number) => setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "model-3d"
+              ? { ...candidate, data: { ...candidate.data, images: (candidate.data.images ?? []).filter((_, candidateIndex) => candidateIndex !== index) } }
+              : candidate)),
+            onUploadReferences: (files: File[]) => void uploadReferenceImages(node, files),
+          },
+        },
+      };
+    }
     if (!isMediaNodeType(node.type)) return node;
     const linkedPrompt = resolveLinkedPrompt(node, nodes);
     const runtime: MediaNodeRuntime = {
@@ -1365,7 +1436,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
                 hasOpenUi={nodes.some((node) => node.type === "open-ui")}
                 hasStoryMap={nodes.some((node) => node.type === "story-map")}
                 hasSettings={nodes.some((node) => node.type === "settings")}
-                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
+                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || (assetCanvas && asset.mediaType === "model"))}
                 importing={importingAssets}
                 reserveInspector={false}
                 onAdd={addNode}
@@ -1853,11 +1924,38 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
   );
 }
 
+function Model3DNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
+  const runtime = data.model3DRuntime;
+  const source = model3DSource({ type: "model-3d", data });
+  const prompt = effectivePrompt(data, runtime);
+  const hasImages = Boolean(data.images?.length);
+  return (
+    <MediaNodeShell kind="model" selected={selected} assetId={data.assetId} inputCount={source === "image" ? data.images?.length : undefined} runtime={runtime}>
+      {source === "image" ? <MediaReferenceStrip runtime={runtime} /> : <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onChange={(value) => runtime?.onChange({ ...data, model3DRuntime: undefined, prompt: value })} />}
+      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      <div className="story-media-controls">
+        <select aria-label="3D input" value={source} disabled={runtime?.busy || data.model3DModel === "meshy-t2"} onChange={(event) => runtime?.onChange({ ...data, model3DRuntime: undefined, model3DSource: event.target.value as "text" | "image" })}>
+          <option value="text">Text</option>
+          <option value="image">Image</option>
+        </select>
+        <select aria-label="3D model" value={data.model3DModel ?? "meshy-7"} disabled={runtime?.busy} onChange={(event) => {
+          const model = event.target.value as Model3DModel;
+          runtime?.onChange({ ...data, model3DRuntime: undefined, model3DModel: model, ...(model === "meshy-t2" ? { model3DSource: "image" as const } : {}) });
+        }}>
+          <option value="meshy-7">Meshy 7</option>
+          <option value="meshy-t2">Meshy T2</option>
+        </select>
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={source === "text" ? !prompt.trim() : !hasImages || (data.model3DModel === "meshy-t2" && data.images?.length !== 1)} />
+      </div>
+    </MediaNodeShell>
+  );
+}
+
 function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const kind = data.mediaType ?? "image";
   const preview = useWorkspaceAssetUrl(undefined, "", 0, kind === "audio" ? undefined : data.assetId);
-  const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : ImageIcon;
-  const mediaLayout = useMediaNodeLayout(kind === "audio" ? undefined : preview.url);
+  const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : kind === "model" ? Box : ImageIcon;
+  const mediaLayout = useMediaNodeLayout(kind === "audio" || kind === "model" ? undefined : preview.url);
   const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "92px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
@@ -1865,6 +1963,7 @@ function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
       <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || "Library image"} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
+        {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
         {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{preview.error ? "Asset unavailable" : "Audio"}</strong>{data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
         {!preview.url && kind !== "audio" ? <div className="story-media-empty"><Icon size={34} /><strong>{preview.error ? "Asset unavailable" : "Loading asset..."}</strong></div> : null}
       </div>
@@ -1874,18 +1973,18 @@ function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 }
 
 function MediaPrompt({ kind, value, runtime, onChange }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   value: string;
   runtime?: MediaNodeRuntime;
   onChange: (prompt: string) => void;
 }) {
   return (
     <textarea
-      aria-label={`${kind === "image" ? "Image" : "Video"} prompt`}
+      aria-label={`${kind === "model" ? "3D model" : titleCase(kind)} prompt`}
       rows={3}
       value={value}
       disabled={runtime?.busy}
-      placeholder={`Describe the ${kind} you want to create`}
+      placeholder={`Describe the ${kind === "model" ? "3D model" : kind} you want to create`}
       onChange={(event) => onChange(event.target.value)}
     />
   );
@@ -1968,7 +2067,7 @@ function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
 }
 
 function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, runtime, children }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   selected: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
@@ -1977,15 +2076,16 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
-  const Icon = kind === "image" ? ImageIcon : Film;
-  const label = kind === "image" ? "Image" : "Video";
-  const mediaLayout = useMediaNodeLayout(preview.url, aspectRatio);
+  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : Box;
+  const label = kind === "image" ? "Image" : kind === "video" ? "Video" : "Model 3D";
+  const mediaLayout = useMediaNodeLayout(kind === "model" ? undefined : preview.url, aspectRatio);
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
       <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
+        {preview.url && kind === "model" ? <ModelPreview source={preview.url} label="Generated 3D model" minHeight={220} interactive={false} /> : null}
         {!preview.url ? (
           <div className="story-media-empty">
             <Icon size={34} />
@@ -2139,12 +2239,13 @@ function fitMediaNode(aspectRatio = 16 / 10): { width: number; height: number } 
 }
 
 function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   assetId?: string;
   runtime?: MediaNodeRuntime;
   disabled: boolean;
 }) {
-  const label = assetId ? `Generate ${kind} again` : `Generate ${kind}`;
+  const labelKind = kind === "model" ? "3D model" : kind;
+  const label = assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
       {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
@@ -2972,7 +3073,7 @@ function StoryAssetPicker({ title, assets, onClose, onSelect }: {
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
           {visibleAssets.map((asset) => {
-            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : ImageIcon;
+            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
             return <button type="button" key={asset.id} onClick={() => onSelect(asset)}>
               <span><Icon size={17} /></span>
               <span><strong>{asset.prompt ?? asset.name}</strong><small>{asset.name}</small></span>
@@ -3189,7 +3290,7 @@ function StoryCanvasContextMenu({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const creationGroups = assetCanvas ? CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets") : CANVAS_NODE_CREATION_GROUPS;
+  const creationGroups = canvasCreationGroups(assetCanvas);
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -3391,6 +3492,20 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "model-3d") return {
+    id: node.id,
+    type: "model-3d",
+    position: node.position,
+    deletable: true,
+    data: {
+      prompt: node.data.prompt,
+      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+      model3DModel: node.data.model,
+      model3DSource: node.data.source,
+      images: node.data.images,
+      ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+    },
+  };
   if (node.type !== "image" || node.data.model) return { ...node, deletable: true };
   const model = imageModels[0];
   const option = preferredImageOption(model);
@@ -3465,6 +3580,12 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
       },
     };
   }
+  if (type === "model-3d") return {
+    id,
+    type,
+    position,
+    data: { prompt: "", images: [], model3DModel: "meshy-7", model3DSource: "text" },
+  };
   return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
 
@@ -3586,6 +3707,19 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "model-3d") return {
+    id: node.id,
+    type: "model-3d",
+    position: node.position,
+    data: {
+      prompt: node.data.prompt ?? "",
+      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+      ...(node.data.model3DModel ? { model: node.data.model3DModel } : {}),
+      source: model3DSource(node),
+      images: node.data.images ?? [],
+      ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+    },
+  };
   return {
     id: node.id,
     type: node.type,
@@ -3616,7 +3750,7 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
 }
 
 function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
-  if (node.type !== "image") return [];
+  if (node.type !== "image" && node.type !== "model-3d") return [];
   return (node.data.images ?? []).map((reference, index) => {
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
@@ -3666,6 +3800,16 @@ function imageReferenceLimit(node: StoryFlowNode, imageModels: ImageModel[]): nu
   return imageModels.find((model) => sameImageModel(model, node.data.model))?.supportsReferenceImage ? IMAGE_REFERENCE_LIMIT : 0;
 }
 
+function model3DReferenceLimit(node: StoryFlowNode): number {
+  return node.type === "model-3d" && node.data.model3DModel === "meshy-t2" ? 1 : 4;
+}
+
+function model3DSource(node: Pick<StoryFlowNode, "type" | "data">): "text" | "image" {
+  if (node.type !== "model-3d") return "text";
+  if (node.data.model3DModel === "meshy-t2") return "image";
+  return node.data.model3DSource ?? "text";
+}
+
 type ConnectionRelation = "image-reference" | "video-reference" | "prompt" | "presentation-media" | "story";
 
 function connectionRelation(
@@ -3688,7 +3832,13 @@ function connectionRelation(
       ? "image-reference"
       : undefined;
   }
-  if (source.type === "text" && (target.type === "image" || target.type === "video")) {
+  if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d" && model3DSource(target) === "image") {
+    return (target.data.images?.length ?? 0) < model3DReferenceLimit(target) &&
+      !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
+      ? "image-reference"
+      : undefined;
+  }
+  if (source.type === "text" && (target.type === "image" || target.type === "video" || (target.type === "model-3d" && model3DSource(target) === "text"))) {
     return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
   if (target.type === "video") {
@@ -3777,8 +3927,8 @@ function hasNodeEditor(node: StoryFlowNode): boolean {
     || node.type === "ending";
 }
 
-function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "asset" {
-  return type === "text" || type === "asset" || isMediaNodeType(type);
+function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "model-3d" | "asset" {
+  return type === "text" || type === "asset" || type === "model-3d" || isMediaNodeType(type);
 }
 
 function isVisiblePresentationFlowNode(node: StoryFlowNode): boolean {
@@ -3834,7 +3984,7 @@ function videoReferenceType(node: StoryFlowNode | undefined, libraryAssets: Libr
   if (node.data.mediaType === "image" && asset?.contentType !== "image/png" && asset?.contentType !== "image/jpeg" && asset?.contentType !== "image/webp") return undefined;
   if (node.data.mediaType === "video" && asset?.contentType !== "video/mp4" && asset?.contentType !== "video/quicktime") return undefined;
   if (node.data.mediaType === "audio" && asset?.contentType !== "audio/mpeg" && asset?.contentType !== "audio/wav") return undefined;
-  return node.data.mediaType;
+  return node.data.mediaType === "image" || node.data.mediaType === "video" || node.data.mediaType === "audio" ? node.data.mediaType : undefined;
 }
 
 function canAddVideoReference(target: StoryFlowNode, source: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): boolean {
@@ -3861,7 +4011,7 @@ function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "pre
 function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySet<string>): StoryFlowNode[] {
   return nodes
     .filter((node) => !removedIds.has(node.id))
-    .map((node) => node.type === "image"
+    .map((node) => node.type === "image" || node.type === "model-3d"
         ? {
             ...node,
             data: {
@@ -3928,6 +4078,24 @@ async function promptImage(blob: Blob): Promise<CreateLibraryImageRequest["image
     reader.readAsDataURL(blob);
   });
   return { mediaType: blob.type, data: dataUrl.split(",", 2)[1] ?? "" };
+}
+
+async function modelPromptImage(blob: Blob): Promise<CreateLibraryImageRequest["image"]> {
+  if (blob.type !== "image/webp") return promptImage(blob);
+  const image = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the connected image for 3D generation.");
+    context.drawImage(image, 0, 0);
+    const png = await new Promise<Blob | undefined>((resolve) => canvas.toBlob((value) => resolve(value ?? undefined), "image/png"));
+    if (!png) throw new Error("Could not prepare the connected image for 3D generation.");
+    return promptImage(png);
+  } finally {
+    image.close();
+  }
 }
 
 async function readUploadImage(file: File): Promise<{ name: string; image: CreateLibraryImageRequest["image"] }> {

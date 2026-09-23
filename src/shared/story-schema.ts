@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, MODEL_3D_MODELS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
 
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const id = ref("id");
@@ -228,7 +228,15 @@ const nodes = [
       references: { type: "array", maxItems: 15, items: assetReference }, assetId: id,
     },
   }),
-  node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio"] } } }),
+  node("model-3d", {
+    type: "object", additionalProperties: false, required: ["prompt", "source", "images"],
+    properties: {
+      prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+      model: { enum: MODEL_3D_MODELS }, source: { enum: ["text", "image"] }, images: { type: "array", maxItems: 4, items: assetReference },
+      assetId: id,
+    },
+  }),
+  node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } } }),
 ];
 
 /** JSON Schema for the persisted story.json file. Cross-file graph rules remain runtime validations. */
