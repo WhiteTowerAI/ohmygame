@@ -4,6 +4,7 @@ export type SidebarPage =
   | "library"
   | "plugins"
   | "interactive-drama"
+  | "asset-canvas"
   | "asset-studio"
   | "community";
 
@@ -12,7 +13,7 @@ export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community">;
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "projects", "library", "plugins", "interactive-drama", "asset-studio",
+  "home", "projects", "library", "plugins", "interactive-drama", "asset-canvas", "asset-studio",
 ]);
 
 export type AppRoute =

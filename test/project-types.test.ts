@@ -6,6 +6,7 @@ describe("project types", () => {
     expect(PROJECT_TYPES).toEqual([
       { label: "Web Game", value: "web-game" },
       { label: "Interactive Drama", value: "interactive-drama" },
+      { label: "Asset Canvas", value: "asset-canvas" },
       { label: "Godot", value: "godot-game" },
     ]);
   });

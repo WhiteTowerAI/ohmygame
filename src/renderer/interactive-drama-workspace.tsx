@@ -225,6 +225,10 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
+function canvasCreationGroups(assetCanvas: boolean): CanvasNodeCreationGroup[] {
+  return assetCanvas ? CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets") : CANVAS_NODE_CREATION_GROUPS;
+}
+
 function isSingletonStoryNode(node: { type?: string }): boolean {
   return node.type === "start" || node.type === "open-ui" || node.type === "story-map" || node.type === "settings";
 }
@@ -343,8 +347,9 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
+export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
   project: ProjectState;
+  assetCanvas?: boolean;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
@@ -741,6 +746,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
+    if (assetCanvas && type !== "text" && type !== "image" && type !== "video") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
     const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
@@ -1232,36 +1238,37 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setEdges(nextChapter.edges);
     if (next.editorLayout) {
       setEditorLayout(next.editorLayout);
-      setWorkspaceView(next.editorLayout.view === "code" ? "code" : "canvas");
+      setWorkspaceView(!assetCanvas && next.editorLayout.view === "code" ? "code" : "canvas");
     }
     setSelectedId((current) => current && nextChapter.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
+  const creationGroups = canvasCreationGroups(assetCanvas);
   return (
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label={assetCanvas ? "Asset Canvas workspace" : "Interactive Drama workspace"} style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
-          <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
-          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
+          {!assetCanvas ? <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button> : null}
+          {!assetCanvas ? <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button> : null}
         </div>
-        <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+        {!assetCanvas ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
           <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
           <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
-        </nav>
+        </nav> : null}
         <div className="interactive-drama-header-actions">
-          <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
+          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
-          </button>
-          <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          </button> : null}
+          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
-          </button>
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
+          </button> : null}
+          {!assetCanvas ? <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
             <span>{building ? "Exporting" : "Export"}</span>
-          </button>
+          </button> : null}
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
@@ -1351,6 +1358,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               <StoryCanvasAlignmentGuides guides={alignmentGuides} />
               <ZoomControls />
               <CanvasToolbar
+                assetCanvas={assetCanvas}
                 mode={interactionMode}
                 canvas={canvas}
                 hasStart={nodes.some((node) => node.type === "start")}
@@ -1370,6 +1378,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             </StoryCanvasPlayerContext.Provider>
           ) : null}
           {canvasContextMenu ? <StoryCanvasContextMenu
+            assetCanvas={assetCanvas}
             menu={canvasContextMenu}
             canUndo={canUndo}
             canRedo={canRedo}
@@ -2989,6 +2998,7 @@ function InspectorField({ label, children }: { label: string; children: React.Re
 }
 
 function CanvasToolbar({
+  assetCanvas,
   mode,
   canvas,
   hasStart,
@@ -3004,6 +3014,7 @@ function CanvasToolbar({
   onUpload,
   onModeChange,
 }: {
+  assetCanvas: boolean;
   mode: InteractionMode;
   canvas: React.RefObject<HTMLDivElement | null>;
   hasStart: boolean;
@@ -3019,6 +3030,7 @@ function CanvasToolbar({
   onUpload: (file: File, position: { x: number; y: number }) => void;
   onModeChange: (mode: InteractionMode) => void;
 }) {
+  const creationGroups = canvasCreationGroups(assetCanvas);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -3073,7 +3085,7 @@ function CanvasToolbar({
         {addOpen ? (
           <div className="story-add-node-menu-shell">
             <div className="story-add-node-menu" role="menu" aria-label="Add node">
-              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              {creationGroups.map((group) => <Fragment key={group.label}>
                 <span className="story-add-node-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;
@@ -3133,6 +3145,7 @@ function CanvasToolbar({
 }
 
 function StoryCanvasContextMenu({
+  assetCanvas,
   menu,
   canUndo,
   canRedo,
@@ -3154,6 +3167,7 @@ function StoryCanvasContextMenu({
   onDuplicate,
   onDelete,
 }: {
+  assetCanvas: boolean;
   menu: CanvasContextMenuState;
   canUndo: boolean;
   canRedo: boolean;
@@ -3175,6 +3189,7 @@ function StoryCanvasContextMenu({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const creationGroups = assetCanvas ? CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets") : CANVAS_NODE_CREATION_GROUPS;
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -3232,7 +3247,7 @@ function StoryCanvasContextMenu({
           <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
             <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
-              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              {creationGroups.map((group) => <Fragment key={group.label}>
                 <span className="story-canvas-context-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;

@@ -83,7 +83,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
       storyViewport: {
         type: "object",

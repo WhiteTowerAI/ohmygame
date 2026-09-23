@@ -1889,6 +1889,10 @@ body {
   mask-image: url("./assets/sidebar/interactive-drama.svg");
   -webkit-mask-image: url("./assets/sidebar/interactive-drama.svg");
 }
+.home-nav-icon-asset-canvas {
+  mask-image: url("./assets/sidebar/assets.svg");
+  -webkit-mask-image: url("./assets/sidebar/assets.svg");
+}
 .home-nav-icon-community {
   mask-image: url("./assets/sidebar/games.svg");
   -webkit-mask-image: url("./assets/sidebar/games.svg");
@@ -2047,6 +2051,21 @@ button.home-nav-item-active:hover {
   text-align: center;
 }
 
+.asset-canvas-home {
+  padding-top: 128px;
+}
+
+.asset-canvas-start {
+  width: min(720px, 100%);
+}
+
+.home-start-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .home-start h1 {
   margin: 0 0 30px;
   color: var(--text);
@@ -2076,6 +2095,26 @@ button.home-nav-item-active:hover {
 .home-start-blank:hover {
   background: var(--home-sidebar-hover);
   color: var(--text);
+}
+
+.asset-canvas-start h1 {
+  margin-bottom: 18px;
+}
+
+.asset-canvas-create {
+  height: 34px;
+  margin-top: 22px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.asset-canvas-create:hover {
+  border-color: var(--text-muted);
+  background: var(--surface-hover);
 }
 
 .interactive-drama-recent .home-section-heading {
@@ -2233,6 +2272,25 @@ button.home-nav-item-active:hover {
   width: 100%;
   max-width: 1096px;
   margin: 48px auto 0;
+}
+
+.asset-canvas-recent {
+  margin-top: 72px;
+}
+
+.asset-canvas-empty {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.asset-canvas-empty svg {
+  flex: 0 0 auto;
+  color: var(--text-faint);
 }
 
 .home-section-heading {
