@@ -6,6 +6,7 @@ node_modules/
 dist/
 release/
 .runtime/
+.vite/
 coverage/
 .playwright-cli/
 /output/playwright/
