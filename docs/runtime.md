@@ -85,6 +85,70 @@ and events remain in the daemon. Closing the last window quits the application
 and gives the daemon time to stop active Pi and preview processes before it
 exits.
 
+### Agent browser playtesting
+
+The desktop runtime exposes browser-game verification as the Pi custom tool
+`playtest_browser`. This is an OhMyGame core capability rather than a Plugin:
+
+1. The daemon starts or reuses the current project's local Preview and accepts
+   only a path, query, or hash on that Preview origin.
+2. A private child-process IPC channel forwards typed requests from the daemon
+   to Electron main. It is not part of the renderer API.
+3. Electron main owns hidden, per-playtest `BrowserWindow` sessions using the
+   bundled Chromium runtime.
+4. The custom tool returns bounded DOM, canvas, console, failed-request, and
+   optional game-state data. PNG captures are returned to the model as image
+   content.
+
+The tool supports `open`, `inspect`, `act`, `capture`, and `close`. Actions
+cover semantic or coordinate clicks, text input, key presses, touch, bounded
+waits, viewport resizing, and the optional game bridge below. Calls are
+sequential, abort with the Agent turn, and time out after 30 seconds. Sessions
+are destroyed when explicitly closed, when the daemon or Electron app shuts
+down, or after an open failure. At most four sessions may remain open at once,
+which bounds hidden-window resource use if an Agent misses cleanup.
+
+Playtest windows use an isolated partition with sandboxing, context isolation,
+and Node integration disabled. Main-frame navigation stays on the original
+Preview origin, popups and downloads are blocked, and permissions are denied
+except pointer and keyboard lock for game input. Only loopback HTTP Preview
+URLs are accepted. This capability is available only when the daemon is owned
+by the Electron process; browser-only daemon development does not register the
+tool.
+
+This is deliberately a game-focused browser driver, not unrestricted Browser
+Use or desktop Computer Use. It provides the smallest stable surface needed for
+repeatable gameplay and visual checks without adding Playwright, Puppeteer, or
+a system Chrome dependency to generated games.
+
+#### Optional game bridge
+
+Games with random, timed, or deeply nested states may expose a serializable,
+test-only bridge while the `ohmygamePlaytest` query parameter is present:
+
+```ts
+declare global {
+  interface Window {
+    __OHMYGAME_PLAYTEST__?: {
+      snapshot?: () => unknown | Promise<unknown>;
+      reset?: () => void | Promise<void>;
+      setSeed?: (seed: number) => void | Promise<void>;
+      step?: (milliseconds: number) => void | Promise<void>;
+    };
+  }
+}
+
+export {};
+```
+
+`snapshot()` should return compact JSON-serializable simulation state, not
+renderer objects or credentials. The other methods should perform one named,
+deterministic operation and may be asynchronous. The driver advertises only
+methods that exist. Games must remain fully playable without this bridge, and
+playtests should still use real input and screenshots to verify what a player
+sees. Capture analysis reports opacity and luminance variance as a blank-frame
+warning; it is a heuristic rather than a semantic visual assertion.
+
 ## Persistence and recovery
 
 Each project is self-contained under the daemon data directory:

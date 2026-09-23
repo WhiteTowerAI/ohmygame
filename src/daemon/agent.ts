@@ -242,6 +242,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         if (result.output) tool.output = result.output;
         if (result.truncated) tool.truncated = true;
         if (result.artifact) tool.artifact = result.artifact;
+        if (result.images?.length) tool.images = result.images;
       }
     }
   }
@@ -1887,18 +1888,25 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[] } {
   const artifact = toolArtifact(result);
+  const images = result && typeof result === "object" && "content" in result
+    ? imageContent((result as { content?: unknown }).content)
+    : [];
+  const media = {
+    ...(artifact ? { artifact } : {}),
+    ...(images.length ? { images } : {}),
+  };
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
     : stringify(result);
-  if (!value) return artifact ? { artifact } : {};
-  if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...(artifact ? { artifact } : {}) };
+  if (!value) return media;
+  if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...media };
   const half = MAX_TOOL_OUTPUT / 2;
   return {
     output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
     truncated: true,
-    ...(artifact ? { artifact } : {}),
+    ...media,
   };
 }
 

@@ -52,6 +52,7 @@ import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
+import type { PlaytestDriver } from "../shared/playtest.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -73,6 +74,7 @@ export interface AppOptions {
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
+  playtestDriver?: PlaytestDriver;
 }
 
 async function accountReply<T>(
@@ -630,6 +632,12 @@ export function createApp(options: AppOptions = {}) {
             invalidatePluginSessions();
             return await plugins.read(installed.id) ?? installed;
           },
+          options.playtestDriver ? {
+            driver: options.playtestDriver,
+            ensurePreview: async () => project.preview.status === "ready" && project.preview.url
+              ? project.preview.url
+              : previews.start(project),
+          } : undefined,
         ),
         modelRuntime,
         model,
@@ -2751,6 +2759,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    options.playtestDriver?.close();
     tools.close();
     modelAuth.close();
     await agents.close();

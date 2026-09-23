@@ -4,6 +4,7 @@ import {
   Copy,
   FilePenLine,
   FileText,
+  Gamepad2,
   Image,
   LoaderCircle,
   Pencil,
@@ -355,6 +356,7 @@ function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find" || tool.tool === "read" || tool.tool === "ls"))) return Search;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "playtest_browser")) return Gamepad2;
   const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
   if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
   if (mcpCalls.length > 0) return Plug;
@@ -595,12 +597,25 @@ function FileChangeDetails({ item, args }: { item: ToolCallItem; args: Record<st
 function StructuredToolDetails({ item }: { item: ToolCallItem }) {
   return (
     <div className="tool-details">
+      {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
       {item.arguments !== undefined ? <ToolDetailBlock label="Input"><pre>{formatToolValue(item.arguments)}</pre></ToolDetailBlock> : null}
       {item.output ? <ToolDetailBlock label="Output"><pre>{item.output}</pre></ToolDetailBlock> : null}
       {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
       {!item.output && item.status === "failed" ? <p className="tool-details-error">The tool call failed without output.</p> : null}
     </div>
   );
+}
+
+function ToolImagePreviews({ images }: { images: PromptImage[] }) {
+  return <div className="tool-result-images">
+    {images.map((image, index) => (
+      <img
+        key={`${image.mediaType}:${index}`}
+        src={imageSource(image)}
+        alt={image.name ?? (images.length === 1 ? "Tool result image" : `Tool result image ${index + 1}`)}
+      />
+    ))}
+  </div>;
 }
 
 function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
@@ -618,10 +633,10 @@ function ToolDetailBlock({ label, children }: { label: string; children: ReactNo
 
 function hasToolDetails(item: ToolCallItem): boolean {
   if (item.status === "failed" || item.truncated) return true;
-  if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output);
+  if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["read", "grep", "find", "ls", "edit", "write"].includes(item.tool)) return Boolean(item.output);
-  return item.arguments !== undefined || Boolean(item.output);
+  return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 
 function formatToolValue(value: unknown): string {
@@ -667,6 +682,7 @@ function preparingToolLabel(toolName: string): string {
     case "write": return "Preparing file";
     case "edit": return "Preparing edit";
     case "mcp": return "Preparing MCP";
+    case "playtest_browser": return "Preparing game playtest";
     case "tool": return "Preparing";
     default: return `Preparing ${toolName}`;
   }
@@ -700,6 +716,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
     case "find": return { icon: Search, label: searchLabel("Finding", values) };
     case "ls": return { icon: Search, label: withTarget("Listing", values) };
+    case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, false) };
     default: return { icon: Wrench, label: toolName };
   }
 }
@@ -719,7 +736,23 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "grep": return { icon: Search, label: searchLabel("Searched for", values) };
     case "find": return { icon: Search, label: searchLabel("Searched for", values) };
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
+    case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, true) };
     default: return { icon: Wrench, label: `Used ${toolName}` };
+  }
+}
+
+function playtestLabel(values: Record<string, unknown> | undefined, completed: boolean): string {
+  switch (text(values?.operation)) {
+    case "open": return completed ? "Opened game preview" : "Opening game preview";
+    case "inspect": return completed ? "Inspected game state" : "Inspecting game state";
+    case "act": {
+      const count = Array.isArray(values?.actions) ? values.actions.length : 0;
+      const target = count === 1 ? "a playtest action" : "playtest actions";
+      return completed ? `Ran ${target}` : `Running ${target}`;
+    }
+    case "capture": return completed ? "Captured game screenshot" : "Capturing game screenshot";
+    case "close": return completed ? "Closed game preview" : "Closing game preview";
+    default: return completed ? "Used game playtest" : "Running game playtest";
   }
 }
 

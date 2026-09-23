@@ -9,6 +9,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/seedance-video.js";
+import type { PlaytestDriver } from "../src/shared/playtest.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
@@ -40,6 +41,30 @@ describe("agent tools", () => {
       ["generate-image"],
       ["mcp", "questionnaire"],
     )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
+  });
+
+  it("registers browser playtesting only when a desktop driver is available", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playtest-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Browser Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const driver: PlaytestDriver = {
+      available: true,
+      request: async () => ({ operation: "closeAll" }),
+      close: () => {},
+    };
+
+    expect(createAgentTools(project, runner, projects).some(({ name }) => name === "playtest_browser")).toBe(false);
+    expect(createAgentTools(
+      project,
+      runner,
+      projects,
+      undefined,
+      undefined,
+      { driver, ensurePreview: async () => "http://127.0.0.1:43210/" },
+    ).some(({ name }) => name === "playtest_browser")).toBe(true);
   });
 
   it("installs a plugin only from inside the current workspace", async () => {
