@@ -6281,12 +6281,6 @@ button {
   background: transparent;
 }
 
-.asset-template-sections {
-  display: grid;
-  width: 100%;
-  gap: 24px;
-}
-
 .asset-template-section {
   display: grid;
   gap: 10px;
@@ -6340,33 +6334,6 @@ button {
   cursor: pointer;
   text-align: left;
 }
-.asset-template-card > .community-meta {
-  min-height: 23px;
-  padding: 0 10px 8px;
-  font-size: 10px;
-}
-.asset-template-card > .community-meta .community-author,
-.asset-template-card > .community-meta .community-stats {
-  gap: 5px;
-}
-.asset-template-card > .community-meta .community-author > :is(img, span) {
-  width: 16px;
-  height: 16px;
-  flex-basis: 16px;
-  font-size: 8px;
-}
-.asset-template-card > .community-meta .community-like-button {
-  padding: 2px;
-}
-.asset-template-card
-  > .community-meta
-  .community-stats
-  > span:last-child::before {
-  content: "·";
-  margin-right: 5px;
-  color: var(--text-faint);
-}
-
 .asset-template-card-open:hover .asset-template-card-copy strong {
   color: var(--home-accent);
 }

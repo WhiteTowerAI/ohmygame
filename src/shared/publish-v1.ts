@@ -4,7 +4,7 @@ export const PUBLISH_GAME_COVER_PATH = "__ohmygame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
 
-export type CommunitySubjectType = "game" | "plugin" | "template";
+export type CommunitySubjectType = "game" | "plugin";
 
 export interface CommunityAuthor {
   id: string;
@@ -103,55 +103,6 @@ export interface PublishPlugin {
   updatedAt: string;
   origin?: PublishPluginOrigin;
 }
-
-export interface PublishTemplate {
-  id: string;
-  publisherId: string;
-  name: string;
-  currentReleaseId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PublishTemplateRelease {
-  id: string;
-  templateId: string;
-  definition: import("./asset-templates.js").AssetTemplateDefinition;
-  hasCover: boolean;
-  publishedAt: string;
-}
-
-export type PublishExploreTemplate = import("./asset-templates.js").AssetTemplateDefinition & {
-  id: string;
-  releaseId: string;
-  publishedAt: string;
-  hasCover?: boolean;
-  author: CommunityAuthor;
-  stats: CommunityStats;
-};
-
-export interface CreatePublishTemplateRequest {
-  name: string;
-}
-
-export interface CreatePublishTemplateReleaseRequest {
-  definition: import("./asset-templates.js").AssetTemplateDefinition;
-  coverSha256?: string;
-  coverBytes?: number;
-}
-
-export interface CreatePublishTemplateReleaseResult {
-  template: PublishTemplate;
-  release: PublishTemplateRelease;
-}
-
-export type PublishTemplateListing = {
-  templateId: string;
-  updatedAt: string;
-} & (
-  | { status: "listed"; listedAt: string }
-  | { status: "unlisted"; listedAt: null }
-);
 
 export interface PublishPluginRelease {
   id: string;

@@ -33,7 +33,7 @@ const describePublishContract = createPublishApp ? describe : describe.skip;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describePublishContract("remote publish", () => {
-  it("saves, publishes, and loads an Asset Template from Explore", async () => {
+  it("saves, loads, and deletes a local Asset Template", async () => {
     const runtime = await testRuntime();
     const saved = await runtime.daemon.inject({
       method: "POST", url: "/asset-templates", payload: {
@@ -53,34 +53,19 @@ describePublishContract("remote publish", () => {
     });
     expect(covered.statusCode, covered.body).toBe(200);
     expect(covered.json().hasCover).toBe(true);
-    const published = await runtime.daemon.inject({
-      method: "POST", url: `/asset-templates/${saved.json().id}/publish`, payload: { accessToken: token },
-    });
-    expect(published.statusCode, published.body).toBe(201);
     expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([
-      expect.objectContaining({ id: saved.json().id, publication: expect.objectContaining({ templateId: published.json().template.id, status: "listed" }) }),
+      expect.objectContaining({ id: saved.json().id, name: "Cinematic Shot", source: "local", hasCover: true }),
     ]);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "Cinematic Shot", source: "catalog", releaseId: published.json().release.id, hasCover: true }),
-    ]));
     const localCover = await runtime.daemon.inject({ method: "GET", url: `/asset-templates/${saved.json().id}/cover` });
     expect(localCover.statusCode).toBe(200);
     expect(localCover.rawPayload).toEqual(cover);
-    const exploreCover = await runtime.daemon.inject({
-      method: "GET",
-      url: `/explore/templates/${published.json().template.id}/releases/${published.json().release.id}/cover`,
-    });
-    expect(exploreCover.statusCode, exploreCover.body).toBe(200);
-    expect(exploreCover.rawPayload).toEqual(cover);
-
-    const unpublished = await runtime.daemon.inject({
-      method: "PUT", url: `/asset-templates/${saved.json().id}/publication`, payload: { accessToken: token, status: "unlisted" },
-    });
-    expect(unpublished.statusCode, unpublished.body).toBe(200);
-    expect(unpublished.json().publication.status).toBe("unlisted");
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).json())
-      .not.toContainEqual(expect.objectContaining({ id: published.json().template.id }));
-
+    expect((await runtime.daemon.inject({
+      method: "POST", url: `/asset-templates/${saved.json().id}/publish`, payload: { accessToken: token },
+    })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({
+      method: "POST", url: "/community/template/template/use", payload: { accessToken: token },
+    })).statusCode).toBe(400);
     const deleted = await runtime.daemon.inject({ method: "DELETE", url: `/asset-templates/${saved.json().id}` });
     expect(deleted.statusCode).toBe(204);
     expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([]);

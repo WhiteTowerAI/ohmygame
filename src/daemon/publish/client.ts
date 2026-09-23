@@ -8,9 +8,7 @@ import type {
   CommunityViewerState,
   CreatePublishDeploymentResult,
   CreatePublishPluginReleaseResult,
-  CreatePublishTemplateReleaseResult,
   PublishExplorePlugin,
-  PublishExploreTemplate,
   PublishApiError,
   PublishDeployment,
   PublishGame,
@@ -19,7 +17,6 @@ import type {
   PublishPluginPublication,
   PublishPluginOrigin,
   PublishPluginSkill,
-  PublishTemplate,
 } from "../../shared/publish-v1.js";
 
 export interface RemotePublisherOptions {
@@ -130,61 +127,6 @@ export class RemotePublisher {
 
   pluginSkillContent(pluginId: string, releaseId: string, skillId: string): Promise<PluginSkillContent> {
     return this.#request(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/skill-content?id=${encodeURIComponent(skillId)}`);
-  }
-
-  async publishTemplate(input: {
-    localId: string;
-    templateId?: string;
-    definition: import("../../shared/asset-templates.js").AssetTemplateDefinition;
-    cover?: Buffer;
-  }, accessToken: string): Promise<CreatePublishTemplateReleaseResult> {
-    let template = input.templateId
-      ? await this.#request<PublishTemplate>(`/v1/templates/${encodeURIComponent(input.templateId)}`, {}, accessToken).catch((error) => {
-        if (error instanceof RemotePublishError && error.statusCode === 404) return undefined;
-        throw error;
-      })
-      : undefined;
-    template ??= await this.#request<PublishTemplate>("/v1/templates", {
-      method: "POST",
-      headers: { "idempotency-key": `template-${input.localId}` },
-      body: JSON.stringify({ name: input.definition.name }),
-    }, accessToken);
-    const metadata = {
-      definition: input.definition,
-      ...(input.cover ? {
-        coverSha256: createHash("sha256").update(input.cover).digest("hex"),
-        coverBytes: input.cover.length,
-      } : {}),
-    };
-    const form = new FormData();
-    form.set("metadata", JSON.stringify(metadata));
-    if (input.cover) form.set("cover", new Blob([new Uint8Array(input.cover)], { type: "image/webp" }), "cover.webp");
-    const key = createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
-    const result = await this.#request<CreatePublishTemplateReleaseResult>(`/v1/templates/${template.id}/releases`, {
-      method: "POST",
-      headers: { "idempotency-key": `template-release-${template.id}-${key}` },
-      body: form,
-    }, accessToken);
-    await this.#request(`/v1/templates/${template.id}/listing`, {
-      method: "PUT", body: JSON.stringify({ status: "listed" }),
-    }, accessToken);
-    return result;
-  }
-
-  exploreTemplates(): Promise<PublishExploreTemplate[]> {
-    return this.#request("/v1/explore/templates");
-  }
-
-  async templateCover(templateId: string, releaseId: string): Promise<Buffer> {
-    const response = await this.#response(`/v1/explore/templates/${encodeURIComponent(templateId)}/releases/${encodeURIComponent(releaseId)}/cover`);
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  setTemplateListing(templateId: string, status: "listed" | "unlisted", accessToken: string): Promise<import("../../shared/publish-v1.js").PublishTemplateListing> {
-    return this.#request(`/v1/templates/${encodeURIComponent(templateId)}/listing`, {
-      method: "PUT",
-      body: JSON.stringify({ status }),
-    }, accessToken);
   }
 
   communityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {

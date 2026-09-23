@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountApi, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getExploreTemplateCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listExploreTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishAssetTemplate, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setAssetTemplatePublicationStatus, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -52,47 +52,34 @@ describe("renderer event stream", () => {
     const local = { id: "local-1", hasCover: true };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json(local))
-      .mockResolvedValueOnce(new Response(cover, { headers: { "content-type": "image/webp" } }))
       .mockResolvedValueOnce(new Response(cover, { headers: { "content-type": "image/webp" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(setAssetTemplateCover("local-1", cover)).resolves.toEqual(local);
     await expect(getAssetTemplateCover("local-1")).resolves.toBeInstanceOf(Blob);
-    await expect(getExploreTemplateCover("remote-1", "release-1")).resolves.toBeInstanceOf(Blob);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/asset-templates/local-1/cover", expect.objectContaining({
       method: "PUT", body: cover, headers: expect.objectContaining({ "content-type": "image/webp" }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/explore/templates/remote-1/releases/release-1/cover", expect.any(Object));
   });
 
-  it("uses the Asset Template save, Explore, and publish endpoints", async () => {
+  it("uses the local Asset Template endpoints", async () => {
     installWindow();
     const definition = {
       mode: "image" as const, name: "Character", description: "",
       promptPlaceholder: "Describe a character", defaults: { imageResolution: "1K" as const },
     };
     const local = { ...definition, id: "local-1", source: "local" as const, createdAt: new Date(0).toISOString() };
-    const remote = { ...definition, id: "remote-1", source: "catalog" as const, releaseId: "release-1", publishedAt: new Date(0).toISOString() };
-    const published = { template: { id: "remote-1" }, release: { id: "release-1" } };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json([local]))
       .mockResolvedValueOnce(Response.json(local, { status: 201 }))
-      .mockResolvedValueOnce(Response.json([remote]))
-      .mockResolvedValueOnce(Response.json(published, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({ ...local, publication: { templateId: "remote-1", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "unlisted" } }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(listAssetTemplates()).resolves.toEqual([local]);
     await expect(createAssetTemplate(definition)).resolves.toEqual(local);
-    await expect(listExploreTemplates()).resolves.toEqual([remote]);
-    await expect(publishAssetTemplate("local-1", "token")).resolves.toEqual(published);
-    await expect(setAssetTemplatePublicationStatus("local-1", "unlisted", "token")).resolves.toMatchObject({ publication: { status: "unlisted" } });
     await expect(deleteAssetTemplate("local-1")).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-templates", expect.objectContaining({ method: "POST", body: JSON.stringify(definition) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/asset-templates/local-1/publish", expect.objectContaining({ method: "POST", body: JSON.stringify({ accessToken: "token" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/asset-templates/local-1/publication", expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "unlisted", accessToken: "token" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/asset-templates/local-1", expect.objectContaining({ method: "DELETE" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/asset-templates/local-1", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("handles chunked UTF-8 and ignores malformed events", async () => {

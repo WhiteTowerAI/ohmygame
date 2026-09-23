@@ -47,8 +47,8 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
-import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, CreatePublishTemplateReleaseResult, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
-import type { CreateAssetTemplateRequest, ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
+import type { CommunityInteractionResult, CommunityStats, CommunitySubjectType, CommunityViewerState, PublishPluginListing, PublishPluginPublication } from "../shared/publish-v1.js";
+import type { CreateAssetTemplateRequest, LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import type { AccountApi } from "../shared/account.js";
 
@@ -508,30 +508,6 @@ export async function getAssetTemplateCover(templateId: string): Promise<Blob | 
 
 export async function deleteAssetTemplate(templateId: string): Promise<void> {
   await request(`/asset-templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
-}
-
-export async function publishAssetTemplate(templateId: string, accessToken: string): Promise<CreatePublishTemplateReleaseResult> {
-  return request(`/asset-templates/${encodeURIComponent(templateId)}/publish`, {
-    method: "POST", body: JSON.stringify({ accessToken }),
-  });
-}
-
-export async function setAssetTemplatePublicationStatus(templateId: string, status: "listed" | "unlisted", accessToken: string): Promise<LocalAssetTemplate> {
-  return request(`/asset-templates/${encodeURIComponent(templateId)}/publication`, {
-    method: "PUT",
-    body: JSON.stringify({ status, accessToken }),
-  });
-}
-
-export async function listExploreTemplates(): Promise<ExploreAssetTemplate[]> {
-  return request("/explore/templates");
-}
-
-export async function getExploreTemplateCover(templateId: string, releaseId: string): Promise<Blob | undefined> {
-  const response = await fetch(apiUrl(`/explore/templates/${encodeURIComponent(templateId)}/releases/${encodeURIComponent(releaseId)}/cover`), { headers: runtimeHeaders() });
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
 }
 
 export async function getCommunityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {
