@@ -19,7 +19,6 @@ import {
   type Model3DQuality,
   type Model3DTextureResolution,
   type ProjectState,
-  type AssetPublicationState,
   type LibraryAsset,
   type PromptImage,
   type ToolRun,
@@ -28,16 +27,14 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getExploreTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listExploreTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, publishAssetTemplate, publishToolResult, recordCommunityUse, retryToolJob, setAssetTemplateCover, setAssetTemplatePublicationStatus, setToolResultPublicationStatus, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
+import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, retryToolJob, setAssetTemplateCover, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
 import { STUDIO_PROMPT_PLACEHOLDERS, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
-import type { ExploreAssetTemplate, LocalAssetTemplate } from "../shared/asset-templates.js";
+import type { LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { AppSidebar } from "./app-sidebar.js";
-import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { ModelPreview } from "./model-preview.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import { CommunityMeta } from "./community-meta.js";
 import { imageToWebP } from "./image.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -108,7 +105,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [historyDetailOpen, setHistoryDetailOpen] = useState(false);
   const [panelView, setPanelView] = useState<AssetPanelView>("templates");
   const [localTemplates, setLocalTemplates] = useState<LocalAssetTemplate[]>([]);
-  const [exploreTemplates, setExploreTemplates] = useState<ExploreAssetTemplate[]>([]);
   const [templateName, setTemplateName] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
   const [templateCover, setTemplateCover] = useState<Blob>();
@@ -124,7 +120,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [projectsError, setProjectsError] = useState<string>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [sharingResult, setSharingResult] = useState<string>();
   const [actionStatus, setActionStatus] = useState<{ type: "success" | "error"; message: string }>();
   const mounted = useRef(true);
   const draftReady = useRef(false);
@@ -138,12 +133,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const uploadInput = useRef<HTMLInputElement>(null);
   const modelReferenceTarget = useRef(0);
   const resultActions = useRef<HTMLDivElement>(null);
-  const auth = useAuth();
-
-  const yoursTemplates = localTemplates.map(templateForGallery);
-  const communityTemplates = exploreTemplates.map(templateForGallery);
-  const templates = [...yoursTemplates, ...communityTemplates];
-  const selectedTemplate = templates.find((template) => template.id === templateIds[mode] && template.mode === mode);
+  const selectedTemplate = localTemplates.find((template) => template.id === templateIds[mode] && template.mode === mode);
   const promptPlaceholder = selectedTemplate?.promptPlaceholder ?? STUDIO_PROMPT_PLACEHOLDERS[mode];
   const selectedImageModel = imageModels.find((model) => modelKey(model) === imageModelKey);
   const supportedImageResolutions = IMAGE_RESOLUTIONS.filter((candidate) =>
@@ -257,19 +247,18 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   async function loadTemplates(): Promise<void> {
-    const [local, explore] = await Promise.allSettled([listAssetTemplates(), listExploreTemplates()]);
-    if (!mounted.current) return;
-    const localTemplates = local.status === "fulfilled" ? local.value : [];
-    const exploreTemplates = explore.status === "fulfilled" ? explore.value : [];
-    if (local.status === "fulfilled") setLocalTemplates(localTemplates);
-    else setActionStatus({ type: "error", message: errorMessage(local.reason) });
-    if (explore.status === "fulfilled") setExploreTemplates(exploreTemplates);
-    const available = [...localTemplates, ...exploreTemplates];
-    setTemplateIds((current) => ({
-      ...(available.some((template) => template.id === current.image && template.mode === "image") ? { image: current.image } : {}),
-      ...(available.some((template) => template.id === current.video && template.mode === "video") ? { video: current.video } : {}),
-      ...(available.some((template) => template.id === current["3d"] && template.mode === "3d") ? { "3d": current["3d"] } : {}),
-    }));
+    try {
+      const templates = await listAssetTemplates();
+      if (!mounted.current) return;
+      setLocalTemplates(templates);
+      setTemplateIds((current) => ({
+        ...(templates.some((template) => template.id === current.image && template.mode === "image") ? { image: current.image } : {}),
+        ...(templates.some((template) => template.id === current.video && template.mode === "video") ? { video: current.video } : {}),
+        ...(templates.some((template) => template.id === current["3d"] && template.mode === "3d") ? { "3d": current["3d"] } : {}),
+      }));
+    } catch (cause) {
+      if (mounted.current) setActionStatus({ type: "error", message: errorMessage(cause) });
+    }
   }
 
   async function loadImageConfig(): Promise<void> {
@@ -403,15 +392,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
           ...(model3DSource === "image" && !isMeshyT2 ? { imageEnhancement: model3DImageEnhancement } : {}),
         }, selectedTemplate?.name);
       }
-      if (selectedTemplate?.author && auth.state.status === "signed-in") {
-        void auth.requestAccessToken()
-          .then((token) => token ? recordCommunityUse("template", selectedTemplate.id, token) : undefined)
-          .then((stats) => {
-            if (!stats || !mounted.current) return;
-            setExploreTemplates((templates) => templates.map((template) => template.id === selectedTemplate.id ? { ...template, stats } : template));
-          })
-          .catch(() => undefined);
-      }
       if (mounted.current) setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (cause) {
       if (mounted.current) setGenerationError(errorMessage(cause));
@@ -457,46 +437,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     } finally {
       if (mounted.current) setAdding(false);
     }
-  }
-
-  async function shareResult(entry: PreviewResult, output: number, status: "listed" | "unlisted" = "listed"): Promise<void> {
-    const file = entry.run.files[output];
-    if (!file || sharingResult) return;
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    const key = `${entry.run.id}:${file.name}`;
-    setSharingResult(key);
-    setActionStatus(undefined);
-    try {
-      let publication: AssetPublicationState;
-      if (file.publication) {
-        publication = await setToolResultPublicationStatus(entry.run.id, file.name, status, accessToken);
-      } else {
-        const published = await publishToolResult(entry.run.id, file.name, accessToken);
-        publication = {
-          assetId: published.asset.id,
-          releaseId: published.release.id,
-          publishedAt: published.release.publishedAt,
-          status: "listed",
-        };
-      }
-      updateResultPublication(entry.run.id, output, publication);
-      setActionStatus({ type: "success", message: status === "unlisted" ? "Removed from Explore" : file.publication ? "Republished to Explore" : "Published to Explore" });
-    } catch (cause) {
-      setActionStatus({ type: "error", message: errorMessage(cause) });
-    } finally {
-      setSharingResult(undefined);
-    }
-  }
-
-  function updateResultPublication(runId: string, output: number, publication: AssetPublicationState): void {
-    const update = (entry: PreviewResult): PreviewResult => entry.run.id !== runId ? entry : {
-      ...entry,
-      run: { ...entry.run, files: entry.run.files.map((file, index) => index === output ? { ...file, publication } : file) },
-    };
-    historyRef.current = historyRef.current.map(update);
-    setHistory(historyRef.current);
-    setResult((entry) => entry ? update(entry) : entry);
   }
 
   function applyTemplate(template: AssetTemplate): void {
@@ -596,7 +536,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       const saved = templateCover ? await setAssetTemplateCover(created.id, templateCover) : created;
       setLocalTemplates((templates) => [...templates, saved]);
       closeTemplateDialog();
-      applyTemplate(templateForGallery(saved));
+      applyTemplate(saved);
       setActionStatus({ type: "success", message: "Template saved" });
     } catch (cause) {
       if (created && templateCover) await deleteAssetTemplate(created.id).catch(() => undefined);
@@ -623,64 +563,14 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     }
   }
 
-  async function shareTemplate(template: AssetTemplate): Promise<void> {
-    if (template.source !== "local" || templateBusy) return;
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setTemplateBusy(true);
-    setActionStatus(undefined);
-    try {
-      const result = await publishAssetTemplate(template.id, accessToken);
-      setLocalTemplates((templates) => templates.map((candidate) => candidate.id === template.id ? {
-        ...candidate,
-        publication: {
-          templateId: result.template.id,
-          releaseId: result.release.id,
-          publishedAt: result.release.publishedAt,
-          status: "listed",
-        },
-      } : candidate));
-      setExploreTemplates(await listExploreTemplates());
-      setActionStatus({ type: "success", message: template.publication ? "Template update published" : "Template published" });
-    } catch (cause) {
-      setActionStatus({ type: "error", message: errorMessage(cause) });
-    } finally {
-      setTemplateBusy(false);
-    }
-  }
-
-  async function setTemplatePublication(template: AssetTemplate, status: "listed" | "unlisted"): Promise<void> {
-    if (template.source !== "local" || !template.publication || templateBusy) return;
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setTemplateBusy(true);
-    setActionStatus(undefined);
-    try {
-      const updated = await setAssetTemplatePublicationStatus(template.id, status, accessToken);
-      setLocalTemplates((templates) => templates.map((candidate) => candidate.id === updated.id ? updated : candidate));
-      setExploreTemplates(await listExploreTemplates());
-      setActionStatus({ type: "success", message: status === "listed" ? "Template republished" : "Template removed from Explore" });
-    } catch (cause) {
-      setActionStatus({ type: "error", message: errorMessage(cause) });
-    } finally {
-      setTemplateBusy(false);
-    }
-  }
-
   async function deleteTemplate(template: AssetTemplate): Promise<void> {
     if (template.source !== "local" || templateBusy || !window.confirm(`Delete “${template.name}”?`)) return;
     setTemplateBusy(true);
     setActionStatus(undefined);
     try {
-      if (template.publication?.status === "listed") {
-        const accessToken = await auth.requestAccessToken();
-        if (!accessToken) return;
-        await setAssetTemplatePublicationStatus(template.id, "unlisted", accessToken);
-      }
       await deleteAssetTemplate(template.id);
       setLocalTemplates((templates) => templates.filter((candidate) => candidate.id !== template.id));
       if (templateIds[template.mode] === template.id) setTemplateIds((current) => withoutTemplate(current, template.mode));
-      setExploreTemplates(await listExploreTemplates());
       setActionStatus({ type: "success", message: "Template deleted" });
     } catch (cause) {
       setActionStatus({ type: "error", message: errorMessage(cause) });
@@ -969,13 +859,10 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
             <header><PanelViewSwitcher view={panelView} onChange={choosePanelView} /></header>
             <div className={`asset-result-canvas${panelView === "templates" ? " asset-template-gallery" : " asset-history-view"}${panelView === "history" && (history.length || jobs.length) ? " library-grid asset-history-grid" : ""}`}>
               {panelView === "templates" ? <TemplateGallery
-                yours={yoursTemplates}
-                explore={communityTemplates}
+                templates={localTemplates}
                 selectedId={selectedTemplate?.id}
                 busy={templateBusy}
                 onSelect={applyTemplate}
-                onPublish={(template) => void shareTemplate(template)}
-                onSetPublication={(template, status) => void setTemplatePublication(template, status)}
                 onDelete={(template) => void deleteTemplate(template)}
               /> : null}
               {panelView === "history" ? jobs.filter((job) => job.status !== "succeeded" || !job.run || !history.some((entry) => entry.run.id === job.run?.id)).map((job) => <GenerationJobCard key={job.id} job={job} busy={jobActions.has(job.id)} onCancel={() => void cancelJob(job.id)} onRetry={() => void retryJob(job.id)} />) : null}
@@ -987,10 +874,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   entry={entry}
                   output={index}
                   url={url}
-                  busy={Boolean(sharingResult)}
-                  sharing={sharingResult === `${entry.run.id}:${entry.run.files[index]?.name}`}
                   onOpen={() => { setResult(entry); setSelectedResult(index); setHistoryDetailOpen(true); setActionStatus(undefined); setMenuOpen(false); }}
-                  onShare={(status) => void shareResult(entry, index, status)}
                 />;
               })) : null}
             </div>
@@ -1024,9 +908,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                 </dl>
                 <div className="library-dialog-footer-actions">
                   {actionStatus ? <span className={actionStatus.type === "error" ? "is-error" : undefined} role={actionStatus.type === "error" ? "alert" : "status"}>{actionStatus.message}</span> : null}
-                  {selectedFile.publication?.status === "listed" ? <button type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult, "unlisted")}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Unpublishing..." : "Unpublish"}</button> : null}
-                  {selectedFile.publication?.status === "unlisted" ? <button className="is-primary" type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult)}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Republishing..." : "Republish"}</button> : null}
-                  {!selectedFile.publication ? <button className="is-primary" type="button" disabled={Boolean(sharingResult)} onClick={() => void shareResult(result, selectedResult)}>{sharingResult ? <LoaderCircle className="spin" size={15} /> : null}{sharingResult ? "Publishing..." : "Publish"}</button> : null}
                 </div>
               </footer>}
             /> : null}
@@ -1069,58 +950,33 @@ function ModeSwitcher({ mode, disabled = false, onChange }: { mode: StudioMode; 
   return <div className="asset-mode-switcher" aria-label="Asset type">{options.map(({ value, label, icon: Icon }) => <button key={value} type="button" className={mode === value ? "is-active" : undefined} aria-pressed={mode === value} disabled={disabled} onClick={() => onChange(value)}><Icon size={13} />{label}</button>)}</div>;
 }
 
-function TemplateGallery({ yours, explore, selectedId, busy, onSelect, onPublish, onSetPublication, onDelete }: {
-  yours: readonly AssetTemplate[];
-  explore: readonly AssetTemplate[];
-  selectedId?: string;
-  busy: boolean;
-  onSelect: (template: AssetTemplate) => void;
-  onPublish: (template: AssetTemplate) => void;
-  onSetPublication: (template: AssetTemplate, status: "listed" | "unlisted") => void;
-  onDelete: (template: AssetTemplate) => void;
-}) {
-  return <div className="asset-template-sections">
-    <TemplateSection title="Yours" templates={yours} selectedId={selectedId} busy={busy} empty="No saved templates" onSelect={onSelect} onPublish={onPublish} onSetPublication={onSetPublication} onDelete={onDelete} />
-    <TemplateSection title="Explore" templates={explore} selectedId={selectedId} busy={busy} empty="No templates available" onSelect={onSelect} />
-  </div>;
-}
-
-function TemplateSection({ title, templates, selectedId, busy, empty, onSelect, onPublish, onSetPublication, onDelete }: {
-  title: string;
+function TemplateGallery({ templates, selectedId, busy, onSelect, onDelete }: {
   templates: readonly AssetTemplate[];
   selectedId?: string;
   busy: boolean;
-  empty?: string;
   onSelect: (template: AssetTemplate) => void;
-  onPublish?: (template: AssetTemplate) => void;
-  onSetPublication?: (template: AssetTemplate, status: "listed" | "unlisted") => void;
-  onDelete?: (template: AssetTemplate) => void;
+  onDelete: (template: AssetTemplate) => void;
 }) {
   return <section className="asset-template-section">
-    <h2>{title}</h2>
+    <h2>Yours</h2>
     {templates.length ? <div className="asset-template-list">{templates.map((template) => <TemplateCard
-      key={`${template.source}:${template.id}`}
+      key={template.id}
       template={template}
       selected={template.id === selectedId}
       busy={busy}
       onSelect={onSelect}
-      onPublish={onPublish}
-      onSetPublication={onSetPublication}
       onDelete={onDelete}
-    />)}</div> : empty ? <p>{empty}</p> : null}
+    />)}</div> : <p>No saved templates</p>}
   </section>;
 }
 
-function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPublication, onDelete }: {
+function TemplateCard({ template, selected, busy, onSelect, onDelete }: {
   template: AssetTemplate;
   selected: boolean;
   busy: boolean;
   onSelect: (template: AssetTemplate) => void;
-  onPublish?: (template: AssetTemplate) => void;
-  onSetPublication?: (template: AssetTemplate, status: "listed" | "unlisted") => void;
-  onDelete?: (template: AssetTemplate) => void;
+  onDelete: (template: AssetTemplate) => void;
 }) {
-  const publication = template.source === "local" ? template.publication : undefined;
   const [actionsOpen, setActionsOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1141,18 +997,14 @@ function TemplateCard({ template, selected, busy, onSelect, onPublish, onSetPubl
   return <article className={`asset-template-card${selected ? " is-selected" : ""}${actionsOpen ? " is-menu-open" : ""}`}>
     <button className="asset-template-card-open" type="button" aria-label={`${template.name}: ${template.description}`} aria-pressed={selected} disabled={busy} onClick={() => onSelect(template)}>
       <TemplatePreview template={template} />
-      <span className="asset-template-card-copy"><strong>{template.name}</strong>{publication?.status === "listed" ? <small>Published</small> : publication ? <small>Unlisted</small> : null}</span>
+      <span className="asset-template-card-copy"><strong>{template.name}</strong></span>
     </button>
-    {template.source === "local" ? <div className="asset-template-actions" ref={actions}>
+    <div className="asset-template-actions" ref={actions}>
       <button className="asset-template-actions-trigger" type="button" aria-label={`Manage ${template.name}`} title="Template actions" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={busy} onClick={() => setActionsOpen((open) => !open)}><MoreHorizontal size={15} /></button>
       {actionsOpen ? <div role="menu">
-        {publication?.status === "listed"
-          ? <button type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onSetPublication?.(template, "unlisted"); }}>Unpublish</button>
-          : <button type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); publication ? onSetPublication?.(template, "listed") : onPublish?.(template); }}>{publication ? "Republish" : "Publish"}</button>}
-        <button className="is-danger" type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onDelete?.(template); }}><Trash2 size={13} />Delete</button>
+        <button className="is-danger" type="button" role="menuitem" disabled={busy} onClick={() => { setActionsOpen(false); onDelete(template); }}><Trash2 size={13} />Delete</button>
       </div> : null}
-    </div> : null}
-    {template.author && template.stats ? <CommunityMeta type="template" id={template.id} author={template.author} stats={template.stats} useLabel="uses" /> : null}
+    </div>
   </article>;
 }
 
@@ -1161,26 +1013,18 @@ function TemplatePreview({ template }: { template: AssetTemplate }) {
   useEffect(() => {
     if (!template.hasCover) return;
     let active = true;
-    const loadCover = template.source === "local"
-      ? getAssetTemplateCover(template.id)
-      : template.source === "catalog" && template.releaseId
-        ? getExploreTemplateCover(template.id, template.releaseId)
-        : Promise.resolve(undefined);
+    const loadCover = getAssetTemplateCover(template.id);
     void loadCover.then((cover) => {
       if (!active || !cover) return;
       setCoverUrl(URL.createObjectURL(cover));
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [template.hasCover, template.id, template.releaseId, template.source]);
+  }, [template.hasCover, template.id]);
   useEffect(() => () => { if (coverUrl) URL.revokeObjectURL(coverUrl); }, [coverUrl]);
   return <span className="asset-template-preview">
     {coverUrl ? <img src={coverUrl} alt="" /> : <span><HistoryIcon mode={template.mode} /></span>}
     <span className="asset-template-type"><HistoryIcon mode={template.mode} size={11} />{template.mode === "3d" ? "3D" : template.mode[0].toUpperCase() + template.mode.slice(1)}</span>
   </span>;
-}
-
-function templateForGallery(template: LocalAssetTemplate | ExploreAssetTemplate): AssetTemplate {
-  return { ...template };
 }
 
 function HistoryIcon({ mode, size = 24 }: { mode: StudioMode; size?: number }) {
@@ -1218,22 +1062,17 @@ function GenerationJobCard({ job, busy, onCancel, onRetry }: {
   </article>;
 }
 
-function HistoryAssetCard({ entry, output, url, busy, sharing, onOpen, onShare }: {
+function HistoryAssetCard({ entry, output, url, onOpen }: {
   entry: PreviewResult;
   output: number;
   url: string;
-  busy: boolean;
-  sharing: boolean;
   onOpen: () => void;
-  onShare: (status: "listed" | "unlisted") => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [card, visible] = useNearViewport<HTMLElement>();
   const actions = useRef<HTMLDivElement>(null);
   const mode = studioModeForTool(entry.run.toolId);
   const file = entry.run.files[output];
-  const publication = file?.publication;
-  const status = publication?.status === "listed" ? "Published" : publication ? "Unlisted" : undefined;
   const badge = mode === "video" ? <><Play size={11} />Video</> : mode === "3d" ? <><Box size={11} />3D</> : undefined;
 
   useEffect(() => {
@@ -1254,17 +1093,13 @@ function HistoryAssetCard({ entry, output, url, busy, sharing, onOpen, onShare }
 
   return <AssetCardShell
     title={entry.title}
-    subtitle={<>{studioModeLabel(mode)} · {formatHistoryTime(entry.run.createdAt)}{status ? ` · ${status}` : ""}</>}
+    subtitle={<>{studioModeLabel(mode)} · {formatHistoryTime(entry.run.createdAt)}</>}
     preview={visible ? <ResultMedia mode={mode} url={url} label={entry.title} preview /> : <HistoryIcon mode={mode} />}
     badge={badge}
     actions={<div className="library-asset-actions" ref={actions}>
       <button className="library-asset-menu" type="button" aria-label={`Actions for ${entry.title}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
       {menuOpen ? <div className="library-asset-actions-menu asset-history-actions-menu" role="menu">
         <a href={url} download={file?.name} role="menuitem" onClick={() => setMenuOpen(false)}><Download size={13} />Download</a>
-        <button type="button" role="menuitem" disabled={!file || busy} onClick={() => { setMenuOpen(false); onShare(publication?.status === "listed" ? "unlisted" : "listed"); }}>
-          {sharing ? <LoaderCircle className="spin" size={12} /> : null}
-          {sharing ? publication?.status === "listed" ? "Unpublishing..." : "Publishing..." : publication?.status === "listed" ? "Unpublish" : publication ? "Republish" : "Publish"}
-        </button>
       </div> : null}
     </div>}
     className="asset-history-card"

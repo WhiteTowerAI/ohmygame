@@ -38,6 +38,12 @@ button { margin-top: 18px; padding: 12px 22px; border: 1px solid #44d6b2; border
     button.textContent = item.label;
     button.addEventListener("click", () => actions.run(item.action));
     return button;
+  }), ...(content.exits ?? []).map((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = item.label;
+    button.addEventListener("click", () => actions.exit(item.id));
+    return button;
   }));
 }`,
 };
@@ -51,6 +57,7 @@ export const DEFAULT_OPEN_UI_CONTENT: StoryOpenUiContent = {
     { id: "story-map", label: "Story map", action: "open-story-map" },
     { id: "settings", label: "Settings", action: "open-settings" },
   ],
+  exits: [],
 };
 
 export const DEFAULT_SETTINGS_SURFACE_FILES: StorySurfaceFiles = {
@@ -332,9 +339,9 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
     const target = nodeById.get(edge.target);
     if (!source || !target || source.type === "ending" || source.type === "story-map" || source.type === "settings" || isCanvasOnlyNode(source) || target.type === "start" || isCanvasOnlyNode(target)) return false;
     const handle = edge.sourceHandle ?? "out";
-    if (target.type === "story-map" ? source.type !== "open-ui" || handle !== "story-map"
-      : target.type === "settings" ? source.type !== "open-ui" || handle !== "settings"
-      : source.type === "open-ui" ? handle !== "out"
+    if (target.type === "story-map" ? source.type !== "open-ui" || (handle !== "story-map" && !(handle.startsWith("exit:") && source.data.content.exits?.some((exit) => `exit:${exit.id}` === handle)))
+      : target.type === "settings" ? source.type !== "open-ui" || (handle !== "settings" && !(handle.startsWith("exit:") && source.data.content.exits?.some((exit) => `exit:${exit.id}` === handle)))
+      : source.type === "open-ui" ? !(handle === "out" || (handle.startsWith("exit:") && Boolean(source.data.content.exits?.some((exit) => `exit:${exit.id}` === handle))))
       : source.type === "choice" ? !source.data.options.some((option) => option.id === handle)
       : source.type === "interaction" ? !source.data.outcomes.includes(handle)
       : source.type === "condition" ? handle !== "true" && handle !== "false"
@@ -654,11 +661,11 @@ function enterStoryNode(chapter: StoryChapter, state: PlayerRuntimeStateBase & {
   }
 }
 
-export function advanceOpenUi(chapter: StoryChapter, state: PlayerRuntimeState): PlayingRuntimeState {
+export function advanceOpenUi(chapter: StoryChapter, state: PlayerRuntimeState, sourceHandle = "out"): PlayingRuntimeState {
   if (state.mode !== "playing") throw new Error("The game is not playing");
   const node = chapter.nodes.find((candidate) => candidate.id === state.nodeId);
   if (node?.type !== "open-ui") throw new Error("The current story node is not Open UI");
-  const next = getNextNode(chapter, node.id);
+  const next = getNextNode(chapter, node.id, sourceHandle);
   if (!next) throw new Error("Open UI is not connected");
   return enterStoryNode(chapter, state, next);
 }
@@ -811,6 +818,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
     const handles = node.type === "choice" ? node.data.options.map((option) => option.id)
       : node.type === "interaction" ? node.data.outcomes
       : node.type === "condition" ? ["true", "false"]
+      : node.type === "open-ui" ? ["out", ...(node.data.content.exits ?? []).map((exit) => `exit:${exit.id}`)]
       : ["out"];
     for (const handle of handles) {
       const edge = getOutgoingEdge(chapter, node.id, handle);
@@ -818,6 +826,8 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
         nodeId: node.id,
         message: node.type === "choice"
           ? `Connect the choice "${node.data.options.find((option) => option.id === handle)?.label || "Untitled option"}".`
+          : node.type === "open-ui" && handle.startsWith("exit:")
+            ? `Connect the Open UI exit "${node.data.content.exits?.find((exit) => `exit:${exit.id}` === handle)?.label || handle.slice(5)}".`
           : node.type === "interaction" && handle !== "out"
               ? `Connect the ${handle} outcome in "${node.data.title || "Untitled interaction"}".`
             : node.type === "condition"
@@ -828,7 +838,7 @@ export function validatePlayableChapter(chapter: StoryChapter, options: StoryPla
       };
       const target = chapter.nodes.find((candidate) => candidate.id === edge.target);
       if (!target) return { nodeId: node.id, message: "A connection points to a missing node." };
-      pending.push(target);
+      if (target.type !== "story-map" && target.type !== "settings") pending.push(target);
     }
   }
   return undefined;
@@ -994,11 +1004,17 @@ function isViewportDimension(value: unknown): value is number {
 }
 
 function isOpenUiContent(value: unknown): value is StoryOpenUiContent {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["title", "buttons"]) || typeof value.title !== "string" || value.title.length > 120 || !Array.isArray(value.buttons)) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ["title", "buttons", "exits"]) || typeof value.title !== "string" || value.title.length > 120 || !Array.isArray(value.buttons) || (value.exits !== undefined && !isOpenUiExits(value.exits))) return false;
   const ids = new Set<string>();
   const actions = new Set<StoryOpenUiAction>();
   const valid = (value.buttons.length === 4 || value.buttons.length === 5) && value.buttons.every((button) => isRecord(button) && hasOnlyKeys(button, ["id", "label", "action"]) && nonEmptyString(button.id) && !ids.has(button.id) && typeof button.label === "string" && button.label.length <= 80 && isOpenUiAction(button.action) && !actions.has(button.action) && Boolean(ids.add(button.id)) && Boolean(actions.add(button.action)));
   return valid && actions.has("start-game") && actions.has("continue-game") && actions.has("new-game") && actions.has("open-story-map");
+}
+
+function isOpenUiExits(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 32) return false;
+  const ids = new Set<string>();
+  return value.every((exit) => isRecord(exit) && hasOnlyKeys(exit, ["id", "label"]) && nonEmptyString(exit.id) && exit.id.length <= 80 && !ids.has(exit.id) && typeof exit.label === "string" && exit.label.length <= 80 && Boolean(ids.add(exit.id)));
 }
 
 function isOpenUiAction(value: unknown): value is StoryOpenUiAction {

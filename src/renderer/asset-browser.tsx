@@ -1,9 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { AssetPublicationState, WorkspaceFile } from "../shared/contracts.js";
+import type { WorkspaceFile } from "../shared/contracts.js";
 import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
-import { publishAsset, publishLibraryAsset, setAssetPublicationStatus, setLibraryAssetPublicationStatus } from "./api.js";
-import { useAuth } from "./auth.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
 
@@ -103,62 +101,16 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   />;
 }
 
-export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onPublicationChange }: {
+export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete }: {
   asset: BrowsableAsset;
   onClose: () => void;
   onOpenProject?: () => void;
   onRename: () => void;
   onDelete: () => void;
-  onPublicationChange?: (publication: AssetPublicationState) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
   const preview = useWorkspaceAssetUrl(asset.projectId, asset.path, asset.revision, asset.assetId);
-  const auth = useAuth();
-  const [publication, setPublication] = useState(asset.publication);
-  const [sharing, setSharing] = useState(false);
-  const [shareNotice, setShareNotice] = useState<string>();
-
-  async function publish(): Promise<void> {
-    setShareNotice(undefined);
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setSharing(true);
-    try {
-      const result = asset.assetId
-        ? await publishLibraryAsset(asset.assetId, accessToken)
-        : await publishAsset(asset.projectId!, asset.path, accessToken);
-      updatePublication({ assetId: result.asset.id, releaseId: result.release.id, publishedAt: result.release.publishedAt, status: "listed" });
-      setShareNotice("Published to Explore");
-    } catch (cause) {
-      setShareNotice(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSharing(false);
-    }
-  }
-
-  async function setListing(status: "listed" | "unlisted"): Promise<void> {
-    setShareNotice(undefined);
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setSharing(true);
-    try {
-      updatePublication(asset.assetId
-        ? await setLibraryAssetPublicationStatus(asset.assetId, status, accessToken)
-        : await setAssetPublicationStatus(asset.projectId!, asset.path, status, accessToken));
-      setShareNotice(status === "listed" ? "Republished to Explore" : "Removed from Explore");
-    } catch (cause) {
-      setShareNotice(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSharing(false);
-    }
-  }
-
-  function updatePublication(next: AssetPublicationState): void {
-    setPublication(next);
-    onPublicationChange?.(next);
-  }
-
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: MouseEvent) => {
@@ -195,11 +147,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
             <div className="library-dialog-path"><dt>Path</dt><dd title={asset.path}>{asset.path}</dd></div>
           </dl>
           <div className="library-dialog-footer-actions">
-            {shareNotice ? <span role="status">{shareNotice}</span> : null}
             {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button> : null}
-            {publication?.status === "listed" ? <button type="button" disabled={sharing} onClick={() => void setListing("unlisted")}>{sharing ? <LoaderCircle className="spin" size={15} /> : null}{sharing ? "Unpublishing..." : "Unpublish"}</button> : null}
-            {publication?.status === "unlisted" ? <button className="is-primary" type="button" disabled={sharing} onClick={() => void setListing("listed")}>{sharing ? <LoaderCircle className="spin" size={15} /> : null}{sharing ? "Republishing..." : "Republish"}</button> : null}
-            {!publication ? <button className="is-primary" type="button" disabled={sharing} onClick={() => void publish()}>{sharing ? <LoaderCircle className="spin" size={15} /> : null}{sharing ? "Publishing..." : "Publish"}</button> : null}
           </div>
         </footer>}
   />;

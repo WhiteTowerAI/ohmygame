@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, Check, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
+import { ArrowLeft, Check, ExternalLink, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -9,16 +9,12 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
-import { ChartSquareIcon } from "@solar-icons/react/linear/chart-square";
 import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
-import { LibraryIcon } from "@solar-icons/react/linear/library";
-import { AccountPage, type AccountSection } from "../account-ui/account-page.js";
-import { accountApi } from "./api.js";
+
+const BILLING_DASHBOARD_URL = "https://ohmygame.ai/account/billing";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
-  { section: "usage", label: "Usage", icon: ChartSquareIcon },
-  { section: "plans", label: "Plans", icon: LibraryIcon },
   { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "providers", label: "Providers", icon: Server },
@@ -69,7 +65,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
         <WindowDragRegion />
         <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
-          {section === "usage" || section === "plans" || section === "billing" ? <AccountSettingsPage section={section} /> : null}
+          {section === "billing" ? <BillingSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
@@ -80,24 +76,24 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
   );
 }
 
-async function openPayment(url: string): Promise<void> {
-  if (window.ohMyGameDesktop) await window.ohMyGameDesktop.openExternal(url);
-  else window.location.assign(url);
+async function openBillingDashboard(): Promise<void> {
+  if (window.ohMyGameDesktop?.openExternal) {
+    await window.ohMyGameDesktop.openExternal(BILLING_DASHBOARD_URL);
+  } else {
+    window.open(BILLING_DASHBOARD_URL, "_blank", "noopener,noreferrer");
+  }
 }
 
-function AccountSettingsPage({ section }: { section: AccountSection }) {
-  const auth = useAuth();
-  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
+function BillingSettings() {
   return (
-    <AccountPage
-      section={section}
-      api={accountApi}
-      userId={userId}
-      loadingAuth={auth.state.status === "loading"}
-      requestToken={auth.requestAccessToken}
-      onSignIn={auth.openSignIn}
-      openPayment={openPayment}
-    />
+    <section className="settings-panel settings-overview-panel settings-billing-panel">
+      <header className="settings-panel-header"><h3>Billing</h3></header>
+      <p>Manage your OhMyGame Cloud plan, usage, and payment details on the web.</p>
+      <button className="settings-primary-button" type="button" onClick={() => void openBillingDashboard()}>
+        <span>Open billing dashboard</span>
+        <ExternalLink size={14} aria-hidden="true" />
+      </button>
+    </section>
   );
 }
 

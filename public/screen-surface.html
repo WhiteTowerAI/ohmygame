@@ -148,6 +148,10 @@
                 if (!valid) throw new Error(`Unknown Player UI action: ${String(action)}`);
                 if (data.mode === "runtime") post(data.instanceId, "action", { action });
               },
+              exit: (exitId) => {
+                if (typeof exitId !== "string" || !exitId.trim()) throw new Error(`Invalid Player UI exit: ${String(exitId)}`);
+                if (data.mode === "runtime") post(data.instanceId, "action", { action: { type: "exit", exitId } });
+              },
             });
             await screenModule.render({ content: Object.freeze(data.content), actions, root: document });
             applyLayout();

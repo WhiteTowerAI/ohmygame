@@ -1567,6 +1567,18 @@ body {
   justify-self: start;
 }
 
+.settings-billing-panel p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settings-billing-panel > .settings-primary-button {
+  justify-self: start;
+}
+
 .settings-account-row {
   display: flex;
   min-height: 64px;
@@ -3631,23 +3643,6 @@ button.home-nav-item-active:hover {
   padding: 0 11px 10px;
   font-size: 10px;
 }
-.explore-asset-card > .community-meta .community-author > :is(img, span) {
-  width: 17px;
-  height: 17px;
-  flex-basis: 17px;
-  font-size: 8px;
-}
-.explore-asset-card > .community-meta .community-like-button {
-  padding: 2px;
-}
-.explore-asset-card
-  > .community-meta
-  .community-stats
-  > span:last-child::before {
-  content: "·";
-  margin-right: 5px;
-  color: var(--text-faint);
-}
 .library-state {
   display: flex;
   min-height: 240px;
@@ -3954,10 +3949,6 @@ button.home-nav-item-active:hover {
 }
 .library-dialog-footer-actions > button.is-primary:hover:not(:disabled) {
   background: var(--theme-accent-hover);
-}
-.library-dialog-footer-actions > .community-like-button.is-liked {
-  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
-  color: var(--theme-accent);
 }
 .library-dialog-footer-actions > button:disabled {
   cursor: default;
@@ -4415,35 +4406,11 @@ button.home-nav-item-active:hover {
   color: var(--danger);
   font-size: 11px;
 }
-.plugins-inline-notice {
-  margin: 16px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
 .plugins-empty {
   padding: 28px 12px;
   border-bottom: 0;
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.plugins-section-heading {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.plugins-section-heading h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.plugins-section-heading span {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 @media (max-width: 760px) {
@@ -4464,10 +4431,6 @@ button.home-nav-item-active:hover {
 .plugins-installed {
   margin-top: 28px;
 }
-.plugins-explore {
-  margin-top: 38px;
-}
-
 .plugins-installed h2 {
   margin: 0;
   color: var(--text);
@@ -4475,8 +4438,7 @@ button.home-nav-item-active:hover {
   font-weight: 650;
 }
 
-.plugins-installed-grid,
-.plugins-explore-grid {
+.plugins-installed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
@@ -4562,10 +4524,7 @@ button.home-nav-item-active:hover {
   font-weight: 500;
 }
 
-.plugin-card-title .plugin-featured-badge,
-.plugin-card-title .plugin-yours-badge,
-.plugin-card-title .plugin-explore-status,
-.plugin-detail-title .plugin-featured-badge,
+.plugin-card-title .plugin-status,
 .plugin-detail-badge {
   display: inline-flex;
   height: 16px;
@@ -4579,12 +4538,8 @@ button.home-nav-item-active:hover {
   line-height: 16px;
 }
 
-.plugin-card-title .plugin-explore-status {
+.plugin-card-title .plugin-status {
   margin-left: auto;
-}
-
-.plugin-card-title .plugin-explore-status.is-update {
-  color: var(--accent);
 }
 
 .plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {
@@ -4611,8 +4566,7 @@ button.home-nav-item-active:hover {
 }
 
 @media (max-width: 760px) {
-  .plugins-installed-grid,
-  .plugins-explore-grid {
+  .plugins-installed-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -4681,32 +4635,6 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 6px;
   margin-top: 7px;
-}
-
-.plugin-detail-hero-actions .community-like-button {
-  height: 28px;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 5px;
-  background: rgb(255 255 255 / 5%);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.plugin-detail-hero-actions .community-like-button:hover {
-  border-color: rgb(255 255 255 / 24%);
-  background: rgb(255 255 255 / 9%);
-}
-
-.plugin-detail-hero-actions .community-like-button.is-liked {
-  border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent);
-  color: var(--theme-accent);
-}
-
-.plugin-detail-hero-actions .community-like-button.is-liked svg {
-  fill: currentColor;
 }
 
 @media (max-width: 760px) {
@@ -6281,12 +6209,6 @@ button {
   background: transparent;
 }
 
-.asset-template-sections {
-  display: grid;
-  width: 100%;
-  gap: 24px;
-}
-
 .asset-template-section {
   display: grid;
   gap: 10px;
@@ -6340,33 +6262,6 @@ button {
   cursor: pointer;
   text-align: left;
 }
-.asset-template-card > .community-meta {
-  min-height: 23px;
-  padding: 0 10px 8px;
-  font-size: 10px;
-}
-.asset-template-card > .community-meta .community-author,
-.asset-template-card > .community-meta .community-stats {
-  gap: 5px;
-}
-.asset-template-card > .community-meta .community-author > :is(img, span) {
-  width: 16px;
-  height: 16px;
-  flex-basis: 16px;
-  font-size: 8px;
-}
-.asset-template-card > .community-meta .community-like-button {
-  padding: 2px;
-}
-.asset-template-card
-  > .community-meta
-  .community-stats
-  > span:last-child::before {
-  content: "·";
-  margin-right: 5px;
-  color: var(--text-faint);
-}
-
 .asset-template-card-open:hover .asset-template-card-copy strong {
   color: var(--home-accent);
 }
@@ -14848,81 +14743,6 @@ button {
   }
 }
 
-.community-meta {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 16px;
-}
-.community-author,
-.community-stats {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-.community-author > img,
-.community-author > span {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-.community-author > span {
-  display: grid;
-  place-items: center;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 10px;
-}
-.community-author strong {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.community-author-verified {
-  flex: 0 0 auto;
-  color: var(--theme-accent);
-}
-.community-like-button {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.community-stats .community-like-button:hover,
-.community-stats .community-like-button.is-liked {
-  color: var(--theme-accent);
-}
-.community-like-button.is-liked svg {
-  fill: currentColor;
-}
-.community-like-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.plugin-community-byline {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 14px;
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 20px;
-}
 .library-dialog-footer > div:first-child {
   display: grid;
   min-width: 0;
@@ -15274,17 +15094,11 @@ button {
   color: #5970aa;
 }
 
-:root[data-appearance="light"]
-  .plugin-detail-hero-actions
-  .community-like-button,
 :root[data-appearance="light"] .plugin-detail-secondary {
   border-color: var(--border);
   background: var(--surface);
 }
 
-:root[data-appearance="light"]
-  .plugin-detail-hero-actions
-  .community-like-button:hover,
 :root[data-appearance="light"] .plugin-detail-secondary:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface-hover);

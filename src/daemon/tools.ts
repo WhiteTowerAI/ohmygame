@@ -457,7 +457,7 @@ export class ToolRunner {
       .map(publicRun);
   }
 
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; title?: string; prompt?: string; publication?: NonNullable<ToolRun["files"][number]["publication"]>; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; title?: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
     if (!isRunId(runId) || !isToolRunFileName(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
@@ -476,7 +476,6 @@ export class ToolRunner {
         ...(file.assetId ? { assetId: file.assetId } : {}),
         ...(title ? { title } : {}),
         ...(run.prompt ? { prompt: run.prompt } : {}),
-        ...(file.publication ? { publication: file.publication } : {}),
         ...(preview ? { preview } : {}),
       };
     } catch (error) {
@@ -485,26 +484,13 @@ export class ToolRunner {
     }
   }
 
-  async setFilePublication(runId: string, fileName: string, publication: NonNullable<ToolRun["files"][number]["publication"]>): Promise<void> {
-    if (!isRunId(runId) || !isToolRunFileName(fileName)) throw new ToolRunError("Tool output not found", 404);
-    const run = await this.#readRun(runId);
-    const file = run?.files.find((candidate) => candidate.name === fileName);
-    if (!run || !file) throw new ToolRunError("Tool output not found", 404);
-    file.publication = publication;
-    const runFile = path.join(this.#runsDirectory, runId, "run.json");
-    const temporary = `${runFile}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(run, null, 2)}\n`, "utf8");
-    await rename(temporary, runFile);
-  }
-
   async #readRun(runId: string): Promise<StoredToolRun | undefined> {
     try {
       const value = JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>;
       if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
       if (value.title !== undefined && typeof value.title !== "string") return undefined;
       if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string" ||
-        file.assetId !== undefined && typeof file.assetId !== "string" ||
-        file.publication !== undefined && !isAssetPublication(file.publication))) return undefined;
+        file.assetId !== undefined && typeof file.assetId !== "string")) return undefined;
       return value as StoredToolRun;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return undefined;
@@ -546,14 +532,6 @@ function supportedVideoReferenceType(type: VideoGenerationReference["type"], con
   if (type === "image") return contentType === "image/png" || contentType === "image/jpeg" || contentType === "image/webp";
   if (type === "video") return contentType === "video/mp4" || contentType === "video/quicktime";
   return contentType === "audio/mpeg" || contentType === "audio/wav";
-}
-
-function isAssetPublication(value: unknown): value is NonNullable<ToolRun["files"][number]["publication"]> {
-  if (!value || typeof value !== "object") return false;
-  const publication = value as Record<string, unknown>;
-  return typeof publication.assetId === "string" && typeof publication.releaseId === "string" &&
-    typeof publication.publishedAt === "string" && Number.isFinite(Date.parse(publication.publishedAt)) &&
-    (publication.status === "listed" || publication.status === "unlisted");
 }
 
 function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: StoredToolRun): ToolRun {

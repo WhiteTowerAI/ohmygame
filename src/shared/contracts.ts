@@ -1,4 +1,4 @@
-import type { CreatePublishAssetReleaseResult, PublishCommunityGame, PublishDeployment, PublishExploreAsset } from "./publish-v1.js";
+import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -332,7 +332,7 @@ export interface StoryPlayerConfig {
 }
 
 export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map" | "open-settings";
-export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen";
+export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen" | { type: "exit"; exitId: string };
 
 export interface StoryOpenUiButton {
   id: string;
@@ -340,9 +340,15 @@ export interface StoryOpenUiButton {
   action: StoryOpenUiAction;
 }
 
+export interface StoryOpenUiExit {
+  id: string;
+  label: string;
+}
+
 export interface StoryOpenUiContent {
   title: string;
   buttons: StoryOpenUiButton[];
+  exits?: StoryOpenUiExit[];
 }
 
 export interface StoryDocument {
@@ -426,7 +432,7 @@ export type CommunityGame = PublishCommunityGame;
 
 export interface PublishResult {
   deployment: PublishDeployment;
-  game: Omit<CommunityGame, "author" | "stats">;
+  game: Omit<CommunityGame, "author">;
 }
 
 export interface PublishProjectRequest {
@@ -434,14 +440,6 @@ export interface PublishProjectRequest {
   title: string;
   description?: string;
 }
-
-export type ExploreAsset = PublishExploreAsset;
-
-export interface PublishAssetRequest {
-  accessToken: string;
-}
-
-export type PublishAssetResult = CreatePublishAssetReleaseResult;
 
 export type AgentMessagePhase = "commentary" | "final_answer";
 
@@ -661,7 +659,6 @@ export interface WorkspaceFile {
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
-  publication?: AssetPublicationState;
   libraryAssetId?: string;
 }
 
@@ -674,7 +671,6 @@ export interface LibraryAsset {
   createdAt: string;
   duration?: number;
   prompt?: string;
-  publication?: AssetPublicationState;
 }
 
 export type LibraryUploadMediaType =
@@ -690,13 +686,6 @@ export type LibraryUploadMediaType =
 export interface CreateLibraryImageRequest {
   name: string;
   image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
-}
-
-export interface AssetPublicationState {
-  assetId: string;
-  releaseId: string;
-  publishedAt: string;
-  status: "listed" | "unlisted";
 }
 
 export interface WorkspaceFileContent {
@@ -829,7 +818,6 @@ export interface ToolRunFile {
   name: string;
   mediaType: string;
   assetId?: string;
-  publication?: AssetPublicationState;
 }
 
 export interface ToolRun {

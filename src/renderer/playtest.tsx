@@ -1,7 +1,7 @@
 import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfig, StoryScreenAction, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
-import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
+import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getStory, listLibraryAssets } from "./api.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -128,9 +128,9 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     setPlaybackStep((step) => step + 1);
   }, [chapter, variables]);
 
-  const enterOpenUi = useCallback(() => {
+  const enterOpenUi = useCallback((sourceHandle?: string) => {
     if (!chapter) return;
-    setRuntime((current) => current ? advanceOpenUi(chapter, current) : current);
+    setRuntime((current) => current ? advanceOpenUi(chapter, current, sourceHandle) : current);
     setPlaybackStep((step) => step + 1);
   }, [chapter]);
 
@@ -270,7 +270,7 @@ export function StoryPlayerPreviewSession({ chapter, variables, config, initialN
       onSurfaceLayoutSelect={onSurfaceLayoutSelect}
       onSurfaceLayoutChange={onSurfaceLayoutChange}
       hasCheckpoint={Boolean(session.checkpoint)}
-      onAdvanceOpenUi={() => transition((current) => advanceOpenUi(chapter, current), { navigate: true, resume: true })}
+      onAdvanceOpenUi={(sourceHandle) => transition((current) => advanceOpenUi(chapter, current, sourceHandle), { navigate: true, resume: true })}
       onContinueGame={() => { const checkpoint = sessionRef.current.checkpoint; if (checkpoint) transition(() => checkpoint, { checkpoint: "preserve", navigate: true, resume: true }); }}
       onPause={() => setPaused(true)}
       onResume={() => setPaused(false)}
@@ -340,7 +340,7 @@ export function InteractiveDramaPlayer({ chapter, variables, config, node, runti
   hasCheckpoint: boolean;
   saveStatus?: "saved" | "error";
   assetUrls?: Readonly<Record<string, string>>;
-  onAdvanceOpenUi: () => void;
+  onAdvanceOpenUi: (sourceHandle?: string) => void;
   onContinueGame: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -414,7 +414,7 @@ function StoryFrameTransition({ frameKey, frame, paused, onAdvanceOpenUi, onCont
   frameKey: string;
   frame: StoryPlayerFrameData;
   paused: boolean;
-  onAdvanceOpenUi: () => void;
+  onAdvanceOpenUi: (sourceHandle?: string) => void;
   onContinueGame: () => void;
   onRestartGame: () => void;
   onOpenStoryMap: () => void;
@@ -448,7 +448,7 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   active: boolean;
   paused: boolean;
   onReady: () => void;
-  onAdvanceOpenUi: () => void;
+  onAdvanceOpenUi: (sourceHandle?: string) => void;
   onContinueGame: () => void;
   onRestartGame: () => void;
   onOpenStoryMap: () => void;
@@ -472,6 +472,13 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
     else if (action === "new-game") onRestartGame();
     else if (action === "open-story-map") onOpenStoryMap();
     else if (action === "open-settings") onOpenSettings?.();
+    else if (typeof action === "object" && action.type === "exit") {
+      const exitHandle = `exit:${action.exitId}`;
+      const target = node?.type === "open-ui" ? getNextNode(chapter, node.id, exitHandle) : undefined;
+      if (target?.type === "story-map") onOpenStoryMap();
+      else if (target?.type === "settings") onOpenSettings?.();
+      else onAdvanceOpenUi(exitHandle);
+    }
   };
   if (node?.type === "open-ui") return <StoryOpenUiPlayer chapter={chapter} node={node} hasCheckpoint={hasCheckpoint} paused={inactive} layoutEditable={active && Boolean(onSurfaceLayoutChange)} assetUrls={assetUrls} onReady={onReady} onAction={handlePlayerUiAction} onLayoutSelect={(elementId) => { if (active) onSurfaceLayoutSelect?.(node.id, elementId); }} onLayoutChange={(elementId, offset) => { if (active) onSurfaceLayoutChange?.(node.id, elementId, offset); }} />;
   if (node?.type === "scene") return <StoryScenePlayer chapter={chapter} variables={variables} node={node} runtime={runtime} fit={config.videoFit} paused={inactive} assetUrls={assetUrls} onReady={onReady} onTime={activeSceneTime} onComplete={activeMediaComplete} />;

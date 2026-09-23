@@ -74,7 +74,7 @@ function isScreenSurfaceMessage(value: unknown): value is ScreenSurfaceMessage {
   const message = value as Partial<ScreenSurfaceMessage>;
   if (message.channel !== "ohmygame:screen-surface" || typeof message.instanceId !== "string") return false;
   if (message.type === "ready") return true;
-  if (message.type === "action") return message.action === "start-game" || message.action === "continue-game" || message.action === "new-game" || message.action === "open-story-map" || message.action === "open-settings" || message.action === "close" || message.action === "toggle-fullscreen";
+  if (message.type === "action") return message.action === "start-game" || message.action === "continue-game" || message.action === "new-game" || message.action === "open-story-map" || message.action === "open-settings" || message.action === "close" || message.action === "toggle-fullscreen" || (typeof message.action === "object" && message.action !== null && message.action.type === "exit" && isLayoutElementId(message.action.exitId));
   if (message.type === "error") return typeof message.message === "string";
   if (message.type === "layout-select") return message.elementId === null || isLayoutElementId(message.elementId);
   return message.type === "layout-change" && isLayoutElementId(message.elementId) && isLayoutOffset(message.offset);

@@ -42,19 +42,6 @@ export class AssetTemplateStore {
     return (await this.#read()).find((template) => template.id === id);
   }
 
-  async setPublication(id: string, publication: NonNullable<LocalAssetTemplate["publication"]>): Promise<LocalAssetTemplate> {
-    let updated: LocalAssetTemplate | undefined;
-    await this.#mutate(async () => {
-      const templates = await this.#read();
-      const index = templates.findIndex((template) => template.id === id);
-      if (index < 0) throw new AssetTemplateError("Asset template not found", 404);
-      updated = { ...templates[index]!, publication };
-      templates[index] = updated;
-      await this.#write(templates);
-    });
-    return updated!;
-  }
-
   async delete(id: string): Promise<void> {
     await this.#mutate(async () => {
       const templates = await this.#read();
@@ -132,22 +119,11 @@ export class AssetTemplateStore {
 function isLocalTemplate(value: unknown): value is LocalAssetTemplate {
   if (!value || typeof value !== "object") return false;
   const template = value as Partial<LocalAssetTemplate>;
-  const publication = template.publication;
-  const { id: _id, source: _source, createdAt: _createdAt, hasCover: _hasCover, publication: _publication, ...definition } = template;
+  const { id: _id, source: _source, createdAt: _createdAt, hasCover: _hasCover, ...definition } = template;
   return template.source === "local" && typeof template.id === "string" && Boolean(template.id)
     && typeof template.createdAt === "string" && !Number.isNaN(Date.parse(template.createdAt))
     && (template.hasCover === undefined || typeof template.hasCover === "boolean")
-    && isAssetTemplateDefinition(definition)
-    && (publication === undefined || validPublication(publication));
-}
-
-function validPublication(value: unknown): value is NonNullable<LocalAssetTemplate["publication"]> {
-  if (!value || typeof value !== "object") return false;
-  const publication = value as Record<string, unknown>;
-  return typeof publication.templateId === "string" && Boolean(publication.templateId)
-    && typeof publication.releaseId === "string" && Boolean(publication.releaseId)
-    && typeof publication.publishedAt === "string" && !Number.isNaN(Date.parse(publication.publishedAt))
-    && (publication.status === "listed" || publication.status === "unlisted");
+    && isAssetTemplateDefinition(definition);
 }
 
 function normalized(input: CreateAssetTemplateRequest): CreateAssetTemplateRequest {

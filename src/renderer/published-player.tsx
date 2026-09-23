@@ -118,9 +118,9 @@ function PublishedPlayer() {
     setPaused(false);
     resetPlayer();
   }, [chapter, resetPlayer, variables]);
-  const advanceUi = useCallback(() => {
+  const advanceUi = useCallback((sourceHandle?: string) => {
     if (!chapter) return;
-    setRuntime((current) => current ? advanceOpenUi(chapter, current) : current);
+    setRuntime((current) => current ? advanceOpenUi(chapter, current, sourceHandle) : current);
     setPaused(false);
     resetPlayer();
   }, [chapter, resetPlayer]);

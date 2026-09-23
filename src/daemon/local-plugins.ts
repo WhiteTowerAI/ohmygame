@@ -10,7 +10,6 @@ import {
   isPluginManifest,
   isPluginVersion,
   type PluginComponentSummary,
-  type PluginCatalogRef,
   type PluginDetail,
   type PluginMarketplaceRef,
   type PluginManifest,
@@ -24,7 +23,7 @@ const MAX_PLUGIN_DEPTH = 64;
 export type PluginProvenance =
   | { type: "directory"; path: string }
   | { type: "git"; url: string; commit: string }
-  | { type: "catalog"; pluginId: string; releaseId: string };
+  | { type: "preinstalled"; pluginId: string; releaseId: string };
 
 interface LocalPluginRecord {
   name: string;
@@ -32,7 +31,6 @@ interface LocalPluginRecord {
   provenance: PluginProvenance;
   manifest: ResolvedPluginManifest;
   marketplace: PluginMarketplaceRef;
-  catalog?: PluginCatalogRef;
 }
 
 export interface PluginCapabilityRegistry {
@@ -43,13 +41,6 @@ export interface PluginBundleIdentity {
   idPrefix: string;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
-}
-
-export interface InstalledPluginBundle {
-  path: string;
-  manifest: ResolvedPluginManifest;
-  provenance: PluginProvenance;
-  marketplace: PluginMarketplaceRef;
 }
 
 export class LocalPluginError extends Error {
@@ -104,28 +95,12 @@ export class LocalPluginStore {
     return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace));
   }
 
-  async installCatalog(
+  async installPrepared(
     sourcePath: string,
-    provenance: Extract<PluginProvenance, { type: "catalog" }>,
+    provenance: Extract<PluginProvenance, { type: "preinstalled" }>,
     manifest: PluginManifest,
-    replaceId?: string,
   ): Promise<PluginDetail> {
-    return this.#mutate(async () => {
-      const replaced = replaceId ? (await this.#readIndex()).find((record) => pluginRecordId(record) === replaceId) : undefined;
-      if (replaceId && !replaced) throw new LocalPluginError("Installed Plugin not found", 404);
-      if (replaced?.catalog && replaced.catalog.pluginId !== provenance.pluginId) {
-        throw new LocalPluginError("Installed Plugin belongs to another Catalog entry");
-      }
-      const installedProvenance = replaced?.provenance.type === "catalog" ? provenance : replaced?.provenance ?? provenance;
-      return this.#install(
-        sourcePath,
-        installedProvenance,
-        manifest,
-        replaced?.marketplace ?? OHMYGAME_MARKETPLACE,
-        !replaced || replaced.marketplace.id === OHMYGAME_MARKETPLACE.id,
-        { pluginId: provenance.pluginId, releaseId: provenance.releaseId },
-      );
-    });
+    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, OHMYGAME_MARKETPLACE, true));
   }
 
   async #install(
@@ -134,7 +109,6 @@ export class LocalPluginStore {
     normalizedManifest: ResolvedPluginManifest | undefined,
     marketplace: PluginMarketplaceRef,
     trustedMarketplace = false,
-    catalog?: PluginCatalogRef,
   ): Promise<PluginDetail> {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
@@ -153,7 +127,7 @@ export class LocalPluginStore {
     if (previousRecord && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
       throw new LocalPluginError(`Plugin ${inspected.name} is already installed from another source`);
     }
-    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || provenance.type === "catalog" ? undefined : currentRecords.find((record) =>
+    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || provenance.type === "preinstalled" ? undefined : currentRecords.find((record) =>
       record.marketplace.id === marketplace.id && sourceKey(record.provenance) !== sourceKey(provenance));
     if (conflictingMarketplace) {
       throw new LocalPluginError(`Marketplace ${marketplace.id} is already installed from another source`);
@@ -177,8 +151,7 @@ export class LocalPluginStore {
       }
       await rename(temporary, destination);
       installedReplacement = true;
-      const catalogRef = catalog ?? previousRecord?.catalog;
-      const record = { name: inspected.name, version: inspected.version, provenance, manifest, marketplace, ...(catalogRef ? { catalog: catalogRef } : {}) };
+      const record = { name: inspected.name, version: inspected.version, provenance, manifest, marketplace };
       const installed = await this.#readRecord(record);
       const records = currentRecords.filter((item) => pluginRecordId(item) !== inspected.id);
       records.push(record);
@@ -230,32 +203,6 @@ export class LocalPluginStore {
     return record ? this.#installedPath(record.marketplace.id, record.name, record.version) : undefined;
   }
 
-  async installedBundle(id: string): Promise<InstalledPluginBundle | undefined> {
-    await this.#mutations;
-    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
-    return record ? {
-      path: this.#installedPath(record.marketplace.id, record.name, record.version),
-      manifest: record.manifest,
-      provenance: record.provenance,
-      marketplace: record.marketplace,
-    } : undefined;
-  }
-
-  async linkCatalog(id: string, catalog: PluginCatalogRef): Promise<void> {
-    return this.#mutate(async () => {
-      const records = await this.#readIndex();
-      const index = records.findIndex((record) => pluginRecordId(record) === id);
-      if (index < 0) throw new LocalPluginError("Installed Plugin not found", 404);
-      const current = records[index]!;
-      if (current.catalog && current.catalog.pluginId !== catalog.pluginId) {
-        throw new LocalPluginError("Installed Plugin belongs to another Catalog entry");
-      }
-      records[index] = { ...current, catalog };
-      await this.#writeIndex(records);
-      this.#loaded.delete(id);
-    });
-  }
-
   async directoryPath(id: string): Promise<string | undefined> {
     const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
     if (!record) return undefined;
@@ -281,7 +228,7 @@ export class LocalPluginStore {
         this.capabilities,
         record.manifest,
       );
-      return { ...plugin, ...(record.catalog ? { catalog: record.catalog } : {}) };
+      return plugin;
     } catch (cause) {
       if (cause instanceof LocalPluginError) throw cause;
       throw new LocalPluginError(`Could not read installed plugin ${record.name}: ${errorMessage(cause)}`);
@@ -473,16 +420,7 @@ function isLocalPluginRecord(value: unknown): value is LocalPluginRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<LocalPluginRecord>;
   return isPluginName(record.name) && (record.version === undefined || isPluginVersion(record.version)) &&
-    isPluginProvenance(record.provenance) && isResolvedPluginManifest(record.manifest) && isPluginMarketplace(record.marketplace) &&
-    (record.catalog === undefined || isPluginCatalogRef(record.catalog));
-}
-
-function isPluginCatalogRef(value: unknown): value is PluginCatalogRef {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const catalog = value as Partial<PluginCatalogRef>;
-  return Object.keys(catalog).every((key) => key === "pluginId" || key === "releaseId") &&
-    typeof catalog.pluginId === "string" && Boolean(catalog.pluginId) &&
-    typeof catalog.releaseId === "string" && Boolean(catalog.releaseId);
+    isPluginProvenance(record.provenance) && isResolvedPluginManifest(record.manifest) && isPluginMarketplace(record.marketplace);
 }
 
 function isResolvedPluginManifest(value: unknown): value is ResolvedPluginManifest {
@@ -496,7 +434,7 @@ function isPluginProvenance(value: unknown): value is PluginProvenance {
   const provenance = value as Partial<PluginProvenance>;
   if (provenance.type === "directory") return typeof provenance.path === "string" && path.isAbsolute(provenance.path);
   if (provenance.type === "git") return typeof provenance.url === "string" && typeof provenance.commit === "string";
-  return provenance.type === "catalog" && typeof provenance.pluginId === "string" && typeof provenance.releaseId === "string";
+  return provenance.type === "preinstalled" && typeof provenance.pluginId === "string" && typeof provenance.releaseId === "string";
 }
 
 function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
@@ -533,7 +471,7 @@ function publicSource(provenance: PluginProvenance): PluginSource {
 function sourceKey(provenance: PluginProvenance): string {
   if (provenance.type === "directory") return `directory:${path.resolve(provenance.path)}`;
   if (provenance.type === "git") return `git:${provenance.url}`;
-  return `catalog:${provenance.pluginId}`;
+  return `preinstalled:${provenance.pluginId}`;
 }
 
 function displayName(value: string): string {

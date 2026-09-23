@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { AssetTemplateStore } from "../src/daemon/asset-templates.js";
 
 describe("AssetTemplateStore", () => {
-  it("persists local templates and their publication", async () => {
+  it("persists local templates and their covers", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-asset-templates-"));
     const store = new AssetTemplateStore(directory);
     const saved = await store.create({
@@ -18,12 +18,6 @@ describe("AssetTemplateStore", () => {
       defaultPrompt: "Create three views",
       defaults: { imageResolution: "2K", imageAspectRatio: "16:9", imageOutputs: 1 },
     });
-    await store.setPublication(saved.id, {
-      templateId: "remote-template",
-      releaseId: "release-1",
-      publishedAt: new Date(0).toISOString(),
-      status: "listed",
-    });
     const cover = Buffer.from("RIFF\u0004\u0000\u0000\u0000WEBP");
     await store.setCover(saved.id, cover);
 
@@ -35,7 +29,6 @@ describe("AssetTemplateStore", () => {
       previewTemplateId: "character-sheet",
       source: "local",
       hasCover: true,
-      publication: { templateId: "remote-template", releaseId: "release-1", publishedAt: new Date(0).toISOString(), status: "listed" },
     })]);
     expect(templates[0]).not.toHaveProperty("promptLabel");
     expect(await restarted.cover(saved.id)).toEqual(cover);

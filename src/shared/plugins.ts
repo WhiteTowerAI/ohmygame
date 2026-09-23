@@ -1,7 +1,10 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import type { PluginMention, ProjectType } from "./contracts.js";
-import type { CommunityAuthor, CommunityStats, PublishPluginCuration, PublishPluginOrigin } from "./publish-v1.js";
+
+export type PluginOrigin =
+  | { type: "github"; repository: string; commit: string; release?: string }
+  | { type: "claude-marketplace"; marketplace: string; repository?: string };
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
@@ -18,12 +21,7 @@ export type PluginSource =
   | { type: "builtIn" }
   | { type: "directory" }
   | { type: "git"; url: string; commit: string }
-  | { type: "catalog"; pluginId: string; releaseId: string };
-
-export interface PluginCatalogRef {
-  pluginId: string;
-  releaseId: string;
-}
+  | { type: "preinstalled"; pluginId: string; releaseId: string };
 
 export type InstallPluginRequest =
   | { type: "directory"; path: string; candidate?: string }
@@ -108,15 +106,9 @@ export interface PluginSummary {
   version?: string;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
-  catalog?: PluginCatalogRef;
   installed: boolean;
   enabled: boolean;
-  latestVersion?: string;
-  updateAvailable?: boolean;
-  author?: CommunityAuthor;
-  stats?: CommunityStats;
-  origin?: PublishPluginOrigin;
-  curation?: PublishPluginCuration;
+  origin?: PluginOrigin;
   preinstalled?: boolean;
 }
 
@@ -157,7 +149,6 @@ export interface PluginSkillContent {
 
 export interface PluginCatalog {
   plugins: PluginSummary[];
-  explore: PluginSummary[];
   errors: PluginMarketplaceError[];
 }
 

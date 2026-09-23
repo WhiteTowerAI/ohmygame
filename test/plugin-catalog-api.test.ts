@@ -153,7 +153,6 @@ describe("plugin catalog API", () => {
         { id: "ohmygame:godot", installed: true },
         { id: "ohmygame:web-game-studio", installed: true },
       ],
-      explore: [],
       errors: [],
     });
     expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);

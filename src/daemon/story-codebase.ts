@@ -45,7 +45,7 @@ The editor layout \`view\` is either \`"canvas"\` or \`"code"\`. Preserve the ex
 
 ## Runtime surfaces
 
-Each chapter has exactly one Open UI node directly after Start and one Story Map node connected from Open UI's \`"story-map"\` output. Story Map is a system screen, not a story step. Use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant.
+Each chapter has exactly one Open UI node directly after Start and one Story Map node connected from Open UI's \`"story-map"\` output. Story Map is a system screen, not a story step. Use Scene or Interaction for in-story interfaces. Open UI JavaScript exports \`render({ content, actions, root })\`. Its \`content.buttons\` entries use the semantic actions \`"start-game"\`, \`"continue-game"\`, \`"new-game"\`, and \`"open-story-map"\`; call \`actions.run(button.action)\`. The Player shows these buttons only when their state is relevant. Open UI may also declare \`content.exits\` entries with stable \`id\` values and labels; call \`actions.exit(exit.id)\` for a page navigation exit. Each exit maps to one graph edge with source handle \`"exit:" + exit.id\`.
 
 Story Map JavaScript exports \`render({ content, actions, root })\`. The runtime supplies read-only derived map nodes, edges, discovery state, and counts through \`content\`; call \`actions.run("close")\` to return without changing story state.
 

@@ -144,6 +144,7 @@ const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
 const STORY_MAP_HANDLE = "story-map";
 const SETTINGS_HANDLE = "settings";
+const OPEN_UI_EXIT_PREFIX = "exit:";
 const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
 const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
@@ -282,7 +283,7 @@ interface MediaNodeRuntime {
   generating: boolean;
   busy: boolean;
   error?: string;
-  onChange: (data: StoryFlowData) => void;
+  onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
   linkedPrompt?: string;
   onDisconnectPrompt: () => void;
@@ -1545,6 +1546,7 @@ function StoryNodeOutputs({ outputs }: { outputs: ReadonlyArray<{ id: string; la
 
 function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
   const preview = data.openUiPreview;
+  const exits = data.content?.exits ?? [];
 
   return <StoryPresentationNodeCard
     nodeId={id}
@@ -1554,7 +1556,7 @@ function OpenUiNode({ id, data, selected }: NodeProps<StoryCanvasNode>) {
     type="Open UI"
     title={data.title || "Untitled Story"}
     trailing={preview?.durationMs ? <time>{formatCompactDuration(preview.durationMs)}</time> : null}
-    outputs={<StoryNodeOutputs outputs={[{ id: OUTPUT_HANDLE, label: "Story" }, { id: STORY_MAP_HANDLE, label: "Story map" }, { id: SETTINGS_HANDLE, label: "Settings" }]} />}
+    outputs={<StoryNodeOutputs outputs={[{ id: OUTPUT_HANDLE, label: "Story" }, { id: STORY_MAP_HANDLE, label: "Story map" }, { id: SETTINGS_HANDLE, label: "Settings" }, ...exits.map((exit) => ({ id: `${OPEN_UI_EXIT_PREFIX}${exit.id}`, label: exit.label || exit.id }))]} />}
   >
     <CanvasStoryPlayer nodeId={id} />
   </StoryPresentationNodeCard>;
@@ -2495,7 +2497,7 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
   previewSession?: StoryPreviewSessionState;
   onNavigateNode: (session: StoryPreviewSessionState) => void;
   onUploadAsset: (file: File) => Promise<LibraryAsset>;
-  onChange: (data: StoryFlowData) => void;
+  onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
 }) {
   const presentation: StoryOpenUiPresentation = node.data.presentation ?? { media: { items: [] }, surface: { files: structuredClone(DEFAULT_OPEN_UI_CODE) } };
   const [selectedLayoutId, setSelectedLayoutId] = useState<string>();
@@ -2514,6 +2516,19 @@ function OpenUiWorkbench({ mode, node, chapter, variables, nodes, config, librar
         <div className="story-inspector-content">
           <section className="story-open-ui-inspector-section">
             <InspectorField label="Title"><input maxLength={120} value={node.data.content?.title ?? node.data.title ?? ""} onChange={(event) => onChange({ ...node.data, title: event.target.value, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), title: event.target.value } })} /></InspectorField>
+          </section>
+          <section className="story-open-ui-inspector-section">
+            <h3>Page exits</h3>
+            <div className="story-open-ui-exit-list">
+              {(node.data.content?.exits ?? []).map((exit) => <div className="story-open-ui-exit-row" key={exit.id}>
+                <input aria-label={`Exit ${exit.label || exit.id}`} maxLength={80} value={exit.label} onChange={(event) => onChange({ ...node.data, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), exits: (node.data.content?.exits ?? []).map((candidate) => candidate.id === exit.id ? { ...candidate, label: event.target.value } : candidate) } })} />
+                <button type="button" aria-label={`Delete exit ${exit.label || exit.id}`} onClick={() => onChange({ ...node.data, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), exits: (node.data.content?.exits ?? []).filter((candidate) => candidate.id !== exit.id) } }, `${OPEN_UI_EXIT_PREFIX}${exit.id}`)}><Trash2 size={13} /></button>
+              </div>)}
+            </div>
+            <button className="story-inspector-add-button" type="button" onClick={() => {
+              const id = crypto.randomUUID();
+              onChange({ ...node.data, content: { ...(node.data.content ?? DEFAULT_OPEN_UI_CONTENT), exits: [...(node.data.content?.exits ?? []), { id, label: "New exit" }] } });
+            }}><Plus size={13} />Add page exit</button>
           </section>
           <section className="story-open-ui-inspector-section">
             <h3>Position</h3>
@@ -3650,6 +3665,7 @@ function connectionRelation(
   if (source.type === "story-map" || source.type === "settings") return undefined;
   if (sourceHandle === STORY_MAP_HANDLE) return source.type === "open-ui" && target.type === "story-map" ? "story" : undefined;
   if (sourceHandle === SETTINGS_HANDLE) return source.type === "open-ui" && target.type === "settings" ? "story" : undefined;
+  if (sourceHandle?.startsWith(OPEN_UI_EXIT_PREFIX)) return source.type === "open-ui" && source.data.content?.exits?.some((exit) => `${OPEN_UI_EXIT_PREFIX}${exit.id}` === sourceHandle) ? "story" : undefined;
   if (target.type === "story-map" || target.type === "settings") return undefined;
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "image") {
     return (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&

@@ -80,7 +80,7 @@ describe("plugin protocol", () => {
     expect(isNewerPluginVersion("1.0.0-alpha", "1.0.0")).toBe(false);
   });
 
-  it("keeps catalog state outside the author manifest", () => {
+  it("keeps installation state outside the author manifest", () => {
     const plugin: PluginSummary = {
       id: "ohmygame:godot",
       name: "godot",

@@ -17,8 +17,6 @@ interface LockedPlugin {
   version: string;
   artifactSha256: string;
   candidate: string;
-  publisher: { id: string; displayName: string };
-  curation?: "featured";
   interface?: NonNullable<ResolvedPluginManifest["interface"]>;
 }
 
@@ -54,7 +52,6 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       await git(["-c", "core.autocrlf=false", "-C", source, "checkout", "--quiet", entry.commit]);
       const actualCommit = (await git(["-C", source, "rev-parse", "HEAD"])).trim();
       if (actualCommit !== entry.commit) throw new Error(`Unexpected commit for ${entry.repository}: ${actualCommit}`);
-      const publishedAt = (await git(["-C", source, "show", "-s", "--format=%cI", entry.commit])).trim();
       await rm(path.join(source, ".git"), { recursive: true, force: true });
 
       const candidates = await discoverPlugins(source);
@@ -65,10 +62,10 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
         version: entry.version,
         interface: { ...selected.manifest.interface, ...entry.interface },
       };
-      const detail = await inspectPluginBundle(source, {
+      await inspectPluginBundle(source, {
         idPrefix: "ohmygame:",
         marketplace: { id: "ohmygame", displayName: "OhMyGame" },
-        source: { type: "catalog", pluginId: entry.pluginId, releaseId: entry.releaseId },
+        source: { type: "preinstalled", pluginId: entry.pluginId, releaseId: entry.releaseId },
       }, undefined, manifest);
       const archive = await createPluginArchive(source);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
@@ -82,19 +79,11 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
         releaseId: entry.releaseId,
         name: manifest.name,
         version: entry.version,
-        publishedAt,
         artifactFile,
         artifactSha256,
         artifactBytes: archive.length,
         manifest,
-        skills: detail.skills.map(({ id, name, description }) => ({
-          id,
-          name: id === "SKILL.md" ? selected.displayName : name,
-          description: description ?? (id === "SKILL.md" ? selected.description : undefined),
-        })),
-        publisher: entry.publisher,
         origin: { type: "github", repository: entry.repository, commit: entry.commit, ...(entry.release ? { release: entry.release } : {}) },
-        ...(entry.curation ? { curation: entry.curation } : {}),
       });
     }
     const index: PreparedPluginIndex = { version: 1, plugins };

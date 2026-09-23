@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AssetPublicationState, LibraryAsset } from "../shared/contracts.js";
+import type { LibraryAsset } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
 
 interface StoredLibrary {
@@ -51,7 +51,7 @@ export class AssetLibrary {
   async add(
     fileName: string,
     contents: Uint8Array,
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number } = {},
+    options: { prompt?: string; sourceKey?: string; duration?: number } = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -77,7 +77,7 @@ export class AssetLibrary {
   async addFile(
     fileName: string,
     sourcePath: string,
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number } = {},
+    options: { prompt?: string; sourceKey?: string; duration?: number } = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -128,18 +128,6 @@ export class AssetLibrary {
     });
   }
 
-  async setPublication(id: string, publication: AssetPublicationState): Promise<LibraryAsset> {
-    return this.#mutate(async () => {
-      const asset = this.get(id);
-      if (!asset) throw new AssetLibraryError("Library asset not found", 404);
-      const updated = { ...asset, publication };
-      const state = { ...this.#state, assets: this.#state.assets.map((candidate) => candidate.id === id ? updated : candidate) };
-      await this.#write(state);
-      this.#state = state;
-      return updated;
-    });
-  }
-
   async delete(id: string): Promise<void> {
     await this.#mutate(async () => {
       const asset = this.get(id);
@@ -162,7 +150,7 @@ export class AssetLibrary {
     fileName: string,
     size: number,
     media: { mediaType: LibraryAsset["mediaType"]; contentType: string },
-    options: { prompt?: string; sourceKey?: string; publication?: AssetPublicationState; duration?: number },
+    options: { prompt?: string; sourceKey?: string; duration?: number },
   ): Promise<LibraryAsset> {
     const asset: LibraryAsset = {
       id,
@@ -172,7 +160,6 @@ export class AssetLibrary {
       createdAt: new Date().toISOString(),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
-      ...(options.publication ? { publication: options.publication } : {}),
     };
     const state = {
       ...this.#state,
@@ -227,15 +214,5 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model") &&
     typeof asset.contentType === "string" && typeof asset.createdAt === "string" && Number.isFinite(Date.parse(asset.createdAt)) &&
     (asset.duration === undefined || typeof asset.duration === "number" && Number.isFinite(asset.duration) && asset.duration >= 0) &&
-    (asset.prompt === undefined || typeof asset.prompt === "string") &&
-    (asset.publication === undefined || isPublication(asset.publication));
-}
-
-function isPublication(value: unknown): value is AssetPublicationState {
-  if (!value || typeof value !== "object") return false;
-  const publication = value as Partial<AssetPublicationState>;
-  return typeof publication.assetId === "string" && Boolean(publication.assetId) &&
-    typeof publication.releaseId === "string" && Boolean(publication.releaseId) &&
-    typeof publication.publishedAt === "string" && Number.isFinite(Date.parse(publication.publishedAt)) &&
-    (publication.status === "listed" || publication.status === "unlisted");
+    (asset.prompt === undefined || typeof asset.prompt === "string");
 }

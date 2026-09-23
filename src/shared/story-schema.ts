@@ -153,6 +153,7 @@ const nodes = [
         type: "object", additionalProperties: false, required: ["title", "buttons"],
         properties: {
           title: { type: "string", maxLength: 120 },
+          exits: { type: "array", maxItems: 32, items: { type: "object", additionalProperties: false, required: ["id", "label"], properties: { id, label: { type: "string", minLength: 1, maxLength: 80 } } } },
           buttons: {
             type: "array", minItems: 4, maxItems: 5,
             items: { type: "object", additionalProperties: false, required: ["id", "label", "action"], properties: { id, label: { type: "string", maxLength: 80 }, action: { enum: ["start-game", "continue-game", "new-game", "open-story-map", "open-settings"] } } },

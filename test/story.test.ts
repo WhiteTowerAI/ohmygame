@@ -45,6 +45,29 @@ describe("canonical Interactive Drama story", () => {
     expect(openUiRuntimeContent(DEFAULT_OPEN_UI_CONTENT, true).buttons.map((button) => button.action)).toEqual(["continue-game", "new-game", "open-story-map", "open-settings"]);
   });
 
+  it("supports dynamic Open UI exits with dedicated graph handles", () => {
+    const story = createPlayableStoryDocument();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui")!;
+    const ending = story.chapter.nodes.find((node) => node.type === "ending")!;
+    if (openUi.type !== "open-ui") throw new Error("Open UI is missing");
+    openUi.data.content.exits = [{ id: "case-files", label: "Case files" }];
+    story.chapter.edges.push({ id: "open-case-files", source: openUi.id, sourceHandle: "exit:case-files", target: ending.id });
+    expect(isStoryDocument(story)).toBe(true);
+    expect(advanceOpenUi(story.chapter, restartGame(story.chapter, story.variables), "exit:case-files").nodeId).toBe(ending.id);
+  });
+
+  it("requires every dynamic Open UI exit to be connected", () => {
+    const story = createPlayableStoryDocument();
+    const openUi = story.chapter.nodes.find((node) => node.type === "open-ui");
+    if (openUi?.type !== "open-ui") throw new Error("Open UI is missing");
+    openUi.data.content.exits = [{ id: "map", label: "Map" }];
+    expect(validatePlayableChapter(story.chapter)?.message).toContain('Connect the Open UI exit "Map"');
+    const storyMap = story.chapter.nodes.find((node) => node.type === "story-map");
+    if (!storyMap) throw new Error("Story Map is missing");
+    story.chapter.edges.push({ id: "open-map-exit", source: openUi.id, sourceHandle: "exit:map", target: storyMap.id });
+    expect(validatePlayableChapter(story.chapter)).toBeUndefined();
+  });
+
   it("starts an isolated preview without carrying upstream media", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;

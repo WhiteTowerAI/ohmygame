@@ -28,10 +28,13 @@ jobs:
       - run: npm run prepare:desktop-runtime -- win32-x64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       - run: npm run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
       - name: Validate desktop release configuration
         shell: pwsh
         run: |
@@ -64,10 +67,13 @@ jobs:
       - run: npm run prepare:desktop-runtime -- darwin-arm64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       - run: npm run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
       - name: Validate Apple signing secrets
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}

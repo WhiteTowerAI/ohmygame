@@ -50,22 +50,6 @@ export interface LocalAssetTemplate extends AssetTemplateDefinition {
   source: "local";
   createdAt: string;
   hasCover?: boolean;
-  publication?: {
-    templateId: string;
-    releaseId: string;
-    publishedAt: string;
-    status: "listed" | "unlisted";
-  };
-}
-
-export interface ExploreAssetTemplate extends AssetTemplateDefinition {
-  id: string;
-  source: "catalog";
-  releaseId: string;
-  publishedAt: string;
-  hasCover?: boolean;
-  author: import("./publish-v1.js").CommunityAuthor;
-  stats: import("./publish-v1.js").CommunityStats;
 }
 
 export interface CreateAssetTemplateRequest extends AssetTemplateDefinition {}
