@@ -8,6 +8,7 @@ import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
+import { ElectronPlaytestDriver } from "./playtest-driver.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
@@ -16,11 +17,13 @@ const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-render
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
+const agentPlaytests = new ElectronPlaytestDriver();
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 
 async function stopServices(): Promise<void> {
+  agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
 }
 
@@ -151,6 +154,7 @@ try {
         : path.join(process.resourcesPath, "runtime", "node", "bin")
       : undefined,
     environment: app.isPackaged ? await packagedEnvironment() : undefined,
+    handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
   });
   updater = new DesktopUpdater(app.getVersion(), async () => {
     await stopServices();

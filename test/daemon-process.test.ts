@@ -99,6 +99,54 @@ describe("desktop daemon process", () => {
     expect(await readFile(piAgentFile, "utf8")).toBe(piAgentDirectory);
     await daemon.stop();
   });
+
+  it("routes playtest requests over the private child-process channel", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-playtest-ipc-"));
+    const resultFile = path.join(directory, "playtest-result");
+    const entry = path.join(directory, "daemon.mjs");
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1", () => {
+        process.send({
+          channel: "ohmygame:playtest-request",
+          id: "request-1",
+          request: { operation: "close", sessionId: "session-1" },
+        });
+      });
+      process.on("message", (message) => {
+        if (message?.channel !== "ohmygame:playtest-response") return;
+        writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(message));
+      });
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+
+    const handler = vi.fn(async () => ({ operation: "close" as const }));
+    const daemon = await startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: {},
+      healthTimeoutMs: 2_000,
+      handlePlaytestRequest: handler,
+    });
+
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await readFile(resultFile, "utf8"))).toMatchObject({
+        channel: "ohmygame:playtest-response",
+        id: "request-1",
+        result: { operation: "close" },
+      });
+    });
+    expect(handler).toHaveBeenCalledWith(
+      { operation: "close", sessionId: "session-1" },
+      expect.any(AbortSignal),
+    );
+    await daemon.stop();
+  });
 });
 
 function isRunning(pid: number): boolean {

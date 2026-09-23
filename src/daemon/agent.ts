@@ -19,6 +19,7 @@ import type { StoredConversation } from "./conversations.js";
 import { ensureOhMyGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
+import { appendSystemPromptForProject } from "./agent-prompts.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -241,6 +242,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
         if (result.output) tool.output = result.output;
         if (result.truncated) tool.truncated = true;
         if (result.artifact) tool.artifact = result.artifact;
+        if (result.images?.length) tool.images = result.images;
       }
     }
   }
@@ -1086,7 +1088,7 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
 
     const session = await (this.options.createSession ?? ((state, stored) => createPiSession(
-      state.workspacePath,
+      state,
       SessionManager.open(stored.sessionPath, sessionDirectory(state), state.workspacePath),
       [],
     )))(project, conversation);
@@ -1886,18 +1888,25 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[] } {
   const artifact = toolArtifact(result);
+  const images = result && typeof result === "object" && "content" in result
+    ? imageContent((result as { content?: unknown }).content)
+    : [];
+  const media = {
+    ...(artifact ? { artifact } : {}),
+    ...(images.length ? { images } : {}),
+  };
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
     : stringify(result);
-  if (!value) return artifact ? { artifact } : {};
-  if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...(artifact ? { artifact } : {}) };
+  if (!value) return media;
+  if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...media };
   const half = MAX_TOOL_OUTPUT / 2;
   return {
     output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
     truncated: true,
-    ...(artifact ? { artifact } : {}),
+    ...media,
   };
 }
 
@@ -2072,7 +2081,7 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
 export async function createPiSession(
-  workspacePath: string,
+  project: Pick<ProjectState, "workspacePath" | "type">,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
   modelRuntime?: ModelRuntime,
@@ -2081,9 +2090,12 @@ export async function createPiSession(
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
-  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
+  const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
+    resolvePluginSkills,
+    appendSystemPrompt: appendSystemPromptForProject(project.type),
+  });
   const { session } = await createAgentSession({
-    cwd: workspacePath,
+    cwd: project.workspacePath,
     agentDir,
     customTools,
     model,
@@ -2103,7 +2115,7 @@ export async function loadPiSkills(
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
 ): Promise<SkillCatalogItem[]> {
-  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, resolvePluginSkills);
+  const { resourceLoader, pluginSkills } = await createPiResourceLoader(workspacePath, agentDir, { resolvePluginSkills });
   return skillCatalog(resourceLoader.getSkills().skills, pluginSkills);
 }
 
@@ -2125,26 +2137,25 @@ export async function loadPiSkillCatalog(
 async function createPiResourceLoader(
   workspacePath: string,
   agentDir: string,
-  resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+  options: {
+    resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>;
+    appendSystemPrompt?: readonly string[];
+  } = {},
 ): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
   await ensureOhMyGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
   sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
-  const pluginSkills = await resolvePluginSkills?.() ?? [];
+  const pluginSkills = await options.resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
-    appendSystemPrompt: [
-      "This workspace may be empty. Do not create files for casual conversation or questions that do not require code.",
-      "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. " +
-      "Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
-      "For multi-step tasks, use update_plan to maintain a concise plan with at most one in_progress step. " +
-      "Update it when a meaningful step starts or completes. Do not use update_plan for simple one-step requests.",
-    ],
+    appendSystemPrompt: options.appendSystemPrompt
+      ? [...options.appendSystemPrompt]
+      : [],
   });
   await resourceLoader.reload();
   return { resourceLoader, sessionSettings, pluginSkills };

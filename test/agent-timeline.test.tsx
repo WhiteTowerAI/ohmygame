@@ -754,6 +754,85 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Godot: Run project");
   });
 
+  it("describes browser playtest operations with player-facing labels", () => {
+    const playtest = (id: string, operation: string, status: "inProgress" | "completed", extra: Record<string, unknown> = {}): ThreadItem => ({
+      id,
+      turnId: "turn-1",
+      type: "dynamicToolCall",
+      toolCallId: id,
+      tool: "playtest_browser",
+      status,
+      arguments: { operation, ...extra },
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      playtest("open", "open", "completed"),
+      playtest("single-act", "act", "completed", { actions: [{ type: "press", key: "Enter" }] }),
+      playtest("act", "act", "completed", { actions: [{ type: "press", key: "Space" }, { type: "wait", milliseconds: 100 }] }),
+      playtest("capture", "capture", "inProgress"),
+    ]} activeTurnId="turn-1" />);
+
+    expect(html).toContain("Capturing game screenshot");
+    expect(html).toContain("Opened game preview");
+    expect(html).toContain("Ran a playtest action");
+    expect(html).toContain("Ran playtest actions");
+    expect(html).not.toContain("Ran 2 playtest actions");
+    expect(html).toContain("solar-gamepad-linear");
+    expect(html).not.toContain("Used playtest_browser");
+  });
+
+  it("summarizes completed browser checks as a game playtest", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "open",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "open",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "open" },
+      },
+      {
+        id: "close",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "close",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "close", sessionId: "session-1" },
+      },
+      assistant("final", "Verified.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Playtested the game");
+    expect(html).toContain("Closed game preview");
+    expect(html).not.toContain("playtest_browser tools");
+  });
+
+  it("shows a captured playtest frame inside the tool details", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      user(),
+      {
+        id: "capture",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "capture",
+        tool: "playtest_browser",
+        status: "completed",
+        arguments: { operation: "capture", sessionId: "session-1" },
+        output: "{\"width\":780,\"height\":1688}",
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+      },
+      assistant("final", "Verified.", "final_answer"),
+    ]} />);
+
+    expect(html).toContain("Captured game screenshot");
+    expect(html).toContain('class="tool-result-images"');
+    expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+    expect(html.indexOf("tool-result-images")).toBeLessThan(html.indexOf("Input"));
+  });
+
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
