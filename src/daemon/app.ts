@@ -11,14 +11,14 @@ import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createStoryDocument } from "../shared/story.js";
-import { PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType, type PublishPluginOrigin } from "../shared/publish-v1.js";
+import { PUBLISH_GAME_TITLE_MAX_LENGTH, type CommunitySubjectType } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateCreativeText } from "./text-generation.js";
-import { ArtifactBuilder, PublishError, createPluginArchive } from "./publish/archive.js";
+import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { AccountServiceClient } from "./account-service-client.js";
@@ -34,10 +34,10 @@ import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import { ManagedVideoGenerator, type VideoGenerator } from "./seedance-video.js";
-import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, RemotePluginAdapter } from "./plugin-catalog.js";
+import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
-import { LocalPluginError, LocalPluginStore, type InstalledPluginBundle } from "./local-plugins.js";
-import { inspectPluginSource, installCatalogPlugin, installPlugin } from "./plugin-installer.js";
+import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
+import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
@@ -48,7 +48,7 @@ import { AssetStudioDraftStore } from "./asset-studio-draft.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
-import { hasPluginMentionToken, isPluginVersion, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
+import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
@@ -187,7 +187,7 @@ const communitySubjectParams = {
   additionalProperties: false,
   required: ["type", "id"],
   properties: {
-    type: { enum: ["game", "plugin"] },
+    type: { enum: ["game"] },
     id: { type: "string", minLength: 1, maxLength: 200 },
   },
 } as const;
@@ -211,18 +211,6 @@ const publishProjectSchema = {
       accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
       title: { type: "string", minLength: 1, maxLength: 200 },
       description: { type: "string", maxLength: 2_000 },
-    },
-  },
-} as const;
-
-const publishPluginSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["accessToken"],
-    properties: {
-      accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
-      version: { type: "string", minLength: 1, maxLength: 256 },
     },
   },
 } as const;
@@ -574,7 +562,6 @@ export function createApp(options: AppOptions = {}) {
   const plugins = new PluginCatalogService([
     new BundledPluginAdapter(bundledPlugins),
     new LocalPluginAdapter(localPlugins),
-    new RemotePluginAdapter(publisher),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
   const withConnectionStatus = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => {
     if (!plugin) return plugin;
@@ -777,102 +764,6 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { pluginId: string } }>("/plugins/:pluginId/install", async (request, reply) => {
-    try {
-      const available = await plugins.read(request.params.pluginId);
-      const catalog = available?.catalog ?? (available?.source.type === "catalog" ? available.source : undefined);
-      if (!available || !catalog) return reply.code(404).send({ error: "Catalog Plugin not found" });
-      const remote = await publisher.explorePlugin(catalog.pluginId);
-      const archive = await publisher.pluginContent(remote.id, remote.releaseId);
-      const sha256 = createHash("sha256").update(archive).digest("hex");
-      if (archive.length !== remote.artifactBytes || sha256 !== remote.artifactSha256) {
-        return reply.code(502).send({ error: "Downloaded Plugin failed integrity verification" });
-      }
-      const installed = await installCatalogPlugin(localPlugins, {
-        pluginId: remote.id, releaseId: remote.releaseId, manifest: remote.manifest, archive,
-        ...(available.installed ? { replaceId: available.id } : {}),
-      });
-      invalidatePluginSessions();
-      return reply.code(201).send(await plugins.read(installed.id) ?? pluginSettings.decorate(installed));
-    } catch (cause) {
-      const statusCode = cause instanceof LocalPluginError ? cause.statusCode
-        : cause instanceof RemotePublishError ? cause.statusCode
-        : 502;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.post<{ Params: { pluginId: string }; Body: { accessToken: string; version?: string } }>("/plugins/:pluginId/publish", {
-    schema: publishPluginSchema,
-  }, async (request, reply) => {
-    try {
-      const bundle = await localPlugins.installedBundle(request.params.pluginId);
-      if (!bundle) return reply.code(404).send({ error: "Installed local Plugin not found" });
-      const plugin = await localPlugins.read(request.params.pluginId);
-      if (!plugin) return reply.code(404).send({ error: "Installed local Plugin not found" });
-      const version = bundle.manifest.version ?? request.body.version?.trim();
-      if (!version || !isPluginVersion(version)) {
-        return reply.code(400).send({ error: "A semantic version such as 0.1.0 is required to share this Plugin" });
-      }
-      const manifest = { ...bundle.manifest, version };
-      const result = await publisher.publishPlugin({
-        name: manifest.name,
-        manifest,
-        skills: plugin.skills.map(({ id, name, description }) => ({ id, name, description })),
-        archive: await createPluginArchive(bundle.path),
-        origin: publishOrigin(bundle),
-      }, request.body.accessToken);
-      await localPlugins.linkCatalog(request.params.pluginId, {
-        pluginId: result.plugin.id,
-        releaseId: result.release.id,
-      });
-      return reply.code(201).send(result);
-    } catch (cause) {
-      const statusCode = cause instanceof PublishError ? cause.statusCode
-        : cause instanceof RemotePublishError ? cause.statusCode
-        : 502;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.post<{ Params: { pluginId: string }; Body: { accessToken: string } }>("/plugins/:pluginId/publication", {
-    schema: { body: publishAccessTokenBody },
-  }, async (request, reply) => {
-    try {
-      const plugin = await plugins.read(request.params.pluginId);
-      const catalog = plugin?.catalog ?? (plugin?.source.type === "catalog" ? plugin.source : undefined);
-      if (!plugin?.installed || !catalog) return null;
-      return await publisher.pluginPublication(catalog.pluginId, request.body.accessToken) ?? null;
-    } catch (cause) {
-      const statusCode = cause instanceof RemotePublishError ? cause.statusCode : 502;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.put<{ Params: { pluginId: string }; Body: { accessToken: string; status: "listed" | "unlisted" } }>("/plugins/:pluginId/publication", {
-    schema: {
-      body: {
-        type: "object",
-        additionalProperties: false,
-        required: ["accessToken", "status"],
-        properties: {
-          accessToken: { type: "string", minLength: 1 },
-          status: { type: "string", enum: ["listed", "unlisted"] },
-        },
-      },
-    },
-  }, async (request, reply) => {
-    try {
-      const plugin = await plugins.read(request.params.pluginId);
-      const catalog = plugin?.catalog ?? (plugin?.source.type === "catalog" ? plugin.source : undefined);
-      if (!plugin?.installed || !catalog) return reply.code(404).send({ error: "Plugin publication not found" });
-      return await publisher.setPluginListing(catalog.pluginId, request.body.status, request.body.accessToken);
-    } catch (cause) {
-      const statusCode = cause instanceof RemotePublishError ? cause.statusCode : 502;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
   app.post<{ Body: InstallPluginRequest }>("/plugins/inspect", { schema: pluginInstallRequestSchema }, async (request, reply) => {
     try {
       const candidates = (await inspectPluginSource(request.body)).map(({ manifest: _manifest, ...candidate }) => candidate);
@@ -920,9 +811,6 @@ export function createApp(options: AppOptions = {}) {
     const plugin = await plugins.read(request.params.pluginId);
     if (!plugin) return reply.code(404).send({ error: "Plugin not found" });
     try {
-      if (!plugin.installed && plugin.source.type === "catalog") {
-        return await publisher.pluginSkillContent(plugin.source.pluginId, plugin.source.releaseId, request.query.id);
-      }
       if (!plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
       const content = await readPluginSkillContent(plugin, request.query.id, [bundledPlugins, localPlugins]);
       return content === undefined
@@ -930,7 +818,6 @@ export function createApp(options: AppOptions = {}) {
         : { id: request.query.id, content };
     } catch (cause) {
       if (cause instanceof PluginSkillContentError) return reply.code(cause.statusCode).send({ error: cause.message });
-      if (cause instanceof RemotePublishError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
@@ -2584,20 +2471,4 @@ function configuredDefaultModel(cwd: string, agentDir: string): AgentModelRef | 
   const provider = settings.getDefaultProvider();
   const id = settings.getDefaultModel();
   return provider && id ? { provider, id } : undefined;
-}
-
-function publishOrigin(bundle: InstalledPluginBundle): PublishPluginOrigin | undefined {
-  const repository = bundle.provenance.type === "git" ? githubRepository(bundle.provenance.url) : undefined;
-  if (!["personal", "ohmygame"].includes(bundle.marketplace.id)) {
-    return { type: "claude-marketplace", marketplace: bundle.marketplace.displayName, ...(repository ? { repository } : {}) };
-  }
-  if (bundle.provenance.type === "git" && repository) return { type: "github", repository, commit: bundle.provenance.commit };
-  return undefined;
-}
-
-function githubRepository(value: string): string | undefined {
-  const url = new URL(value);
-  if (url.hostname.toLowerCase() !== "github.com") return undefined;
-  const repository = url.pathname.replace(/^\//, "").replace(/\.git$/, "").replace(/\/$/, "");
-  return repository.split("/").length >= 2 ? repository : undefined;
 }

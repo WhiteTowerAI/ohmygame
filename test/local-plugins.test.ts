@@ -194,25 +194,6 @@ describe("local plugins", () => {
     })).rejects.toThrow("Marketplace first-marketplace is already installed from another source");
   });
 
-  it("persists a Catalog identity for a Plugin installed from another source", async () => {
-    const root = await temporaryDirectory();
-    const dataDirectory = path.join(root, "data");
-    const source = path.join(root, "catalog-linked-plugin");
-    await writePluginManifest(source, { name: "game-tools", version: "1.0.0", description: "Game tools" });
-    const store = new LocalPluginStore(dataDirectory);
-    const installed = await store.install(source, { type: "directory", path: source }, undefined, {
-      id: "game-skills", displayName: "Game Skills",
-    });
-
-    await store.linkCatalog(installed.id, { pluginId: "catalog-plugin-1", releaseId: "catalog-release-1" });
-
-    await expect(new LocalPluginStore(dataDirectory).read(installed.id)).resolves.toMatchObject({
-      id: installed.id,
-      source: { type: "directory" },
-      catalog: { pluginId: "catalog-plugin-1", releaseId: "catalog-release-1" },
-    });
-  });
-
   it("rejects deeply nested bundles", async () => {
     const root = await temporaryDirectory();
     const dataDirectory = path.join(root, "data");

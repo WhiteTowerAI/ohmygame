@@ -2,15 +2,12 @@ import type { PluginMention } from "../shared/contracts.js";
 import {
   OHMYGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
-  isNewerPluginVersion,
   type PluginCatalog,
-  type PluginCatalogRef,
   type PluginDetail,
   type PluginMarketplaceRef,
   type PluginSummary,
 } from "../shared/plugins.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
-import type { RemotePublisher } from "./publish/client.js";
 
 export interface PluginCatalogResult {
   plugins: PluginSummary[];
@@ -21,7 +18,6 @@ export interface PluginCatalogAdapter {
   readonly marketplace: PluginMarketplaceRef;
   list(): Promise<PluginCatalogResult>;
   read(id: string): Promise<PluginDetail | undefined>;
-  readCatalog?(pluginId: string): Promise<PluginDetail | undefined>;
 }
 
 export class PluginCatalogService {
@@ -40,12 +36,9 @@ export class PluginCatalogService {
       }
     }));
     const adapterResults = results.flatMap((entry) => entry.result ? [entry.result] : []);
-    const allPlugins = adapterResults.flatMap((result) => result.plugins);
-    const plugins = uniquePlugins(allPlugins);
+    const plugins = uniquePlugins(adapterResults.flatMap((result) => result.plugins));
     return {
       plugins: plugins
-        .map((plugin) => this.decoratePlugin(this.settings.decorateSummary(plugin))),
-      explore: catalogListings(allPlugins, plugins)
         .map((plugin) => this.decoratePlugin(this.settings.decorateSummary(plugin))),
       errors: results.flatMap((entry) => {
         const messages = entry.error ? [entry.error] : entry.result?.errors ?? [];
@@ -63,31 +56,7 @@ export class PluginCatalogService {
       }
     }));
     const found = results.flatMap((result) => result.plugin ? [result.plugin] : []);
-    const installed = found.find((plugin) => plugin.installed);
-    const catalog = installed ? pluginCatalogRef(installed) : undefined;
-    const catalogResults = installed && catalog && !found.some((plugin) => !plugin.installed && pluginCatalogRef(plugin)?.pluginId === catalog.pluginId)
-      ? await Promise.all(this.adapters.map(async (adapter) => {
-          try {
-            return await adapter.readCatalog?.(catalog.pluginId);
-          } catch {
-            return undefined;
-          }
-        }))
-      : [];
-    const plugins = [...found, ...catalogResults.flatMap((plugin) => plugin ? [plugin] : [])];
-    const remote = plugins.find((plugin) => !plugin.installed && catalog && pluginCatalogRef(plugin)?.pluginId === catalog.pluginId)
-      ?? plugins.find((plugin) => plugin.source.type === "catalog" && !plugin.installed);
-    const plugin = installed && remote && sameCatalogPlugin(installed, remote)
-      ? {
-          ...installed,
-          latestVersion: remote.version,
-          updateAvailable: Boolean(installed.version && remote.version && isNewerPluginVersion(remote.version, installed.version)),
-          author: remote.author,
-          stats: remote.stats,
-          origin: remote.origin,
-          curation: remote.curation,
-        }
-      : installed ?? remote ?? plugins[0];
+    const plugin = found.find((candidate) => candidate.installed) ?? found[0];
     if (plugin) return this.decoratePlugin(this.settings.decorate(plugin));
     const failure = results.find((result) => result.error !== undefined);
     if (failure) throw failure.error;
@@ -143,42 +112,6 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
-export class RemotePluginAdapter implements PluginCatalogAdapter {
-  readonly marketplace = OHMYGAME_MARKETPLACE;
-  readonly #plugins = new Map<string, import("../shared/publish-v1.js").PublishExplorePlugin>();
-
-  constructor(private readonly publisher: Pick<RemotePublisher, "explorePlugins" | "explorePlugin">) {}
-
-  async list(): Promise<PluginCatalogResult> {
-    const plugins = await this.publisher.explorePlugins();
-    this.#plugins.clear();
-    for (const plugin of plugins) this.#plugins.set(`ohmygame:${plugin.name}`, plugin);
-    return { plugins: plugins.map(remotePluginSummary) };
-  }
-
-  async read(id: string): Promise<PluginDetail | undefined> {
-    if (!id.startsWith("ohmygame:")) return undefined;
-    try {
-      const cached = this.#plugins.get(id) ?? (await this.publisher.explorePlugins())
-        .find((plugin) => `ohmygame:${plugin.name}` === id);
-      if (!cached) return undefined;
-      return remotePluginDetail(await this.publisher.explorePlugin(cached.id));
-    } catch (cause) {
-      if ((cause as { statusCode?: number }).statusCode === 404) return undefined;
-      throw cause;
-    }
-  }
-
-  async readCatalog(pluginId: string): Promise<PluginDetail | undefined> {
-    try {
-      return remotePluginDetail(await this.publisher.explorePlugin(pluginId));
-    } catch (cause) {
-      if ((cause as { statusCode?: number }).statusCode === 404) return undefined;
-      throw cause;
-    }
-  }
-}
-
 function pluginSummary(plugin: PluginDetail): PluginSummary {
   const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
   return summary;
@@ -186,114 +119,9 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
 
 function uniquePlugins(plugins: PluginSummary[]): PluginSummary[] {
   const unique = new Map<string, PluginSummary>();
-  const catalog = new Map<string, PluginSummary>();
   for (const plugin of plugins) {
-    const catalogId = pluginCatalogRef(plugin)?.pluginId;
-    const current = unique.get(plugin.id) ?? (catalogId ? catalog.get(catalogId) : undefined);
-    if (!current) {
-      unique.set(plugin.id, plugin);
-      if (catalogId) catalog.set(catalogId, plugin);
-      continue;
-    }
-    let merged = current;
-    if (plugin.installed) {
-      merged = {
-        ...plugin,
-        ...(sameCatalogPlugin(plugin, current) ? {
-          latestVersion: current.version,
-          updateAvailable: Boolean(plugin.version && current.version && isNewerPluginVersion(current.version, plugin.version)),
-          author: current.author,
-          stats: current.stats,
-          origin: current.origin,
-          curation: current.curation,
-        } : {}),
-      };
-    } else if (current.installed && sameCatalogPlugin(current, plugin)) {
-      merged = {
-        ...current,
-        latestVersion: plugin.version,
-        updateAvailable: Boolean(current.version && plugin.version && isNewerPluginVersion(plugin.version, current.version)),
-        author: plugin.author,
-        stats: plugin.stats,
-        origin: plugin.origin,
-        curation: plugin.curation,
-      };
-    }
-    if (merged.id !== current.id) unique.delete(current.id);
-    unique.set(merged.id, merged);
-    const mergedCatalogId = pluginCatalogRef(merged)?.pluginId;
-    if (mergedCatalogId) catalog.set(mergedCatalogId, merged);
+    const current = unique.get(plugin.id);
+    if (!current || plugin.installed) unique.set(plugin.id, plugin);
   }
   return [...unique.values()];
-}
-
-function catalogListings(allPlugins: PluginSummary[], plugins: PluginSummary[]): PluginSummary[] {
-  const installedByCatalog = new Map(plugins.flatMap((plugin) => {
-    const catalog = plugin.installed ? pluginCatalogRef(plugin) : undefined;
-    return catalog ? [[catalog.pluginId, plugin] as const] : [];
-  }));
-  return allPlugins
-    .filter((plugin) => plugin.source.type === "catalog" && !plugin.installed)
-    .map((plugin) => {
-      const installed = installedByCatalog.get(pluginCatalogRef(plugin)!.pluginId);
-      if (!installed) return plugin;
-      return {
-        ...plugin,
-        id: installed.id,
-        marketplace: installed.marketplace,
-        source: installed.source,
-        catalog: pluginCatalogRef(installed),
-        installed: true,
-        enabled: installed.enabled,
-        version: installed.version,
-        latestVersion: plugin.version,
-        updateAvailable: Boolean(installed.version && plugin.version && isNewerPluginVersion(plugin.version, installed.version)),
-        preinstalled: installed.preinstalled,
-      };
-    });
-}
-
-function pluginCatalogRef(plugin: Pick<PluginSummary, "source" | "catalog">): PluginCatalogRef | undefined {
-  return plugin.catalog ?? (plugin.source.type === "catalog" ? plugin.source : undefined);
-}
-
-function sameCatalogPlugin(left: Pick<PluginSummary, "source" | "catalog">, right: Pick<PluginSummary, "source" | "catalog">): boolean {
-  const leftId = pluginCatalogRef(left)?.pluginId;
-  return Boolean(leftId && leftId === pluginCatalogRef(right)?.pluginId);
-}
-
-function remotePluginSummary(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginSummary {
-  const manifest = plugin.manifest;
-  return {
-    id: `ohmygame:${plugin.name}`,
-    name: plugin.name,
-    displayName: manifest.interface?.displayName ?? displayName(plugin.name),
-    description: manifest.interface?.shortDescription ?? manifest.description,
-    version: plugin.version,
-    latestVersion: plugin.version,
-    marketplace: OHMYGAME_MARKETPLACE,
-    source: { type: "catalog", pluginId: plugin.id, releaseId: plugin.releaseId },
-    installed: false,
-    enabled: false,
-    author: plugin.author,
-    stats: plugin.stats,
-    origin: plugin.origin,
-    curation: plugin.curation,
-  };
-}
-
-function remotePluginDetail(plugin: import("../shared/publish-v1.js").PublishExplorePlugin): PluginDetail {
-  const summary = remotePluginSummary(plugin);
-  return {
-    ...summary,
-    longDescription: plugin.manifest.interface?.longDescription,
-    skills: (plugin.skills ?? []).map((skill) => ({ ...skill, enabled: true })),
-    connections: (plugin.manifest.connections ?? []).map((id) => ({ id, name: displayName(id.replace(/^ohmygame-/, "")), enabled: true })),
-    defaultPrompts: plugin.manifest.interface?.defaultPrompt,
-    projectTypes: plugin.manifest.interface?.projectTypes,
-  };
-}
-
-function displayName(value: string): string {
-  return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

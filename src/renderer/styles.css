@@ -4415,35 +4415,11 @@ button.home-nav-item-active:hover {
   color: var(--danger);
   font-size: 11px;
 }
-.plugins-inline-notice {
-  margin: 16px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
 .plugins-empty {
   padding: 28px 12px;
   border-bottom: 0;
   color: var(--text-muted);
   font-size: 12px;
-}
-
-.plugins-section-heading {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.plugins-section-heading h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.plugins-section-heading span {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 @media (max-width: 760px) {
@@ -4464,10 +4440,6 @@ button.home-nav-item-active:hover {
 .plugins-installed {
   margin-top: 28px;
 }
-.plugins-explore {
-  margin-top: 38px;
-}
-
 .plugins-installed h2 {
   margin: 0;
   color: var(--text);
@@ -4475,8 +4447,7 @@ button.home-nav-item-active:hover {
   font-weight: 650;
 }
 
-.plugins-installed-grid,
-.plugins-explore-grid {
+.plugins-installed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
@@ -4562,10 +4533,7 @@ button.home-nav-item-active:hover {
   font-weight: 500;
 }
 
-.plugin-card-title .plugin-featured-badge,
-.plugin-card-title .plugin-yours-badge,
-.plugin-card-title .plugin-explore-status,
-.plugin-detail-title .plugin-featured-badge,
+.plugin-card-title .plugin-status,
 .plugin-detail-badge {
   display: inline-flex;
   height: 16px;
@@ -4579,12 +4547,8 @@ button.home-nav-item-active:hover {
   line-height: 16px;
 }
 
-.plugin-card-title .plugin-explore-status {
+.plugin-card-title .plugin-status {
   margin-left: auto;
-}
-
-.plugin-card-title .plugin-explore-status.is-update {
-  color: var(--accent);
 }
 
 .plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {
@@ -4611,8 +4575,7 @@ button.home-nav-item-active:hover {
 }
 
 @media (max-width: 760px) {
-  .plugins-installed-grid,
-  .plugins-explore-grid {
+  .plugins-installed-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -14879,16 +14842,6 @@ button {
 .community-like-button:disabled {
   cursor: default;
   opacity: 0.6;
-}
-.plugin-community-byline {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 14px;
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 20px;
 }
 .library-dialog-footer > div:first-child {
   display: grid;

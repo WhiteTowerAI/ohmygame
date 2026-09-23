@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountApi, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPluginPublication, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installCatalogPlugin, installPlugin, listAssetTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishPlugin, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setConversationModel, setConversationReasoning, setPluginPublicationStatus, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
+import { accountApi, addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listAssetTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -257,41 +257,6 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/project/publish", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ accessToken: "user-access-token", title: "Game", description: "Description" }),
-    }));
-  });
-
-  it("installs and publishes Catalog Plugins through the daemon API", async () => {
-    installWindow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ id: "ohmygame:tools" }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({}, { status: 201 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await installCatalogPlugin("ohmygame:tools");
-    await publishPlugin("personal:tools", "user-access-token", "0.1.0");
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/ohmygame%3Atools/install", expect.objectContaining({ method: "POST" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publish", expect.objectContaining({
-      method: "POST", body: JSON.stringify({ accessToken: "user-access-token", version: "0.1.0" }),
-    }));
-  });
-
-  it("reads and updates the current user's Plugin publication through the daemon API", async () => {
-    installWindow();
-    const publication = { pluginId: "plugin-1", releaseId: "release-1", version: "1.0.0", status: "listed" };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(publication))
-      .mockResolvedValueOnce(Response.json({ pluginId: "plugin-1", status: "unlisted" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getPluginPublication("personal:tools", "user-access-token")).resolves.toEqual(publication);
-    await setPluginPublicationStatus("personal:tools", "user-access-token", "unlisted");
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/personal%3Atools/publication", expect.objectContaining({
-      method: "POST", body: JSON.stringify({ accessToken: "user-access-token" }),
-    }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Atools/publication", expect.objectContaining({
-      method: "PUT", body: JSON.stringify({ accessToken: "user-access-token", status: "unlisted" }),
     }));
   });
 

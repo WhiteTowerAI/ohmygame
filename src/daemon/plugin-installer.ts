@@ -29,21 +29,21 @@ export async function inspectPluginSource(input: InstallPluginRequest, git: GitR
   });
 }
 
-export async function installCatalogPlugin(
+export async function installPreparedPlugin(
   store: LocalPluginStore,
-  input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer; replaceId?: string },
+  input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer },
 ): Promise<PluginDetail> {
-  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ohmygame-catalog-plugin-"));
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ohmygame-preinstalled-plugin-"));
   const archivePath = path.join(temporaryRoot, "plugin.zip");
   const source = path.join(temporaryRoot, "plugin");
   try {
     await writeFile(archivePath, input.archive, { flag: "wx" });
     await mkdir(source);
     await extractPluginArchive(archivePath, source);
-    return await store.installCatalog(source, { type: "catalog", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest, input.replaceId);
+    return await store.installPrepared(source, { type: "preinstalled", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest);
   } catch (cause) {
     if (cause instanceof LocalPluginError) throw cause;
-    throw new LocalPluginError(`Could not install Catalog Plugin: ${cause instanceof Error ? cause.message : String(cause)}`);
+    throw new LocalPluginError(`Could not install preinstalled Plugin: ${cause instanceof Error ? cause.message : String(cause)}`);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

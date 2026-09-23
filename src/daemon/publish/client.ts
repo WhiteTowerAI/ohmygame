@@ -1,22 +1,14 @@
 import { createHash } from "node:crypto";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
-import type { PluginManifest, PluginSkillContent } from "../../shared/plugins.js";
 import type {
   CommunityInteractionResult,
   CommunityStats,
   CommunitySubjectType,
   CommunityViewerState,
   CreatePublishDeploymentResult,
-  CreatePublishPluginReleaseResult,
-  PublishExplorePlugin,
   PublishApiError,
   PublishDeployment,
   PublishGame,
-  PublishPlugin,
-  PublishPluginListing,
-  PublishPluginPublication,
-  PublishPluginOrigin,
-  PublishPluginSkill,
 } from "../../shared/publish-v1.js";
 
 export interface RemotePublisherOptions {
@@ -60,73 +52,6 @@ export class RemotePublisher {
       `/v1/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
     );
     return Buffer.from(await response.arrayBuffer());
-  }
-
-  async publishPlugin(input: {
-    name: string;
-    manifest: PluginManifest;
-    skills: PublishPluginSkill[];
-    archive: Buffer;
-    origin?: PublishPluginOrigin;
-  }, accessToken: string): Promise<CreatePublishPluginReleaseResult> {
-    const plugin = await this.#request<PublishPlugin>("/v1/plugins", {
-      method: "POST",
-      headers: { "idempotency-key": `plugin-${input.name}` },
-      body: JSON.stringify({ name: input.name }),
-    }, accessToken);
-    const metadata = {
-      artifactSha256: createHash("sha256").update(input.archive).digest("hex"),
-      artifactBytes: input.archive.length,
-      manifest: input.manifest,
-      skills: input.skills,
-      ...(input.origin ? { origin: input.origin } : {}),
-    };
-    const form = new FormData();
-    form.set("metadata", JSON.stringify(metadata));
-    form.set("artifact", new Blob([new Uint8Array(input.archive)], { type: "application/zip" }), "plugin.zip");
-    const key = createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
-    const result = await this.#request<CreatePublishPluginReleaseResult>(`/v1/plugins/${plugin.id}/releases`, {
-      method: "POST",
-      headers: { "idempotency-key": `plugin-release-${plugin.id}-${key}` },
-      body: form,
-    }, accessToken);
-    await this.#request(`/v1/plugins/${plugin.id}/listing`, {
-      method: "PUT", body: JSON.stringify({ status: "listed" }),
-    }, accessToken);
-    return result;
-  }
-
-  explorePlugins(): Promise<PublishExplorePlugin[]> {
-    return this.#request("/v1/explore/plugins");
-  }
-
-  async pluginPublication(pluginId: string, accessToken: string): Promise<PublishPluginPublication | undefined> {
-    try {
-      return await this.#request(`/v1/plugins/${encodeURIComponent(pluginId)}/publication`, {}, accessToken);
-    } catch (cause) {
-      if (cause instanceof RemotePublishError && cause.statusCode === 404) return undefined;
-      throw cause;
-    }
-  }
-
-  setPluginListing(pluginId: string, status: "listed" | "unlisted", accessToken: string): Promise<PublishPluginListing> {
-    return this.#request(`/v1/plugins/${encodeURIComponent(pluginId)}/listing`, {
-      method: "PUT",
-      body: JSON.stringify({ status }),
-    }, accessToken);
-  }
-
-  explorePlugin(pluginId: string): Promise<PublishExplorePlugin> {
-    return this.#request(`/v1/explore/plugins/${encodeURIComponent(pluginId)}`);
-  }
-
-  async pluginContent(pluginId: string, releaseId: string): Promise<Buffer> {
-    const response = await this.#response(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/content`);
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  pluginSkillContent(pluginId: string, releaseId: string, skillId: string): Promise<PluginSkillContent> {
-    return this.#request(`/v1/explore/plugins/${encodeURIComponent(pluginId)}/releases/${encodeURIComponent(releaseId)}/skill-content?id=${encodeURIComponent(skillId)}`);
   }
 
   communityViewerState(type: CommunitySubjectType, id: string, accessToken: string): Promise<CommunityViewerState> {

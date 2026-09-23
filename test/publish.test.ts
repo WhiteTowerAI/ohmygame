@@ -71,154 +71,18 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([]);
   });
 
-  it("publishes, installs, and updates a Catalog Plugin without re-enabling it", async () => {
+  it("does not expose the removed Plugin marketplace", async () => {
     const runtime = await testRuntime();
-    const source = await temporary("ohmygame-published-plugin-");
-    await mkdir(path.join(source, ".ohmygame-plugin"));
-    await mkdir(path.join(source, "skills", "levels"), { recursive: true });
-    await writeFile(path.join(source, "skills", "levels", "SKILL.md"), "---\nname: levels\ndescription: Build levels.\n---\n");
-    const writeManifest = (version: string) => writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "level-tools", version, description: "Level workflows", skills: "./skills",
-      interface: { displayName: "Level Tools", defaultPrompt: ["Build a level"] },
-    }));
-    await writeManifest("1.0.0");
-    await runtime.daemon.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
-    const published = await runtime.daemon.inject({
-      method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
-    });
-    expect(published.statusCode).toBe(201);
-    const publisherCatalog = (await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json();
-    const publisherPlugins = publisherCatalog.plugins
-      .filter((plugin: { name: string }) => plugin.name === "level-tools");
-    expect(publisherPlugins).toHaveLength(1);
-    expect(publisherPlugins[0]).toMatchObject({
-      id: "personal:level-tools",
-      installed: true,
-      catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
-      author: { id: "publisher", displayName: "OhMyGame Creator" },
-    });
-    expect(publisherCatalog.explore).toEqual([
-      expect.objectContaining({ id: "personal:level-tools", installed: true }),
-    ]);
-    expect((await runtime.daemon.inject({
-      method: "POST", url: "/plugins/personal%3Alevel-tools/publication", payload: { accessToken: token },
-    })).json()).toMatchObject({
-      pluginId: published.json().plugin.id,
-      releaseId: published.json().release.id,
-      version: "1.0.0",
-      status: "listed",
-    });
-    expect((await runtime.daemon.inject({
-      method: "PUT", url: "/plugins/personal%3Alevel-tools/publication",
-      payload: { accessToken: token, status: "unlisted" },
-    })).statusCode).toBe(200);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json().explore).toEqual([]);
-    expect((await runtime.daemon.inject({
-      method: "PUT", url: "/plugins/personal%3Alevel-tools/publication",
-      payload: { accessToken: token, status: "listed" },
-    })).statusCode).toBe(200);
 
-    const consumer = createApp({ dataDirectory: await temporary("ohmygame-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
-    apps.push(consumer);
-    await consumer.ready();
-    const catalog = await consumer.inject({ method: "GET", url: "/plugins" });
-    expect(catalog.json().plugins).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "ohmygame:level-tools", installed: false, version: "1.0.0" }),
-    ]));
-    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json()).toMatchObject({
-      installed: false,
-      skills: [{ name: "Levels", enabled: true }],
-    });
-    expect((await consumer.inject({
-      method: "GET", url: "/plugins/ohmygame%3Alevel-tools/skill-content?id=skills%2Flevels%2FSKILL.md",
-    })).json()).toEqual({
-      id: "skills/levels/SKILL.md",
-      content: "---\nname: levels\ndescription: Build levels.\n---\n",
-    });
-    const installed = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
-    expect(installed.statusCode, installed.body).toBe(201);
-    expect(installed.json()).toMatchObject({
-      id: "ohmygame:level-tools", version: "1.0.0", installed: true, enabled: true,
-      source: { type: "catalog" },
-      author: { id: "publisher", displayName: "OhMyGame Creator" },
-      stats: { likes: 0, uses: 0 },
-    });
-    expect((await consumer.inject({ method: "GET", url: "/plugins" })).json().explore).toEqual([
-      expect.objectContaining({ id: "ohmygame:level-tools", installed: true }),
-    ]);
-    await consumer.inject({
-      method: "PUT", url: "/plugins/ohmygame%3Alevel-tools/settings", payload: { enabled: false, components: {} },
-    });
-
-    await writeManifest("1.1.0");
-    await runtime.daemon.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
-    const secondPublished = await runtime.daemon.inject({
-      method: "POST", url: "/plugins/personal%3Alevel-tools/publish", payload: { accessToken: token },
-    });
-    expect(secondPublished.statusCode).toBe(201);
-    const update = (await consumer.inject({ method: "GET", url: "/plugins" })).json().plugins
-      .find((plugin: { id: string }) => plugin.id === "ohmygame:level-tools");
-    expect(update).toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
-    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json())
-      .toMatchObject({ version: "1.0.0", latestVersion: "1.1.0", updateAvailable: true });
-    const updated = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
-    expect(updated.statusCode).toBe(201);
-    expect((await consumer.inject({ method: "GET", url: "/plugins/ohmygame%3Alevel-tools" })).json())
-      .toMatchObject({ version: "1.1.0", enabled: false, source: { type: "catalog", releaseId: secondPublished.json().release.id } });
+    expect((await runtime.daemon.inject({ method: "POST", url: "/plugins/personal%3Atools/publish" })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({ method: "POST", url: "/plugins/ohmygame%3Atools/install" })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({ method: "POST", url: "/plugins/personal%3Atools/publication" })).statusCode).toBe(404);
+    expect((await runtime.daemon.inject({
+      method: "POST", url: "/community/plugin/plugin/use", payload: { accessToken: token },
+    })).statusCode).toBe(400);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json()).not.toHaveProperty("explore");
   });
 
-  it("publishes and installs a Claude marketplace Plugin without rewriting its manifest", async () => {
-    const runtime = await testRuntime();
-    const source = await temporary("ohmygame-claude-plugin-");
-    await mkdir(path.join(source, ".claude-plugin"));
-    await mkdir(path.join(source, "skills", "levels"), { recursive: true });
-    await writeFile(path.join(source, ".claude-plugin", "marketplace.json"), JSON.stringify({
-      name: "game-skills",
-      plugins: [{ name: "level-tools", source: "./", description: "Level workflows", skills: ["./skills/levels"] }],
-    }));
-    await writeFile(path.join(source, "skills", "levels", "SKILL.md"), "---\nname: levels\ndescription: Build levels.\n---\n");
-    const installed = await runtime.daemon.inject({
-      method: "POST", url: "/plugins/install",
-      payload: { type: "directory", path: source, candidate: "marketplace:game-skills:level-tools" },
-    });
-    expect(installed.statusCode, installed.body).toBe(201);
-    expect(installed.json().version).toBeUndefined();
-
-    const missingVersion = await runtime.daemon.inject({
-      method: "POST", url: "/plugins/marketplace%3Agame-skills%3Alevel-tools/publish",
-      payload: { accessToken: token },
-    });
-    expect(missingVersion.statusCode).toBe(400);
-    expect(missingVersion.json().error).toContain("semantic version");
-
-    const published = await runtime.daemon.inject({
-      method: "POST", url: "/plugins/marketplace%3Agame-skills%3Alevel-tools/publish",
-      payload: { accessToken: token, version: "0.1.0" },
-    });
-    expect(published.statusCode, published.body).toBe(201);
-    expect(published.json().release.manifest).toMatchObject({ name: "level-tools", version: "0.1.0" });
-    const publisherPlugins = (await runtime.daemon.inject({ method: "GET", url: "/plugins" })).json().plugins
-      .filter((plugin: { name: string }) => plugin.name === "level-tools");
-    expect(publisherPlugins).toHaveLength(1);
-    expect(publisherPlugins[0]).toMatchObject({
-      id: "marketplace:game-skills:level-tools",
-      installed: true,
-      catalog: { pluginId: published.json().plugin.id, releaseId: published.json().release.id },
-      origin: { type: "claude-marketplace", marketplace: "Game Skills" },
-      author: { id: "publisher", displayName: "OhMyGame Creator" },
-    });
-
-    const consumer = createApp({ dataDirectory: await temporary("ohmygame-claude-plugin-consumer-"), publishApiUrl: runtime.apiUrl });
-    apps.push(consumer);
-    await consumer.ready();
-    const catalogInstall = await consumer.inject({ method: "POST", url: "/plugins/ohmygame%3Alevel-tools/install" });
-    expect(catalogInstall.statusCode, catalogInstall.body).toBe(201);
-    expect(catalogInstall.json()).toMatchObject({
-      id: "ohmygame:level-tools",
-      version: "0.1.0",
-      skills: [{ name: "Levels" }],
-    });
-  });
 
   it("requires a user access token for each publish", async () => {
     const publishFetch = vi.fn(fetch);

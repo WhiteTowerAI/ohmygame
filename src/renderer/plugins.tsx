@@ -15,8 +15,6 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
-  isNewerPluginVersion,
-  isPluginVersion,
   type PluginComponentSummary,
   type PluginConnectionSummary,
   type PluginDetail,
@@ -25,16 +23,13 @@ import {
   type PluginSettings,
   type PluginSummary,
 } from "../shared/plugins.js";
-import type { CommunityAuthor, CommunityStats, PublishPluginPublication } from "../shared/publish-v1.js";
 import type { ProjectState } from "../shared/contracts.js";
-import { getPluginPublication, inspectPluginSource, installCatalogPlugin, installPlugin, listPlugins, listProjects, publishPlugin, readPlugin, readPluginSkill, setPluginPublicationStatus, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
-import { useAuth } from "./auth.js";
-import { CommunityAuthorView, CommunityLikeButton, useCommunityLike, useCommunityUseRecorder } from "./community-meta.js";
 
 type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
 
@@ -44,7 +39,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
-  const [explorePlugins, setExplorePlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [view, setView] = useState<PluginsView>({ type: "catalog" });
   const [detail, setDetail] = useState<PluginDetail>();
@@ -58,15 +52,9 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const [installSource, setInstallSource] = useState<InstallPluginRequest>();
   const [installCandidates, setInstallCandidates] = useState<PluginInstallCandidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<string>();
-  const [publishVersion, setPublishVersion] = useState<{ plugin: PluginDetail; value: string }>();
-  const [publication, setPublication] = useState<PublishPluginPublication | null>();
   const addMenu = useRef<HTMLDivElement>(null);
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
-  const auth = useAuth();
-  const recordUse = useCommunityUseRecorder();
-  const detailCatalogId = detail ? pluginCatalogId(detail) : undefined;
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -76,7 +64,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       await waitForRuntime();
       const catalog = await listPlugins();
       setPlugins(catalog.plugins);
-      setExplorePlugins(catalog.explore);
       setCatalogWarning(catalog.errors.map((entry) => entry.message).join("\n") || undefined);
       setPhase("ready");
     } catch (cause) {
@@ -86,15 +73,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   }
 
   useEffect(() => { void load(); }, []);
-
-  useEffect(() => {
-    let active = true;
-    setPublication(undefined);
-    if (detail) void loadPublication(detail).then((next) => {
-      if (active) setPublication(next);
-    });
-    return () => { active = false; };
-  }, [auth.state.status, detail?.id, detail?.installed, detailCatalogId]);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -115,15 +93,11 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   async function openPlugin(pluginId: string): Promise<void> {
     setView({ type: "detail", pluginId });
     setDetail(undefined);
-    setPublication(undefined);
     setDetailPhase("loading");
     setError(undefined);
-    setNotice(undefined);
     try {
       const loaded = await readPlugin(pluginId);
-      const summary = plugins.find((plugin) => plugin.id === pluginId);
-      const next = summary ? { ...loaded, latestVersion: summary.latestVersion, updateAvailable: summary.updateAvailable } : loaded;
-      setDetail(next);
+      setDetail(loaded);
       setDetailPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -131,27 +105,14 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     }
   }
 
-  async function loadPublication(plugin: PluginDetail): Promise<PublishPluginPublication | null> {
-    const catalog = plugin.catalog ?? (plugin.source.type === "catalog" ? plugin.source : undefined);
-    if (!plugin.installed || !catalog || auth.state.status !== "signed-in") return null;
-    try {
-      const accessToken = await auth.requestAccessToken();
-      return accessToken ? await getPluginPublication(plugin.id, accessToken) : null;
-    } catch {
-      return null;
-    }
-  }
-
   async function updatePlugin(plugin: PluginDetail, settings: PluginSettings): Promise<void> {
     if (updating) return;
     setUpdating(plugin.id);
     setError(undefined);
-    setNotice(undefined);
     try {
       const updated = await updatePluginSettings(plugin.id, settings);
       setDetail((current) => current?.id === updated.id ? updated : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
-      setExplorePlugins((items) => items.map((item) => item.id === updated.id ? { ...item, enabled: updated.enabled } : item));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -168,92 +129,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       await load();
       setDetail(undefined);
       setView({ type: "catalog" });
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setUpdating(undefined);
-    }
-  }
-
-  async function installFromCatalog(plugin: PluginDetail): Promise<void> {
-    if (updating) return;
-    setUpdating(plugin.id);
-    setError(undefined);
-    try {
-      const firstInstall = !plugin.installed;
-      const installed = await installCatalogPlugin(plugin.id);
-      if (firstInstall && plugin.source.type === "catalog") {
-        void recordUse("plugin", plugin.source.pluginId).catch(() => undefined);
-      }
-      setDetail(installed);
-      await load();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setUpdating(undefined);
-    }
-  }
-
-  async function sharePlugin(plugin: PluginDetail): Promise<void> {
-    if (updating) return;
-    if (!publication && !window.confirm(`Publish “${plugin.displayName}” to Explore? You confirm that you have permission to publish this Plugin.`)) return;
-    if (!plugin.version) {
-      setError(undefined);
-      setPublishVersion({ plugin, value: "0.1.0" });
-      return;
-    }
-    await publishPluginRelease(plugin, plugin.version);
-  }
-
-  async function submitPublishVersion(): Promise<void> {
-    if (!publishVersion || updating) return;
-    const version = publishVersion.value.trim();
-    if (!isPluginVersion(version)) {
-      setError("Enter a semantic version such as 0.1.0");
-      return;
-    }
-    await publishPluginRelease(publishVersion.plugin, version);
-  }
-
-  function closePublishVersion(): void {
-    setPublishVersion(undefined);
-    setError(undefined);
-  }
-
-  async function publishPluginRelease(plugin: PluginDetail, version: string): Promise<void> {
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setUpdating(plugin.id);
-    setError(undefined);
-    const publishingUpdate = Boolean(publication);
-    try {
-      await publishPlugin(plugin.id, accessToken, version);
-      await load();
-      const updated = await readPlugin(plugin.id);
-      setDetail(updated);
-      setPublication(await getPluginPublication(plugin.id, accessToken));
-      setPublishVersion(undefined);
-      setNotice(publishingUpdate ? "Published update to Explore" : "Published to Explore");
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setUpdating(undefined);
-    }
-  }
-
-  async function setPublicationStatus(plugin: PluginDetail, status: "listed" | "unlisted"): Promise<void> {
-    if (updating) return;
-    const accessToken = await auth.requestAccessToken();
-    if (!accessToken) return;
-    setUpdating(plugin.id);
-    setError(undefined);
-    setNotice(undefined);
-    try {
-      await setPluginPublicationStatus(plugin.id, accessToken, status);
-      setPublication(await getPluginPublication(plugin.id, accessToken));
-      await load();
-      setDetail(await readPlugin(plugin.id));
-      setNotice(status === "listed" ? "Republished to Explore" : "Removed from Explore");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -354,7 +229,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const installed = visible.filter((plugin) => plugin.installed);
-  const explore = explorePlugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const detailTitle = view.type === "detail"
     ? detail?.displayName ?? plugins.find((plugin) => plugin.id === view.pluginId)?.displayName ?? "Plugin"
     : undefined;
@@ -386,7 +260,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       plugin={detail}
       updating={updating === detail?.id}
       error={error}
-      notice={notice}
       onRetry={() => void openPlugin(view.pluginId)}
       onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
       onToggleComponent={(component, enabled) => detail && void updatePlugin(detail, {
@@ -396,10 +269,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       onBrowse={() => detail && void browsePlugin(detail)}
       onBrowseSkill={(skillId) => detail && void browsePluginSkill(detail.id, skillId)}
       onRemove={() => detail && void removePlugin(detail)}
-      onInstall={() => detail && void installFromCatalog(detail)}
-      onPublish={() => detail && void sharePlugin(detail)}
-      publication={publication}
-      onSetPublicationStatus={(status) => detail && void setPublicationStatus(detail, status)}
       onTry={onTryPlugin}
     /> : <>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
@@ -409,10 +278,8 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         <InstalledPlugins
           plugins={installed}
           collapsible={!normalizedQuery}
-          viewerId={auth.state.status === "signed-in" ? auth.state.user.id : undefined}
           onOpenPlugin={(id) => void openPlugin(id)}
         />
-        <ExplorePlugins plugins={explore} viewerId={auth.state.status === "signed-in" ? auth.state.user.id : undefined} onOpenPlugin={(id) => void openPlugin(id)} />
       </> : null}
     </>}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
@@ -430,18 +297,6 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         </div> : <label><span>Repository or marketplace URL</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
         {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
         <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? "Installing..." : "Install"}</button></footer>
-      </form>
-    </div> : null}
-    {publishVersion ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !updating) closePublishVersion();
-    }}>
-      <form className="plugin-install-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-publish-title" onKeyDown={(event) => {
-        if (event.key === "Escape" && !updating) closePublishVersion();
-      }} onSubmit={(event) => { event.preventDefault(); void submitPublishVersion(); }}>
-        <header><h2 id="plugin-publish-title">Publish Plugin</h2><p>Publish a semantic version to OhMyGame Explore.</p></header>
-        <label><span>Version</span><input autoFocus required disabled={Boolean(updating)} value={publishVersion.value} placeholder="0.1.0" onChange={(event) => { setPublishVersion((current) => current ? { ...current, value: event.target.value } : current); setError(undefined); }} /></label>
-        {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={Boolean(updating)} onClick={closePublishVersion}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(updating) || !publishVersion.value.trim()}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Publishing..." : "Publish"}</button></footer>
       </form>
     </div> : null}
   </SidebarPageLayout>;
@@ -471,10 +326,9 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
 
 const INSTALLED_PLUGIN_LIMIT = 6;
 
-function InstalledPlugins({ plugins, collapsible, viewerId, onOpenPlugin }: {
+function InstalledPlugins({ plugins, collapsible, onOpenPlugin }: {
   plugins: PluginSummary[];
   collapsible: boolean;
-  viewerId?: string;
   onOpenPlugin: (id: string) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
@@ -483,52 +337,35 @@ function InstalledPlugins({ plugins, collapsible, viewerId, onOpenPlugin }: {
   return <section className="plugins-installed" aria-labelledby="installed-plugins-title">
     <h2 id="installed-plugins-title">Installed</h2>
     {plugins.length ? <div className="plugins-installed-grid">
-      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} viewerId={viewerId} onOpen={() => onOpenPlugin(plugin.id)} />)}
+      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}
     </div> : <p className="plugins-empty">No installed plugins match your search.</p>}
     {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "Show less" : `Show more (${plugins.length - INSTALLED_PLUGIN_LIMIT})`}</button> : null}
   </section>;
 }
 
-function ExplorePlugins({ plugins, viewerId, onOpenPlugin }: { plugins: PluginSummary[]; viewerId?: string; onOpenPlugin: (id: string) => void }): ReactNode {
-  return <section className="plugins-explore" aria-labelledby="explore-plugins-title">
-    <header className="plugins-section-heading"><h2 id="explore-plugins-title">Explore</h2><span>Discover more capabilities for your agent.</span></header>
-    {plugins.length ? <div className="plugins-explore-grid">{plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} viewerId={viewerId} onOpen={() => onOpenPlugin(plugin.id)} />)}</div> : <p className="plugins-empty">No additional plugins match your search.</p>}
-  </section>;
-}
-
-function PluginCard({ plugin, viewerId, onOpen }: { plugin: PluginSummary; viewerId?: string; onOpen: () => void }): ReactNode {
+function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
   return <article className={`plugin-catalog-card${plugin.installed && !plugin.enabled ? " is-disabled" : ""}`}>
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}{viewerId && plugin.author?.id === viewerId ? <small className="plugin-yours-badge">Yours</small> : null}<ExplorePluginStatus plugin={plugin} /></span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.installed && !plugin.enabled ? <small className="plugin-status">Disabled</small> : null}</span>
         <span className="plugin-card-description">{plugin.description}</span>
       </span>
     </button>
   </article>;
 }
 
-function ExplorePluginStatus({ plugin }: { plugin: PluginSummary }): ReactNode {
-  if (plugin.updateAvailable) return <small className="plugin-explore-status is-update">Update available</small>;
-  return plugin.installed && !plugin.enabled ? <small className="plugin-explore-status">Disabled</small> : null;
-}
-
-function PluginDetailView({ phase, plugin, publication, updating, error, notice, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onInstall, onPublish, onSetPublicationStatus, onTry }: {
+function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onTry }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
-  publication?: PublishPluginPublication | null;
   updating: boolean;
   error?: string;
-  notice?: string;
   onRetry: () => void;
   onTogglePlugin: (enabled: boolean) => void;
   onToggleComponent: (component: PluginComponentSummary, enabled: boolean) => void;
   onBrowse: () => void;
   onBrowseSkill: (skillId: string) => void;
   onRemove: () => void;
-  onInstall: () => void;
-  onPublish: () => void;
-  onSetPublicationStatus: (status: "listed" | "unlisted") => void;
   onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }): ReactNode {
   const [tryPrompt, setTryPrompt] = useState<string>();
@@ -609,9 +446,6 @@ function PluginDetailView({ phase, plugin, publication, updating, error, notice,
   const visibleProjects = projects.filter((project) => !normalizedProjectQuery || project.name.toLowerCase().includes(normalizedProjectQuery));
   const prompts = plugin?.defaultPrompts ?? [];
   const firstPrompt = prompts[0];
-  const canPublish = plugin?.source.type === "directory" || plugin?.source.type === "git";
-  const canShare = Boolean(canPublish && plugin && !pluginCatalogId(plugin));
-  const publishUpdateAvailable = Boolean(plugin?.version && publication && isNewerPluginVersion(plugin.version, publication.version));
   const emptyProjectLabel = normalizedProjectQuery
     ? "No matching projects"
     : plugin?.projectTypes?.length === 1 ? `No ${projectTypeLabel(plugin.projectTypes[0])} projects yet` : "No compatible projects yet";
@@ -624,19 +458,11 @@ function PluginDetailView({ phase, plugin, publication, updating, error, notice,
         <div className="plugin-detail-copy">
           <div className="plugin-detail-title">
             <h2>{plugin.displayName}</h2>
-            {plugin.curation === "featured" ? <small className="plugin-featured-badge">Featured</small> : null}
             {plugin.preinstalled ? <small className="plugin-detail-badge">Included</small> : null}
           </div>
           <p>{plugin.description}</p>
-          {plugin.author && plugin.stats && pluginCatalogId(plugin) ? <PluginCommunityByline author={plugin.author} stats={plugin.stats} /> : null}
           <div className="plugin-detail-hero-actions" ref={tryMenu}>
-            {plugin.stats && pluginCatalogId(plugin) ? <PluginLikeAction id={pluginCatalogId(plugin)!} stats={plugin.stats} /> : null}
-            {!plugin.installed ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Installing..." : "Install"}</button> : null}
-            {plugin.installed && plugin.updateAvailable ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onInstall}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Updating..." : `Update to v${plugin.latestVersion}`}</button> : null}
-            {plugin.installed && !plugin.updateAvailable && publication?.status === "unlisted" ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={() => onSetPublicationStatus("listed")}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Publishing..." : "Republish"}</button> : null}
-            {plugin.installed && !plugin.updateAvailable && publication?.status !== "unlisted" && publishUpdateAvailable ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onPublish}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Publishing..." : "Publish update"}</button> : null}
-            {plugin.installed && !plugin.updateAvailable && canShare ? <button className="plugin-detail-primary" type="button" disabled={updating} onClick={onPublish}>{updating ? <LoaderCircle className="spin" size={13} /> : null}{updating ? "Publishing..." : "Publish"}</button> : null}
-            {plugin.installed && plugin.enabled && !plugin.updateAvailable && !canShare && publication?.status !== "unlisted" && !publishUpdateAvailable && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
+            {plugin.installed && plugin.enabled && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
             {tryPrompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={`Try ${plugin.displayName}`}>
               <div className="plugin-try-heading"><strong>Choose a project</strong><span>The prompt will be added to a new conversation.</span></div>
               <label className="project-switcher-search">
@@ -660,8 +486,7 @@ function PluginDetailView({ phase, plugin, publication, updating, error, notice,
         </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
-      {notice ? <p className="plugins-inline-notice" role="status">{notice}</p> : null}
-      <PluginManagement plugin={plugin} publication={publication} updating={updating} onBrowse={onBrowse} onRemove={onRemove} onToggle={togglePlugin} onSetPublicationStatus={onSetPublicationStatus} />
+      <PluginManagement plugin={plugin} updating={updating} onBrowse={onBrowse} onRemove={onRemove} onToggle={togglePlugin} />
       {plugin.longDescription ? <section className="plugin-about"><h2>About</h2><p>{plugin.longDescription}</p></section> : null}
       {prompts.length ? <section className="plugin-prompts">
         <h2>Try it</h2>
@@ -678,24 +503,6 @@ function PluginDetailView({ phase, plugin, publication, updating, error, notice,
       <ConnectionSection items={plugin.connections} />
     </> : null}
   </section>;
-}
-
-function PluginCommunityByline({ author, stats }: { author: CommunityAuthor; stats: CommunityStats }): ReactNode {
-  return <div className="plugin-community-byline">
-    <CommunityAuthorView author={author} prefix="Shared by" />
-    <span>{stats.uses} installs</span>
-  </div>;
-}
-
-function PluginLikeAction({ id, stats }: { id: string; stats: CommunityStats }): ReactNode {
-  const like = useCommunityLike("plugin", id, stats);
-  return <CommunityLikeButton
-    busy={like.busy}
-    count={like.counts.likes}
-    liked={like.liked}
-    onToggle={() => void like.toggle()}
-    showLabel
-  />;
 }
 
 function ConnectionSection({ items }: { items: PluginConnectionSummary[] }): ReactNode {
@@ -797,28 +604,20 @@ function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id
   return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
 }
 
-function pluginCatalogId(plugin: Pick<PluginSummary, "source" | "catalog">): string | undefined {
-  return plugin.catalog?.pluginId ?? (plugin.source.type === "catalog" ? plugin.source.pluginId : undefined);
-}
-
 function pluginSearchText(plugin: PluginSummary): string {
   return `${plugin.name} ${plugin.displayName} ${plugin.description} ${plugin.marketplace.displayName}`.toLowerCase();
 }
 
-function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, onToggle, onSetPublicationStatus }: {
+function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
   plugin: PluginDetail;
-  publication?: PublishPluginPublication | null;
   updating: boolean;
   onBrowse: () => void;
   onRemove: () => void;
   onToggle: (enabled: boolean) => void;
-  onSetPublicationStatus: (status: "listed" | "unlisted") => void;
 }): ReactNode {
   const repository = plugin.origin?.repository;
-  const version = plugin.version ?? plugin.latestVersion;
-  const showLatest = Boolean(plugin.updateAvailable && plugin.latestVersion);
+  const version = plugin.version;
   const canBrowse = (plugin.source.type === "directory" || plugin.source.type === "git") && Boolean(window.ohMyGameDesktop);
-  const canStartPublication = !pluginCatalogId(plugin) && (plugin.source.type === "directory" || plugin.source.type === "git");
   let source: ReactNode;
   if (plugin.preinstalled || plugin.source.type === "builtIn") {
     source = "Included with OhMyGame";
@@ -826,8 +625,8 @@ function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, o
     source = <RepositoryLink repository={plugin.origin.repository} />;
   } else if (plugin.origin?.type === "claude-marketplace") {
     source = `Claude Marketplace · ${plugin.origin.marketplace}`;
-  } else if (plugin.source.type === "catalog") {
-    source = "OhMyGame Explore";
+  } else if (plugin.source.type === "preinstalled") {
+    source = "Included with OhMyGame";
   } else if (plugin.source.type === "directory") {
     source = "Local folder";
   } else {
@@ -838,11 +637,8 @@ function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, o
     <dl>
       <div><dt>Status</dt><dd>{!plugin.installed ? "Not installed" : plugin.enabled ? "Enabled" : "Disabled"}</dd></div>
       {version ? <div><dt>Version</dt><dd>v{version}</dd></div> : null}
-      {showLatest ? <div><dt>Latest</dt><dd>v{plugin.latestVersion}</dd></div> : null}
       <div><dt>Source</dt><dd>{source}</dd></div>
       {plugin.origin?.type === "claude-marketplace" && repository ? <div><dt>Repository</dt><dd><RepositoryLink repository={repository} /></dd></div> : null}
-      {publication ? <div><dt>Explore</dt><dd>{publication.status === "listed" ? "Published" : "Unlisted"} · v{publication.version}</dd></div>
-        : canStartPublication ? <div><dt>Explore</dt><dd>Not published</dd></div> : null}
     </dl>
     {plugin.installed ? <div className="plugin-section-actions">
       <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => onToggle(!plugin.enabled)}>{plugin.enabled ? "Disable" : "Enable"}</button>
@@ -850,9 +646,6 @@ function PluginManagement({ plugin, publication, updating, onBrowse, onRemove, o
         if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onRemove();
       }}>Uninstall</button> : null}
       {canBrowse ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={onBrowse}>Open folder</button> : null}
-      {publication?.status === "listed" ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => {
-        if (window.confirm(`Remove “${plugin.displayName}” from Explore? Existing installations will keep working.`)) onSetPublicationStatus("unlisted");
-      }}>Unpublish</button> : null}
     </div> : null}
   </section>;
 }

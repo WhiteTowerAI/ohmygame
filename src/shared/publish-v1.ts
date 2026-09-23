@@ -4,7 +4,7 @@ export const PUBLISH_GAME_COVER_PATH = "__ohmygame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
 
-export type CommunitySubjectType = "game" | "plugin";
+export type CommunitySubjectType = "game";
 
 export interface CommunityAuthor {
   id: string;
@@ -20,12 +20,6 @@ export interface CommunityStats {
 export interface CommunityViewerState {
   liked: boolean;
 }
-
-export type PublishPluginOrigin =
-  | { type: "github"; repository: string; commit: string; release?: string }
-  | { type: "claude-marketplace"; marketplace: string; repository?: string };
-
-export type PublishPluginCuration = "featured";
 
 export interface CommunityInteractionResult extends CommunityViewerState {
   stats: CommunityStats;
@@ -94,77 +88,6 @@ export interface CreatePublishDeploymentResult {
   game: PublishGame;
 }
 
-export interface PublishPlugin {
-  id: string;
-  publisherId: string;
-  name: string;
-  currentReleaseId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  origin?: PublishPluginOrigin;
-}
-
-export interface PublishPluginRelease {
-  id: string;
-  pluginId: string;
-  version: string;
-  artifactSha256: string;
-  artifactBytes: number;
-  publishedAt: string;
-}
-
-export interface PublishPluginSkill {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-export interface PublishExplorePlugin {
-  id: string;
-  name: string;
-  version: string;
-  releaseId: string;
-  artifactSha256: string;
-  artifactBytes: number;
-  manifest: import("./plugins.js").PluginManifest;
-  skills: PublishPluginSkill[];
-  publishedAt: string;
-  author: CommunityAuthor;
-  stats: CommunityStats;
-  origin?: PublishPluginOrigin;
-  curation?: PublishPluginCuration;
-}
-
-export interface CreatePublishPluginRequest {
-  name: string;
-}
-
-export interface CreatePublishPluginReleaseMetadata {
-  artifactSha256: string;
-  artifactBytes: number;
-  manifest: import("./plugins.js").PluginManifest;
-  skills: PublishPluginSkill[];
-  origin?: PublishPluginOrigin;
-}
-
-export interface CreatePublishPluginReleaseResult {
-  plugin: PublishPlugin;
-  release: PublishPluginRelease;
-}
-
-export type PublishPluginListing = {
-  pluginId: string;
-  updatedAt: string;
-} & (
-  | { status: "listed"; listedAt: string }
-  | { status: "unlisted"; listedAt: null }
-);
-
-export type PublishPluginPublication = PublishPluginListing & {
-  releaseId: string;
-  version: string;
-  publishedAt: string;
-};
 
 export type PublishErrorCode =
   | "authentication_required"

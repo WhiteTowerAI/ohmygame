@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isPreparedPluginIndex, type PreparedPluginRelease } from "../shared/preinstalled-plugins.js";
 import type { PluginDetail, PluginSummary } from "../shared/plugins.js";
-import { installCatalogPlugin } from "./plugin-installer.js";
+import { installPreparedPlugin } from "./plugin-installer.js";
 import type { LocalPluginStore } from "./local-plugins.js";
 
 interface PreinstalledPluginReceipt {
@@ -47,13 +47,14 @@ export class PreinstalledPluginManager {
       if (receipt?.removed) continue;
       const id = `ohmygame:${entry.name}`;
       try {
-        if (!await store.read(id)) {
+        const installed = await store.read(id);
+        if (!installed || receipt?.seededReleaseId !== entry.releaseId) {
           const archive = await readFile(path.join(this.directory!, entry.artifactFile));
           const digest = createHash("sha256").update(archive).digest("hex");
           if (archive.length !== entry.artifactBytes || digest !== entry.artifactSha256) {
             throw new Error("archive failed integrity verification");
           }
-          await installCatalogPlugin(store, {
+          await installPreparedPlugin(store, {
             pluginId: entry.pluginId,
             releaseId: entry.releaseId,
             manifest: entry.manifest,
@@ -71,20 +72,19 @@ export class PreinstalledPluginManager {
   }
 
   decorate<T extends PluginSummary | PluginDetail>(plugin: T): T {
-    const pluginId = plugin.source.type === "catalog" ? plugin.source.pluginId : undefined;
+    const pluginId = plugin.source.type === "preinstalled" ? plugin.source.pluginId : undefined;
     const entry = pluginId ? this.#entries.find((candidate) => candidate.pluginId === pluginId) : undefined;
     return entry
       ? {
           ...plugin,
           origin: plugin.origin ?? entry.origin,
-          curation: plugin.curation ?? entry.curation,
           ...(plugin.installed ? { preinstalled: true } : {}),
         }
       : plugin;
   }
 
   async markRemoved(plugin: PluginSummary | PluginDetail): Promise<void> {
-    if (plugin.source.type !== "catalog") return;
+    if (plugin.source.type !== "preinstalled") return;
     const pluginId = plugin.source.pluginId;
     const entry = this.#entries.find((item) => item.pluginId === pluginId);
     if (!entry) return;

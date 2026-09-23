@@ -10,11 +10,6 @@
       "version": "1.5.1",
       "artifactSha256": "e3b5d2bb9e5e4b6b0afd1b2e3ba1da6ff9334b6e584bda0cd59978a88a734d93",
       "candidate": "agent-skills:root",
-      "publisher": {
-        "id": "github:img2threejs",
-        "displayName": "img2threejs"
-      },
-      "curation": "featured",
       "interface": {
         "displayName": "Image to Three.js",
         "shortDescription": "Create procedural Three.js models from reference images.",
