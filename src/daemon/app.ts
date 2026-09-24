@@ -23,7 +23,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { AccountServiceClient } from "./account-service-client.js";
 import { AccountConnection } from "./account-connection.js";
-import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError } from "./projects.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -44,10 +44,13 @@ import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
-import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { PlaytestDriver } from "../shared/playtest.js";
+import type { UpdateWebSearchSettings } from "../shared/web-search.js";
+import { WebSearchSettingsStore } from "./web-search-settings.js";
+import { WebSearchService } from "./web-search.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -70,6 +73,7 @@ export interface AppOptions {
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
   playtestDriver?: PlaytestDriver;
+  webSearchFetch?: typeof fetch;
 }
 
 const createProjectSchema = {
@@ -100,6 +104,30 @@ const renameProjectSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+  },
+} as const;
+
+const startupDirectorySchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["startupDirectory"],
+    properties: { startupDirectory: { type: "string", minLength: 1, maxLength: 1_000 } },
+  },
+} as const;
+
+const runSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["startupDirectory", "startupScript", "previewPath", "previewViewport"],
+    properties: {
+      startupDirectory: { type: "string", minLength: 1, maxLength: 1_000 },
+      startupScript: { type: "string", minLength: 1, maxLength: 200 },
+      packageManager: { enum: ["npm", "pnpm", "yarn", "bun"] },
+      previewPath: { type: "string", maxLength: 1_000 },
+      previewViewport: { enum: ["fit", "tablet", "mobile"] },
+    },
   },
 } as const;
 
@@ -159,6 +187,23 @@ const saveConnectionSchema = {
   },
 } as const;
 
+const nullableSecretSchema = { anyOf: [{ type: "string", maxLength: 10_000 }, { type: "null" }] } as const;
+const webSearchSettingsSchema = {
+  body: {
+    type: "object", additionalProperties: false, required: ["enabled", "provider", "fallback"],
+    properties: {
+      enabled: { type: "boolean" }, provider: { enum: ["auto", "exa", "parallel", "custom"] }, fallback: { type: "boolean" },
+      exaApiKey: nullableSecretSchema, parallelApiKey: nullableSecretSchema,
+      custom: {
+        type: "object", additionalProperties: false, required: ["name", "endpoint", "toolName"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 100 }, endpoint: { type: "string", minLength: 1, maxLength: 2_000 },
+          toolName: { type: "string", minLength: 1, maxLength: 200 }, apiKey: nullableSecretSchema,
+        },
+      },
+    },
+  },
+} as const;
 const publishProjectSchema = {
   body: {
     type: "object",
@@ -424,6 +469,8 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
+  const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
     "openai-endpoint.json",
@@ -533,6 +580,7 @@ export function createApp(options: AppOptions = {}) {
               ? project.preview.url
               : previews.start(project),
           } : undefined,
+          webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
         ),
         modelRuntime,
         model,
@@ -542,13 +590,16 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, TOOL_IDS, registered);
+      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
-      void isRunnableWorkspace(project.workspacePath).then((runnable) => {
-        if (runnable) return previews.start(project).catch(() => {});
-      });
+      void resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")
+        .then(({ absolutePath }) => isRunnableWorkspace(absolutePath, project.startupScript ?? "dev"))
+        .then((runnable) => {
+          if (runnable) return previews.start(project).catch(() => {});
+        })
+        .catch(() => {});
     },
   });
   const invalidatePluginSessions = () => {
@@ -570,7 +621,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), openAIEndpoint.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -594,6 +645,18 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.get("/settings/connections", async () => connections.list());
+
+  app.get("/settings/web-search", async () => webSearchSettings.get());
+
+  app.put<{ Body: UpdateWebSearchSettings }>("/settings/web-search", { schema: webSearchSettingsSchema }, async (request, reply) => {
+    try {
+      const settings = await webSearchSettings.update(request.body);
+      invalidatePluginSessions();
+      return settings;
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.post<{ Body: SaveConnectionRequest }>("/settings/connections", { schema: saveConnectionSchema }, async (request, reply) => {
     try {
@@ -952,6 +1015,43 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.put<{ Params: { projectId: string }; Body: { startupDirectory: string } }>(
+    "/projects/:projectId/settings/startup-directory",
+    { schema: startupDirectorySchema },
+    async (request, reply) => {
+      try {
+        const project = await projects.setStartupDirectory(request.params.projectId, request.body.startupDirectory);
+        await previews.stop(project);
+        return project;
+      } catch (cause) {
+        const statusCode = (cause as Error).message.startsWith("Project not found") ? 404 : 400;
+        return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.put<{
+    Params: { projectId: string };
+    Body: { startupDirectory: string; startupScript: string; packageManager?: "npm" | "pnpm" | "yarn" | "bun"; previewPath: string; previewViewport: "fit" | "tablet" | "mobile" };
+  }>(
+    "/projects/:projectId/settings/run",
+    { schema: runSettingsSchema },
+    async (request, reply) => {
+      const existing = projects.get(request.params.projectId);
+      if (!existing) return reply.code(404).send({ error: "Project not found" });
+      const restartRequired = existing.startupDirectory !== (request.body.startupDirectory === "." ? undefined : request.body.startupDirectory) ||
+        existing.startupScript !== (request.body.startupScript === "dev" ? undefined : request.body.startupScript) ||
+        existing.packageManager !== request.body.packageManager;
+      try {
+        const project = await projects.setRunSettings(request.params.projectId, request.body);
+        if (restartRequired) await previews.stop(project);
+        return project;
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/duplicate", async (request, reply) => {
     try {
       return reply.code(201).send(await projects.duplicate(request.params.projectId));
@@ -1167,6 +1267,21 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return listWorkspaceFiles(project.workspacePath);
   });
+
+  app.get<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/files/location",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return { path: await locateWorkspaceEntry(project.workspacePath, request.query.path) };
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
 
   app.patch<{ Params: { projectId: string }; Querystring: { path: string }; Body: { name: string } }>(
     "/projects/:projectId/assets",
@@ -1597,7 +1712,13 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const previewWorkspace = await previewWorkspaceStatus(project.workspacePath);
+    let startupDirectory: string;
+    try {
+      startupDirectory = (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    const previewWorkspace = await previewWorkspaceStatus(startupDirectory, project.startupScript ?? "dev");
     if (!previewWorkspace.runnable) {
       return reply.code(409).send({ error: previewWorkspace.error ?? "Workspace is not runnable yet" });
     }
@@ -1987,7 +2108,7 @@ export function createApp(options: AppOptions = {}) {
     reply.raw.write(": connected\n\n");
     const send = (event: RuntimeEvent) => {
       const images = agents.eventImages(event.projectId, event.conversationId, event.turnId);
-      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued")
+      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued" || event.type === "prompt.steered")
         ? { ...event, data: { ...event.data, images } }
         : event;
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(hydrated)}\n\n`);

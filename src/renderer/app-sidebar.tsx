@@ -102,11 +102,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   return (
     <aside className={`home-sidebar${resizing ? " home-sidebar-resizing" : ""}`} ref={sidebar}>
       {resizing ? <div className="home-sidebar-resize-shield" /> : null}
-      <div className="home-sidebar-traffic" aria-hidden="true">
-        <span className="home-sidebar-traffic-red" />
-        <span className="home-sidebar-traffic-yellow" />
-        <span className="home-sidebar-traffic-green" />
-      </div>
+      <div className="home-sidebar-header-spacer" aria-hidden="true" />
       <div className="home-sidebar-brand">
         <img src={brandMark} alt="OhMyGame" />
         <span>OhMyGame</span>

@@ -7,20 +7,47 @@ import {
   ensureOhMyGamePiEnvironment,
   isOhMyGameManagedPiPackage,
   listMcpServers,
-  withRequiredPiPackages,
+  resolveBundledMcpAdapterPath,
+  withBundledMcpAdapter,
+  withoutOhMyGameManagedPiPackages,
 } from "../src/daemon/pi-agent.js";
 import { ConnectionManager } from "../src/daemon/connections.js";
 
 describe("OhMyGame Pi environment", () => {
-  it("adds the MCP adapter without replacing existing packages", () => {
-    expect(withRequiredPiPackages(["npm:pi-web-access"])).toEqual([
+  it("resolves the bundled MCP adapter from the application dependencies", () => {
+    expect(path.basename(resolveBundledMcpAdapterPath())).toBe("pi-mcp-adapter");
+  });
+
+  it("loads the bundled MCP adapter without replacing existing packages", () => {
+    const adapterPath = path.resolve("vendor", "pi-mcp-adapter");
+    expect(withBundledMcpAdapter(["npm:pi-web-access"], adapterPath)).toEqual([
       "npm:pi-web-access",
-      "npm:pi-mcp-adapter@2.27.0",
+      adapterPath,
     ]);
-    const configured = [{ source: "npm:pi-mcp-adapter", skills: [] }];
-    expect(withRequiredPiPackages(configured)).toBe(configured);
+    expect(withBundledMcpAdapter([
+      "npm:pi-mcp-adapter@2.26.0",
+      { source: "npm:pi-web-access", skills: [] },
+      adapterPath,
+    ], adapterPath)).toEqual([
+      { source: "npm:pi-web-access", skills: [] },
+      adapterPath,
+    ]);
     expect(isOhMyGameManagedPiPackage("npm:pi-mcp-adapter@2.27.0")).toBe(true);
     expect(isOhMyGameManagedPiPackage("npm:pi-web-access")).toBe(false);
+  });
+
+  it("removes only the legacy app-managed MCP adapter package", () => {
+    const configured = [
+      "npm:pi-web-access",
+      { source: "npm:pi-mcp-adapter@2.27.0", extensions: ["extensions/index.ts"] },
+      "github:example/custom-extension",
+    ];
+    expect(withoutOhMyGameManagedPiPackages(configured)).toEqual([
+      "npm:pi-web-access",
+      "github:example/custom-extension",
+    ]);
+    const userPackages = ["npm:pi-web-access"];
+    expect(withoutOhMyGameManagedPiPackages(userPackages)).toBe(userPackages);
   });
 
   it("merges the Godot server into the app-owned MCP config", async () => {
@@ -43,8 +70,24 @@ describe("OhMyGame Pi environment", () => {
         },
       },
     });
+    await expect(readFile(path.join(agentDir, "settings.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("migrates the legacy adapter setting while preserving user packages", async () => {
+    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-pi-agent-"));
+    await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
+      packages: [
+        "npm:pi-web-access",
+        "npm:pi-mcp-adapter@2.27.0",
+        { source: "github:example/custom-extension", extensions: [] },
+      ],
+    }));
+
+    await ensureOhMyGamePiEnvironment(agentDir);
+
     expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).packages).toEqual([
-      "npm:pi-mcp-adapter@2.27.0",
+      "npm:pi-web-access",
+      { source: "github:example/custom-extension", extensions: [] },
     ]);
   });
 

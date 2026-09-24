@@ -177,6 +177,55 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("sets a Web Game startup directory when its dev server is nested", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-preview-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-workspace-"));
+    const startupDirectory = path.join(workspacePath, "apps", "game");
+    await mkdir(startupDirectory, { recursive: true });
+    await writeFile(path.join(startupDirectory, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nested workspace", workspacePath } })).json();
+    expect(project.preview).toEqual({ status: "waiting" });
+
+    const configured = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "apps/game" },
+    });
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
+
+    const runSettings = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: {
+        startupDirectory: "apps/game",
+        startupScript: "dev",
+        packageManager: "pnpm",
+        previewPath: "/play",
+        previewViewport: "mobile",
+      },
+    });
+    expect(runSettings.statusCode).toBe(200);
+    expect(runSettings.json()).toMatchObject({
+      startupDirectory: "apps/game",
+      packageManager: "pnpm",
+      previewPath: "/play",
+      previewViewport: "mobile",
+    });
+
+    const invalid = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "../outside" },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual({ error: "Startup directory must be a relative path inside the project workspace" });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
   it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),
@@ -374,6 +423,7 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
     await writeFile(path.join(project.workspacePath, "cover.png"), Buffer.from([1, 2, 3]));
+    await mkdir(path.join(project.workspacePath, "empty-folder"));
 
     const files = await app.inject({ method: "GET", url: `/projects/${project.id}/files` });
     const content = await app.inject({
@@ -381,15 +431,26 @@ describe("daemon", () => {
       url: `/projects/${project.id}/files/content?path=${encodeURIComponent("hello world.txt")}`,
     });
     const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("hello world.txt")}`,
+    });
+    const folderLocation = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=empty-folder`,
+    });
 
     expect(files.json()).toEqual([
       { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
+      { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
     ]);
     expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
     expect(media.headers["content-type"]).toBe("image/png");
     expect(media.rawPayload).toEqual(Buffer.from([1, 2, 3]));
+    expect(location.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "hello world.txt") });
+    expect(folderLocation.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "empty-folder") });
   });
 
   it("renames and deletes workspace assets", async () => {
@@ -687,6 +748,11 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "Invalid workspace path" });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("../project.json")}`,
+    });
+    expect(location.statusCode).toBe(400);
   });
 
   it("validates workspace references before prompting", async () => {
@@ -838,6 +904,7 @@ describe("daemon", () => {
       "write",
       "edit",
       "bash",
+      "web_search",
       "update_plan",
       "install_plugin",
       "generate_image",
@@ -1180,7 +1247,10 @@ describe("daemon", () => {
     const detail = (await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` })).json();
 
     expect(steered.statusCode).toBe(204);
-    expect(detail.pendingPrompts).toEqual([expect.objectContaining({ turnId: second.turnId, prompt: "Second" })]);
+    expect(detail.pendingPrompts).toEqual([
+      expect.objectContaining({ turnId: third.turnId, prompt: "Third", steering: true }),
+      expect.objectContaining({ turnId: second.turnId, prompt: "Second" }),
+    ]);
     expect(clearQueue).toHaveBeenCalledOnce();
     expect(steer).toHaveBeenLastCalledWith("Third", undefined);
     finishPrompt();

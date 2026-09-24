@@ -118,6 +118,86 @@ describe("rendererReducer", () => {
     expect(state.agent).toEqual({ status: "error" });
   });
 
+  it("shows a steered prompt immediately and starts it without duplicating the message", () => {
+    let state = initialized();
+    state = event(state, runtimeEvent(1, "agent.started", { prompt: "First" }));
+    state = event(state, { ...runtimeEvent(2, "prompt.queued", { prompt: "Second", references: [] }), turnId: "turn-2" });
+    state = event(state, { ...runtimeEvent(3, "prompt.steered", { prompt: "Second", references: [] }), turnId: "turn-2" });
+
+    expect(state.pendingPrompts).toEqual([]);
+    expect(state.turns.at(-1)).toMatchObject({
+      id: "turn-2",
+      status: "completed",
+      steering: true,
+      items: [expect.objectContaining({ type: "userMessage", text: "Second" })],
+    });
+
+    const runningTool: ThreadItem = {
+      id: "tool-1",
+      turnId: "turn-1",
+      type: "dynamicToolCall",
+      toolCallId: "tool-1",
+      tool: "bash",
+      status: "inProgress",
+      arguments: { command: "npm test" },
+    };
+    state = event(state, runtimeEvent(4, "item.started", { item: runningTool }));
+    state = event(state, { ...runtimeEvent(5, "agent.started", { prompt: "Second" }), turnId: "turn-2" });
+
+    expect(state.turns).toHaveLength(2);
+    expect(state.turns[0]).toMatchObject({ status: "completed", items: expect.arrayContaining([expect.objectContaining({ id: "tool-1", status: "failed" })]) });
+    expect(state.turns[1]).toMatchObject({ id: "turn-2", status: "inProgress" });
+    expect(state.turns[1]?.items.filter((item) => item.type === "userMessage")).toHaveLength(1);
+  });
+
+  it("materializes restored steering prompts outside the pending queue", () => {
+    const pending = {
+      turnId: "turn-2",
+      prompt: "Change direction",
+      mentions: [],
+      references: [],
+      images: [],
+      attachments: [],
+      steering: true,
+    };
+    const state = rendererReducer(initialRendererState, {
+      type: "initialized",
+      project: project(),
+      detail: detail({ pendingPrompts: [pending] }),
+    });
+
+    expect(state.pendingPrompts).toEqual([]);
+    expect(state.turns.at(-1)).toMatchObject({ id: "turn-2", status: "completed", steering: true });
+  });
+
+  it("starts consecutive steered prompts without reversing their display order", () => {
+    let state = initialized();
+    state = event(state, runtimeEvent(1, "agent.started", { prompt: "First" }));
+    state = event(state, { ...runtimeEvent(2, "prompt.steered", { prompt: "Second", references: [] }), turnId: "turn-2" });
+    state = event(state, { ...runtimeEvent(3, "prompt.steered", { prompt: "Third", references: [] }), turnId: "turn-3" });
+    state = event(state, { ...runtimeEvent(4, "agent.started", { prompt: "Second" }), turnId: "turn-2" });
+
+    expect(state.turns.map((turn) => turn.id)).toEqual(["turn-1", "turn-2", "turn-3"]);
+    expect(state.turns[1]).toMatchObject({ status: "inProgress" });
+    expect(state.turns[1]).not.toHaveProperty("steering");
+    expect(state.turns[2]).toMatchObject({ status: "completed", steering: true });
+  });
+
+  it("removes a provisional steer but preserves a steer that already started", () => {
+    let waiting = initialized();
+    waiting = event(waiting, runtimeEvent(1, "agent.started", { prompt: "First" }));
+    waiting = event(waiting, { ...runtimeEvent(2, "prompt.steered", { prompt: "Second", references: [] }), turnId: "turn-2" });
+    waiting = event(waiting, { ...runtimeEvent(3, "prompt.removed", {}), turnId: "turn-2" });
+    expect(waiting.turns.map((turn) => turn.id)).toEqual(["turn-1"]);
+
+    let started = initialized();
+    started = event(started, runtimeEvent(1, "agent.started", { prompt: "First" }));
+    started = event(started, { ...runtimeEvent(2, "prompt.steered", { prompt: "Second", references: [] }), turnId: "turn-2" });
+    started = event(started, { ...runtimeEvent(3, "agent.started", { prompt: "Second" }), turnId: "turn-2" });
+    started = event(started, { ...runtimeEvent(4, "prompt.removed", {}), turnId: "turn-2" });
+    expect(started.turns.at(-1)).toMatchObject({ id: "turn-2", status: "inProgress" });
+  });
+
   it("creates a turn for manual compaction and closes it on agent completion", () => {
     let state = initialized();
     state = event(state, runtimeEvent(1, "item.started", { item: { id: "turn-1:compaction", turnId: "turn-1", type: "contextCompaction", status: "inProgress" } }));

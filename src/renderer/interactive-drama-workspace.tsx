@@ -364,7 +364,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
+export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish }: {
   project: ProjectState;
   assetCanvas?: boolean;
   initialNodeId?: string;
@@ -372,6 +372,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
+  openFileRequest?: { path: string; id: number };
   onPublish: (details: PublishDetails) => Promise<boolean>;
 }) {
   const projectId = project.id;
@@ -400,6 +401,14 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
   const [copiedNode, setCopiedNode] = useState<StoryNode>();
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
+
+  useEffect(() => {
+    if (!openFileRequest) return;
+    clearSelection();
+    setOpenedNodeId(undefined);
+    setEditorPreviewSession(undefined);
+    setWorkspaceView("code");
+  }, [openFileRequest?.id]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
@@ -1565,7 +1574,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
             </div>
           ) : null}
         </div>
-      </div> : <main className="story-code-view" aria-label="Interactive Drama code"><WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} /></main>}
+      </div> : <main className="story-code-view" aria-label="Interactive Drama code"><WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /></main>}
       {openedNodeId && activeChapter ? <NodeEditorPage
         node={nodes.find((candidate) => candidate.id === openedNodeId)}
         chapter={activeChapter}

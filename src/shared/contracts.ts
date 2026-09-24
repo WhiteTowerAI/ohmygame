@@ -1,8 +1,15 @@
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
 export type ProjectType = "web-game" | "godot-game" | "interactive-drama" | "asset-canvas";
+export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
+export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
+export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
+export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
+export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 
 export interface AgentContextUsage {
   tokens: number | null;
@@ -109,6 +116,16 @@ export interface ProjectState {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** Directory, relative to the workspace root, in which the Web Game preview starts. */
+  startupDirectory?: string;
+  /** Package script that starts the Web Game preview. Defaults to `dev`. */
+  startupScript?: string;
+  /** Overrides automatic package-manager detection for the Web Game preview and build. */
+  packageManager?: ProjectPackageManager;
+  /** Route shown when a Web Game preview starts. */
+  previewPath?: string;
+  /** Device preset selected when a Web Game preview starts. */
+  previewViewport?: PreviewViewport;
   /** Internal OhMyGame data kept separately from a user-selected workspace. */
   storagePath?: string;
   /** Whether OhMyGame owns the workspace directory or only references it. */
@@ -425,6 +442,7 @@ export interface PendingPrompt {
   references: PromptReference[];
   images: PromptImage[];
   attachments: ConversationAttachment[];
+  steering?: boolean;
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -492,6 +510,7 @@ export type ThreadItem = (
       truncated?: boolean;
       artifact?: ToolArtifact;
       images?: PromptImage[];
+      webSearch?: WebSearchToolMetadata;
     }
   | {
       id: string;
@@ -544,6 +563,7 @@ export interface Turn {
   conversationId: string;
   status: TurnStatus;
   items: ThreadItem[];
+  steering?: boolean;
 }
 
 export interface ConversationDetail {
@@ -655,6 +675,7 @@ export interface ConversationCapabilities {
 export interface WorkspaceFile {
   path: string;
   size: number;
+  directory?: true;
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
@@ -829,6 +850,7 @@ export interface RuntimeEventData {
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
+  "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };
@@ -856,6 +878,7 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.cancelled",
   "agent.error",
   "prompt.queued",
+  "prompt.steered",
   "prompt.removed",
   "publish.started",
   "publish.completed",

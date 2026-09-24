@@ -16,7 +16,11 @@ import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentSt
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
-import { ensureOhMyGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
+import {
+  ensureOhMyGamePiEnvironment,
+  resolveBundledMcpAdapterPath,
+  withBundledMcpAdapter,
+} from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
@@ -57,6 +61,24 @@ interface PiPromptImage {
 }
 
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
+
+/**
+ * Some OpenAI-compatible endpoints advertise a GPT-5.6 model while rejecting
+ * the optional Responses API `prompt_cache_options` field. Keep prompt-cache
+ * keys available, but avoid that provider-specific opt-in until compatibility
+ * can be established by the endpoint.
+ */
+export function compatibleRuntimeModel(model: RuntimeModel): RuntimeModel {
+  const compat = model.compat as (RuntimeModel["compat"] & { supportsExplicitPromptCacheMode?: boolean }) | undefined;
+  if (model.api !== "openai-responses" || !compat?.supportsExplicitPromptCacheMode) return model;
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      supportsExplicitPromptCacheMode: false,
+    },
+  };
+}
 
 export type AgentRunResult = "completed" | "cancelled";
 type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
@@ -403,7 +425,7 @@ export class AgentManager {
       return;
     }
     if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
-    await managed.session.setModel(model);
+    await managed.session.setModel(compatibleRuntimeModel(model));
   }
 
   async setReasoningLevel(
@@ -790,7 +812,14 @@ export class AgentManager {
       await this.#rebuildQueue(projectId, conversationId, steering, pending);
       this.#steeringPrompts.set(key, steering);
       this.#pendingPrompts.set(key, pending);
-      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId });
+      const steered = current[index];
+      this.events.publish(projectId, "prompt.steered", {
+        prompt: steered.prompt,
+        ...(steered.mentions.length ? { mentions: steered.mentions } : {}),
+        references: steered.references,
+        ...(steered.images.length ? { images: steered.images } : {}),
+        ...(steered.attachments.length ? { attachments: steered.attachments } : {}),
+      }, { conversationId, turnId }, steered.images.length ? { prompt: steered.prompt, references: steered.references } : undefined);
       return true;
     });
   }
@@ -842,6 +871,7 @@ export class AgentManager {
     this.#steeringPrompts.delete(key);
     for (const item of steering) {
       if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: item.turnId });
     }
     for (const item of pending) {
       if (item.images.length) this.events.expireThrough(projectId, item.queuedEventId);
@@ -850,9 +880,14 @@ export class AgentManager {
   }
 
   pendingPrompts(projectId: string, conversationId: string): PendingPrompt[] {
-    return (this.#pendingPrompts.get(conversationKey(projectId, conversationId)) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
+    const key = conversationKey(projectId, conversationId);
+    const steering = (this.#steeringPrompts.get(key) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
+      turnId, prompt, mentions, references, images, attachments, steering: true,
+    }));
+    const pending = (this.#pendingPrompts.get(key) ?? []).map(({ turnId, prompt, mentions, references, images, attachments }) => ({
       turnId, prompt, mentions, references, images, attachments,
     }));
+    return [...steering, ...pending];
   }
 
   askQuestionnaire(
@@ -1123,7 +1158,6 @@ export class AgentManager {
       else this.#pendingPrompts.set(key, pending.slice(1));
       if (active.images.length && active.startedEventId !== undefined) this.events.expireThrough(projectId, active.startedEventId);
       if (started.images.length) this.events.expireThrough(projectId, started.queuedEventId);
-      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
       active.turnId = started.turnId;
       active.prompt = started.prompt;
       active.mentions = started.mentions;
@@ -1150,6 +1184,7 @@ export class AgentManager {
       );
       active.startedEventId = startedEvent.id;
       active.startedAt = Date.parse(startedEvent.timestamp);
+      this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_start") {
       const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
       active.assistantItemIds.set(event.assistantMessageEvent.contentIndex, itemId);
@@ -1888,14 +1923,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[] } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[]; webSearch?: Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] } {
   const artifact = toolArtifact(result);
+  const webSearch = toolWebSearch(result);
   const images = result && typeof result === "object" && "content" in result
     ? imageContent((result as { content?: unknown }).content)
     : [];
   const media = {
     ...(artifact ? { artifact } : {}),
     ...(images.length ? { images } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
@@ -1908,6 +1945,16 @@ function toolOutput(result: unknown): { output?: string; truncated?: boolean; ar
     truncated: true,
     ...media,
   };
+}
+
+function toolWebSearch(result: unknown): Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] {
+  const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
+  const value = details && typeof details === "object" && "webSearch" in details ? (details as { webSearch?: unknown }).webSearch : undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const metadata = value as { provider?: unknown; providerName?: unknown; fallbackFrom?: unknown };
+  if ((metadata.provider !== "exa" && metadata.provider !== "parallel" && metadata.provider !== "custom") || typeof metadata.providerName !== "string") return undefined;
+  const fallbackFrom = metadata.fallbackFrom;
+  return { provider: metadata.provider, providerName: metadata.providerName, ...(fallbackFrom === "exa" || fallbackFrom === "parallel" || fallbackFrom === "custom" ? { fallbackFrom } : {}) };
 }
 
 function toolArtifact(result: unknown): ToolArtifact | undefined {
@@ -2098,7 +2145,7 @@ export async function createPiSession(
     cwd: project.workspacePath,
     agentDir,
     customTools,
-    model,
+    model: model ? compatibleRuntimeModel(model) : undefined,
     modelRuntime,
     resourceLoader,
     sessionManager,
@@ -2146,7 +2193,10 @@ async function createPiResourceLoader(
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
-  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
+  sessionSettings.setPackages(withBundledMcpAdapter(
+    sessionSettings.getPackages(),
+    resolveBundledMcpAdapterPath(),
+  ));
   const pluginSkills = await options.resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
