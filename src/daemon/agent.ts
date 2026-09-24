@@ -58,6 +58,24 @@ interface PiPromptImage {
 
 export type RuntimeModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
+/**
+ * Some OpenAI-compatible endpoints advertise a GPT-5.6 model while rejecting
+ * the optional Responses API `prompt_cache_options` field. Keep prompt-cache
+ * keys available, but avoid that provider-specific opt-in until compatibility
+ * can be established by the endpoint.
+ */
+export function compatibleRuntimeModel(model: RuntimeModel): RuntimeModel {
+  const compat = model.compat as (RuntimeModel["compat"] & { supportsExplicitPromptCacheMode?: boolean }) | undefined;
+  if (model.api !== "openai-responses" || !compat?.supportsExplicitPromptCacheMode) return model;
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      supportsExplicitPromptCacheMode: false,
+    },
+  };
+}
+
 export type AgentRunResult = "completed" | "cancelled";
 type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
@@ -403,7 +421,7 @@ export class AgentManager {
       return;
     }
     if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
-    await managed.session.setModel(model);
+    await managed.session.setModel(compatibleRuntimeModel(model));
   }
 
   async setReasoningLevel(
@@ -1888,14 +1906,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[] } {
+function toolOutput(result: unknown): { output?: string; truncated?: boolean; artifact?: ToolArtifact; images?: PromptImage[]; webSearch?: Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] } {
   const artifact = toolArtifact(result);
+  const webSearch = toolWebSearch(result);
   const images = result && typeof result === "object" && "content" in result
     ? imageContent((result as { content?: unknown }).content)
     : [];
   const media = {
     ...(artifact ? { artifact } : {}),
     ...(images.length ? { images } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
   const value = result && typeof result === "object" && "content" in result
     ? textContent((result as { content?: unknown }).content)
@@ -1908,6 +1928,16 @@ function toolOutput(result: unknown): { output?: string; truncated?: boolean; ar
     truncated: true,
     ...media,
   };
+}
+
+function toolWebSearch(result: unknown): Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] {
+  const details = result && typeof result === "object" && "details" in result ? (result as { details?: unknown }).details : undefined;
+  const value = details && typeof details === "object" && "webSearch" in details ? (details as { webSearch?: unknown }).webSearch : undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const metadata = value as { provider?: unknown; providerName?: unknown; fallbackFrom?: unknown };
+  if ((metadata.provider !== "exa" && metadata.provider !== "parallel" && metadata.provider !== "custom") || typeof metadata.providerName !== "string") return undefined;
+  const fallbackFrom = metadata.fallbackFrom;
+  return { provider: metadata.provider, providerName: metadata.providerName, ...(fallbackFrom === "exa" || fallbackFrom === "parallel" || fallbackFrom === "custom" ? { fallbackFrom } : {}) };
 }
 
 function toolArtifact(result: unknown): ToolArtifact | undefined {
@@ -2098,7 +2128,7 @@ export async function createPiSession(
     cwd: project.workspacePath,
     agentDir,
     customTools,
-    model,
+    model: model ? compatibleRuntimeModel(model) : undefined,
     modelRuntime,
     resourceLoader,
     sessionManager,

@@ -15,7 +15,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
@@ -485,6 +485,10 @@ export function ProjectShell({
     }
   }
 
+  async function editFollowUp(item: PendingPrompt): Promise<boolean> {
+    return removeFollowUp(item.turnId);
+  }
+
   async function restartPreview() {
     if (!project || project.preview.status === "starting") return;
     dispatch({ type: "notice", message: undefined });
@@ -724,6 +728,7 @@ export function ProjectShell({
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
             onSteerPending={steerFollowUp}
+            onEditPending={editFollowUp}
           /> : null}
         </div>
       </section>
@@ -766,6 +771,7 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           onPublish={publish}
           onRestart={restartPreview}
+          onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
         />
       ) : <InteractiveDramaWorkspace

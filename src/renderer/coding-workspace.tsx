@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
-  ExternalLink,
   FileCode2,
   Folder,
   FolderOpen,
@@ -19,19 +18,19 @@ import {
   Share2,
   Smartphone,
   Tablet,
+  Wrench,
   X,
 } from "./icons.js";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Tree, type NodeRendererProps } from "react-arborist";
-import type { ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { PreviewViewport, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
+import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
-type PreviewViewport = "fit" | "tablet" | "mobile";
-
 interface CodingWorkspaceProps {
   project?: ProjectState;
   agentBusy: boolean;
@@ -39,6 +38,7 @@ interface CodingWorkspaceProps {
   workspaceRevision: number;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   onRestart: () => void;
+  onProjectUpdated?: (project: ProjectState) => void;
   onClose?: () => void;
 }
 
@@ -49,6 +49,7 @@ export function CodingWorkspace({
   workspaceRevision,
   onPublish,
   onRestart,
+  onProjectUpdated,
   onClose,
 }: CodingWorkspaceProps) {
   const supportsPreview = project?.type === "web-game";
@@ -57,8 +58,8 @@ export function CodingWorkspace({
     ? "Godot publishing is not available yet"
     : publishing ? "Publishing" : "Publish";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
-  const [viewport, setViewport] = useState<PreviewViewport>("fit");
-  const [previewPath, setPreviewPath] = useState("/");
+  const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [knownPaths, setKnownPaths] = useState<string[]>(["/"]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selectedCodePath, setSelectedCodePath] = useState<string>();
@@ -68,14 +69,19 @@ export function CodingWorkspace({
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const fileRequest = useRef(0);
   const preview = project?.preview;
   const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
   const previewPageUrl = previewBaseUrl ? new URL(previewPath, previewBaseUrl).toString() : undefined;
 
   useEffect(() => {
-    setPreviewPath("/");
-  }, [project?.id, previewBaseUrl]);
+    setPreviewPath(project?.previewPath ?? "/");
+  }, [project?.id, project?.previewPath, previewBaseUrl]);
+
+  useEffect(() => {
+    setViewport(project?.previewViewport ?? "fit");
+  }, [project?.id, project?.previewViewport]);
 
   useEffect(() => {
     setKnownPaths(["/"]);
@@ -171,7 +177,7 @@ export function CodingWorkspace({
               refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
               refreshLabel={preview?.status === "ready" ? "Reload preview" : "Restart preview"}
               viewport={viewport}
-              onOpen={() => previewPageUrl && window.open(previewPageUrl, "_blank", "noopener,noreferrer")}
+              onOpenSettings={() => setProjectSettingsOpen(true)}
               onNavigate={navigatePreview}
               onRefresh={refreshPreview}
               onViewportChange={setViewport}
@@ -204,9 +210,16 @@ export function CodingWorkspace({
         </div>
       </header>
 
-      {supportsPreview && activeTab === "preview" ? (
-        <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
-      ) : activeTab === "code" ? (
+      {supportsPreview ? (
+        <div
+          className="coding-workspace-preview-panel"
+          hidden={activeTab !== "preview"}
+          aria-hidden={activeTab !== "preview"}
+        >
+          <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
+        </div>
+      ) : null}
+      {activeTab === "code" ? (
         <CodeView
           files={files.filter((file) => !file.mediaType)}
           selectedPath={selectedCodePath}
@@ -215,7 +228,7 @@ export function CodingWorkspace({
           error={filesError}
           onSelect={selectFile}
         />
-      ) : (
+      ) : activeTab === "assets" ? (
         <AssetsView
           projectId={project?.id}
           files={files.filter((file) => file.mediaType)}
@@ -224,8 +237,14 @@ export function CodingWorkspace({
           revision={workspaceRevision}
           onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
-      )}
+      ) : null}
       {project && publishDialogOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishDialogOpen(false)} onPublish={onPublish} /> : null}
+      {project && projectSettingsOpen ? <ProjectSettingsDialog project={project} previewUrl={previewPageUrl} onClose={() => setProjectSettingsOpen(false)} onSaved={async (updated) => {
+        const restartRequired = updated.startupDirectory !== project.startupDirectory ||
+          updated.startupScript !== project.startupScript || updated.packageManager !== project.packageManager;
+        onProjectUpdated?.(updated);
+        if (restartRequired) onRestart();
+      }} /> : null}
     </section>
   );
 }
@@ -252,7 +271,7 @@ function PreviewControls({
   refreshDisabled,
   refreshLabel,
   viewport,
-  onOpen,
+  onOpenSettings,
   onNavigate,
   onRefresh,
   onViewportChange,
@@ -263,7 +282,7 @@ function PreviewControls({
   refreshDisabled: boolean;
   refreshLabel: string;
   viewport: PreviewViewport;
-  onOpen: () => void;
+  onOpenSettings: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
@@ -281,14 +300,13 @@ function PreviewControls({
         onRefresh={onRefresh}
       />
       <button
-        className="icon-button quiet-button preview-external-button"
+        className="icon-button quiet-button preview-settings-button"
         type="button"
-        onClick={onOpen}
-        disabled={!previewUrl}
-        title="Open preview in browser"
-        aria-label="Open preview in browser"
+        onClick={onOpenSettings}
+        title="Project settings"
+        aria-label="Project settings"
       >
-        <ExternalLink size={15} />
+        <Wrench size={15} />
       </button>
     </div>
   );

@@ -45,6 +45,7 @@ interface ComposerProps {
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
   onSteerPending: (turnId: string) => Promise<boolean>;
+  onEditPending: (item: PendingPrompt) => Promise<boolean>;
   reference?: ChatReference;
   onClearReference?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -82,6 +83,7 @@ export function Composer({
   onStop,
   onRemovePending,
   onSteerPending,
+  onEditPending,
   reference,
   onClearReference,
   onDirtyChange,
@@ -334,6 +336,25 @@ export function Composer({
     await onCompact(instructions);
   }
 
+  async function editPending(item: PendingPrompt): Promise<void> {
+    if (inputDisabled || !(await onEditPending(item))) return;
+    const skill = parseSkillInvocation(item.prompt);
+    const plugin = extractLeadingPluginMention(skill?.prompt ?? item.prompt, item.mentions);
+    const nextPrompt = plugin.prompt;
+    setPrompt(nextPrompt);
+    setSelectedSkill(skill?.name);
+    setSelectedPlugin(plugin.mention);
+    setPluginMentions(item.mentions);
+    setAttachments([]);
+    onClearReference?.();
+    setMentionCursor(nextPrompt.length);
+    setAttachmentError(undefined);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(nextPrompt.length, nextPrompt.length);
+    });
+  }
+
   function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
     setMentionCursor(event.currentTarget.selectionStart);
     if (selectedSkill && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
@@ -397,6 +418,7 @@ export function Composer({
         disabled={!running || stopping}
         onRemove={(turnId) => { void onRemovePending(turnId); }}
         onSteer={(turnId) => { void onSteerPending(turnId); }}
+        onEdit={(item) => { void editPending(item); }}
       />
       {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
       <PromptBox
