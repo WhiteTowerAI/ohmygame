@@ -1,5 +1,5 @@
-import type { LocalAssetTemplate, Model3DSource, StudioMode } from "../shared/asset-templates.js";
-export type { Model3DSource, StudioMode } from "../shared/asset-templates.js";
+import type { LocalAssetTemplate, StudioMode } from "../shared/asset-templates.js";
+export type { StudioMode } from "../shared/asset-templates.js";
 
 export type AssetTemplate = LocalAssetTemplate;
 

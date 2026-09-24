@@ -94,15 +94,10 @@ describe("tool runner", () => {
       payload: {
         images: [
           { mediaType: "image/png", data: "ZnJvbnQ=" },
-          { mediaType: "image/jpeg", data: "c2lkZQ==" },
         ],
-        model: "meshy-7",
-        quality: "ultra",
+        targetPolycount: 8_000,
         texture: true,
-        textureResolution: "4K",
         pbr: true,
-        pose: "t-pose",
-        imageEnhancement: false,
       },
     });
 
@@ -110,15 +105,10 @@ describe("tool runner", () => {
     expect(generate).toHaveBeenCalledWith({
       images: [
         { mediaType: "image/png", data: "ZnJvbnQ=" },
-        { mediaType: "image/jpeg", data: "c2lkZQ==" },
       ],
-      model: "meshy-7",
-      quality: "ultra",
+      targetPolycount: 8_000,
       texture: true,
-      textureResolution: "4K",
       pbr: true,
-      pose: "t-pose",
-      imageEnhancement: false,
     }, undefined);
     const run = response.json();
     expect(run).toMatchObject({
@@ -130,46 +120,7 @@ describe("tool runner", () => {
     expect(file.rawPayload).toEqual(Buffer.from("glb"));
   });
 
-  it("runs Text to 3D with the selected generation options", async () => {
-    const generate = vi.fn().mockResolvedValue({
-      bytes: Buffer.from("glb"),
-      mediaType: "model/gltf-binary" as const,
-      requestId: "meshy-refine-1",
-    });
-    const app = createApp({
-      dataDirectory: await temporaryData(),
-      imageGenerator: fakeGenerator(),
-      model3DGenerator: { generate },
-    });
-    apps.push(app);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/runs",
-      payload: {
-        prompt: "  A wooden treasure chest  ",
-        model: "meshy-7",
-        quality: "standard",
-        texture: false,
-        textureResolution: "2K",
-        pbr: true,
-        pose: "auto",
-      },
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(generate).toHaveBeenCalledWith({
-      prompt: "A wooden treasure chest",
-      model: "meshy-7",
-      quality: "standard",
-      texture: false,
-      textureResolution: "2K",
-      pbr: true,
-      pose: "auto",
-    }, undefined);
-  });
-
-  it("runs Meshy T2 with a target poly count", async () => {
+  it("runs 3D generation with a target poly count", async () => {
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("glb"),
       mediaType: "model/gltf-binary" as const,
@@ -186,20 +137,16 @@ describe("tool runner", () => {
       url: "/tools/image-to-3d/runs",
       payload: {
         images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
-        model: "meshy-t2",
         targetPolycount: 4_000,
         texture: false,
-        pose: "auto",
       },
     });
 
     expect(response.statusCode, response.body).toBe(201);
     expect(generate).toHaveBeenCalledWith({
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
-      model: "meshy-t2",
       targetPolycount: 4_000,
       texture: false,
-      pose: "auto",
     }, undefined);
   });
 
@@ -459,7 +406,7 @@ describe("tool runner", () => {
     expect((await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { prompt: "model", imageEnhancement: false },
+      payload: { prompt: "model" },
     })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",
@@ -469,27 +416,12 @@ describe("tool runner", () => {
     expect((await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { images: Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })) },
+      payload: { targetPolycount: 4_000 },
     })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",
       url: "/tools/image-to-3d/runs",
-      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-t2", quality: "ultra" },
-    })).statusCode).toBe(400);
-    expect((await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/runs",
-      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-t2", imageEnhancement: true },
-    })).statusCode).toBe(400);
-    expect((await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/runs",
-      payload: { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: "meshy-7", targetPolycount: 4_000 },
-    })).statusCode).toBe(400);
-    expect((await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/runs",
-      payload: { prompt: "a".repeat(801) },
+      payload: { images: Array.from({ length: 2 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })) },
     })).statusCode).toBe(400);
     expect((await app.inject({
       method: "POST",

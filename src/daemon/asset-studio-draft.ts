@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS } from "../shared/contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS } from "../shared/contracts.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 
 interface StoredDraft extends AssetStudioDraft {
@@ -67,15 +67,9 @@ function isStoredDraft(value: unknown): value is StoredDraft {
     || !text(value.video.prompt, 32_000) || !member(value.video.resolution, VIDEO_RESOLUTIONS)
     || !member(value.video.aspectRatio, VIDEO_ASPECT_RATIOS) || !integer(value.video.duration, 4, 15)
     || value.video.references !== undefined && (!Array.isArray(value.video.references) || !value.video.references.every(videoReference))) return false;
-  if (!record(value.model3D) || !onlyKeys(value.model3D, ["prompt", "model", "source", "multiView", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement"])
-    || !text(value.model3D.prompt, 32_000) || !member(value.model3D.model, MODEL_3D_MODELS)
-    || !mode3DSource(value.model3D.source) || typeof value.model3D.multiView !== "boolean"
-    || !member(value.model3D.quality, MODEL_3D_QUALITIES) || !integer(value.model3D.targetPolycount, 100, 15_000)
-    || typeof value.model3D.texture !== "boolean"
-    || value.model3D.textureResolution !== undefined && !member(value.model3D.textureResolution, MODEL_3D_TEXTURE_RESOLUTIONS)
-    || value.model3D.pbr !== undefined && typeof value.model3D.pbr !== "boolean"
-    || !member(value.model3D.pose, MODEL_3D_POSES)
-    || typeof value.model3D.imageEnhancement !== "boolean") return false;
+  if (!record(value.model3D) || !onlyKeys(value.model3D, ["targetPolycount", "texture", "pbr"])
+    || !integer(value.model3D.targetPolycount, 100, 15_000)
+    || typeof value.model3D.texture !== "boolean" || typeof value.model3D.pbr !== "boolean") return false;
   return true;
 }
 
@@ -115,8 +109,4 @@ function integer(value: unknown, minimum: number, maximum: number): value is num
 
 function mode(value: unknown): value is AssetStudioDraft["mode"] {
   return value === "image" || value === "video" || value === "3d";
-}
-
-function mode3DSource(value: unknown): value is AssetStudioDraft["model3D"]["source"] {
-  return value === "image" || value === "text";
 }

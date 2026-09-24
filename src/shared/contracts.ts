@@ -300,17 +300,9 @@ export type StoryNode = (
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: StoryPosition; data: {
-    prompt: string;
-    promptSource?: StoryTextReference;
-    model?: Model3DModel;
-    source: "text" | "image";
-    quality?: Model3DQuality;
-    targetPolycount?: number;
-    texture?: boolean;
-    textureResolution?: Model3DTextureResolution;
-    pbr?: boolean;
-    pose?: Model3DPose;
-    imageEnhancement?: boolean;
+    targetPolycount: number;
+    texture: boolean;
+    pbr: boolean;
     images: StoryAssetReference[];
     assetId?: string;
   } }
@@ -766,26 +758,10 @@ export const VIDEO_MODEL = "doubao-seedance-2-0-260128" as const;
 export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
-export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
-export type Model3DQuality = (typeof MODEL_3D_QUALITIES)[number];
-export const MODEL_3D_MODELS = ["meshy-7", "meshy-t2"] as const;
-export type Model3DModel = (typeof MODEL_3D_MODELS)[number];
-export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
-export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
-export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
-export type Model3DPose = (typeof MODEL_3D_POSES)[number];
-
-/** Persisted controls shared by every 3D generation surface. Model-specific fields are normalized before use. */
 export interface Model3DGenerationConfig {
-  model: Model3DModel;
-  source: "text" | "image";
-  quality?: Model3DQuality;
-  targetPolycount?: number;
+  targetPolycount: number;
   texture: boolean;
-  textureResolution?: Model3DTextureResolution;
   pbr: boolean;
-  pose?: Model3DPose;
-  imageEnhancement?: boolean;
 }
 
 export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
@@ -812,20 +788,12 @@ interface RunStudioImageToolRequest {
 
 export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
 
-interface Run3DToolOptions {
-  model?: Model3DModel;
-  quality?: Model3DQuality;
+export interface Run3DToolRequest {
+  images: PromptImage[];
   targetPolycount?: number;
   texture?: boolean;
-  textureResolution?: Model3DTextureResolution;
   pbr?: boolean;
-  pose?: Model3DPose;
 }
-
-export type Run3DToolRequest = Run3DToolOptions & (
-  | { prompt: string; images?: never; imageEnhancement?: never }
-  | { prompt?: never; images: PromptImage[]; imageEnhancement?: boolean }
-);
 
 export interface RunVideoToolRequest {
   prompt: string;

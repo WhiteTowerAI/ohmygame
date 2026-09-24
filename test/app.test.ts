@@ -1420,7 +1420,7 @@ describe("daemon", () => {
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
   });
 
-  it("uses the connected Account credential for Meshy 7 generation", async () => {
+  it("uses the connected Account credential for Meshy T2 generation", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
       getModels: vi.fn(() => [{
@@ -1436,7 +1436,7 @@ describe("daemon", () => {
     } as unknown as ModelRuntime;
     const accountServiceFetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.ohmygame.test/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-7" }, { id: "meshy-t2" }] }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-t2" }] }))
       .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
       .mockResolvedValueOnce(Response.json({
         id: "task_123",
@@ -1462,11 +1462,8 @@ describe("daemon", () => {
       method: "POST",
       url: "/tools/image-to-3d/runs",
       payload: {
-        prompt: "A wooden knight",
-        model: "meshy-7",
-        quality: "standard",
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
         texture: true,
-        pose: "auto",
       },
     });
 

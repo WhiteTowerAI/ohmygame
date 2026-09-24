@@ -11,19 +11,18 @@ describe("asset templates", () => {
     });
   });
 
-  it("validates model-specific 3D template defaults", () => {
+  it("validates 3D template defaults", () => {
     const template = {
       mode: "3d",
       name: "Game-ready prop",
       description: "",
       promptPlaceholder: "Describe a prop",
-      defaults: { model3DModel: "meshy-t2", model3DTargetPolycount: 4_000 },
+      defaults: { model3DTargetPolycount: 4_000 },
     };
 
     expect(isAssetTemplateDefinition(template)).toBe(true);
     expect(isAssetTemplateDefinition({ ...template, promptLabel: "Legacy prompt" })).toBe(true);
-    expect(isAssetTemplateDefinition({ ...template, defaults: { ...template.defaults, model3DQuality: "ultra" } })).toBe(false);
-    expect(isAssetTemplateDefinition({ ...template, defaults: { ...template.defaults, model3DSource: "text" } })).toBe(false);
-    expect(isAssetTemplateDefinition({ ...template, defaults: { model3DQuality: "ultra" } })).toBe(true);
+    expect(isAssetTemplateDefinition({ ...template, defaults: { ...template.defaults, unsupported: true } })).toBe(false);
+    expect(isAssetTemplateDefinition({ ...template, defaults: { model3DTargetPolycount: 99 } })).toBe(false);
   });
 });

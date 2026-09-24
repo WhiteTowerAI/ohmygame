@@ -72,9 +72,6 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODEL,
   VIDEO_RESOLUTIONS,
-  MODEL_3D_POSES,
-  MODEL_3D_QUALITIES,
-  MODEL_3D_TEXTURE_RESOLUTIONS,
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
@@ -82,12 +79,8 @@ import {
   type ImageModel,
   type ImageModelRef,
   type ImageResolution,
-  type Model3DModel,
-  type Model3DGenerationConfig,
-  type Model3DPose,
-  type Model3DQuality,
-  type Model3DTextureResolution,
   type LibraryUploadMediaType,
+  type Model3DGenerationConfig,
   type PromptImage,
   type ProjectState,
   type RunImageToolRequest,
@@ -141,7 +134,7 @@ import { StoryPlayerPreviewSession, StoryPlayerSnapshot, type StoryPreviewSessio
 import { StoryMapSurface } from "./story-map.js";
 import { StorySettingsSurface } from "./story-settings.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
-import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, buildModel3DToolRequest, model3DReferenceLimit as model3DConfigReferenceLimit, normalizeModel3DConfig } from "../shared/generation-config.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -308,7 +301,7 @@ interface MediaNodeRuntime {
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
   linkedPrompt?: string;
-  onDisconnectPrompt: () => void;
+  onDisconnectPrompt?: () => void;
 }
 
 interface TextNodeRuntime {
@@ -599,7 +592,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }, [document, workspaceView]);
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
-    if (node.type === "image" || (node.type === "model-3d" && model3DSource(node) === "image")) derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
+    if (node.type === "image" || node.type === "model-3d") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
       id: assetEdgeId("image", node.id, image.nodeId),
       source: image.nodeId,
       target: node.id,
@@ -617,7 +610,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
       data: { relation: "video-reference", referenceId: reference.nodeId },
     }] : []));
-    if ((node.type === "image" || node.type === "video" || (node.type === "model-3d" && model3DSource(node) === "text")) && node.data.promptSource) derived.push({
+    if ((node.type === "image" || node.type === "video") && node.data.promptSource) derived.push({
       id: assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       source: node.data.promptSource.nodeId,
       target: node.id,
@@ -690,7 +683,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
           if (relation === "video-reference" && node.id === edge.target && node.type === "video") {
             return { ...node, data: { ...node.data, references: (node.data.references ?? []).filter((reference) => reference.type !== "node" || reference.nodeId !== referenceId) } };
           }
-          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video" || node.type === "model-3d")) {
+          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video")) {
             return { ...node, data: { ...node.data, promptSource: undefined } };
           }
           if (relation === "presentation-media" && node.id === edge.target && isVisiblePresentationFlowNode(node)) {
@@ -724,7 +717,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
         : node));
       return;
     }
-    if (relation === "prompt" && (target.type === "image" || target.type === "video" || target.type === "model-3d")) {
+    if (relation === "prompt" && (target.type === "image" || target.type === "video")) {
       setNodes((current) => current.map((node) => node.id === target.id
         ? { ...node, data: { ...node.data, promptSource: { type: "node", nodeId: source.id } } }
         : node));
@@ -980,14 +973,10 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   async function generateModel3D(node: StoryFlowNode): Promise<void> {
     if (node.type !== "model-3d" || generatingNodeId) return;
     const config = nodeModel3DConfig(node);
-    const source = config.source;
-    const prompt = resolveNodePrompt(node, nodes).trim();
     try {
-      const images = source === "image" ? await resolveModelReferenceImages(node) : [];
-      if (source === "text" && !prompt) throw new Error("Add a prompt before generating.");
-      if (source === "image" && !images.length) throw new Error("Add a reference image before generating.");
-      if (config.model === "meshy-t2" && images.length !== 1) throw new Error("Meshy T2 requires exactly one reference image.");
-      await generateMedia(node, "image-to-3d", buildModel3DToolRequest(config, { prompt, images }), "3D model");
+      const images = await resolveModelReferenceImages(node);
+      if (images.length !== MODEL_3D_REFERENCE_LIMIT) throw new Error("Add one reference image before generating.");
+      await generateMedia(node, "image-to-3d", buildModel3DToolRequest(config, images), "3D model");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     }
@@ -1030,7 +1019,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
 
   async function uploadReferenceImages(node: StoryFlowNode, files: File[]): Promise<void> {
     if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || generatingNodeId || uploadingNodeId) return;
-    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : model3DReferenceLimit(node)) - (node.data.images?.length ?? 0);
+    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : MODEL_3D_REFERENCE_LIMIT) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
       return;
@@ -1167,8 +1156,6 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       },
     };
     if (node.type === "model-3d") {
-      const source = model3DSource(node);
-      const linkedPrompt = source === "text" ? resolveLinkedPrompt(node, nodes) : undefined;
       return {
         ...node,
         data: {
@@ -1182,10 +1169,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
             },
             onGenerate: () => void generateModel3D(node),
-            ...(linkedPrompt !== undefined ? { linkedPrompt } : {}),
-            onDisconnectPrompt: () => setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data: { ...candidate.data, promptSource: undefined } } : candidate)),
-            references: source === "image" ? imageReferenceViews(node, nodes, libraryAssets) : [],
-            maxReferences: source === "image" ? model3DReferenceLimit(node) : 0,
+            references: imageReferenceViews(node, nodes, libraryAssets),
+            maxReferences: MODEL_3D_REFERENCE_LIMIT,
             uploading: uploadingNodeId === node.id,
             accept: "image/png,image/jpeg,image/webp",
             addLabel: "Upload reference images",
@@ -1932,46 +1917,33 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 function Model3DNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.model3DRuntime;
   const config = nodeModel3DConfig({ type: "model-3d", data });
-  const source = config.source;
-  const prompt = effectivePrompt(data, runtime);
   const hasImages = Boolean(data.images?.length);
-  const updateConfig = (next: Partial<Model3DGenerationConfig>) => {
-    const model3DConfig = normalizeModel3DConfig({ ...config, ...next });
-    runtime?.onChange({
-      ...data,
-      model3DRuntime: undefined,
-      model3DConfig,
-      ...(model3DConfig.source === "image"
-        ? { promptSource: undefined, images: (data.images ?? []).slice(0, model3DConfigReferenceLimit(model3DConfig)) }
-        : { images: [] }),
-    });
-  };
+  const updateConfig = (next: Partial<Model3DGenerationConfig>) => runtime?.onChange({
+    ...data,
+    model3DRuntime: undefined,
+    model3DConfig: normalizeModel3DConfig({ ...config, ...next }),
+  });
   return (
-    <MediaNodeShell kind="model" selected={selected} assetId={data.assetId} inputCount={source === "image" ? data.images?.length : undefined} runtime={runtime}>
-      {source === "image" ? <MediaReferenceStrip runtime={runtime} /> : <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onChange={(value) => runtime?.onChange({ ...data, model3DRuntime: undefined, prompt: value })} />}
+    <MediaNodeShell
+      kind="model"
+      selected={selected}
+      assetId={data.assetId}
+      inputCount={data.images?.length}
+      runtime={runtime}
+    >
+      <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="3D input" value={source} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ source: event.target.value as "text" | "image" })}>
-          <option value="text">Prompt</option>
-          <option value="image">Reference images</option>
-        </select>
-        <select aria-label="3D model" value={config.model} disabled={runtime?.busy} onChange={(event) => updateConfig({ model: event.target.value as Model3DModel })}>
-          <option value="meshy-7">Meshy 7</option>
-          <option value="meshy-t2">Meshy T2</option>
-        </select>
-        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={source === "text" ? !prompt.trim() : !hasImages || (config.model === "meshy-t2" && data.images?.length !== 1)} />
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages} />
       </div>
-      {selected ? <details className="story-media-advanced">
+      <details className="story-media-advanced">
         <summary>Settings</summary>
         <div className="story-media-advanced-grid">
-          {config.model === "meshy-t2" ? <label>Polycount<input type="number" min={100} max={15000} step={100} value={config.targetPolycount ?? 4000} disabled={runtime?.busy} onChange={(event) => updateConfig({ targetPolycount: Number(event.target.value) || 4000 })} /></label> : <label>Quality<select value={config.quality ?? "standard"} disabled={runtime?.busy} onChange={(event) => updateConfig({ quality: event.target.value as Model3DQuality })}>{MODEL_3D_QUALITIES.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label>}
-          <label className="story-media-checkbox"><input type="checkbox" checked={config.texture} disabled={runtime?.busy} onChange={(event) => updateConfig({ texture: event.target.checked })} />Texture</label>
-          {config.texture ? <label>Texture resolution<select value={config.textureResolution ?? "2K"} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ textureResolution: event.target.value as Model3DTextureResolution })}>{MODEL_3D_TEXTURE_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}</select></label> : null}
+          <label><span>Polycount</span><input type="number" min={100} max={15000} step={100} value={config.targetPolycount} disabled={runtime?.busy} onChange={(event) => updateConfig({ targetPolycount: Number(event.target.value) || DEFAULT_MODEL_3D_CONFIG.targetPolycount })} /></label>
+          <label className="story-media-checkbox"><input type="checkbox" checked={config.texture} disabled={runtime?.busy} onChange={(event) => updateConfig({ texture: event.target.checked, ...(!event.target.checked ? { pbr: false } : {}) })} />Texture</label>
           {config.texture ? <label className="story-media-checkbox"><input type="checkbox" checked={config.pbr} disabled={runtime?.busy} onChange={(event) => updateConfig({ pbr: event.target.checked })} />PBR</label> : null}
-          <label>Pose<select value={config.pose ?? "auto"} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ pose: event.target.value as Model3DPose })}>{MODEL_3D_POSES.map((value) => <option key={value} value={value}>{value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"}</option>)}</select></label>
-          {source === "image" && config.model !== "meshy-t2" ? <label className="story-media-checkbox"><input type="checkbox" checked={config.imageEnhancement ?? true} disabled={runtime?.busy} onChange={(event) => updateConfig({ imageEnhancement: event.target.checked })} />Image enhancement</label> : null}
         </div>
-      </details> : null}
+      </details>
     </MediaNodeShell>
   );
 }
@@ -2015,12 +1987,12 @@ function MediaPrompt({ kind, value, runtime, onChange }: {
   );
 }
 
-function MediaReferenceStrip({ runtime }: { runtime?: ReferenceMediaNodeRuntime }) {
+function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMediaNodeRuntime; large?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const references = runtime?.references ?? [];
   if (!runtime || (runtime.linkedPrompt === undefined && references.length === 0 && runtime.maxReferences === 0)) return null;
   return (
-    <div className="story-media-references" aria-label="References">
+    <div className={`story-media-references${large ? " is-large" : ""}`} aria-label="References">
       {runtime?.linkedPrompt !== undefined ? <TextReferenceThumbnail runtime={runtime} /> : null}
       {references.map((reference, index) => (
         <MediaReferenceThumbnail
@@ -2040,14 +2012,14 @@ function MediaReferenceStrip({ runtime }: { runtime?: ReferenceMediaNodeRuntime 
             disabled={runtime?.busy}
             onClick={() => input.current?.click()}
           >
-            {runtime?.uploading ? <LoaderCircle className="spin" size={16} /> : <Plus size={18} />}
+            {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
           </button>
           <input
             ref={input}
             className="visually-hidden"
             type="file"
             accept={runtime.accept}
-            multiple
+            multiple={(runtime?.maxReferences ?? 0) > 1}
             onChange={(event) => {
               const files = [...(event.target.files ?? [])];
               event.target.value = "";
@@ -2066,7 +2038,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
     <div className="story-media-reference story-text-reference is-linked" title={text || "Connected Text node is empty"}>
       <FileText size={19} />
       <span className="story-media-reference-link" aria-label="Connected Text node" />
-      <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={runtime.onDisconnectPrompt}><X size={11} /></button>
+      <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
 }
@@ -2115,7 +2087,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
           <div className="story-media-empty">
             <Icon size={34} />
             <strong>{runtime?.generating ? `Generating ${kind}...` : `No ${kind} yet`}</strong>
-            <span>{runtime?.generating ? "This can take a moment" : `Describe a ${kind} below, then generate`}</span>
+            <span>{runtime?.generating ? "This can take a moment" : kind === "model" ? "Add a reference image below, then generate" : `Describe a ${kind} below, then generate`}</span>
           </div>
         ) : null}
         {runtime?.generating && preview.url ? <div className="story-media-running"><span className="spin"><LoaderCircle size={18} /></span>Generating...</div> : null}
@@ -3523,20 +3495,13 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
     position: node.position,
     deletable: true,
     data: {
-      prompt: node.data.prompt,
-      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+      prompt: "",
       model3DConfig: normalizeModel3DConfig({
-        model: node.data.model,
-        source: node.data.source,
-        quality: node.data.quality,
         targetPolycount: node.data.targetPolycount,
         texture: node.data.texture,
-        textureResolution: node.data.textureResolution,
         pbr: node.data.pbr,
-        pose: node.data.pose,
-        imageEnhancement: node.data.imageEnhancement,
       }),
-      images: node.data.images,
+      images: node.data.images.slice(0, MODEL_3D_REFERENCE_LIMIT),
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
@@ -3619,7 +3584,6 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
     type,
     position,
     data: {
-      prompt: "",
       images: [],
       model3DConfig: DEFAULT_MODEL_3D_CONFIG,
     },
@@ -3752,18 +3716,10 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       type: "model-3d",
       position: node.position,
       data: {
-        prompt: node.data.prompt ?? "",
-        ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-        model: config.model,
-        source: config.source,
-        ...(config.quality ? { quality: config.quality } : {}),
-        ...(config.targetPolycount !== undefined ? { targetPolycount: config.targetPolycount } : {}),
+        targetPolycount: config.targetPolycount,
         texture: config.texture,
-        ...(config.textureResolution ? { textureResolution: config.textureResolution } : {}),
         pbr: config.pbr,
-        ...(config.pose ? { pose: config.pose } : {}),
-        ...(config.imageEnhancement !== undefined ? { imageEnhancement: config.imageEnhancement } : {}),
-        images: node.data.images ?? [],
+        images: (node.data.images ?? []).slice(0, MODEL_3D_REFERENCE_LIMIT),
         ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
       },
     };
@@ -3799,9 +3755,8 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
 
 function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
   if (node.type !== "image" && node.type !== "model-3d") return [];
-  const modelViewLabels = ["Main view", "Left", "Back", "Right"];
   return (node.data.images ?? []).map((reference, index) => {
-    const label = node.type === "model-3d" ? modelViewLabels[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
+    const label = node.type === "model-3d" ? "Reference" : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
       return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label, type: "image" };
@@ -3855,14 +3810,6 @@ function nodeModel3DConfig(node: Pick<StoryFlowNode, "type" | "data">): Model3DG
   return normalizeModel3DConfig(node.data.model3DConfig);
 }
 
-function model3DReferenceLimit(node: StoryFlowNode): number {
-  return node.type === "model-3d" ? model3DConfigReferenceLimit(nodeModel3DConfig(node)) : 0;
-}
-
-function model3DSource(node: Pick<StoryFlowNode, "type" | "data">): "text" | "image" {
-  return node.type === "model-3d" ? nodeModel3DConfig(node).source : "text";
-}
-
 type ConnectionRelation = "image-reference" | "video-reference" | "prompt" | "presentation-media" | "story";
 
 function connectionRelation(
@@ -3885,13 +3832,13 @@ function connectionRelation(
       ? "image-reference"
       : undefined;
   }
-  if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d" && model3DSource(target) === "image") {
-    return (target.data.images?.length ?? 0) < model3DReferenceLimit(target) &&
+  if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d") {
+    return (target.data.images?.length ?? 0) < MODEL_3D_REFERENCE_LIMIT &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
       ? "image-reference"
       : undefined;
   }
-  if (source.type === "text" && (target.type === "image" || target.type === "video" || (target.type === "model-3d" && model3DSource(target) === "text"))) {
+  if (source.type === "text" && (target.type === "image" || target.type === "video")) {
     return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
   if (target.type === "video") {

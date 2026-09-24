@@ -2,23 +2,16 @@ import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_OUTPUT_COUNTS,
   IMAGE_RESOLUTIONS,
-  MODEL_3D_POSES,
-  MODEL_3D_QUALITIES,
-  MODEL_3D_MODELS,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
   type ImageResolution,
-  type Model3DPose,
-  type Model3DQuality,
-  type Model3DModel,
   type VideoAspectRatio,
   type VideoResolution,
 } from "./contracts.js";
 
 export type StudioMode = "image" | "video" | "3d";
-export type Model3DSource = "text" | "image";
 
 export interface AssetTemplateDefaults {
   imageResolution?: ImageResolution;
@@ -27,11 +20,7 @@ export interface AssetTemplateDefaults {
   videoResolution?: VideoResolution;
   videoAspectRatio?: VideoAspectRatio;
   videoDuration?: number;
-  model3DModel?: Model3DModel;
-  model3DQuality?: Model3DQuality;
   model3DTargetPolycount?: number;
-  model3DPose?: Model3DPose;
-  model3DSource?: Model3DSource;
 }
 
 export interface AssetTemplateDefinition {
@@ -71,19 +60,14 @@ export function isAssetTemplateDefinition(value: unknown): value is AssetTemplat
   if (!defaults) return true;
   if (template.mode === "image") {
     return defaults.videoResolution === undefined && defaults.videoAspectRatio === undefined && defaults.videoDuration === undefined
-      && defaults.model3DModel === undefined && defaults.model3DQuality === undefined && defaults.model3DTargetPolycount === undefined
-      && defaults.model3DPose === undefined && defaults.model3DSource === undefined;
+      && defaults.model3DTargetPolycount === undefined;
   }
   if (template.mode === "video") {
     return defaults.imageResolution === undefined && defaults.imageAspectRatio === undefined && defaults.imageOutputs === undefined
-      && defaults.model3DModel === undefined && defaults.model3DQuality === undefined && defaults.model3DTargetPolycount === undefined
-      && defaults.model3DPose === undefined && defaults.model3DSource === undefined;
+      && defaults.model3DTargetPolycount === undefined;
   }
   return defaults.imageResolution === undefined && defaults.imageAspectRatio === undefined && defaults.imageOutputs === undefined
-    && defaults.videoResolution === undefined && defaults.videoAspectRatio === undefined && defaults.videoDuration === undefined
-    && (defaults.model3DModel === "meshy-t2"
-      ? defaults.model3DQuality === undefined && defaults.model3DSource !== "text"
-      : defaults.model3DTargetPolycount === undefined);
+    && defaults.videoResolution === undefined && defaults.videoAspectRatio === undefined && defaults.videoDuration === undefined;
 }
 
 function validDefaults(value: unknown): value is AssetTemplateDefaults {
@@ -91,7 +75,7 @@ function validDefaults(value: unknown): value is AssetTemplateDefaults {
   const defaults = value as Record<string, unknown>;
   if (!Object.keys(defaults).every((key) => [
     "imageResolution", "imageAspectRatio", "imageOutputs", "videoResolution", "videoAspectRatio",
-    "videoDuration", "model3DModel", "model3DQuality", "model3DTargetPolycount", "model3DPose", "model3DSource",
+    "videoDuration", "model3DTargetPolycount",
   ].includes(key))) return false;
   return optionalMember(defaults.imageResolution, IMAGE_RESOLUTIONS)
     && optionalMember(defaults.imageAspectRatio, IMAGE_ASPECT_RATIOS)
@@ -99,12 +83,8 @@ function validDefaults(value: unknown): value is AssetTemplateDefaults {
     && optionalMember(defaults.videoResolution, VIDEO_RESOLUTIONS)
     && optionalMember(defaults.videoAspectRatio, VIDEO_ASPECT_RATIOS)
     && (defaults.videoDuration === undefined || Number.isInteger(defaults.videoDuration) && Number(defaults.videoDuration) >= 1 && Number(defaults.videoDuration) <= 60)
-    && optionalMember(defaults.model3DModel, MODEL_3D_MODELS)
-    && optionalMember(defaults.model3DQuality, MODEL_3D_QUALITIES)
     && (defaults.model3DTargetPolycount === undefined || Number.isInteger(defaults.model3DTargetPolycount)
-      && Number(defaults.model3DTargetPolycount) >= 100 && Number(defaults.model3DTargetPolycount) <= 15_000)
-    && optionalMember(defaults.model3DPose, MODEL_3D_POSES)
-    && optionalMember(defaults.model3DSource, ["text", "image"] as const);
+      && Number(defaults.model3DTargetPolycount) >= 100 && Number(defaults.model3DTargetPolycount) <= 15_000);
 }
 
 function optionalMember<T>(value: unknown, values: readonly T[]): boolean {

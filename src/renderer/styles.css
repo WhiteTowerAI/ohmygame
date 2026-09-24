@@ -5347,12 +5347,6 @@ button {
   font-size: 11px;
   font-weight: 500;
 }
-.asset-3d-input.is-text .asset-3d-input-body,
-.asset-3d-input.is-text .asset-prompt-wrap,
-.asset-3d-input.is-text textarea {
-  height: 104px;
-}
-
 .asset-3d-references {
   display: grid;
   gap: 8px;
@@ -5462,70 +5456,6 @@ button {
   cursor: default;
   opacity: 0.45;
 }
-.asset-3d-view-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  opacity: 0.36;
-  transition: opacity 120ms ease;
-}
-.asset-3d-view-grid.is-enabled {
-  opacity: 1;
-}
-.asset-3d-references > .asset-toggle-field {
-  margin: 2px 4px 0;
-}
-
-.asset-source-switch {
-  display: flex;
-  height: 22px;
-  align-items: stretch;
-  gap: 14px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.asset-source-switch label {
-  position: relative;
-  display: flex;
-  align-items: center;
-  color: var(--asset-muted);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 500;
-}
-.asset-source-switch label:has(input:checked) {
-  color: var(--text);
-}
-.asset-source-switch input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-}
-.asset-source-switch label span::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 1px;
-  background: var(--home-accent);
-  content: "";
-  opacity: 0;
-}
-.asset-source-switch input:checked + span::after {
-  opacity: 1;
-}
-.asset-source-switch input:focus-visible + span {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 3px;
-}
-.asset-source-switch:disabled label {
-  cursor: default;
-  opacity: 0.4;
-}
-
 .asset-select-wrap {
   position: relative;
 }
@@ -9148,6 +9078,18 @@ button {
 .story-media-reference > button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+.story-media-references.is-large {
+  min-height: 96px;
+  margin-bottom: 10px;
+}
+
+.story-media-references.is-large
+  :is(.story-media-reference, .story-media-reference-add) {
+  width: 96px;
+  height: 96px;
+  flex-basis: 96px;
 }
 
 .story-audio-asset {
@@ -15307,10 +15249,6 @@ button {
 :root[data-appearance="light"] .asset-prompt-wrap textarea:focus,
 :root[data-appearance="light"] .asset-select-wrap select:focus {
   border-color: var(--theme-accent);
-}
-
-:root[data-appearance="light"] .asset-source-switch label:hover {
-  color: var(--text-secondary);
 }
 
 :root[data-appearance="light"]

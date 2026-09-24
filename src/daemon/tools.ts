@@ -8,10 +8,6 @@ import {
   IMAGE_SIZES,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
-  MODEL_3D_MODELS,
-  MODEL_3D_POSES,
-  MODEL_3D_QUALITIES,
-  MODEL_3D_TEXTURE_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
   type ImageResolution,
@@ -199,7 +195,7 @@ export class ToolRunner {
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, metadata: ToolRunMetadata = {}): Promise<ToolRun> {
     if (toolId === imageTo3D.id) {
-      assertOnlyKeys(input, ["prompt", "images", "model", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement"]);
+      assertOnlyKeys(input, ["images", "targetPolycount", "texture", "pbr"]);
       return this.#run3D(input as Run3DToolRequest, signal, metadata);
     }
     if (toolId === generateVideo.id) {
@@ -279,60 +275,35 @@ export class ToolRunner {
   }
 
   async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
-    if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
-    const prompt = input.prompt?.trim();
-    const images = "images" in input ? input.images : undefined;
-    const hasImages = images !== undefined;
-    if (Boolean(prompt) === hasImages) throw new ToolRunError("Provide either a prompt or reference images", 400);
-    if (prompt && prompt.length > 800) throw new ToolRunError("3D prompt must not exceed 800 characters", 400);
-    if (images && (images.length < 1 || images.length > 4)) throw new ToolRunError("Provide 1 to 4 reference images", 400);
-    if (images?.some((image) => !isPromptImage(image))) throw new ToolRunError("PNG or JPEG reference images are required", 400);
-    if (input.model !== undefined && !MODEL_3D_MODELS.includes(input.model)) throw new ToolRunError("Unsupported 3D model", 400);
-    if (input.quality !== undefined && !MODEL_3D_QUALITIES.includes(input.quality)) throw new ToolRunError("Unsupported 3D quality", 400);
+    const { images } = input;
+    if (!Array.isArray(images) || images.length !== 1) throw new ToolRunError("Provide exactly one reference image", 400);
+    if (images.some((image) => !isPromptImage(image))) throw new ToolRunError("A PNG or JPEG reference image is required", 400);
     if (input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < 100 || input.targetPolycount > 15_000)) {
       throw new ToolRunError("3D poly count must be between 100 and 15000", 400);
     }
-    if (input.textureResolution !== undefined && !MODEL_3D_TEXTURE_RESOLUTIONS.includes(input.textureResolution)) throw new ToolRunError("Unsupported texture resolution", 400);
-    if (input.pose !== undefined && !MODEL_3D_POSES.includes(input.pose)) throw new ToolRunError("Unsupported 3D pose", 400);
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
-    if (input.imageEnhancement !== undefined && typeof input.imageEnhancement !== "boolean") throw new ToolRunError("Image enhancement must be a boolean", 400);
-    if (prompt && input.imageEnhancement !== undefined) throw new ToolRunError("Image enhancement requires reference images", 400);
-    const model = input.model ?? "meshy-7";
-    if (model === "meshy-t2" && images && images.length !== 1) throw new ToolRunError("Meshy T2 requires exactly one reference image", 400);
-    if (model === "meshy-t2" && input.quality !== undefined) throw new ToolRunError("Meshy T2 does not support quality modes", 400);
-    if (model === "meshy-t2" && input.imageEnhancement !== undefined) throw new ToolRunError("Meshy T2 does not support image enhancement", 400);
-    if (model !== "meshy-t2" && input.targetPolycount !== undefined) throw new ToolRunError("Poly count requires Meshy T2", 400);
+    if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const options = {
-        model: input.model,
-        quality: input.quality,
+      const generated = await this.model3DGenerator.generate({
+        images,
         targetPolycount: input.targetPolycount,
         texture: input.texture,
-        textureResolution: input.textureResolution,
         pbr: input.pbr,
-        pose: input.pose,
-      };
-      const generated = await this.model3DGenerator.generate(
-        prompt
-          ? { ...options, prompt }
-          : { ...options, images: images!, ...(input.imageEnhancement !== undefined ? { imageEnhancement: input.imageEnhancement } : {}) },
-        signal,
-      );
+      }, signal);
       signal?.throwIfAborted();
-      const primaryImage = images?.[0];
+      const primaryImage = images[0];
       const preview = primaryImage ? {
         fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
         mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
       } : undefined;
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("model.glb", generated.bytes, {
-          ...(prompt ? { prompt } : {}),
           sourceKey: `tool:${id}:model.glb`,
         })).id;
       }
@@ -347,7 +318,6 @@ export class ToolRunner {
           ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
         }],
         requestId: generated.requestId,
-        ...(prompt ? { prompt } : {}),
         ...(preview ? { preview } : {}),
         ...(metadata.title ? { title: metadata.title } : {}),
       };

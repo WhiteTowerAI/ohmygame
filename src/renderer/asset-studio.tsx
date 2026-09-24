@@ -4,9 +4,6 @@ import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_OUTPUT_COUNTS,
   IMAGE_RESOLUTIONS,
-  MODEL_3D_POSES,
-  MODEL_3D_QUALITIES,
-  MODEL_3D_TEXTURE_RESOLUTIONS,
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODEL,
   VIDEO_RESOLUTIONS,
@@ -14,11 +11,6 @@ import {
   type ImageModel,
   type ImageOutputCount,
   type ImageResolution,
-  type Model3DModel,
-  type Model3DGenerationConfig,
-  type Model3DPose,
-  type Model3DQuality,
-  type Model3DTextureResolution,
   type ProjectState,
   type LibraryAsset,
   type PromptImage,
@@ -29,7 +21,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { addToolResultToProject, cancelToolJob, createAssetTemplate, deleteAssetTemplate, getAssetStudioDraft, getAssetTemplateCover, getImageGenerationSettings, getToolRunFile, listAssetTemplates, listImageModels, listLibraryAssets, listProjects, listToolJobs, listToolRuns, MODELS_CHANGED_EVENT, retryToolJob, setAssetTemplateCover, startToolJob, updateAssetStudioDraft, updateImageGenerationSettings, uploadLibraryAsset, waitForRuntime } from "./api.js";
-import { STUDIO_PROMPT_PLACEHOLDERS, type AssetTemplate, type Model3DSource, type StudioMode } from "./asset-templates.js";
+import { STUDIO_PROMPT_PLACEHOLDERS, type AssetTemplate, type StudioMode } from "./asset-templates.js";
 import type { LocalAssetTemplate } from "../shared/asset-templates.js";
 import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
 import { AppSidebar } from "./app-sidebar.js";
@@ -47,15 +39,7 @@ interface AssetStudioPageProps {
 }
 
 const VIDEO_MODEL_OPTIONS = [{ value: VIDEO_MODEL, label: "Seedance 2.0" }] as const;
-const MODEL_3D_OPTIONS = [
-  { value: "meshy-7", label: "Meshy 7 - High detail" },
-  { value: "meshy-t2", label: "Meshy T2 - Game-ready" },
-] as const;
 const HISTORY_LIMIT = 20;
-const MODEL_3D_SOURCE_OPTIONS = [
-  { value: "image", label: "Reference images" },
-  { value: "text", label: "Prompt" },
-] as const;
 interface PreviewResult {
   run: ToolRun;
   urls: string[];
@@ -85,19 +69,11 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>(DEFAULT_VIDEO_NODE_CONFIG.aspectRatio);
   const [videoResolution, setVideoResolution] = useState<VideoResolution>(DEFAULT_VIDEO_NODE_CONFIG.resolution);
   const [videoDuration, setVideoDuration] = useState<number>(DEFAULT_VIDEO_NODE_CONFIG.duration);
-  const [model3D, setModel3D] = useState<Model3DModel>(DEFAULT_MODEL_3D_CONFIG.model);
-  const [model3DSource, setModel3DSource] = useState<Model3DSource>(DEFAULT_MODEL_3D_CONFIG.source);
-  const [model3DPrompt, setModel3DPrompt] = useState("");
   const [modelReferences, setModelReferences] = useState<(PromptImage | undefined)[]>([]);
   const [modelReferenceNames, setModelReferenceNames] = useState<(string | undefined)[]>([]);
-  const [model3DMultiView, setModel3DMultiView] = useState(false);
-  const [model3DQuality, setModel3DQuality] = useState<Model3DQuality>(DEFAULT_MODEL_3D_CONFIG.quality ?? "standard");
-  const [model3DTargetPolycount, setModel3DTargetPolycount] = useState(DEFAULT_MODEL_3D_CONFIG.targetPolycount ?? 4_000);
+  const [model3DTargetPolycount, setModel3DTargetPolycount] = useState(DEFAULT_MODEL_3D_CONFIG.targetPolycount);
   const [model3DTexture, setModel3DTexture] = useState(DEFAULT_MODEL_3D_CONFIG.texture);
-  const [model3DTextureResolution, setModel3DTextureResolution] = useState<Model3DTextureResolution>(DEFAULT_MODEL_3D_CONFIG.textureResolution ?? "2K");
   const [model3DPbr, setModel3DPbr] = useState(DEFAULT_MODEL_3D_CONFIG.pbr);
-  const [model3DPose, setModel3DPose] = useState<Model3DPose>(DEFAULT_MODEL_3D_CONFIG.pose ?? "auto");
-  const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(DEFAULT_MODEL_3D_CONFIG.imageEnhancement ?? true);
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<ToolJob[]>([]);
   const [jobActions, setJobActions] = useState<Set<string>>(() => new Set());
@@ -146,7 +122,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   );
   const selectedFile = result?.run.files[selectedResult];
   const selectedUrl = result?.urls[selectedResult];
-  const isMeshyT2 = model3D === "meshy-t2";
   const videoReferenceError = videoReferences.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(videoReferences)
     ? "Add an image or video to use an audio reference"
     : undefined;
@@ -154,7 +129,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     ? Boolean(imagePrompt.trim() && selectedImageModel)
     : mode === "video"
       ? Boolean(videoPrompt.trim() && validVideoReferenceCombination(videoReferences))
-      : model3DSource === "text" ? Boolean(model3DPrompt.trim()) : Boolean(modelReferences[0]);
+      : Boolean(modelReferences[0]);
 
   useEffect(() => {
     return () => {
@@ -195,7 +170,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (latestDraft.current) saveDraft(latestDraft.current);
     }, 250);
     return () => window.clearTimeout(draftSaveTimer.current);
-  }, [mode, templateIds, panelView, result?.run.id, selectedResult, imagePrompt, resolution, aspectRatio, outputs, videoPrompt, videoReferences, videoAspectRatio, videoResolution, videoDuration, model3D, model3DSource, model3DPrompt, model3DMultiView, model3DQuality, model3DTargetPolycount, model3DTexture, model3DTextureResolution, model3DPbr, model3DPose, model3DImageEnhancement]);
+  }, [mode, templateIds, panelView, result?.run.id, selectedResult, imagePrompt, resolution, aspectRatio, outputs, videoPrompt, videoReferences, videoAspectRatio, videoResolution, videoDuration, model3DTargetPolycount, model3DTexture, model3DPbr]);
 
   useEffect(() => {
     const reload = () => void loadImageConfig();
@@ -381,19 +356,14 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         }, selectedTemplate?.name);
       } else {
         const images = modelReferences
-          .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
+          .slice(0, 1)
           .filter((image): image is PromptImage => image !== undefined);
         job = await startToolJob("image-to-3d", buildModel3DToolRequest({
-          model: model3D,
-          source: model3DSource,
-          quality: model3DQuality,
+          ...DEFAULT_MODEL_3D_CONFIG,
           targetPolycount: model3DTargetPolycount,
           texture: model3DTexture,
-          textureResolution: model3DTextureResolution,
           pbr: model3DPbr,
-          pose: model3DPose,
-          imageEnhancement: model3DImageEnhancement,
-        }, { prompt: model3DPrompt, images }), selectedTemplate?.name);
+        }, images), selectedTemplate?.name);
       }
       if (mounted.current) setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (cause) {
@@ -466,19 +436,14 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (defaults?.videoAspectRatio) setVideoAspectRatio(defaults.videoAspectRatio);
       if (defaults?.videoDuration) setVideoDuration(defaults.videoDuration);
     } else if (template.mode === "3d") {
-      setModel3DPrompt(prompt);
       const config = normalizeModel3DConfig({
-        model: defaults?.model3DModel ?? DEFAULT_MODEL_3D_CONFIG.model,
-        source: defaults?.model3DSource ?? model3DSource,
-        quality: defaults?.model3DQuality ?? model3DQuality,
         targetPolycount: defaults?.model3DTargetPolycount ?? model3DTargetPolycount,
         texture: model3DTexture,
-        textureResolution: model3DTextureResolution,
         pbr: model3DPbr,
-        pose: defaults?.model3DPose ?? model3DPose,
-        imageEnhancement: model3DImageEnhancement,
       });
-      applyModel3DConfig(config);
+      setModel3DTargetPolycount(config.targetPolycount);
+      setModel3DTexture(config.texture);
+      setModel3DPbr(config.pbr);
     }
     setGenerationError(undefined);
     setReferenceError(undefined);
@@ -493,33 +458,6 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setReferenceError(undefined);
     setActionStatus(undefined);
     setMenuOpen(false);
-  }
-
-  function applyModel3DConfig(config: Model3DGenerationConfig): void {
-    setModel3D(config.model);
-    setModel3DSource(config.source);
-    setModel3DQuality(config.quality ?? "standard");
-    setModel3DTargetPolycount(config.targetPolycount ?? 4_000);
-    setModel3DTexture(config.texture);
-    setModel3DTextureResolution(config.textureResolution ?? "2K");
-    setModel3DPbr(config.pbr);
-    setModel3DPose(config.pose ?? "auto");
-    setModel3DImageEnhancement(config.imageEnhancement ?? true);
-    if (config.model === "meshy-t2") setModel3DMultiView(false);
-  }
-
-  function chooseModel3D(model: Model3DModel): void {
-    applyModel3DConfig(normalizeModel3DConfig({
-      model,
-      source: model3DSource,
-      quality: model3DQuality,
-      targetPolycount: model3DTargetPolycount,
-      texture: model3DTexture,
-      textureResolution: model3DTextureResolution,
-      pbr: model3DPbr,
-      pose: model3DPose,
-      imageEnhancement: model3DImageEnhancement,
-    }));
   }
 
   function choosePanelView(nextView: AssetPanelView): void {
@@ -617,17 +555,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   }
 
   function currentTemplateDefinition(name: string, description: string) {
-    const prompt = mode === "image" ? imagePrompt : mode === "video" ? videoPrompt : model3DPrompt;
+    const prompt = mode === "image" ? imagePrompt : mode === "video" ? videoPrompt : "";
     const defaults = mode === "image"
       ? { imageResolution: resolution, imageAspectRatio: aspectRatio, imageOutputs: outputs }
       : mode === "video"
         ? { videoResolution, videoAspectRatio, videoDuration }
-        : {
-          model3DModel: model3D,
-          ...(isMeshyT2 ? { model3DTargetPolycount } : { model3DQuality }),
-          model3DPose,
-          model3DSource,
-        };
+        : { model3DTargetPolycount };
     return {
       mode,
       name,
@@ -650,19 +583,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       ...(result ? { selectedRunId: result.run.id, selectedOutput: selectedResult } : {}),
       image: { prompt: imagePrompt, resolution, aspectRatio, outputs },
       video: { prompt: videoPrompt, references: videoReferences, resolution: videoResolution, aspectRatio: videoAspectRatio, duration: videoDuration },
-      model3D: {
-        prompt: model3DPrompt,
-        model: model3D,
-        source: model3DSource,
-        multiView: model3DMultiView,
-        quality: model3DQuality,
-        targetPolycount: model3DTargetPolycount,
-        texture: model3DTexture,
-        textureResolution: model3DTextureResolution,
-        pbr: model3DPbr,
-        pose: model3DPose,
-        imageEnhancement: model3DImageEnhancement,
-      },
+      model3D: { targetPolycount: model3DTargetPolycount, texture: model3DTexture, pbr: model3DPbr },
     };
   }
 
@@ -684,9 +605,10 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setVideoResolution(draft.video.resolution);
     setVideoAspectRatio(draft.video.aspectRatio);
     setVideoDuration(draft.video.duration);
-    setModel3DPrompt(draft.model3D.prompt);
-    applyModel3DConfig(normalizeModel3DConfig(draft.model3D));
-    if (draft.model3D.model !== "meshy-t2") setModel3DMultiView(draft.model3D.multiView);
+    const model3DConfig = normalizeModel3DConfig(draft.model3D);
+    setModel3DTargetPolycount(model3DConfig.targetPolycount);
+    setModel3DTexture(model3DConfig.texture);
+    setModel3DPbr(model3DConfig.pbr);
   }
 
   function mergeHistoryResults(incoming: PreviewResult[]): void {
@@ -798,28 +720,22 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                     <PromptField id="asset-video-prompt" value={videoPrompt} placeholder={promptPlaceholder} onChange={setVideoPrompt} />
                   </>
                 ) : (
-                  <>
-                    <Field label="Model" htmlFor="asset-3d-model"><ModelSelect id="asset-3d-model" value={model3D} options={MODEL_3D_OPTIONS} onChange={chooseModel3D} /></Field>
-                    <Model3DInputField
-                      source={model3DSource}
-                      prompt={model3DPrompt}
-                      images={modelReferences}
-                      imageNames={modelReferenceNames}
-                      multiView={model3DMultiView}
-                      allowMultiView={!isMeshyT2}
-                      promptPlaceholder={promptPlaceholder}
-                      onSourceChange={setModel3DSource}
-                      onPromptChange={setModel3DPrompt}
-                      onMultiViewChange={setModel3DMultiView}
-                      onChooseImage={chooseModelReference}
-                      onSelectFiles={(index, files) => void selectModelReference(index, files)}
-                      onRemoveImage={(index) => {
-                        setModelReferences((current) => replaceAt(current, index, undefined));
-                        setModelReferenceNames((current) => replaceAt(current, index, undefined));
-                        setReferenceError(undefined);
-                      }}
-                    />
-                  </>
+                  <div className="asset-3d-input is-image">
+                    <div className="asset-3d-input-header"><span>Reference image</span></div>
+                    <div className="asset-3d-input-body">
+                      <Model3DReferenceField
+                        images={modelReferences}
+                        imageNames={modelReferenceNames}
+                        onChooseImage={chooseModelReference}
+                        onSelectFiles={(index, files) => void selectModelReference(index, files)}
+                        onRemoveImage={(index) => {
+                          setModelReferences((current) => replaceAt(current, index, undefined));
+                          setModelReferenceNames((current) => replaceAt(current, index, undefined));
+                          setReferenceError(undefined);
+                        }}
+                      />
+                    </div>
+                  </div>
                 )}
 
                 {mode === "image" ? <ImageReferenceField images={imageReferences} names={imageReferenceNames} disabled={uploadingReferences || !selectedImageModel?.supportsReferenceImage} onChoose={() => uploadInput.current?.click()} onRemove={(index) => {
@@ -830,7 +746,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   setVideoReferences((current) => current.filter((_, candidate) => candidate !== index));
                   setReferenceError(undefined);
                 }} /> : null}
-                {(referenceError ?? (mode === "video" ? videoReferenceError : undefined)) && (mode !== "3d" || model3DSource === "image") ? <p className="asset-field-error" role="alert">{referenceError ?? videoReferenceError}</p> : null}
+                {referenceError ?? (mode === "video" ? videoReferenceError : undefined) ? <p className="asset-field-error" role="alert">{referenceError ?? videoReferenceError}</p> : null}
                 <input ref={uploadInput} hidden multiple={mode !== "3d"} type="file" accept={mode === "3d" ? "image/png,image/jpeg" : mode === "video" ? VIDEO_REFERENCE_ACCEPT : "image/png,image/jpeg,image/webp"} onChange={(event) => {
                   const files = [...(event.target.files ?? [])];
                   event.target.value = "";
@@ -852,14 +768,12 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 ) : mode === "3d" ? (
                   <div className="asset-3d-options">
-                    {isMeshyT2
-                      ? <PolyCountField value={model3DTargetPolycount} onChange={setModel3DTargetPolycount} />
-                      : <OptionGroup equal label="Quality" values={MODEL_3D_QUALITIES} value={model3DQuality} format={titleCase} onChange={setModel3DQuality} />}
-                    <ToggleField label="Texture" checked={model3DTexture} onChange={setModel3DTexture} />
-                    {!isMeshyT2 && model3DTexture ? <OptionGroup equal label="Texture resolution" values={MODEL_3D_TEXTURE_RESOLUTIONS} value={model3DTextureResolution} onChange={setModel3DTextureResolution} /> : null}
+                    <PolyCountField value={model3DTargetPolycount} onChange={setModel3DTargetPolycount} />
+                    <ToggleField label="Texture" checked={model3DTexture} onChange={(texture) => {
+                      setModel3DTexture(texture);
+                      if (!texture) setModel3DPbr(false);
+                    }} />
                     {model3DTexture ? <ToggleField label="PBR" checked={model3DPbr} onChange={setModel3DPbr} /> : null}
-                    {!isMeshyT2 ? <OptionGroup equal label="Pose" values={MODEL_3D_POSES} value={model3DPose} format={(value) => value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"} onChange={setModel3DPose} /> : null}
-                    {model3DSource === "image" && !isMeshyT2 ? <ToggleField label="Image enhancement" checked={model3DImageEnhancement} onChange={setModel3DImageEnhancement} /> : null}
                   </div>
                 ) : null}
               </div>
@@ -1144,16 +1058,6 @@ function PromptControl({ id, value, placeholder, maxLength, ariaLabel, disabled,
   return <div className="asset-prompt-wrap"><textarea id={id} aria-label={ariaLabel} maxLength={maxLength} value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} /><span>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</span></div>;
 }
 
-function Model3DInputField({ source, prompt, images, imageNames, multiView, allowMultiView, promptPlaceholder, disabled = false, onSourceChange, onPromptChange, onMultiViewChange, onChooseImage, onSelectFiles, onRemoveImage }: { source: Model3DSource; prompt: string; images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; promptPlaceholder: string; disabled?: boolean; onSourceChange: (source: Model3DSource) => void; onPromptChange: (prompt: string) => void; onMultiViewChange: (value: boolean) => void; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
-  return <div className={`asset-3d-input is-${source}`}><div className="asset-3d-input-header"><span>Input</span>{allowMultiView ? <SourceSwitch value={source} disabled={disabled} onChange={onSourceChange} /> : null}</div><div className="asset-3d-input-body">{source === "text"
-    ? <PromptControl id="asset-3d-prompt" ariaLabel="Prompt" value={prompt} maxLength={800} disabled={disabled} placeholder={promptPlaceholder} onChange={onPromptChange} />
-    : <Model3DReferenceField images={images} names={imageNames} multiView={multiView} allowMultiView={allowMultiView} disabled={disabled} onMultiViewChange={onMultiViewChange} onChoose={onChooseImage} onFiles={onSelectFiles} onRemove={onRemoveImage} />}</div></div>;
-}
-
-function SourceSwitch({ value, disabled, onChange }: { value: Model3DSource; disabled: boolean; onChange: (value: Model3DSource) => void }) {
-  return <fieldset className="asset-source-switch" disabled={disabled}><legend className="visually-hidden">3D input type</legend>{MODEL_3D_SOURCE_OPTIONS.map((option) => <label key={option.value}><input type="radio" name="asset-3d-source" value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} /><span>{option.label}</span></label>)}</fieldset>;
-}
-
 function ImageReferenceField({ images, names, max = 14, primaryLabel, disabled, onChoose, onRemove }: { images: PromptImage[]; names: string[]; max?: number; primaryLabel?: string; disabled: boolean; onChoose: () => void; onRemove: (index: number) => void }) {
   return <Field label="Reference images"><div className="asset-reference-list">{images.map((image, index) => {
     const name = names[index] ?? `Reference ${index + 1}`;
@@ -1181,18 +1085,9 @@ function VideoReferenceItem({ reference, asset, label, disabled, onRemove }: { r
   </div>;
 }
 
-const MODEL_3D_REFERENCE_LABELS = ["Main view", "Left", "Back", "Right"] as const;
-
-function Model3DReferenceField({ images, names, multiView, allowMultiView, disabled, onMultiViewChange, onChoose, onFiles, onRemove }: { images: (PromptImage | undefined)[]; names: (string | undefined)[]; multiView: boolean; allowMultiView: boolean; disabled: boolean; onMultiViewChange: (value: boolean) => void; onChoose: (index: number) => void; onFiles: (index: number, files: File[]) => void; onRemove: (index: number) => void }) {
+function Model3DReferenceField({ images, imageNames, disabled = false, onChooseImage, onSelectFiles, onRemoveImage }: { images: (PromptImage | undefined)[]; imageNames: (string | undefined)[]; disabled?: boolean; onChooseImage: (index: number) => void; onSelectFiles: (index: number, files: File[]) => void; onRemoveImage: (index: number) => void }) {
   return <div className="asset-3d-references">
-    <Model3DReferenceSlot index={0} label={MODEL_3D_REFERENCE_LABELS[0]} image={images[0]} name={names[0]} disabled={disabled} primary onChoose={onChoose} onFiles={onFiles} onRemove={onRemove} />
-    {allowMultiView ? <><div className={`asset-3d-view-grid${multiView ? " is-enabled" : ""}`} aria-label="Additional views">
-      {MODEL_3D_REFERENCE_LABELS.slice(1).map((label, offset) => {
-        const index = offset + 1;
-        return <Model3DReferenceSlot key={label} index={index} label={label} image={images[index]} name={names[index]} disabled={disabled || !multiView} onChoose={onChoose} onFiles={onFiles} onRemove={onRemove} />;
-      })}
-    </div>
-    <ToggleField label="Multi-view" checked={multiView} disabled={disabled} onChange={onMultiViewChange} /></> : null}
+    <Model3DReferenceSlot index={0} label="Reference image" image={images[0]} name={imageNames[0]} disabled={disabled} primary onChoose={onChooseImage} onFiles={onSelectFiles} onRemove={onRemoveImage} />
   </div>;
 }
 

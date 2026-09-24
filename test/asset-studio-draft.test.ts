@@ -36,17 +36,7 @@ function draft(overrides: { imagePrompt?: string; panelView?: AssetStudioDraft["
     panelView: overrides.panelView ?? "templates",
     image: { prompt: overrides.imagePrompt ?? "", resolution: "1K", aspectRatio: "1:1", outputs: 1 },
     video: { prompt: "", references: [], resolution: "720p", aspectRatio: "adaptive", duration: 6 },
-    model3D: {
-      prompt: "",
-      model: "meshy-t2",
-      source: "image",
-      multiView: false,
-      quality: "standard",
-      targetPolycount: 4_000,
-      texture: true,
-      pose: "auto",
-      imageEnhancement: true,
-    },
+    model3D: { targetPolycount: 4_000, texture: true, pbr: false },
   };
 }
 

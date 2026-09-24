@@ -26,8 +26,7 @@ describe("canonical Interactive Drama story", () => {
         type: "model-3d",
         position: { x: 80, y: 120 },
         data: {
-          prompt: "A low-poly treasure chest", model: "meshy-7", source: "text", quality: "ultra",
-          texture: true, textureResolution: "4K", pbr: true, pose: "auto", images: [],
+          targetPolycount: 4_000, texture: true, pbr: true, images: [],
         },
       },
       {
@@ -49,7 +48,7 @@ describe("canonical Interactive Drama story", () => {
         id: "model-generator",
         type: "model-3d",
         position: { x: 80, y: 120 },
-        data: { prompt: "", source: "image", images: [{ type: "node", nodeId: "model-asset" }] },
+        data: { targetPolycount: 4_000, texture: true, pbr: false, images: [{ type: "node", nodeId: "model-asset" }] },
       },
       {
         id: "model-asset",
@@ -63,28 +62,33 @@ describe("canonical Interactive Drama story", () => {
     expect(isStoryDocument(story)).toBe(false);
   });
 
-  it("rejects 3D generation nodes without an explicit input source", () => {
+  it("rejects 3D generation nodes without required settings", () => {
     const story = createStoryDocument();
     const node: StoryNode = {
       id: "model-generator",
       type: "model-3d",
       position: { x: 80, y: 120 },
-      data: { prompt: "A low-poly treasure chest", source: "text", images: [] },
+      data: { targetPolycount: 4_000, texture: true, pbr: false, images: [] },
     };
-    Reflect.deleteProperty(node.data, "source");
+    Reflect.deleteProperty(node.data, "targetPolycount");
     story.chapter.nodes = [node];
     story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
 
     expect(isStoryDocument(story)).toBe(false);
   });
 
-  it("rejects 3D settings unsupported by the selected model", () => {
+  it("rejects more than one 3D reference image", () => {
     const story = createStoryDocument();
     story.chapter.nodes = [{
       id: "model-generator",
       type: "model-3d",
       position: { x: 80, y: 120 },
-      data: { prompt: "", model: "meshy-t2", source: "image", quality: "ultra", images: [] },
+      data: {
+        targetPolycount: 4_000,
+        texture: true,
+        pbr: false,
+        images: [{ type: "library", assetId: "first" }, { type: "library", assetId: "second" }],
+      },
     }];
     story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
 
