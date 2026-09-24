@@ -8931,8 +8931,9 @@ button {
   user-select: none;
 }
 
-.story-media-stage:has(.story-inline-video-controls) .story-media-running {
-  bottom: 50px;
+.story-media-stage.is-generating
+  > :is(img, video, .model-preview, .story-inline-video-controls) {
+  opacity: 0.4;
 }
 
 .story-media-empty {
@@ -8954,19 +8955,13 @@ button {
   font-size: 10px;
 }
 
-.story-media-running {
+.story-media-generation {
   position: absolute;
-  inset: auto 10px 10px auto;
-  display: flex;
-  height: 30px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--story-editor-stage) 90%, transparent);
-  color: var(--text);
-  font-size: 10px;
+  inset: 0;
+  z-index: 2;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--story-editor-stage) 55%, transparent);
 }
 
 .story-media-composer {

@@ -30,6 +30,7 @@ import {
   Plus,
   Search,
   Share2,
+  Square,
   Settings,
   Trash2,
   Upload,
@@ -2148,18 +2149,24 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
-      <div data-alignment-frame className="story-media-stage">
+      <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label="Generated 3D model" minHeight={220} interactive={false} /> : null}
-        {!preview.url ? (
+        {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
             <Icon size={34} />
-            <strong>{runtime?.generating ? `Generating ${kind}...` : `No ${kind} yet`}</strong>
-            <span>{runtime?.generating ? "This can take a moment" : kind === "model" ? "Add a reference image below, then generate" : `Describe a ${kind} below, then generate`}</span>
+            <strong>No {kind} yet</strong>
+            <span>{kind === "model" ? "Add a reference image below, then generate" : `Describe a ${kind} below, then generate`}</span>
           </div>
         ) : null}
-        {runtime?.generating && preview.url ? <div className="story-media-running"><span className="spin"><LoaderCircle size={18} /></span>Generating...</div> : null}
+        {runtime?.generating ? (
+          <div className="story-media-empty story-media-generation" role="status">
+            <LoaderCircle className="spin" size={20} />
+            <strong>{`Generating ${kind === "model" ? "3D model" : kind}...`}</strong>
+            <span>This can take a moment</span>
+          </div>
+        ) : null}
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
@@ -2313,7 +2320,7 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
   const labelKind = kind === "model" ? "3D model" : kind;
   const label = assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
   if (runtime?.onCancel && runtime.generating) {
-    return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><CircleStop size={17} /></button>;
+    return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
   }
   if (runtime?.onRetry && !runtime.generating) {
     return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
