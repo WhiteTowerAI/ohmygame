@@ -63,6 +63,7 @@ declare global {
       platform: string;
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
+      setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;

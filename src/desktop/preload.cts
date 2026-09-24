@@ -15,6 +15,8 @@ if (process.isMainFrame) {
       daemonUrl: argument("ohmygame-daemon-url"),
       token: argument("ohmygame-daemon-token"),
     }),
+    setAppearance: (appearance: "system" | "light" | "dark") =>
+      ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
     browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("ohmygame:browse-plugin-directory", pluginId) as Promise<void>,
     revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("ohmygame:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
