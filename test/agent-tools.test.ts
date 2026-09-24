@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -125,6 +125,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
   it("publishes a validated structured plan", async () => {
@@ -190,6 +191,7 @@ describe("agent tools", () => {
     expect(model?.previewPath).toMatch(/^\.data\/asset-previews\/model-[0-9a-f-]+\.png$/);
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
   it("generates a video from a project image", async () => {
@@ -220,5 +222,6 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/video-[0-9a-f-]+\.mp4$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 });

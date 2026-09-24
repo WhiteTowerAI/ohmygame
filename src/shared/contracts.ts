@@ -709,41 +709,6 @@ export interface ImageGenerationOption {
   aspectRatio: ImageAspectRatio;
 }
 
-interface BaseToolDefinition {
-  id: "generate-image" | "image-to-3d" | "generate-video";
-  name: string;
-  description: string;
-  category: "images" | "3d" | "video";
-}
-
-export interface ImageToolDefinition extends BaseToolDefinition {
-  id: "generate-image";
-  category: "images";
-  inputKind: "prompt";
-  outputKind: "image";
-  sizes: readonly ImageSize[];
-  defaultSize: ImageSize;
-}
-
-export interface Model3DToolDefinition extends BaseToolDefinition {
-  id: "image-to-3d";
-  category: "3d";
-  inputKind: "image-prompt";
-  outputKind: "model";
-}
-
-export interface VideoToolDefinition extends BaseToolDefinition {
-  id: "generate-video";
-  category: "video";
-  inputKind: "image-prompt";
-  outputKind: "video";
-  defaultDuration: number;
-  minDuration: number;
-  maxDuration: number;
-  aspectRatios: readonly VideoAspectRatio[];
-  resolutions: readonly VideoResolution[];
-}
-
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export const VIDEO_MODEL = "doubao-seedance-2-0-260128" as const;
@@ -756,7 +721,8 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video"] as const;
+export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
   prompt: string;
@@ -810,10 +776,9 @@ export interface ToolRunFile {
 
 export interface ToolRun {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   files: ToolRunFile[];
-  title?: string;
 }
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
@@ -825,7 +790,7 @@ export interface ToolJobContext {
 
 export interface ToolJob {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   status: ToolJobStatus;
   title: string;

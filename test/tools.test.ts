@@ -11,39 +11,6 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
-  it("lists the fixed media tools", async () => {
-    const runner = new ToolRunner(await temporaryData(), fakeGenerator());
-    expect(runner.list()).toEqual([{
-      id: "generate-image",
-      name: "Image Generator",
-      description: "Generate a game-ready image from a text prompt.",
-      category: "images",
-      inputKind: "prompt",
-      outputKind: "image",
-      sizes: ["1024x1024", "1536x1024", "1024x1536"],
-      defaultSize: "1024x1024",
-    }, {
-      id: "image-to-3d",
-      name: "3D Generator",
-      description: "Generate a 3D model from a text prompt or reference image.",
-      category: "3d",
-      inputKind: "image-prompt",
-      outputKind: "model",
-    }, {
-      id: "generate-video",
-      name: "Video Generator",
-      description: "Generate a project-ready video from a prompt and optional image, video, or audio references.",
-      category: "video",
-      inputKind: "image-prompt",
-      outputKind: "video",
-      defaultDuration: 6,
-      minDuration: 4,
-      maxDuration: 15,
-      aspectRatios: ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
-      resolutions: ["480p", "720p", "1080p", "4k"],
-    }]);
-  });
-
   it("runs Image to 3D and persists its GLB output", async () => {
     const dataDirectory = await temporaryData();
     const generate = vi.fn().mockResolvedValue({
@@ -179,8 +146,8 @@ describe("tool runner", () => {
     expect(storedRun).toMatchObject({
       version: 1,
       id: run.id,
-      prompt: "A forest game background",
     });
+    expect(storedRun).not.toHaveProperty("prompt");
     expect(storedRun).not.toHaveProperty("requestId");
   });
 
@@ -266,15 +233,15 @@ describe("tool runner", () => {
     const runner = new ToolRunner(dataDirectory, fakeGenerator());
     await runner.load();
 
-    const run = await runner.run("generate-image", { prompt: "A forest" }, undefined, { title: "Forest concept" });
+    const run = await runner.run("generate-image", { prompt: "A forest" });
     await expect(runner.file(run.id, "output.webp")).resolves.toEqual({
       bytes: Buffer.from("image"),
       mediaType: "image/webp",
-      title: "A forest",
-      prompt: "A forest",
     });
     await expect(runner.file("not-a-run", "output.webp")).resolves.toBeUndefined();
     await expect(runner.file(run.id, "../output.webp")).resolves.toBeUndefined();
+    await runner.removeRun(run.id);
+    await expect(runner.file(run.id, "output.webp")).resolves.toBeUndefined();
   });
 
   it("runs media generations as concurrent background jobs", async () => {

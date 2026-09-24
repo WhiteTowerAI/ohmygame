@@ -28,7 +28,7 @@ import {
   type PublishResult,
   type RuntimeEvent,
   type RunToolRequest,
-  type ToolDefinition,
+  type ToolId,
   type ToolJob,
   type ToolJobContext,
   type PromptImage,
@@ -252,7 +252,7 @@ export async function removeConnection(id: string): Promise<void> {
   await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function startToolJob(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
+export async function startToolJob(toolId: ToolId, input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
   return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}), ...(context ? { projectId: context.projectId, nodeId: context.nodeId } : {}) }) });
 }
 
