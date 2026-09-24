@@ -9,7 +9,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/seedance-video.js";
-import type { PlaytestDriver } from "../src/shared/playtest.js";
+import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
@@ -43,28 +43,39 @@ describe("agent tools", () => {
     )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
   });
 
-  it("registers browser playtesting only when a desktop driver is available", async () => {
+  it("registers game use only when a matching runtime adapter is available", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playtest-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const project = await projects.create("Browser Game");
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
-    const driver: PlaytestDriver = {
+    const driver: GameRuntimeAdapter = {
       available: true,
+      capabilities: WEB_GAME_USE_CAPABILITIES,
       request: async () => ({ operation: "closeAll" }),
       close: () => {},
     };
 
-    expect(createAgentTools(project, runner, projects).some(({ name }) => name === "playtest_browser")).toBe(false);
+    expect(createAgentTools(project, runner, projects).some(({ name }) => name === "game_use")).toBe(false);
     expect(createAgentTools(
       project,
       runner,
       projects,
       undefined,
       undefined,
-      { driver, ensurePreview: async () => "http://127.0.0.1:43210/" },
-    ).some(({ name }) => name === "playtest_browser")).toBe(true);
+      { driver, resolveOpenTarget: async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }) },
+    ).some(({ name }) => name === "game_use")).toBe(true);
+
+    const godotProject = await projects.create("Godot Game", "godot-game");
+    expect(createAgentTools(
+      godotProject,
+      runner,
+      projects,
+      undefined,
+      undefined,
+      { driver, resolveOpenTarget: async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }) },
+    ).some(({ name }) => name === "game_use")).toBe(false);
   });
 
   it("installs a plugin only from inside the current workspace", async () => {

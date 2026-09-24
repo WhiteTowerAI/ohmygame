@@ -20,7 +20,7 @@ let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
-}, () => mainWindow);
+});
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));

@@ -1,6 +1,14 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlaytestAction, PlaytestDriver, PlaytestSnapshot } from "../shared/playtest.js";
+import type {
+  GameRuntimeAdapter,
+  GameUseInputCapability,
+  GameUseObservationCapability,
+  GameUseOpenTarget,
+  GameUseSnapshot,
+  PlaytestAction,
+  PlaytestSnapshot,
+} from "../shared/playtest.js";
 
 const viewportSchema = Type.Object({
   width: Type.Integer({ minimum: 240, maximum: 4096 }),
@@ -34,7 +42,11 @@ const semanticTargetSchema = Type.Union([
 const actionSchema = Type.Union([
   Type.Object({ type: Type.Literal("click"), target: targetSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("type"), target: semanticTargetSchema, text: Type.String({ maxLength: 10_000 }) }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("press"), key: Type.String({ minLength: 1, maxLength: 40 }) }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("press"),
+    key: Type.String({ minLength: 1, maxLength: 40 }),
+    duration: Type.Optional(Type.Integer({ minimum: 0, maximum: 5_000, description: "How long to hold the key before releasing it, in milliseconds" })),
+  }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("touch"), x: Type.Number({ minimum: 0, maximum: 8192 }), y: Type.Number({ minimum: 0, maximum: 8192 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), milliseconds: Type.Integer({ minimum: 0, maximum: 5_000 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("resize"), viewport: viewportSchema }, { additionalProperties: false }),
@@ -50,45 +62,51 @@ const parameters = Type.Object({
     Type.Literal("capture"),
     Type.Literal("close"),
   ]),
-  path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within the current project preview; used only by open" })),
+  path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })),
   viewport: Type.Optional(viewportSchema),
   sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for inspect, act, capture, and close" })),
   actions: Type.Optional(Type.Array(actionSchema, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
 }, { additionalProperties: false });
 
-export function createPlaytestTool(
-  driver: PlaytestDriver,
-  ensurePreview: () => Promise<string>,
+export function createGameUseTool(
+  driver: GameRuntimeAdapter,
+  resolveOpenTarget: () => Promise<GameUseOpenTarget>,
 ): ToolDefinition<typeof parameters> {
   return defineTool<typeof parameters, unknown>({
-    name: "playtest_browser",
-    label: "Game Playtest",
-    description: "Open and control the current browser-game preview, inspect interactive elements, canvas state, console and network failures, capture screenshots, and call an optional OhMyGame playtest bridge. Open and act return a fresh state snapshot. Reuse the returned sessionId and close the session when finished.",
-    promptSnippet: "Playtest the current browser game with real input, runtime inspection, and screenshots",
+    name: "game_use",
+    label: "Game Use",
+    description: "Use the current game runtime as a player: open and control the game, inspect interactive elements and canvas state, capture screenshots, review console and network failures, and call an optional deterministic game bridge. Open and act return a fresh state snapshot. Reuse the returned sessionId and close the session when finished.",
+    promptSnippet: "Use the current game with real player input, runtime inspection, and screenshots",
     promptGuidelines: [
-      "Use playtest_browser for browser-game runtime or visual verification; a successful build alone is not a playtest",
+      "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
       "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
       "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
     ],
     parameters,
     executionMode: "sequential",
     execute: async (_toolCallId, input, signal) => {
-      if (!driver.available) throw new Error("Browser playtesting is not available in this environment");
+      if (!driver.available) throw new Error("Game use is not available in this environment");
       if (input.operation === "open") {
-        const preview = await ensurePreview();
+        const target = await resolveOpenTarget();
         signal?.throwIfAborted();
-        const url = previewUrl(preview, input.path);
+        if (target.runtime !== driver.capabilities.runtime) {
+          throw new Error(`Game target runtime ${target.runtime} does not match adapter runtime ${driver.capabilities.runtime}`);
+        }
+        const resolvedTarget = input.path
+          ? withOpenPath(target, input.path)
+          : target;
         const result = await driver.request({
           operation: "open",
-          url,
+          target: resolvedTarget,
           viewport: input.viewport ?? { width: 1280, height: 720 },
         }, signal);
-        if (result.operation !== "open") throw new Error("Unexpected browser playtest response");
+        if (result.operation !== "open") throw new Error("Unexpected game use response");
         return snapshotResult(result.snapshot);
       }
       if (input.operation === "capture") {
+        requireCapability(driver, "screenshot", "observation");
         const result = await driver.request({ operation: "capture", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
-        if (result.operation !== "capture") throw new Error("Unexpected browser playtest response");
+        if (result.operation !== "capture") throw new Error("Unexpected game use response");
         return {
           content: [
             { type: "text", text: JSON.stringify({
@@ -105,13 +123,13 @@ export function createPlaytestTool(
       if (input.operation === "close") {
         const sessionId = requiredSessionId(input.operation, input.sessionId);
         await driver.request({ operation: "close", sessionId }, signal);
-        return { content: [{ type: "text", text: `Closed browser playtest session ${sessionId}` }], details: undefined };
+        return { content: [{ type: "text", text: `Closed game session ${sessionId}` }], details: undefined };
       }
       const sessionId = requiredSessionId(input.operation, input.sessionId);
       const result = input.operation === "inspect"
         ? await driver.request({ operation: "inspect", sessionId }, signal)
-        : await driver.request({ operation: "act", sessionId, actions: requiredActions(input.actions) }, signal);
-      if (result.operation !== "inspect" && result.operation !== "act") throw new Error("Unexpected browser playtest response");
+        : await driver.request({ operation: "act", sessionId, actions: supportedActions(driver, requiredActions(input.actions)) }, signal);
+      if (result.operation !== "inspect" && result.operation !== "act") throw new Error("Unexpected game use response");
       return snapshotResult(result.snapshot);
     },
   });
@@ -134,7 +152,44 @@ export function previewUrl(baseValue: string, relativeValue?: string): string {
   return resolved.href;
 }
 
-function snapshotResult(snapshot: PlaytestSnapshot) {
+function withOpenPath(target: GameUseOpenTarget, path: string): GameUseOpenTarget {
+  if (target.runtime !== "web") throw new Error("path is only supported by the web game runtime");
+  return { ...target, url: previewUrl(target.url, path) };
+}
+
+function supportedActions(driver: GameRuntimeAdapter, actions: PlaytestAction[]): PlaytestAction[] {
+  for (const action of actions) {
+    const required = actionCapabilities(action);
+    const missingInput = required.input.filter((capability) => !driver.capabilities.input.includes(capability));
+    if (missingInput.length > 0) throw new Error(`Game runtime does not support ${missingInput.join(" and ")} input for ${action.type}`);
+    const missingObservation = required.observation.filter((capability) => !driver.capabilities.observation.includes(capability));
+    if (missingObservation.length > 0) throw new Error(`Game runtime does not support ${missingObservation.join(" and ")} observation for ${action.type}`);
+  }
+  return actions;
+}
+
+function actionCapabilities(action: PlaytestAction): { input: GameUseInputCapability[]; observation: GameUseObservationCapability[] } {
+  switch (action.type) {
+    case "click": return { input: ["pointer"], observation: "x" in action.target ? [] : ["dom"] };
+    case "type": return { input: ["text"], observation: ["dom"] };
+    case "press": return { input: ["keyboard"], observation: [] };
+    case "touch": return { input: ["touch"], observation: [] };
+    case "resize": return { input: ["resize"], observation: [] };
+    case "wait":
+    case "bridge": return { input: [], observation: [] };
+  }
+}
+
+function requireCapability(
+  driver: GameRuntimeAdapter,
+  capability: GameUseInputCapability | GameUseObservationCapability,
+  kind: "input" | "observation",
+): void {
+  const available: readonly string[] = kind === "input" ? driver.capabilities.input : driver.capabilities.observation;
+  if (!available.includes(capability)) throw new Error(`Game runtime does not support ${capability} ${kind}`);
+}
+
+function snapshotResult(snapshot: GameUseSnapshot) {
   const compact = compactSnapshot(snapshot);
   return {
     content: [{ type: "text" as const, text: JSON.stringify(compact, null, 2) }],
@@ -142,14 +197,19 @@ function snapshotResult(snapshot: PlaytestSnapshot) {
   };
 }
 
-function compactSnapshot(snapshot: PlaytestSnapshot) {
+function compactSnapshot(snapshot: GameUseSnapshot) {
+  const webSnapshot = isPlaytestSnapshot(snapshot) ? snapshot : undefined;
   return {
     ...snapshot,
-    elements: snapshot.elements.slice(0, 80),
-    logs: snapshot.logs.slice(-30).map((log) => ({ ...log, message: log.message.slice(0, 1_000) })),
-    failedRequests: snapshot.failedRequests.slice(-30),
+    ...(webSnapshot ? { elements: webSnapshot.elements.slice(0, 80) } : {}),
+    ...(webSnapshot ? { logs: webSnapshot.logs.slice(-30).map((log) => ({ ...log, message: log.message.slice(0, 1_000) })) } : {}),
+    ...(webSnapshot ? { failedRequests: webSnapshot.failedRequests.slice(-30) } : {}),
     ...(snapshot.gameState === undefined ? {} : { gameState: boundedJson(snapshot.gameState, 20_000) }),
   };
+}
+
+function isPlaytestSnapshot(snapshot: GameUseSnapshot): snapshot is PlaytestSnapshot {
+  return "url" in snapshot && "elements" in snapshot && "logs" in snapshot && "failedRequests" in snapshot;
 }
 
 function boundedJson(value: unknown, limit: number): unknown {

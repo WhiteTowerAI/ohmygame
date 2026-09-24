@@ -356,7 +356,7 @@ function toolGroupIcon(tools: ToolItem[]): ToolIcon {
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find" || tool.tool === "read" || tool.tool === "ls"))) return Search;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "bash")) return Terminal;
-  if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "playtest_browser")) return Gamepad2;
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "game_use")) return Gamepad2;
   const mcpCalls = tools.filter((tool): tool is Extract<ToolItem, { type: "mcpToolCall" }> => tool.type === "mcpToolCall");
   if (mcpCalls.some((call) => mcpToolBrand(call) === "godot")) return GodotIcon;
   if (mcpCalls.length > 0) return Plug;
@@ -682,7 +682,7 @@ function preparingToolLabel(toolName: string): string {
     case "write": return "Preparing file";
     case "edit": return "Preparing edit";
     case "mcp": return "Preparing MCP";
-    case "playtest_browser": return "Preparing game playtest";
+    case "game_use": return "Preparing game use";
     case "tool": return "Preparing";
     default: return `Preparing ${toolName}`;
   }
@@ -716,7 +716,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
     case "find": return { icon: Search, label: searchLabel("Finding", values) };
     case "ls": return { icon: Search, label: withTarget("Listing", values) };
-    case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, false) };
+    case "game_use": return { icon: Gamepad2, label: playtestLabel(values, false) };
     default: return { icon: Wrench, label: toolName };
   }
 }
@@ -736,7 +736,7 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "grep": return { icon: Search, label: searchLabel("Searched for", values) };
     case "find": return { icon: Search, label: searchLabel("Searched for", values) };
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
-    case "playtest_browser": return { icon: Gamepad2, label: playtestLabel(values, true) };
+    case "game_use": return { icon: Gamepad2, label: playtestLabel(values, true) };
     default: return { icon: Wrench, label: `Used ${toolName}` };
   }
 }

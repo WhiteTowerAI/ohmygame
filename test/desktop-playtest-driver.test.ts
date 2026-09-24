@@ -43,7 +43,6 @@ const electron = vi.hoisted(() => {
     closeHandler?: (event: { preventDefault(): void }) => void;
     closedHandler?: () => void;
     readonly setContentSize = vi.fn();
-    readonly setIgnoreMouseEvents = vi.fn();
     readonly showInactive = vi.fn();
     readonly hide = vi.fn();
     readonly loadURL = vi.fn(async (url: string) => { this.loadedUrl = url; });
@@ -98,7 +97,7 @@ describe("electron playtest driver", () => {
     const driver = new ElectronPlaytestDriver();
     const result = await driver.request({
       operation: "open",
-      url: "http://127.0.0.1:43123/game",
+      target: { runtime: "web", url: "http://127.0.0.1:43123/game" },
       viewport: { width: 1280, height: 720 },
     });
 
@@ -116,20 +115,27 @@ describe("electron playtest driver", () => {
     });
     expect(electron.windows[0]?.loadedUrl).toBe("http://127.0.0.1:43123/game?ohmygamePlaytest=1");
     expect(electron.windows[0]?.debugger.attach).toHaveBeenCalledWith("1.3");
-    expect(electron.windows[0]?.setIgnoreMouseEvents).toHaveBeenCalledWith(true);
+    expect(electron.windows[0]?.options.resizable).toBe(true);
     driver.close();
   });
 
-  it("keeps watched sessions above the main window", async () => {
-    const parent = { isDestroyed: () => false };
-    const driver = new ElectronPlaytestDriver(undefined, () => parent as never);
+  it("keeps watched sessions independent and resizable", async () => {
+    const driver = new ElectronPlaytestDriver();
+    driver.setVisible(true);
     await driver.request({
       operation: "open",
-      url: "http://127.0.0.1:43123/",
+      target: { runtime: "web", url: "http://127.0.0.1:43123/" },
       viewport: { width: 800, height: 600 },
     });
 
-    expect(electron.windows[0]?.options.parent).toBe(parent);
+    expect(electron.windows[0]?.options.parent).toBeUndefined();
+    expect(electron.windows[0]?.options).toMatchObject({
+      resizable: true,
+      maximizable: true,
+      fullscreenable: true,
+      minWidth: 240,
+      minHeight: 240,
+    });
     driver.close();
   });
 
@@ -139,7 +145,7 @@ describe("electron playtest driver", () => {
     driver.setVisible(true);
     const opened = await driver.request({
       operation: "open",
-      url: "http://127.0.0.1:43123/",
+      target: { runtime: "web", url: "http://127.0.0.1:43123/" },
       viewport: { width: 800, height: 600 },
     });
     if (opened.operation !== "open") throw new Error("Expected open result");
@@ -164,7 +170,7 @@ describe("electron playtest driver", () => {
 
   it("blocks navigation and redirects away from the preview origin", async () => {
     const driver = new ElectronPlaytestDriver();
-    await driver.request({ operation: "open", url: "http://127.0.0.1:43123/", viewport: { width: 800, height: 600 } });
+    await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     const window = electron.windows[0]!;
     const sameOrigin = { preventDefault: vi.fn() };
     const external = { preventDefault: vi.fn() };
@@ -182,7 +188,7 @@ describe("electron playtest driver", () => {
 
   it("allows only same-origin main-frame game input permissions", async () => {
     const driver = new ElectronPlaytestDriver();
-    await driver.request({ operation: "open", url: "http://127.0.0.1:43123/", viewport: { width: 800, height: 600 } });
+    await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     const window = electron.windows[0]!;
     const check = window.session.permissionCheckHandler!;
     const request = window.session.permissionHandler!;
@@ -207,21 +213,21 @@ describe("electron playtest driver", () => {
   it("bounds retained browser sessions", async () => {
     const driver = new ElectronPlaytestDriver();
     for (let index = 0; index < 4; index++) {
-      await driver.request({ operation: "open", url: `http://127.0.0.1:43123/${index}`, viewport: { width: 800, height: 600 } });
+      await driver.request({ operation: "open", target: { runtime: "web", url: `http://127.0.0.1:43123/${index}` }, viewport: { width: 800, height: 600 } });
     }
 
     await expect(driver.request({
       operation: "open",
-      url: "http://127.0.0.1:43123/overflow",
+      target: { runtime: "web", url: "http://127.0.0.1:43123/overflow" },
       viewport: { width: 800, height: 600 },
-    })).rejects.toThrow("Close an existing browser playtest session");
+    })).rejects.toThrow("Close an existing game session");
     expect(electron.windows).toHaveLength(4);
     driver.close();
   });
 
   it("dispatches semantic actions through CDP and returns fresh state", async () => {
     const driver = new ElectronPlaytestDriver();
-    const opened = await driver.request({ operation: "open", url: "http://localhost:43123/", viewport: { width: 800, height: 600 } });
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://localhost:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected open result");
     const result = await driver.request({
       operation: "act",
@@ -229,7 +235,7 @@ describe("electron playtest driver", () => {
       actions: [
         { type: "click", target: { role: "button", name: "Start" } },
         { type: "type", target: { testId: "player-name" }, text: "Ada" },
-        { type: "press", key: "Enter" },
+        { type: "press", key: "Enter", duration: 1 },
         { type: "touch", x: 40, y: 60 },
         { type: "resize", viewport: { width: 390, height: 844 } },
         { type: "bridge", method: "setSeed", value: 7 },
@@ -248,7 +254,7 @@ describe("electron playtest driver", () => {
 
   it("returns screenshots with bounded pixel analysis", async () => {
     const driver = new ElectronPlaytestDriver();
-    const opened = await driver.request({ operation: "open", url: "http://127.0.0.1:43123/", viewport: { width: 800, height: 600 } });
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
     if (opened.operation !== "open") throw new Error("Expected open result");
     const result = await driver.request({ operation: "capture", sessionId: opened.snapshot.sessionId });
 

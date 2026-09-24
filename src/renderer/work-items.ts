@@ -64,7 +64,7 @@ function toolCategory(tool: ToolItem): string {
   if (toolName === "edit" || toolName === "write") return "edit";
   if (toolName === "read" || toolName === "grep" || toolName === "find" || toolName === "ls") return "read";
   if (toolName === "bash") return "command";
-  if (toolName === "playtest_browser") return "playtest";
+  if (toolName === "game_use") return "playtest";
   return `tool:${toolName}`;
 }
 

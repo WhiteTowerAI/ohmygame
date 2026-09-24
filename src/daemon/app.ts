@@ -52,7 +52,7 @@ import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, 
 import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
-import type { PlaytestDriver } from "../shared/playtest.js";
+import type { GameRuntimeAdapter } from "../shared/playtest.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -74,7 +74,7 @@ export interface AppOptions {
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
-  playtestDriver?: PlaytestDriver;
+  playtestDriver?: GameRuntimeAdapter;
 }
 
 const createProjectSchema = {
@@ -571,9 +571,12 @@ export function createApp(options: AppOptions = {}) {
           },
           options.playtestDriver ? {
             driver: options.playtestDriver,
-            ensurePreview: async () => project.preview.status === "ready" && project.preview.url
-              ? project.preview.url
-              : previews.start(project),
+            resolveOpenTarget: async () => ({
+              runtime: "web",
+              url: project.preview.status === "ready" && project.preview.url
+                ? project.preview.url
+                : await previews.start(project),
+            }),
           } : undefined,
         ),
         modelRuntime,
