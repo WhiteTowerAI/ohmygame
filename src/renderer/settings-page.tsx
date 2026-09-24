@@ -11,7 +11,7 @@ import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
 
-const BILLING_DASHBOARD_URL = "https://ohmygame.ai/account/billing";
+const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "account", label: "Account", icon: UserRound },
