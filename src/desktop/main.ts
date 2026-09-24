@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, ipcMain, nativeTheme, session, shell, type BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
@@ -34,6 +34,14 @@ ipcMain.handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
 ipcMain.handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
 ipcMain.handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
 ipcMain.handle("ohmygame:cancel-auth", () => oauth.cancel());
+ipcMain.handle("ohmygame:set-appearance", (event, appearance: unknown) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow || senderWindow.isDestroyed()) throw new Error("Invalid appearance source");
+  if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
+    throw new Error("Invalid appearance");
+  }
+  nativeTheme.themeSource = appearance;
+});
 ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");

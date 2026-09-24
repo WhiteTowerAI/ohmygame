@@ -20,6 +20,7 @@ export function applyAppearance(appearance: Appearance): void {
   stopWatchingSystemAppearance = undefined;
 
   const root = document.documentElement;
+  void window.ohMyGameDesktop?.setAppearance(appearance).catch(() => undefined);
   const apply = () => { root.dataset.appearance = resolveAppearance(appearance); };
   apply();
 
