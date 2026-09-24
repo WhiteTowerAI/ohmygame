@@ -26,7 +26,7 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "ohmygame"];
+const POPULAR_PROVIDER_IDS = ["openai-codex", "openai", "anthropic"];
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },
   { value: "language", label: "Language" },
