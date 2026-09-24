@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CodingWorkspace, normalizePreviewPath, workspaceFileTree } from "../src/renderer/coding-workspace.js";
+import { CodingWorkspace, normalizePreviewPath, PreviewControls, workspaceFileTree } from "../src/renderer/coding-workspace.js";
 import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
 
 describe("coding workspace", () => {
@@ -24,6 +24,28 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
+  });
+
+  it("offers Agent playtest watching only through the desktop bridge", () => {
+    const html = renderToStaticMarkup(createElement(PreviewControls, {
+      path: "/",
+      paths: ["/"],
+      previewUrl: "http://127.0.0.1:43123/",
+      refreshDisabled: false,
+      refreshLabel: "Reload preview",
+      viewport: "fit",
+      agentPlaytestWatch: { visible: false, activeSessions: 1 },
+      agentPlaytestWatchPending: false,
+      onOpen: () => undefined,
+      onNavigate: () => undefined,
+      onRefresh: () => undefined,
+      onToggleAgentPlaytestWatch: () => undefined,
+      onViewportChange: () => undefined,
+    }));
+
+    expect(html).toContain('aria-label="Watch Agent playtest (1 active)"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('data-active-sessions="true"');
   });
 
   it("exposes Godot workspace controls without enabling publishing", () => {

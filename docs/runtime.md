@@ -108,6 +108,12 @@ are destroyed when explicitly closed, when the daemon or Electron app shuts
 down, or after an open failure. At most four sessions may remain open at once,
 which bounds hidden-window resource use if an Agent misses cleanup.
 
+The Preview toolbar can reveal the same isolated windows in a non-focusing
+watch mode above the main window without taking focus. This does not reuse the
+user Preview or mirror screenshots: the user sees the exact Chromium surface
+receiving Agent input. Closing the watch surface hides it without terminating
+the playtest session.
+
 Playtest windows use an isolated partition with sandboxing, context isolation,
 and Node integration disabled. Main-frame navigation stays on the original
 Preview origin, popups and downloads are blocked, and permissions are denied

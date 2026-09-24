@@ -40,8 +40,12 @@ const electron = vi.hoisted(() => {
     navigateHandler?: (event: { preventDefault(): void }, url: string) => void;
     redirectHandler?: (event: { preventDefault(): void }, url: string) => void;
     consoleHandler?: (details: { level: "error"; message: string; sourceId: string; lineNumber: number }) => void;
+    closeHandler?: (event: { preventDefault(): void }) => void;
     closedHandler?: () => void;
     readonly setContentSize = vi.fn();
+    readonly setIgnoreMouseEvents = vi.fn();
+    readonly showInactive = vi.fn();
+    readonly hide = vi.fn();
     readonly loadURL = vi.fn(async (url: string) => { this.loadedUrl = url; });
     readonly webContents = {
       id: windows.length + 1,
@@ -75,6 +79,7 @@ const electron = vi.hoisted(() => {
       windows.push(this);
     }
 
+    on(event: string, handler: any) { if (event === "close") this.closeHandler = handler; }
     once(event: string, handler: () => void) { if (event === "closed") this.closedHandler = handler; }
     isDestroyed() { return this.destroyed; }
     destroy() { this.destroyed = true; this.closedHandler?.(); }
@@ -111,7 +116,50 @@ describe("electron playtest driver", () => {
     });
     expect(electron.windows[0]?.loadedUrl).toBe("http://127.0.0.1:43123/game?ohmygamePlaytest=1");
     expect(electron.windows[0]?.debugger.attach).toHaveBeenCalledWith("1.3");
+    expect(electron.windows[0]?.setIgnoreMouseEvents).toHaveBeenCalledWith(true);
     driver.close();
+  });
+
+  it("keeps watched sessions above the main window", async () => {
+    const parent = { isDestroyed: () => false };
+    const driver = new ElectronPlaytestDriver(undefined, () => parent as never);
+    await driver.request({
+      operation: "open",
+      url: "http://127.0.0.1:43123/",
+      viewport: { width: 800, height: 600 },
+    });
+
+    expect(electron.windows[0]?.options.parent).toBe(parent);
+    driver.close();
+  });
+
+  it("reveals loaded sessions without focusing and hides them without closing", async () => {
+    const states: Array<{ visible: boolean; activeSessions: number }> = [];
+    const driver = new ElectronPlaytestDriver((state) => states.push(state));
+    driver.setVisible(true);
+    const opened = await driver.request({
+      operation: "open",
+      url: "http://127.0.0.1:43123/",
+      viewport: { width: 800, height: 600 },
+    });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+
+    expect(window.showInactive).toHaveBeenCalledOnce();
+    expect(driver.watchState()).toEqual({ visible: true, activeSessions: 1 });
+
+    const closeEvent = { preventDefault: vi.fn() };
+    window.closeHandler?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(window.hide).toHaveBeenCalledOnce();
+    expect(window.destroyed).toBe(false);
+    expect(driver.watchState()).toEqual({ visible: false, activeSessions: 1 });
+
+    await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
+    expect(window.destroyed).toBe(true);
+    expect(driver.watchState()).toEqual({ visible: false, activeSessions: 0 });
+    expect(states).toContainEqual({ visible: true, activeSessions: 1 });
+    expect(states.at(-1)).toEqual({ visible: false, activeSessions: 0 });
   });
 
   it("blocks navigation and redirects away from the preview origin", async () => {

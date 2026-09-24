@@ -45,6 +45,7 @@ import {
   type WorkspaceFileContent,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { CreateAssetTemplateRequest, LocalAssetTemplate } from "../shared/asset-templates.js";
@@ -69,6 +70,11 @@ declare global {
       selectProjectDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
+      agentPlaytests?: {
+        state: () => Promise<PlaytestWatchState>;
+        setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
+        onState: (listener: (state: PlaytestWatchState) => void) => () => void;
+      };
       updates: {
         state: () => Promise<DesktopUpdateState | null>;
         check: () => Promise<void>;

@@ -13292,8 +13292,30 @@ button {
   place-items: center;
 }
 
-.preview-external-button {
+.preview-external-button,
+.preview-agent-watch-button {
   border: 0;
+}
+
+.preview-agent-watch-button {
+  position: relative;
+}
+
+.preview-agent-watch-button[aria-pressed="true"] {
+  background: var(--control-selected);
+  color: var(--text);
+}
+
+.preview-agent-watch-button[data-active-sessions="true"]::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--surface-raised);
+  border-radius: 50%;
+  background: var(--success);
+  content: "";
 }
 
 .preview-location-option strong {

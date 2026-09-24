@@ -82,6 +82,11 @@ export interface PlaytestCapture {
   };
 }
 
+export interface PlaytestWatchState {
+  visible: boolean;
+  activeSessions: number;
+}
+
 export type PlaytestRequest =
   | { operation: "open"; url: string; viewport: PlaytestViewport }
   | { operation: "inspect"; sessionId: string }

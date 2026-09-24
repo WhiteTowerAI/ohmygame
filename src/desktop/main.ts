@@ -9,6 +9,7 @@ import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
+import type { PlaytestWatchState } from "../shared/playtest.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
@@ -17,7 +18,9 @@ const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-render
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
-const agentPlaytests = new ElectronPlaytestDriver();
+const agentPlaytests = new ElectronPlaytestDriver((state) => {
+  mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
+}, () => mainWindow);
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
@@ -77,6 +80,16 @@ ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
   const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
   return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
+});
+ipcMain.handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid Agent playtest source");
+  return agentPlaytests.watchState();
+});
+ipcMain.handle("ohmygame:set-agent-playtest-visible", (event, visible: unknown): PlaytestWatchState => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof visible !== "boolean") {
+    throw new Error("Invalid Agent playtest visibility");
+  }
+  return agentPlaytests.setVisible(visible);
 });
 ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");

@@ -11,12 +11,14 @@ import type {
   PlaytestSnapshot,
   PlaytestTarget,
   PlaytestViewport,
+  PlaytestWatchState,
 } from "../shared/playtest.js";
 
 interface PlaytestSession {
   id: string;
   origin: string;
   window: BrowserWindow;
+  ready: boolean;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
 }
@@ -28,6 +30,27 @@ const MAX_SESSIONS = 4;
 export class ElectronPlaytestDriver implements PlaytestDriver {
   readonly available = true;
   readonly #sessions = new Map<string, PlaytestSession>();
+  readonly #closingSessions = new Set<string>();
+  #visible = false;
+
+  constructor(
+    private readonly onWatchStateChange?: (state: PlaytestWatchState) => void,
+    private readonly parentWindow?: () => BrowserWindow | undefined,
+  ) {}
+
+  watchState(): PlaytestWatchState {
+    return { visible: this.#visible, activeSessions: this.#sessions.size };
+  }
+
+  setVisible(visible: boolean): PlaytestWatchState {
+    this.#visible = visible;
+    for (const state of this.#sessions.values()) {
+      if (state.window.isDestroyed() || !state.ready) continue;
+      if (visible) state.window.showInactive();
+      else state.window.hide();
+    }
+    return this.#publishWatchState();
+  }
 
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     signal?.throwIfAborted();
@@ -57,11 +80,18 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     }
     url.searchParams.set("ohmygamePlaytest", "1");
     const id = randomUUID();
+    const parent = this.parentWindow?.();
     const window = new BrowserWindow({
       width: viewport.width,
       height: viewport.height,
       useContentSize: true,
       show: false,
+      title: "Agent Playtest - View only",
+      autoHideMenuBar: true,
+      resizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      ...(parent && !parent.isDestroyed() ? { parent } : {}),
       backgroundColor: "#000000",
       webPreferences: {
         sandbox: true,
@@ -71,15 +101,26 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
         partition: `ohmygame-playtest-${id}`,
       },
     });
-    const state: PlaytestSession = { id, origin: url.origin, window, logs: [], failedRequests: [] };
+    window.setIgnoreMouseEvents(true);
+    const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [] };
     this.#sessions.set(id, state);
-    window.once("closed", () => this.#sessions.delete(id));
+    this.#publishWatchState();
+    window.on("close", (event) => {
+      if (this.#closingSessions.has(id)) return;
+      event.preventDefault();
+      this.setVisible(false);
+    });
+    window.once("closed", () => {
+      this.#closingSessions.delete(id);
+      if (this.#sessions.delete(id)) this.#publishWatchState();
+    });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
       if (!sameOrigin(destination, state.origin)) event.preventDefault();
     };
     window.webContents.on("will-navigate", preventCrossOriginNavigation);
     window.webContents.on("will-redirect", preventCrossOriginNavigation);
+    window.webContents.on("page-title-updated", (event) => event.preventDefault());
     window.webContents.on("console-message", (details) => {
       state.logs.push({
         level: details.level,
@@ -116,6 +157,8 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
       window.webContents.debugger.attach("1.3");
       await window.loadURL(url.href);
       signal?.throwIfAborted();
+      state.ready = true;
+      if (this.#visible) window.showInactive();
       return await this.#inspect(state, signal);
     } catch (cause) {
       this.#close(id);
@@ -237,8 +280,18 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     const state = this.#sessions.get(id);
     if (!state) return;
     this.#sessions.delete(id);
+    this.#publishWatchState();
     if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
-    if (!state.window.isDestroyed()) state.window.destroy();
+    if (!state.window.isDestroyed()) {
+      this.#closingSessions.add(id);
+      state.window.destroy();
+    }
+  }
+
+  #publishWatchState(): PlaytestWatchState {
+    const state = this.watchState();
+    this.onWatchStateChange?.(state);
+    return state;
   }
 }
 
