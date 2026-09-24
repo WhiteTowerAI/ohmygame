@@ -922,10 +922,18 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
     const data = value.data;
     return typeof data.prompt === "string" && (data.promptSource === undefined || isTextReference(data.promptSource)) &&
       (data.model === undefined || data.model === "meshy-7" || data.model === "meshy-t2") &&
+      (data.quality === undefined || data.quality === "standard" || data.quality === "ultra") &&
+      (data.targetPolycount === undefined || typeof data.targetPolycount === "number" && Number.isInteger(data.targetPolycount) && data.targetPolycount >= 100 && data.targetPolycount <= 15_000) &&
+      (data.texture === undefined || typeof data.texture === "boolean") &&
+      (data.textureResolution === undefined || data.textureResolution === "2K" || data.textureResolution === "4K" || data.textureResolution === "8K") &&
+      (data.pbr === undefined || typeof data.pbr === "boolean") &&
+      (data.pose === undefined || data.pose === "auto" || data.pose === "a-pose" || data.pose === "t-pose") &&
+      (data.imageEnhancement === undefined || typeof data.imageEnhancement === "boolean") &&
       (data.source === "text" || data.source === "image") &&
       Array.isArray(data.images) && data.images.length <= 4 && data.images.every(isAssetReference) &&
       (data.assetId === undefined || nonEmptyString(data.assetId)) &&
-      hasOnlyKeys(data, ["prompt", "promptSource", "model", "source", "images", "assetId"]);
+      validModel3DCombination(data) &&
+      hasOnlyKeys(data, ["prompt", "promptSource", "model", "source", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement", "images", "assetId"]);
   }
   if (value.type !== "choice" || typeof value.data.title !== "string" || !Array.isArray(value.data.options) || value.data.options.length < 1) return false;
   const optionIds = new Set<string>();
@@ -1201,6 +1209,16 @@ function isAssetReference(value: unknown): boolean {
 
 function isTextReference(value: unknown): boolean {
   return isRecord(value) && value.type === "node" && nonEmptyString(value.nodeId) && Object.keys(value).length === 2;
+}
+
+function validModel3DCombination(data: Record<string, unknown>): boolean {
+  const model = data.model ?? "meshy-7";
+  if (model === "meshy-t2") {
+    return data.source === "image" && data.quality === undefined && data.imageEnhancement === undefined &&
+      (data.pose === undefined || data.pose === "auto") && (data.textureResolution === undefined || data.textureResolution === "2K") &&
+      Array.isArray(data.images) && data.images.length <= 1;
+  }
+  return data.targetPolycount === undefined && (data.source === "image" || data.imageEnhancement === undefined);
 }
 
 function isCanvasOnlyNode(node: StoryNode): node is Extract<StoryNode, { type: "text" | "image" | "video" | "model-3d" | "asset" }> {

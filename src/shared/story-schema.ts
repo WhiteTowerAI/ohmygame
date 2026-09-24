@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, MODEL_3D_MODELS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
 
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const id = ref("id");
@@ -232,9 +232,26 @@ const nodes = [
     type: "object", additionalProperties: false, required: ["prompt", "source", "images"],
     properties: {
       prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
-      model: { enum: MODEL_3D_MODELS }, source: { enum: ["text", "image"] }, images: { type: "array", maxItems: 4, items: assetReference },
+      model: { enum: MODEL_3D_MODELS }, source: { enum: ["text", "image"] },
+      quality: { enum: MODEL_3D_QUALITIES }, targetPolycount: { type: "integer", minimum: 100, maximum: 15000 },
+      texture: { type: "boolean" }, textureResolution: { enum: MODEL_3D_TEXTURE_RESOLUTIONS }, pbr: { type: "boolean" },
+      pose: { enum: MODEL_3D_POSES }, imageEnhancement: { type: "boolean" }, images: { type: "array", maxItems: 4, items: assetReference },
       assetId: id,
     },
+    allOf: [
+      {
+        if: { properties: { model: { const: "meshy-t2" } }, required: ["model"] },
+        then: {
+          properties: { source: { const: "image" }, images: { type: "array", maxItems: 1 }, textureResolution: { const: "2K" }, pose: { const: "auto" } },
+          not: { anyOf: [{ required: ["quality"] }, { required: ["imageEnhancement"] }] },
+        },
+        else: { not: { required: ["targetPolycount"] } },
+      },
+      {
+        if: { properties: { source: { const: "text" } }, required: ["source"] },
+        then: { not: { required: ["imageEnhancement"] } },
+      },
+    ],
   }),
   node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } } }),
 ];

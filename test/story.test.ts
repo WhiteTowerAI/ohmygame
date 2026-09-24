@@ -25,7 +25,10 @@ describe("canonical Interactive Drama story", () => {
         id: "model-generator",
         type: "model-3d",
         position: { x: 80, y: 120 },
-        data: { prompt: "A low-poly treasure chest", model: "meshy-7", source: "text", images: [] },
+        data: {
+          prompt: "A low-poly treasure chest", model: "meshy-7", source: "text", quality: "ultra",
+          texture: true, textureResolution: "4K", pbr: true, pose: "auto", images: [],
+        },
       },
       {
         id: "model-asset",
@@ -70,6 +73,19 @@ describe("canonical Interactive Drama story", () => {
     };
     Reflect.deleteProperty(node.data, "source");
     story.chapter.nodes = [node];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("rejects 3D settings unsupported by the selected model", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [{
+      id: "model-generator",
+      type: "model-3d",
+      position: { x: 80, y: 120 },
+      data: { prompt: "", model: "meshy-t2", source: "image", quality: "ultra", images: [] },
+    }];
     story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
 
     expect(isStoryDocument(story)).toBe(false);

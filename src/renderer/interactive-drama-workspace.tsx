@@ -72,6 +72,9 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODEL,
   VIDEO_RESOLUTIONS,
+  MODEL_3D_POSES,
+  MODEL_3D_QUALITIES,
+  MODEL_3D_TEXTURE_RESOLUTIONS,
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
@@ -80,6 +83,10 @@ import {
   type ImageModelRef,
   type ImageResolution,
   type Model3DModel,
+  type Model3DGenerationConfig,
+  type Model3DPose,
+  type Model3DQuality,
+  type Model3DTextureResolution,
   type LibraryUploadMediaType,
   type PromptImage,
   type ProjectState,
@@ -134,6 +141,7 @@ import { StoryPlayerPreviewSession, StoryPlayerSnapshot, type StoryPreviewSessio
 import { StoryMapSurface } from "./story-map.js";
 import { StorySettingsSurface } from "./story-settings.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, buildModel3DToolRequest, model3DReferenceLimit as model3DConfigReferenceLimit, normalizeModel3DConfig } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -269,8 +277,7 @@ type StoryFlowData = {
   references?: StoryAssetReference[];
   assetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
-  model3DModel?: Model3DModel;
-  model3DSource?: "text" | "image";
+  model3DConfig?: Model3DGenerationConfig;
   contentType?: string;
   assetDuration?: number;
   name?: string;
@@ -916,8 +923,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       await generateMedia(node, "generate-image", {
         prompt,
         imageModel: node.data.model,
-        resolution: node.data.resolution ?? "1K",
-        aspectRatio: node.data.aspectRatio ?? "1:1",
+        resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+        aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
         outputs: 1,
         ...(images.length ? { images } : {}),
       }, "Image");
@@ -961,9 +968,9 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       await generateMedia(node, "generate-video", {
         prompt,
         ...(references.length ? { references } : {}),
-        duration: node.data.duration ?? 6,
-        aspectRatio: node.data.videoAspectRatio ?? "adaptive",
-        resolution: node.data.videoResolution ?? "720p",
+        duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
+        aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+        resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
       }, "Video");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
@@ -972,17 +979,15 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
 
   async function generateModel3D(node: StoryFlowNode): Promise<void> {
     if (node.type !== "model-3d" || generatingNodeId) return;
-    const source = model3DSource(node);
+    const config = nodeModel3DConfig(node);
+    const source = config.source;
     const prompt = resolveNodePrompt(node, nodes).trim();
     try {
       const images = source === "image" ? await resolveModelReferenceImages(node) : [];
       if (source === "text" && !prompt) throw new Error("Add a prompt before generating.");
       if (source === "image" && !images.length) throw new Error("Add a reference image before generating.");
-      if (node.data.model3DModel === "meshy-t2" && images.length !== 1) throw new Error("Meshy T2 requires exactly one reference image.");
-      await generateMedia(node, "image-to-3d", {
-        ...(source === "image" ? { images } : { prompt }),
-        ...(node.data.model3DModel ? { model: node.data.model3DModel } : {}),
-      }, "3D model");
+      if (config.model === "meshy-t2" && images.length !== 1) throw new Error("Meshy T2 requires exactly one reference image.");
+      await generateMedia(node, "image-to-3d", buildModel3DToolRequest(config, { prompt, images }), "3D model");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     }
@@ -1906,16 +1911,16 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
       />
       {runtime?.error || referenceError ? <p role="alert">{runtime?.error ?? referenceError}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Video model" value={data.videoModel ?? VIDEO_MODEL} disabled={runtime?.busy} onChange={() => undefined}>
+        <select aria-label="Video model" value={data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model} disabled={runtime?.busy} onChange={() => undefined}>
           <option value={VIDEO_MODEL}>Seedance 2.0</option>
         </select>
-        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? "adaptive"} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
+        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
           {VIDEO_ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
         </select>
-        <select aria-label="Video resolution" value={data.videoResolution ?? "720p"} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
+        <select aria-label="Video resolution" value={data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
           {VIDEO_RESOLUTIONS.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
         </select>
-        <select aria-label="Video duration" value={data.duration ?? 6} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
+        <select aria-label="Video duration" value={data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
           {Array.from({ length: 12 }, (_, index) => index + 4).map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
         </select>
         <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || Boolean(referenceError)} />
@@ -1926,27 +1931,47 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 
 function Model3DNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.model3DRuntime;
-  const source = model3DSource({ type: "model-3d", data });
+  const config = nodeModel3DConfig({ type: "model-3d", data });
+  const source = config.source;
   const prompt = effectivePrompt(data, runtime);
   const hasImages = Boolean(data.images?.length);
+  const updateConfig = (next: Partial<Model3DGenerationConfig>) => {
+    const model3DConfig = normalizeModel3DConfig({ ...config, ...next });
+    runtime?.onChange({
+      ...data,
+      model3DRuntime: undefined,
+      model3DConfig,
+      ...(model3DConfig.source === "image"
+        ? { promptSource: undefined, images: (data.images ?? []).slice(0, model3DConfigReferenceLimit(model3DConfig)) }
+        : { images: [] }),
+    });
+  };
   return (
     <MediaNodeShell kind="model" selected={selected} assetId={data.assetId} inputCount={source === "image" ? data.images?.length : undefined} runtime={runtime}>
       {source === "image" ? <MediaReferenceStrip runtime={runtime} /> : <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onChange={(value) => runtime?.onChange({ ...data, model3DRuntime: undefined, prompt: value })} />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="3D input" value={source} disabled={runtime?.busy || data.model3DModel === "meshy-t2"} onChange={(event) => runtime?.onChange({ ...data, model3DRuntime: undefined, model3DSource: event.target.value as "text" | "image" })}>
-          <option value="text">Text</option>
-          <option value="image">Image</option>
+        <select aria-label="3D input" value={source} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ source: event.target.value as "text" | "image" })}>
+          <option value="text">Prompt</option>
+          <option value="image">Reference images</option>
         </select>
-        <select aria-label="3D model" value={data.model3DModel ?? "meshy-7"} disabled={runtime?.busy} onChange={(event) => {
-          const model = event.target.value as Model3DModel;
-          runtime?.onChange({ ...data, model3DRuntime: undefined, model3DModel: model, ...(model === "meshy-t2" ? { model3DSource: "image" as const } : {}) });
-        }}>
+        <select aria-label="3D model" value={config.model} disabled={runtime?.busy} onChange={(event) => updateConfig({ model: event.target.value as Model3DModel })}>
           <option value="meshy-7">Meshy 7</option>
           <option value="meshy-t2">Meshy T2</option>
         </select>
-        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={source === "text" ? !prompt.trim() : !hasImages || (data.model3DModel === "meshy-t2" && data.images?.length !== 1)} />
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={source === "text" ? !prompt.trim() : !hasImages || (config.model === "meshy-t2" && data.images?.length !== 1)} />
       </div>
+      {selected ? <details className="story-media-advanced">
+        <summary>Settings</summary>
+        <div className="story-media-advanced-grid">
+          {config.model === "meshy-t2" ? <label>Polycount<input type="number" min={100} max={15000} step={100} value={config.targetPolycount ?? 4000} disabled={runtime?.busy} onChange={(event) => updateConfig({ targetPolycount: Number(event.target.value) || 4000 })} /></label> : <label>Quality<select value={config.quality ?? "standard"} disabled={runtime?.busy} onChange={(event) => updateConfig({ quality: event.target.value as Model3DQuality })}>{MODEL_3D_QUALITIES.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label>}
+          <label className="story-media-checkbox"><input type="checkbox" checked={config.texture} disabled={runtime?.busy} onChange={(event) => updateConfig({ texture: event.target.checked })} />Texture</label>
+          {config.texture ? <label>Texture resolution<select value={config.textureResolution ?? "2K"} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ textureResolution: event.target.value as Model3DTextureResolution })}>{MODEL_3D_TEXTURE_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}</select></label> : null}
+          {config.texture ? <label className="story-media-checkbox"><input type="checkbox" checked={config.pbr} disabled={runtime?.busy} onChange={(event) => updateConfig({ pbr: event.target.checked })} />PBR</label> : null}
+          <label>Pose<select value={config.pose ?? "auto"} disabled={runtime?.busy || config.model === "meshy-t2"} onChange={(event) => updateConfig({ pose: event.target.value as Model3DPose })}>{MODEL_3D_POSES.map((value) => <option key={value} value={value}>{value === "auto" ? "None" : value === "a-pose" ? "A-Pose" : "T-Pose"}</option>)}</select></label>
+          {source === "image" && config.model !== "meshy-t2" ? <label className="story-media-checkbox"><input type="checkbox" checked={config.imageEnhancement ?? true} disabled={runtime?.busy} onChange={(event) => updateConfig({ imageEnhancement: event.target.checked })} />Image enhancement</label> : null}
+        </div>
+      </details> : null}
     </MediaNodeShell>
   );
 }
@@ -3500,8 +3525,17 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
     data: {
       prompt: node.data.prompt,
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      model3DModel: node.data.model,
-      model3DSource: node.data.source,
+      model3DConfig: normalizeModel3DConfig({
+        model: node.data.model,
+        source: node.data.source,
+        quality: node.data.quality,
+        targetPolycount: node.data.targetPolycount,
+        texture: node.data.texture,
+        textureResolution: node.data.textureResolution,
+        pbr: node.data.pbr,
+        pose: node.data.pose,
+        imageEnhancement: node.data.imageEnhancement,
+      }),
       images: node.data.images,
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
@@ -3557,25 +3591,25 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
       data: {
         prompt: "",
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-        resolution: option?.resolution ?? "1K",
-        aspectRatio: option?.aspectRatio ?? "1:1",
+        resolution: option?.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+        aspectRatio: option?.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
         images: [],
       },
     };
   }
   if (type === "video") {
     const projectRatio = storyViewportRatio(viewport);
-    const aspectRatio = VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? "adaptive";
+    const aspectRatio = VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
     return {
       id,
       type,
       position,
       data: {
         prompt: "",
-        videoModel: VIDEO_MODEL,
-        videoResolution: "720p",
+        videoModel: DEFAULT_VIDEO_NODE_CONFIG.model,
+        videoResolution: DEFAULT_VIDEO_NODE_CONFIG.resolution,
         videoAspectRatio: aspectRatio,
-        duration: 6,
+        duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
         references: [],
       },
     };
@@ -3584,7 +3618,11 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
     id,
     type,
     position,
-    data: { prompt: "", images: [], model3DModel: "meshy-7", model3DSource: "text" },
+    data: {
+      prompt: "",
+      images: [],
+      model3DConfig: DEFAULT_MODEL_3D_CONFIG,
+    },
   };
   return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
@@ -3686,8 +3724,8 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { model: node.data.model } : {}),
-      resolution: node.data.resolution ?? "1K",
-      aspectRatio: node.data.aspectRatio ?? "1:1",
+      resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+      aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
       images: node.data.images ?? [],
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
@@ -3699,27 +3737,37 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      model: node.data.videoModel ?? VIDEO_MODEL,
-      resolution: node.data.videoResolution ?? "720p",
-      aspectRatio: node.data.videoAspectRatio ?? "adaptive",
-      duration: node.data.duration ?? 6,
+      model: node.data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model,
+      resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
+      aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+      duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
       references: node.data.references ?? [],
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
-  if (node.type === "model-3d") return {
-    id: node.id,
-    type: "model-3d",
-    position: node.position,
-    data: {
-      prompt: node.data.prompt ?? "",
-      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      ...(node.data.model3DModel ? { model: node.data.model3DModel } : {}),
-      source: model3DSource(node),
-      images: node.data.images ?? [],
-      ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
-    },
-  };
+  if (node.type === "model-3d") {
+    const config = nodeModel3DConfig(node);
+    return {
+      id: node.id,
+      type: "model-3d",
+      position: node.position,
+      data: {
+        prompt: node.data.prompt ?? "",
+        ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+        model: config.model,
+        source: config.source,
+        ...(config.quality ? { quality: config.quality } : {}),
+        ...(config.targetPolycount !== undefined ? { targetPolycount: config.targetPolycount } : {}),
+        texture: config.texture,
+        ...(config.textureResolution ? { textureResolution: config.textureResolution } : {}),
+        pbr: config.pbr,
+        ...(config.pose ? { pose: config.pose } : {}),
+        ...(config.imageEnhancement !== undefined ? { imageEnhancement: config.imageEnhancement } : {}),
+        images: node.data.images ?? [],
+        ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      },
+    };
+  }
   return {
     id: node.id,
     type: node.type,
@@ -3751,10 +3799,12 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
 
 function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
   if (node.type !== "image" && node.type !== "model-3d") return [];
+  const modelViewLabels = ["Main view", "Left", "Back", "Right"];
   return (node.data.images ?? []).map((reference, index) => {
+    const label = node.type === "model-3d" ? modelViewLabels[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
-      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label: `Image ${index + 1}`, type: "image" };
+      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label, type: "image" };
     }
     const source = nodes.find((candidate) => candidate.id === reference.nodeId && isImageFlowSource(candidate));
     const assetId = source?.data.assetId;
@@ -3764,7 +3814,7 @@ function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], librar
       key: `node:${reference.nodeId}`,
       linked: true,
       type: "image",
-      label: `Image ${index + 1}`,
+      label,
       name: source?.type === "image"
         ? source.data.prompt?.trim() || "Connected image"
         : asset?.name ?? (source ? "Connected image" : "Missing image node"),
@@ -3800,14 +3850,17 @@ function imageReferenceLimit(node: StoryFlowNode, imageModels: ImageModel[]): nu
   return imageModels.find((model) => sameImageModel(model, node.data.model))?.supportsReferenceImage ? IMAGE_REFERENCE_LIMIT : 0;
 }
 
+function nodeModel3DConfig(node: Pick<StoryFlowNode, "type" | "data">): Model3DGenerationConfig {
+  if (node.type !== "model-3d") return DEFAULT_MODEL_3D_CONFIG;
+  return normalizeModel3DConfig(node.data.model3DConfig);
+}
+
 function model3DReferenceLimit(node: StoryFlowNode): number {
-  return node.type === "model-3d" && node.data.model3DModel === "meshy-t2" ? 1 : 4;
+  return node.type === "model-3d" ? model3DConfigReferenceLimit(nodeModel3DConfig(node)) : 0;
 }
 
 function model3DSource(node: Pick<StoryFlowNode, "type" | "data">): "text" | "image" {
-  if (node.type !== "model-3d") return "text";
-  if (node.data.model3DModel === "meshy-t2") return "image";
-  return node.data.model3DSource ?? "text";
+  return node.type === "model-3d" ? nodeModel3DConfig(node).source : "text";
 }
 
 type ConnectionRelation = "image-reference" | "video-reference" | "prompt" | "presentation-media" | "story";

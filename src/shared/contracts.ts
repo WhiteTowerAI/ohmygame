@@ -304,6 +304,13 @@ export type StoryNode = (
     promptSource?: StoryTextReference;
     model?: Model3DModel;
     source: "text" | "image";
+    quality?: Model3DQuality;
+    targetPolycount?: number;
+    texture?: boolean;
+    textureResolution?: Model3DTextureResolution;
+    pbr?: boolean;
+    pose?: Model3DPose;
+    imageEnhancement?: boolean;
     images: StoryAssetReference[];
     assetId?: string;
   } }
@@ -767,6 +774,19 @@ export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
 export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
 export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
 export type Model3DPose = (typeof MODEL_3D_POSES)[number];
+
+/** Persisted controls shared by every 3D generation surface. Model-specific fields are normalized before use. */
+export interface Model3DGenerationConfig {
+  model: Model3DModel;
+  source: "text" | "image";
+  quality?: Model3DQuality;
+  targetPolycount?: number;
+  texture: boolean;
+  textureResolution?: Model3DTextureResolution;
+  pbr: boolean;
+  pose?: Model3DPose;
+  imageEnhancement?: boolean;
+}
 
 export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
 

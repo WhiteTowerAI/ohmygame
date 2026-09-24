@@ -9244,6 +9244,54 @@ button {
   opacity: 0.45;
 }
 
+.story-media-advanced {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.story-media-advanced summary {
+  padding: 7px 0 4px;
+  cursor: pointer;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.story-media-advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 3px 0 2px;
+}
+
+.story-media-advanced-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.story-media-advanced-grid select,
+.story-media-advanced-grid input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  height: 27px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+}
+
+.story-media-advanced-grid .story-media-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+}
+
 .story-inspector {
   position: relative;
   z-index: 5;

@@ -15,6 +15,7 @@ import {
   type ImageOutputCount,
   type ImageResolution,
   type Model3DModel,
+  type Model3DGenerationConfig,
   type Model3DPose,
   type Model3DQuality,
   type Model3DTextureResolution,
@@ -39,6 +40,7 @@ import { imageToWebP } from "./image.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT } from "./video-reference-files.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
 
 interface AssetStudioPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -51,8 +53,8 @@ const MODEL_3D_OPTIONS = [
 ] as const;
 const HISTORY_LIMIT = 20;
 const MODEL_3D_SOURCE_OPTIONS = [
-  { value: "image", label: "Image" },
-  { value: "text", label: "Text" },
+  { value: "image", label: "Reference images" },
+  { value: "text", label: "Prompt" },
 ] as const;
 interface PreviewResult {
   run: ToolRun;
@@ -74,28 +76,28 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageReferences, setImageReferences] = useState<PromptImage[]>([]);
   const [imageReferenceNames, setImageReferenceNames] = useState<string[]>([]);
-  const [resolution, setResolution] = useState<ImageResolution>("1K");
-  const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("1:1");
+  const [resolution, setResolution] = useState<ImageResolution>(DEFAULT_IMAGE_NODE_CONFIG.resolution);
+  const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>(DEFAULT_IMAGE_NODE_CONFIG.aspectRatio);
   const [outputs, setOutputs] = useState<ImageOutputCount>(1);
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoReferences, setVideoReferences] = useState<VideoGenerationReference[]>([]);
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
-  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("adaptive");
-  const [videoResolution, setVideoResolution] = useState<VideoResolution>("720p");
-  const [videoDuration, setVideoDuration] = useState(6);
-  const [model3D, setModel3D] = useState<Model3DModel>(MODEL_3D_OPTIONS[0].value);
-  const [model3DSource, setModel3DSource] = useState<Model3DSource>("image");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>(DEFAULT_VIDEO_NODE_CONFIG.aspectRatio);
+  const [videoResolution, setVideoResolution] = useState<VideoResolution>(DEFAULT_VIDEO_NODE_CONFIG.resolution);
+  const [videoDuration, setVideoDuration] = useState<number>(DEFAULT_VIDEO_NODE_CONFIG.duration);
+  const [model3D, setModel3D] = useState<Model3DModel>(DEFAULT_MODEL_3D_CONFIG.model);
+  const [model3DSource, setModel3DSource] = useState<Model3DSource>(DEFAULT_MODEL_3D_CONFIG.source);
   const [model3DPrompt, setModel3DPrompt] = useState("");
   const [modelReferences, setModelReferences] = useState<(PromptImage | undefined)[]>([]);
   const [modelReferenceNames, setModelReferenceNames] = useState<(string | undefined)[]>([]);
   const [model3DMultiView, setModel3DMultiView] = useState(false);
-  const [model3DQuality, setModel3DQuality] = useState<Model3DQuality>("standard");
-  const [model3DTargetPolycount, setModel3DTargetPolycount] = useState(4_000);
-  const [model3DTexture, setModel3DTexture] = useState(true);
-  const [model3DTextureResolution, setModel3DTextureResolution] = useState<Model3DTextureResolution>("2K");
-  const [model3DPbr, setModel3DPbr] = useState(false);
-  const [model3DPose, setModel3DPose] = useState<Model3DPose>("auto");
-  const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(true);
+  const [model3DQuality, setModel3DQuality] = useState<Model3DQuality>(DEFAULT_MODEL_3D_CONFIG.quality ?? "standard");
+  const [model3DTargetPolycount, setModel3DTargetPolycount] = useState(DEFAULT_MODEL_3D_CONFIG.targetPolycount ?? 4_000);
+  const [model3DTexture, setModel3DTexture] = useState(DEFAULT_MODEL_3D_CONFIG.texture);
+  const [model3DTextureResolution, setModel3DTextureResolution] = useState<Model3DTextureResolution>(DEFAULT_MODEL_3D_CONFIG.textureResolution ?? "2K");
+  const [model3DPbr, setModel3DPbr] = useState(DEFAULT_MODEL_3D_CONFIG.pbr);
+  const [model3DPose, setModel3DPose] = useState<Model3DPose>(DEFAULT_MODEL_3D_CONFIG.pose ?? "auto");
+  const [model3DImageEnhancement, setModel3DImageEnhancement] = useState(DEFAULT_MODEL_3D_CONFIG.imageEnhancement ?? true);
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<ToolJob[]>([]);
   const [jobActions, setJobActions] = useState<Set<string>>(() => new Set());
@@ -381,16 +383,17 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
         const images = modelReferences
           .slice(0, !isMeshyT2 && model3DMultiView ? 4 : 1)
           .filter((image): image is PromptImage => image !== undefined);
-        job = await startToolJob("image-to-3d", {
-          ...(model3DSource === "text" ? { prompt: model3DPrompt.trim() } : { images }),
+        job = await startToolJob("image-to-3d", buildModel3DToolRequest({
           model: model3D,
-          ...(isMeshyT2 ? { targetPolycount: model3DTargetPolycount } : { quality: model3DQuality }),
+          source: model3DSource,
+          quality: model3DQuality,
+          targetPolycount: model3DTargetPolycount,
           texture: model3DTexture,
-          textureResolution: isMeshyT2 ? "2K" : model3DTextureResolution,
+          textureResolution: model3DTextureResolution,
           pbr: model3DPbr,
-          ...(!isMeshyT2 ? { pose: model3DPose } : {}),
-          ...(model3DSource === "image" && !isMeshyT2 ? { imageEnhancement: model3DImageEnhancement } : {}),
-        }, selectedTemplate?.name);
+          pose: model3DPose,
+          imageEnhancement: model3DImageEnhancement,
+        }, { prompt: model3DPrompt, images }), selectedTemplate?.name);
       }
       if (mounted.current) setJobs((current) => [job, ...current.filter((candidate) => candidate.id !== job.id)]);
     } catch (cause) {
@@ -464,11 +467,18 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
       if (defaults?.videoDuration) setVideoDuration(defaults.videoDuration);
     } else if (template.mode === "3d") {
       setModel3DPrompt(prompt);
-      setModel3D(defaults?.model3DModel ?? "meshy-7");
-      if (defaults?.model3DQuality) setModel3DQuality(defaults.model3DQuality);
-      if (defaults?.model3DTargetPolycount) setModel3DTargetPolycount(defaults.model3DTargetPolycount);
-      if (defaults?.model3DPose) setModel3DPose(defaults.model3DPose);
-      if (defaults?.model3DSource) setModel3DSource(defaults.model3DSource);
+      const config = normalizeModel3DConfig({
+        model: defaults?.model3DModel ?? DEFAULT_MODEL_3D_CONFIG.model,
+        source: defaults?.model3DSource ?? model3DSource,
+        quality: defaults?.model3DQuality ?? model3DQuality,
+        targetPolycount: defaults?.model3DTargetPolycount ?? model3DTargetPolycount,
+        texture: model3DTexture,
+        textureResolution: model3DTextureResolution,
+        pbr: model3DPbr,
+        pose: defaults?.model3DPose ?? model3DPose,
+        imageEnhancement: model3DImageEnhancement,
+      });
+      applyModel3DConfig(config);
     }
     setGenerationError(undefined);
     setReferenceError(undefined);
@@ -483,6 +493,33 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setReferenceError(undefined);
     setActionStatus(undefined);
     setMenuOpen(false);
+  }
+
+  function applyModel3DConfig(config: Model3DGenerationConfig): void {
+    setModel3D(config.model);
+    setModel3DSource(config.source);
+    setModel3DQuality(config.quality ?? "standard");
+    setModel3DTargetPolycount(config.targetPolycount ?? 4_000);
+    setModel3DTexture(config.texture);
+    setModel3DTextureResolution(config.textureResolution ?? "2K");
+    setModel3DPbr(config.pbr);
+    setModel3DPose(config.pose ?? "auto");
+    setModel3DImageEnhancement(config.imageEnhancement ?? true);
+    if (config.model === "meshy-t2") setModel3DMultiView(false);
+  }
+
+  function chooseModel3D(model: Model3DModel): void {
+    applyModel3DConfig(normalizeModel3DConfig({
+      model,
+      source: model3DSource,
+      quality: model3DQuality,
+      targetPolycount: model3DTargetPolycount,
+      texture: model3DTexture,
+      textureResolution: model3DTextureResolution,
+      pbr: model3DPbr,
+      pose: model3DPose,
+      imageEnhancement: model3DImageEnhancement,
+    }));
   }
 
   function choosePanelView(nextView: AssetPanelView): void {
@@ -648,17 +685,8 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
     setVideoAspectRatio(draft.video.aspectRatio);
     setVideoDuration(draft.video.duration);
     setModel3DPrompt(draft.model3D.prompt);
-    const isDraftT2 = draft.model3D.model === "meshy-t2";
-    setModel3D(draft.model3D.model);
-    setModel3DSource(isDraftT2 ? "image" : draft.model3D.source);
-    setModel3DMultiView(isDraftT2 ? false : draft.model3D.multiView);
-    setModel3DQuality(draft.model3D.quality);
-    setModel3DTargetPolycount(draft.model3D.targetPolycount);
-    setModel3DTexture(draft.model3D.texture);
-    setModel3DTextureResolution(isDraftT2 ? "2K" : draft.model3D.textureResolution ?? "2K");
-    setModel3DPbr(draft.model3D.pbr ?? false);
-    setModel3DPose(isDraftT2 ? "auto" : draft.model3D.pose);
-    setModel3DImageEnhancement(draft.model3D.imageEnhancement);
+    applyModel3DConfig(normalizeModel3DConfig(draft.model3D));
+    if (draft.model3D.model !== "meshy-t2") setModel3DMultiView(draft.model3D.multiView);
   }
 
   function mergeHistoryResults(incoming: PreviewResult[]): void {
@@ -771,15 +799,7 @@ export function AssetStudioPage({ onNavigate }: AssetStudioPageProps) {
                   </>
                 ) : (
                   <>
-                    <Field label="Model" htmlFor="asset-3d-model"><ModelSelect id="asset-3d-model" value={model3D} options={MODEL_3D_OPTIONS} onChange={(model) => {
-                      setModel3D(model);
-                      if (model === "meshy-t2") {
-                        setModel3DSource("image");
-                        setModel3DMultiView(false);
-                        setModel3DPose("auto");
-                        setModel3DTextureResolution("2K");
-                      }
-                    }} /></Field>
+                    <Field label="Model" htmlFor="asset-3d-model"><ModelSelect id="asset-3d-model" value={model3D} options={MODEL_3D_OPTIONS} onChange={chooseModel3D} /></Field>
                     <Model3DInputField
                       source={model3DSource}
                       prompt={model3DPrompt}
