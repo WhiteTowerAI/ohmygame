@@ -125,7 +125,7 @@ import { playtestHash } from "./routes.js";
 import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
-import { findStoryCoverSource } from "../shared/story-cover.js";
+import { findAssetCanvasCoverSource, findStoryCoverSource, type StoryCoverSource } from "../shared/story-cover.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { ModelPreview } from "./model-preview.js";
@@ -492,6 +492,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
         }
         setCanvasJobs(Object.fromEntries(latestJobs));
         const completedAssetIds: string[] = [];
+        let completedCover: StoryCoverSource | undefined;
         for (const job of jobs) {
           const nodeId = job.context?.nodeId;
           const file = job.run?.files[0];
@@ -499,14 +500,27 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
           hydratedJobRuns.current.add(job.id);
           setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, assetId: file.assetId } } : node));
           completedAssetIds.push(file.assetId);
+          if (assetCanvas && !completedCover) {
+            const mediaType = file.mediaType.startsWith("image/") ? "image" : file.mediaType.startsWith("video/") ? "video" : undefined;
+            if (mediaType) completedCover = { assetId: file.assetId, mediaType };
+          }
         }
-        if (completedAssetIds.length) setLibraryAssets(await loadLibraryAssets());
+        if (completedAssetIds.length) {
+          const assets = await loadLibraryAssets();
+          if (completedCover && !stopped) {
+            try {
+              const cover = await projectCoverBlob(completedCover, assets);
+              if (!stopped && cover) await setProjectCover(projectId, cover);
+            } catch { /* Cover generation is best-effort. */ }
+          }
+          if (!stopped) setLibraryAssets(assets);
+        }
       } catch { /* Job polling is best-effort; the node keeps its last state. */ }
       if (!stopped) timer = window.setTimeout(poll, 1_500);
     };
     void poll();
     return () => { stopped = true; window.clearTimeout(timer); };
-  }, [phase, projectId]);
+  }, [assetCanvas, phase, projectId]);
 
   const document = useMemo(
     () => chapter ? storyDocument(player, variables, chapter, nodes, edges, {
@@ -524,17 +538,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     if (phase !== "ready" || !document || libraryAssets.length === 0) return;
     let disposed = false;
     void (async () => {
-      const source = findStoryCoverSource(document);
-      const asset = source && libraryAssets.find((candidate) => candidate.id === source.assetId);
-      if (!source || !asset || (asset.mediaType !== "image" && asset.mediaType !== "video") || asset.contentType === "image/svg+xml" || asset.name.toLowerCase().endsWith(".svg")) return;
-      // A manually supplied cover is authoritative. Automatic covers only fill an empty slot.
-      if (await getProjectCover(projectId)) return;
-      const blob = await getLibraryAsset(asset.id);
-      const cover = await mediaBlobToWebP(blob, asset.mediaType);
+      const source = assetCanvas ? findAssetCanvasCoverSource(document) : findStoryCoverSource(document);
+      if (!source || await getProjectCover(projectId)) return;
+      const cover = await projectCoverBlob(source, libraryAssets);
       if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover);
     })().catch(() => {});
     return () => { disposed = true; };
-  }, [document, libraryAssets, phase, projectId]);
+  }, [assetCanvas, document, libraryAssets, phase, projectId]);
 
   function updateHistoryControls(): void {
     setHistoryRevision((revision) => revision + 1);
@@ -4195,6 +4205,12 @@ function titleCase(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function projectCoverBlob(source: StoryCoverSource, assets: LibraryAsset[]): Promise<Blob | undefined> {
+  const asset = assets.find((candidate) => candidate.id === source.assetId);
+  if (!asset || (asset.mediaType !== "image" && asset.mediaType !== "video") || asset.contentType === "image/svg+xml" || asset.name.toLowerCase().endsWith(".svg")) return undefined;
+  return mediaBlobToWebP(await getLibraryAsset(asset.id), asset.mediaType);
 }
 
 async function mediaBlobToWebP(blob: Blob, mediaType: "image" | "video"): Promise<Blob | undefined> {
