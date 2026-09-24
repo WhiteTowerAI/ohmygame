@@ -330,6 +330,8 @@ const toolRunSchema = {
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
+      projectId: { type: "string", minLength: 1, maxLength: 200 },
+      nodeId: { type: "string", minLength: 1, maxLength: 200 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -849,13 +851,19 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/tool-jobs", async () => tools.jobs());
 
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
     "/tools/:toolId/jobs",
     { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
     async (request, reply) => {
       try {
-        const { title, ...input } = request.body;
-        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, { title: title?.trim() }));
+        const { title, projectId, nodeId, ...input } = request.body;
+        if (Boolean(projectId) !== Boolean(nodeId)) {
+          throw new ToolRunError("Project and node context must be provided together", 400);
+        }
+        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, {
+          title: title?.trim(),
+          ...(projectId && nodeId ? { context: { projectId, nodeId } } : {}),
+        }));
       } catch (cause) {
         if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;

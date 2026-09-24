@@ -689,11 +689,12 @@ describe("renderer tools API", () => {
       .mockResolvedValueOnce(Response.json(retry, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" })).resolves.toEqual(job);
+    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" }, undefined, { projectId: "project-1", nodeId: "node-1" })).resolves.toEqual(job);
     await expect(listToolJobs()).resolves.toEqual([job]);
     await expect(cancelToolJob("job-1")).resolves.toMatchObject({ status: "cancelled" });
     await expect(retryToolJob("job-1")).resolves.toEqual(retry);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools/generate-image/jobs", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ projectId: "project-1", nodeId: "node-1" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-jobs", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-jobs/job-1/cancel", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/tool-jobs/job-1/retry", expect.objectContaining({ method: "POST" }));

@@ -110,12 +110,13 @@ import {
   type StoryVariableCondition,
   type StoryVariableType,
   type StoryVariableValue,
+  type ToolJob,
   type VideoAspectRatio,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, runTool, setProjectCover, updateStory, uploadLibraryAsset } from "./api.js";
+import { buildInteractiveDrama, cancelToolJob, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, listToolJobs, retryToolJob, setProjectCover, startToolJob, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -300,6 +301,8 @@ interface MediaNodeRuntime {
   error?: string;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
+  onCancel?: () => void;
+  onRetry?: () => void;
   linkedPrompt?: string;
   onDisconnectPrompt?: () => void;
 }
@@ -396,7 +399,10 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
-  const [generatingNodeId, setGeneratingNodeId] = useState<string>();
+  const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
+  const startingCanvasNodesRef = useRef(new Set<string>());
+  const hydratedJobRuns = useRef(new Set<string>());
   const [generatingTextNodeId, setGeneratingTextNodeId] = useState<string>();
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
@@ -455,6 +461,37 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     });
     return () => { disposed = true; };
   }, [projectId, workspaceRevision]);
+
+  useEffect(() => {
+    if (phase !== "ready") return;
+    let stopped = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const jobs = (await listToolJobs()).filter((job) => job.context?.projectId === projectId);
+        if (stopped) return;
+        const latestJobs = new Map<string, ToolJob>();
+        for (const job of jobs) {
+          const nodeId = job.context?.nodeId;
+          if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
+        }
+        setCanvasJobs(Object.fromEntries(latestJobs));
+        const completedAssetIds: string[] = [];
+        for (const job of jobs) {
+          const nodeId = job.context?.nodeId;
+          const file = job.run?.files[0];
+          if (job.status !== "succeeded" || !nodeId || !file?.assetId || hydratedJobRuns.current.has(job.id)) continue;
+          hydratedJobRuns.current.add(job.id);
+          setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, assetId: file.assetId } } : node));
+          completedAssetIds.push(file.assetId);
+        }
+        if (completedAssetIds.length) setLibraryAssets(await loadLibraryAssets());
+      } catch { /* Job polling is best-effort; the node keeps its last state. */ }
+      if (!stopped) timer = window.setTimeout(poll, 1_500);
+    };
+    void poll();
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [phase, projectId]);
 
   const document = useMemo(
     () => chapter ? storyDocument(player, variables, chapter, nodes, edges, {
@@ -907,7 +944,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function generateImage(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "image" || generatingNodeId) return;
+    if (node.type !== "image") return;
     const prompt = resolveNodePrompt(node, nodes).trim();
     if (!prompt) { setGenerationError({ nodeId: node.id, message: "Add a prompt before generating." }); return; }
     if (!node.data.model) { setGenerationError({ nodeId: node.id, message: "Select an image model before generating." }); return; }
@@ -927,7 +964,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function generateTextNode(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "text" || generatingTextNodeId || generatingNodeId) return;
+    if (node.type !== "text" || generatingTextNodeId) return;
     const instruction = node.data.instruction?.trim();
     if (!instruction) {
       setGenerationError({ nodeId: node.id, message: "Add an instruction before generating." });
@@ -953,7 +990,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function generateVideo(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "video" || generatingNodeId) return;
+    if (node.type !== "video") return;
     const prompt = resolveNodePrompt(node, nodes).trim();
     if (!prompt) { setGenerationError({ nodeId: node.id, message: "Add a prompt before generating." }); return; }
     try {
@@ -971,7 +1008,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function generateModel3D(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "model-3d" || generatingNodeId) return;
+    if (node.type !== "model-3d") return;
     const config = nodeModel3DConfig(node);
     try {
       const images = await resolveModelReferenceImages(node);
@@ -1018,7 +1055,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function uploadReferenceImages(node: StoryFlowNode, files: File[]): Promise<void> {
-    if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || generatingNodeId || uploadingNodeId) return;
+    if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || uploadingNodeId) return;
     const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : MODEL_3D_REFERENCE_LIMIT) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
@@ -1051,7 +1088,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function uploadVideoReferences(node: StoryFlowNode, files: File[]): Promise<void> {
-    if (node.type !== "video" || files.length === 0 || generatingNodeId || uploadingNodeId) return;
+    if (node.type !== "video" || files.length === 0 || uploadingNodeId) return;
     setUploadingNodeId(node.id);
     setGenerationError(undefined);
     try {
@@ -1074,20 +1111,46 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   }
 
   async function generateMedia(node: StoryFlowNode, toolId: "generate-image" | "generate-video" | "image-to-3d", input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest, label: string): Promise<void> {
-    setGeneratingNodeId(node.id);
+    if (canvasJobs[node.id]?.status === "running" || startingCanvasNodesRef.current.has(node.id)) return;
+    startingCanvasNodesRef.current.add(node.id);
+    setStartingCanvasNodes((current) => new Set(current).add(node.id));
     setGenerationError(undefined);
     try {
-      const run = await runTool(toolId, input);
-      const file = run.files[0];
-      if (!file?.assetId) throw new Error(`${label} generation completed without a Library asset.`);
-      setNodes((current) => current.map((candidate) => candidate.id === node.id
-        ? { ...candidate, data: { ...candidate.data, assetId: file.assetId } }
-        : candidate));
-      setLibraryAssets(await loadLibraryAssets());
+      const job = await startToolJob(toolId, input, label, { projectId, nodeId: node.id });
+      setCanvasJobs((current) => ({ ...current, [node.id]: job }));
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     } finally {
-      setGeneratingNodeId(undefined);
+      startingCanvasNodesRef.current.delete(node.id);
+      setStartingCanvasNodes((current) => {
+        const next = new Set(current);
+        next.delete(node.id);
+        return next;
+      });
+    }
+  }
+
+  async function cancelCanvasJob(nodeId: string): Promise<void> {
+    const job = canvasJobs[nodeId];
+    if (!job) return;
+    try {
+      setCanvasJobs((current) => ({ ...current, [nodeId]: { ...job, status: "cancelled" } }));
+      const next = await cancelToolJob(job.id);
+      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
+    } catch (error) {
+      setGenerationError({ nodeId, message: errorMessage(error) });
+    }
+  }
+
+  async function retryCanvasJob(nodeId: string): Promise<void> {
+    const job = canvasJobs[nodeId];
+    if (!job || (job.status !== "failed" && job.status !== "cancelled")) return;
+    try {
+      const next = await retryToolJob(job.id);
+      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
+      setGenerationError((error) => error?.nodeId === nodeId ? undefined : error);
+    } catch (error) {
+      setGenerationError({ nodeId, message: errorMessage(error) });
     }
   }
 
@@ -1145,7 +1208,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
           generating: generatingTextNodeId === node.id,
-          busy: Boolean(generatingNodeId || generatingTextNodeId),
+          busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
           onChange: (data: StoryFlowData) => {
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -1156,14 +1219,17 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       },
     };
     if (node.type === "model-3d") {
+      const nodeJob = canvasJobs[node.id];
       return {
         ...node,
         data: {
           ...node.data,
           model3DRuntime: {
-            generating: generatingNodeId === node.id,
-            busy: Boolean(generatingNodeId || uploadingNodeId),
-            ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            generating: nodeJob?.status === "running",
+            busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
+            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: StoryFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1184,10 +1250,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
     }
     if (!isMediaNodeType(node.type)) return node;
     const linkedPrompt = resolveLinkedPrompt(node, nodes);
+    const nodeJob = canvasJobs[node.id];
     const runtime: MediaNodeRuntime = {
-      generating: generatingNodeId === node.id,
-      busy: Boolean(generatingNodeId || uploadingNodeId),
-      ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      generating: nodeJob?.status === "running",
+      busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
+      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
+      onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
       onChange: (data) => {
         setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
         setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -2243,6 +2312,12 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
 }) {
   const labelKind = kind === "model" ? "3D model" : kind;
   const label = assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
+  if (runtime?.onCancel && runtime.generating) {
+    return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><CircleStop size={17} /></button>;
+  }
+  if (runtime?.onRetry && !runtime.generating) {
+    return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
+  }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
       {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}

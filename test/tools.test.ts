@@ -506,7 +506,7 @@ describe("tool runner", () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: { generate } });
     apps.push(app);
 
-    const first = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "First image" } });
+    const first = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "First image", projectId: "project-1", nodeId: "node-1" } });
     const second = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Second image" } });
 
     expect(first.statusCode).toBe(202);
@@ -514,7 +514,7 @@ describe("tool runner", () => {
     expect(pending).toHaveLength(2);
     expect((await app.inject({ method: "GET", url: "/tool-jobs" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: second.json().id, status: "running", title: "Second image" }),
-      expect.objectContaining({ id: first.json().id, status: "running", title: "First image" }),
+      expect.objectContaining({ id: first.json().id, status: "running", title: "First image", context: { projectId: "project-1", nodeId: "node-1" } }),
     ]));
 
     pending[0]!({ bytes: Buffer.from("first"), mediaType: "image/webp" });
@@ -524,6 +524,18 @@ describe("tool runner", () => {
       expect(jobs.every((job: { status: string }) => job.status === "succeeded")).toBe(true);
     });
     expect((await app.inject({ method: "GET", url: "/tool-runs" })).json()).toHaveLength(2);
+  });
+
+  it("requires Canvas job context to include both project and node", async () => {
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/generate-image/jobs",
+      payload: { prompt: "Image", projectId: "project-1" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Project and node context must be provided together" });
   });
 
   it("cancels and retries a background generation job", async () => {

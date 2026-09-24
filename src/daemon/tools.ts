@@ -22,6 +22,7 @@ import {
   type RunToolRequest,
   type ToolDefinition,
   type ToolJob,
+  type ToolJobContext,
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
@@ -87,6 +88,7 @@ interface StoredToolRunFile extends ToolRunFile {
 
 interface ToolRunMetadata {
   title?: string;
+  context?: ToolJobContext;
 }
 
 export class ToolRunError extends Error {
@@ -127,6 +129,7 @@ export class ToolRunner {
       createdAt: new Date().toISOString(),
       status: "running",
       title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
+      ...(metadata.context ? { context: metadata.context } : {}),
       input,
       metadata,
       controller,

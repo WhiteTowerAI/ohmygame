@@ -826,12 +826,18 @@ export interface ToolRun {
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
 
+export interface ToolJobContext {
+  projectId: string;
+  nodeId: string;
+}
+
 export interface ToolJob {
   id: string;
   toolId: ToolDefinition["id"];
   createdAt: string;
   status: ToolJobStatus;
   title: string;
+  context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
 }

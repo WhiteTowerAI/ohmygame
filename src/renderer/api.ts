@@ -33,6 +33,7 @@ import {
   type RunToolRequest,
   type ToolDefinition,
   type ToolJob,
+  type ToolJobContext,
   type ToolRun,
   type UpdateImageGenerationSettings,
   type PromptImage,
@@ -282,8 +283,8 @@ export async function runTool(toolId: ToolDefinition["id"], input: RunToolReques
   return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
 }
 
-export async function startToolJob(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolJob> {
-  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
+export async function startToolJob(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
+  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}), ...(context ? { projectId: context.projectId, nodeId: context.nodeId } : {}) }) });
 }
 
 export async function listToolJobs(): Promise<ToolJob[]> {
