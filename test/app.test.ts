@@ -423,6 +423,7 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
     await writeFile(path.join(project.workspacePath, "cover.png"), Buffer.from([1, 2, 3]));
+    await mkdir(path.join(project.workspacePath, "empty-folder"));
 
     const files = await app.inject({ method: "GET", url: `/projects/${project.id}/files` });
     const content = await app.inject({
@@ -430,15 +431,26 @@ describe("daemon", () => {
       url: `/projects/${project.id}/files/content?path=${encodeURIComponent("hello world.txt")}`,
     });
     const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("hello world.txt")}`,
+    });
+    const folderLocation = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=empty-folder`,
+    });
 
     expect(files.json()).toEqual([
       { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
+      { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
     ]);
     expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
     expect(media.headers["content-type"]).toBe("image/png");
     expect(media.rawPayload).toEqual(Buffer.from([1, 2, 3]));
+    expect(location.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "hello world.txt") });
+    expect(folderLocation.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "empty-folder") });
   });
 
   it("renames and deletes workspace assets", async () => {
@@ -736,6 +748,11 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "Invalid workspace path" });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("../project.json")}`,
+    });
+    expect(location.statusCode).toBe(400);
   });
 
   it("validates workspace references before prompting", async () => {
@@ -1230,7 +1247,10 @@ describe("daemon", () => {
     const detail = (await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` })).json();
 
     expect(steered.statusCode).toBe(204);
-    expect(detail.pendingPrompts).toEqual([expect.objectContaining({ turnId: second.turnId, prompt: "Second" })]);
+    expect(detail.pendingPrompts).toEqual([
+      expect.objectContaining({ turnId: third.turnId, prompt: "Third", steering: true }),
+      expect.objectContaining({ turnId: second.turnId, prompt: "Second" }),
+    ]);
     expect(clearQueue).toHaveBeenCalledOnce();
     expect(steer).toHaveBeenLastCalledWith("Third", undefined);
     finishPrompt();

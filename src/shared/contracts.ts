@@ -8,6 +8,8 @@ export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
 export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
+export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 
 export interface AgentContextUsage {
   tokens: number | null;
@@ -441,6 +443,7 @@ export interface PendingPrompt {
   references: PromptReference[];
   images: PromptImage[];
   attachments: ConversationAttachment[];
+  steering?: boolean;
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -561,6 +564,7 @@ export interface Turn {
   conversationId: string;
   status: TurnStatus;
   items: ThreadItem[];
+  steering?: boolean;
 }
 
 export interface ConversationDetail {
@@ -672,6 +676,7 @@ export interface ConversationCapabilities {
 export interface WorkspaceFile {
   path: string;
   size: number;
+  directory?: true;
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
@@ -889,6 +894,7 @@ export interface RuntimeEventData {
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
+  "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };
@@ -916,6 +922,7 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.cancelled",
   "agent.error",
   "prompt.queued",
+  "prompt.steered",
   "prompt.removed",
   "publish.started",
   "publish.completed",
