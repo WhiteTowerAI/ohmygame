@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODELS, VIDEO_RESOLUTIONS } from "./contracts.js";
 
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const id = ref("id");
@@ -224,7 +224,7 @@ const nodes = [
     type: "object", additionalProperties: false, required: ["prompt", "model", "resolution", "aspectRatio", "duration", "references"],
     properties: {
       prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
-      model: { const: VIDEO_MODEL }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
+      model: { enum: VIDEO_MODELS.map((model) => model.id) }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
       references: { type: "array", maxItems: 15, items: assetReference }, assetId: id,
     },
   }),

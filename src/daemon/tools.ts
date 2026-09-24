@@ -7,7 +7,9 @@ import {
   IMAGE_RESOLUTIONS,
   IMAGE_SIZES,
   TOOL_IDS,
+  DEFAULT_VIDEO_MODEL,
   VIDEO_ASPECT_RATIOS,
+  VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
@@ -161,7 +163,7 @@ export class ToolRunner {
       return this.#run3D(input as Run3DToolRequest, signal);
     }
     if (toolId === "generate-video") {
-      assertOnlyKeys(input, ["prompt", "references", "duration", "aspectRatio", "resolution"]);
+      assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution"]);
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
@@ -310,11 +312,13 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const aspectRatio = input.aspectRatio ?? "adaptive";
       const resolution = input.resolution ?? "720p";
+      const model = input.model ?? DEFAULT_VIDEO_MODEL;
+      if (!VIDEO_MODELS.some((candidate) => candidate.id === model)) throw new ToolRunError("Unsupported video model", 400);
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
       validateVideoReferenceDurations(resolvedReferences);
-      const generated = await this.videoGenerator.generate({ prompt, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {

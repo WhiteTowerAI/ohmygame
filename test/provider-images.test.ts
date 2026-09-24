@@ -8,23 +8,22 @@ describe("ProviderImages", () => {
     const images = new ProviderImages(
       async () => runtime(),
       accountConnection(),
-      vi.fn(async () => Response.json({ data: [{ id: "gpt-image-2" }, { id: "text-only" }] })),
+      vi.fn(async () => Response.json({ data: [{ id: "gpt-image-2.5-flare" }, { id: "text-only" }] })),
     );
 
     const models = await images.models();
     expect(models).toEqual([
-      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gpt-image-2" }),
-      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" }),
+      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gpt-image-2.5-flare", name: "GPT Image 2.5" }),
       expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gemini-3.1-flash-image", name: "Nano Banana 2" }),
-      expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2" }),
+      expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2.5-flare" }),
     ]);
-    const gpt = models.find((model) => model.id === "gpt-image-2");
+    const gpt = models.find((model) => model.id === "gpt-image-2.5-flare");
     expect(new Set(gpt?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K", "4K"]));
   });
 
   it("uses the explicitly selected provider and model", async () => {
     const request = vi.fn<typeof fetch>(async (input) => {
-      if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "gpt-image-2" }] });
+      if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "gpt-image-2.5-flare" }] });
       return Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] });
     });
     const images = new ProviderImages(
@@ -33,7 +32,7 @@ describe("ProviderImages", () => {
       request,
     );
 
-    await images.generate({ prompt: "A game icon", imageModel: { provider: "openai", id: "gpt-image-2" }, size: "1024x1024" });
+    await images.generate({ prompt: "A game icon", imageModel: { provider: "openai", id: "gpt-image-2.5-flare" }, size: "1024x1024" });
 
     const generation = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
     expect(generation?.[0]).toBe("https://api.openai.com/v1/images/generations");
@@ -53,7 +52,7 @@ describe("ProviderImages", () => {
 
     await images.generate({
       prompt: "A game icon",
-      imageModel: { provider: "ohmygame", id: "gpt-image-2" },
+      imageModel: { provider: "ohmygame", id: "gpt-image-2.5-flare" },
       resolution: "1K",
       aspectRatio: "1:1",
     });
@@ -64,7 +63,7 @@ describe("ProviderImages", () => {
 
   it("uses the preferred Account model by default without querying OpenAI", async () => {
     const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
-      ? Response.json({ data: [{ id: "gpt-image-2" }] })
+      ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] })
       : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
     const images = new ProviderImages(
       async () => runtime(),
@@ -82,7 +81,7 @@ describe("ProviderImages", () => {
 
   it("queries OpenAI models once when selecting its default", async () => {
     const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
-      ? Response.json({ data: [{ id: "gemini-3.1-flash-lite-image" }, { id: "gpt-image-2" }] })
+      ? Response.json({ data: [{ id: "gemini-3.1-flash-image" }, { id: "gpt-image-2.5-flare" }] })
       : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
     const images = new ProviderImages(
       async () => runtime(),
@@ -95,7 +94,7 @@ describe("ProviderImages", () => {
     expect(request.mock.calls.filter(([input]) => String(input).endsWith("/models"))).toHaveLength(1);
     expect(request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"))?.[0])
       .toBe("https://api.openai.com/v1/images/generations");
-    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "gpt-image-2" });
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "gpt-image-2.5-flare" });
   });
 
   it("validates the selected model's supported sizes", async () => {
@@ -105,7 +104,7 @@ describe("ProviderImages", () => {
       vi.fn(),
     );
 
-    await expect(images.generate({ prompt: "A game icon", imageModel: { provider: "ohmygame", id: "gpt-image-2" }, size: "invalid" as never }))
+    await expect(images.generate({ prompt: "A game icon", imageModel: { provider: "ohmygame", id: "gpt-image-2.5-flare" }, size: "invalid" as never }))
       .rejects.toMatchObject({ message: "Image size is not supported by the selected model", statusCode: 400 });
   });
 
@@ -119,7 +118,7 @@ describe("ProviderImages", () => {
       request,
     );
 
-    const imageModel = { provider: "ohmygame", id: "gpt-image-2" };
+    const imageModel = { provider: "ohmygame", id: "gpt-image-2.5-flare" };
     await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "512", aspectRatio: "1:1" }))
       .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
     await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "4K", aspectRatio: "1:1" })).resolves.toMatchObject({ mediaType: "image/webp" });
@@ -142,7 +141,7 @@ function accountConnection(connected = true): AccountConnection {
     imageSource: () => connected ? ({
       baseUrl: "https://account.ohmygame.ai/v1",
       apiKey: "sk-account",
-      modelIds: ["gpt-image-2", "gemini-3.1-flash-lite-image", "gemini-3.1-flash-image", "text-only"],
+      modelIds: ["gemini-3.1-flash-image", "gpt-image-2.5-flare", "text-only"],
     }) : undefined,
   } as unknown as AccountConnection;
 }

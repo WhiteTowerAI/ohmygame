@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ImageGenerationError, OpenAIImageGenerator } from "../src/daemon/openai-image.js";
 
 describe("OpenAI image generator", () => {
-  it("calls GPT Image 2 through the native Images API", async () => {
+  it("calls GPT Image 2.5 through the native Images API", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: Buffer.from("generated image").toString("base64") }],
     }), {
@@ -27,7 +27,7 @@ describe("OpenAI image generator", () => {
       "content-type": "application/json",
     });
     expect(JSON.parse(String(init?.body))).toEqual({
-      model: "gpt-image-2",
+      model: "gpt-image-2.5-flare",
       prompt: "A game icon",
       size: "1024x1024",
       quality: "medium",

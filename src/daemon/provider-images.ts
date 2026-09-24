@@ -1,6 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ImageModel, ImageModelRef } from "../shared/contracts.js";
-import { imageModelDefinition, imageModelsForProvider } from "./image-models.js";
+import { IMAGE_MODEL_IDS, imageModelDefinition, imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import type { AccountConnection } from "./account-connection.js";
@@ -69,10 +69,8 @@ export class ProviderImages implements ImageGenerator {
   }
 }
 
-const IMAGE_MODEL_PREFERENCE = ["gpt-image-2", "gemini-3.1-flash-image", "gemini-3.1-flash-lite-image"] as const;
-
 function preferredModel(ids: readonly string[]): string | undefined {
-  return IMAGE_MODEL_PREFERENCE.find((id) => ids.includes(id));
+  return IMAGE_MODEL_IDS.find((id) => ids.includes(id));
 }
 
 async function runtimeSource(runtime: ModelRuntime, provider: string): Promise<ImageSource> {

@@ -71,7 +71,7 @@ import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignment
 import { duplicateStoryNode, snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
 import {
   VIDEO_ASPECT_RATIOS,
-  VIDEO_MODEL,
+  VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type AgentModel,
@@ -113,6 +113,7 @@ import {
   type StoryVariableValue,
   type ToolJob,
   type VideoAspectRatio,
+  type VideoModelId,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
@@ -264,7 +265,7 @@ type StoryFlowData = {
   model?: ImageModelRef;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
-  videoModel?: typeof VIDEO_MODEL;
+  videoModel?: VideoModelId;
   videoResolution?: VideoResolution;
   videoAspectRatio?: VideoAspectRatio;
   duration?: number;
@@ -1022,6 +1023,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       const references = resolveVideoReferences(node);
       await generateMedia(node, "generate-video", {
         prompt,
+        model: node.data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model,
         ...(references.length ? { references } : {}),
         duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
         aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
@@ -1990,8 +1992,8 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
       />
       {runtime?.error || referenceError ? <p role="alert">{runtime?.error ?? referenceError}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Video model" value={data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model} disabled={runtime?.busy} onChange={() => undefined}>
-          <option value={VIDEO_MODEL}>Seedance 2.0</option>
+        <select aria-label="Video model" value={data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoModel: event.target.value as VideoModelId })}>
+          {VIDEO_MODELS.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
         </select>
         <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
           {VIDEO_ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}

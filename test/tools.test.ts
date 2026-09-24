@@ -6,6 +6,7 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { VIDEO_MODELS } from "../src/shared/contracts.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -62,7 +63,7 @@ describe("tool runner", () => {
     }, undefined);
   });
 
-  it("runs Seedance 2.0 with typed Library references", async () => {
+  it("runs the selected Seedance model with typed Library references", async () => {
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("video"),
       mediaType: "video/mp4" as const,
@@ -79,6 +80,7 @@ describe("tool runner", () => {
 
     const run = await runner.run("generate-video", {
       prompt: "  A spaceship crossing a nebula  ",
+      model: VIDEO_MODELS[1].id,
       references: [
         { type: "image", assetId: image.id },
         { type: "video", assetId: video.id },
@@ -91,6 +93,7 @@ describe("tool runner", () => {
 
     expect(generate).toHaveBeenCalledWith({
       prompt: "A spaceship crossing a nebula",
+      model: VIDEO_MODELS[1].id,
       references: [
         expect.objectContaining({ type: "image", name: "frame.png", mediaType: "image/png" }),
         expect.objectContaining({ type: "video", name: "motion.mp4", mediaType: "video/mp4" }),

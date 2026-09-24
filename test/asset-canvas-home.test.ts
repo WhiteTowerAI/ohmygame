@@ -6,11 +6,12 @@ import { recentAssetCanvasProjects } from "../src/renderer/asset-canvas-home.js"
 describe("Asset Canvas home", () => {
   it("creates a valid one-node story for every quick start", () => {
     for (const type of ["image", "video", "model-3d"] as const) {
-      const imageModel = type === "image" ? { provider: "ohmygame", id: "gpt-image-2" } : undefined;
+      const imageModel = type === "image" ? { provider: "ohmygame", id: "gpt-image-2.5-flare" } : undefined;
       const { story, nodeId } = createAssetCanvasStarterStory(type, imageModel);
 
       expect(story.chapter.nodes).toHaveLength(1);
       expect(story.chapter.nodes[0]).toMatchObject({ id: nodeId, type, position: { x: 96, y: 96 } });
+      if (type === "video") expect(story.chapter.nodes[0]).toMatchObject({ data: { model: "doubao-seedance-2-0-260128" } });
       expect(story.editorLayout.nodes[nodeId]).toEqual({ x: 96, y: 96 });
       expect(isStoryDocument(story)).toBe(true);
     }

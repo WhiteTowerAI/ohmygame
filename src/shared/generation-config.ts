@@ -1,7 +1,7 @@
-import { VIDEO_MODEL, type Model3DGenerationConfig, type PromptImage, type Run3DToolRequest } from "./contracts.js";
+import { DEFAULT_VIDEO_MODEL, type Model3DGenerationConfig, type PromptImage, type Run3DToolRequest } from "./contracts.js";
 
 export const DEFAULT_IMAGE_NODE_CONFIG = { resolution: "1K", aspectRatio: "1:1" } as const;
-export const DEFAULT_VIDEO_NODE_CONFIG = { model: VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6 } as const;
+export const DEFAULT_VIDEO_NODE_CONFIG = { model: DEFAULT_VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6 } as const;
 export const MODEL_3D_REFERENCE_LIMIT = 1;
 
 export const DEFAULT_MODEL_3D_CONFIG: Model3DGenerationConfig = {

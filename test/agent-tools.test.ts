@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { DEFAULT_VIDEO_MODEL } from "../src/shared/contracts.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
@@ -204,6 +205,7 @@ describe("agent tools", () => {
     const videoGenerator: VideoGenerator = {
       generate: async (input) => {
         expect(input.prompt).toBe("Slow camera move");
+        expect(input.model).toBe(DEFAULT_VIDEO_MODEL);
         expect(input.duration).toBe(8);
         expect(input.references).toHaveLength(1);
         expect(input.references?.[0]?.type).toBe("image");

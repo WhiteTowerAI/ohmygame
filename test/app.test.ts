@@ -5,7 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
+import { DEFAULT_VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
 import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -439,7 +439,7 @@ describe("daemon", () => {
       position: { x: 0, y: 0 },
       data: {
         prompt: "Opening",
-        model: VIDEO_MODEL,
+        model: DEFAULT_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -586,7 +586,7 @@ describe("daemon", () => {
       position: { x: 100, y: 0 },
       data: {
         prompt: "Animate",
-        model: VIDEO_MODEL,
+        model: DEFAULT_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,

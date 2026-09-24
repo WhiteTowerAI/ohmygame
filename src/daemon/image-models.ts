@@ -1,14 +1,17 @@
 import { IMAGE_ASPECT_RATIOS, type ImageModel, type ImageResolution } from "../shared/contracts.js";
 
-const DEFINITIONS: Record<string, Omit<ImageModel, "provider" | "providerName">> = {
-  "gemini-3.1-flash-lite-image": {
-    id: "gemini-3.1-flash-lite-image",
-    name: "Nano Banana 2 Lite",
+export const IMAGE_MODEL_IDS = ["gpt-image-2.5-flare", "gemini-3.1-flash-image"] as const;
+type ImageModelId = (typeof IMAGE_MODEL_IDS)[number];
+
+const DEFINITIONS: Record<ImageModelId, Omit<ImageModel, "provider" | "providerName">> = {
+  "gpt-image-2.5-flare": {
+    id: "gpt-image-2.5-flare",
+    name: "GPT Image 2.5",
     sizes: ["1024x1024", "1536x1024", "1024x1536"],
-    generationOptions: generationOptions(["1K"]),
+    generationOptions: generationOptions(["1K", "2K", "4K"]),
     supportsReferenceImage: true,
     maxOutputs: 4,
-    protocol: "gemini-generate-content",
+    protocol: "openai-images",
   },
   "gemini-3.1-flash-image": {
     id: "gemini-3.1-flash-image",
@@ -19,15 +22,6 @@ const DEFINITIONS: Record<string, Omit<ImageModel, "provider" | "providerName">>
     maxOutputs: 4,
     protocol: "gemini-generate-content",
   },
-  "gpt-image-2": {
-    id: "gpt-image-2",
-    name: "GPT Image 2",
-    sizes: ["1024x1024", "1536x1024", "1024x1536"],
-    generationOptions: generationOptions(["1K", "2K", "4K"]),
-    supportsReferenceImage: true,
-    maxOutputs: 4,
-    protocol: "openai-images",
-  },
 };
 
 function generationOptions(resolutions: readonly ImageResolution[]) {
@@ -35,7 +29,7 @@ function generationOptions(resolutions: readonly ImageResolution[]) {
 }
 
 export function imageModelDefinition(id: string): Omit<ImageModel, "provider" | "providerName"> | undefined {
-  return DEFINITIONS[id];
+  return isImageModelId(id) ? DEFINITIONS[id] : undefined;
 }
 
 export function imageModelsForProvider(
@@ -43,8 +37,11 @@ export function imageModelsForProvider(
   providerName: string,
   ids: readonly string[],
 ): ImageModel[] {
-  return [...new Set(ids)].flatMap((id) => {
-    const definition = imageModelDefinition(id);
-    return definition ? [{ ...definition, provider, providerName }] : [];
-  });
+  return IMAGE_MODEL_IDS
+    .filter((id) => ids.includes(id))
+    .map((id) => ({ ...DEFINITIONS[id], provider, providerName }));
+}
+
+function isImageModelId(id: string): id is ImageModelId {
+  return (IMAGE_MODEL_IDS as readonly string[]).includes(id);
 }

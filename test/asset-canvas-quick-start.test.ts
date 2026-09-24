@@ -31,22 +31,22 @@ describe("Asset Canvas quick start", () => {
   });
 
   it("creates a canvas with the selected image model", async () => {
-    api.listImageModels.mockResolvedValue([{ provider: "ohmygame", id: "gpt-image-2" }]);
+    api.listImageModels.mockResolvedValue([{ provider: "ohmygame", id: "gpt-image-2.5-flare" }]);
 
     const result = await createAssetCanvasQuickStart("image");
 
     expect(api.createProject).toHaveBeenCalledWith({ type: "asset-canvas" });
     expect(api.updateStory).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({
       chapter: expect.objectContaining({
-        nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "ohmygame", id: "gpt-image-2" } }) })],
+        nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "ohmygame", id: "gpt-image-2.5-flare" } }) })],
       }),
     }));
     expect(result.project).toBe(PROJECT);
     expect(result.nodeId).toBeTruthy();
   });
 
-  it("does not create a project when GPT Image 2 is unavailable", async () => {
-    await expect(createAssetCanvasQuickStart("image")).rejects.toThrow("GPT Image 2 is not available");
+  it("does not create a project when GPT Image 2.5 is unavailable", async () => {
+    await expect(createAssetCanvasQuickStart("image")).rejects.toThrow("GPT Image 2.5 is not available");
     expect(api.createProject).not.toHaveBeenCalled();
   });
 

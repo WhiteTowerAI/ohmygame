@@ -53,7 +53,7 @@ describe("accountModels", () => {
   });
 
   it("excludes image-generation model IDs", () => {
-    const image = { ...knownModel, id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" };
+    const image = { ...knownModel, id: "gemini-3.1-flash-image", name: "Nano Banana 2" };
     const preview = { ...knownModel, id: "google/gemini-3-pro-image-preview", name: "Nano Banana Pro" };
 
     expect(accountModels([knownModel, image, preview] as never, [knownModel.id, image.id, preview.id]))

@@ -284,7 +284,7 @@ export type StoryNode = (
   | { id: string; type: "video"; position: StoryPosition; data: {
     prompt: string;
     promptSource?: StoryTextReference;
-    model: typeof VIDEO_MODEL;
+    model: VideoModelId;
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
@@ -711,7 +711,12 @@ export interface ImageGenerationOption {
 
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_MODEL = "doubao-seedance-2-0-260128" as const;
+export const VIDEO_MODELS = [
+  { id: "doubao-seedance-2-0-260128", name: "Seedance 2.0" },
+  { id: "doubao-seedance-2-5-260628", name: "Seedance 2.5" },
+] as const;
+export type VideoModelId = (typeof VIDEO_MODELS)[number]["id"];
+export const DEFAULT_VIDEO_MODEL: VideoModelId = VIDEO_MODELS[0].id;
 export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
@@ -755,6 +760,7 @@ export interface Run3DToolRequest {
 
 export interface RunVideoToolRequest {
   prompt: string;
+  model?: VideoModelId;
   references?: VideoGenerationReference[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;

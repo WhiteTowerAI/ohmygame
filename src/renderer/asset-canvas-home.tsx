@@ -12,7 +12,7 @@ import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 const QUICK_STARTS: Array<{ type: AssetCanvasStarter; model: string; icon: IconComponent }> = [
-  { type: "image", model: "GPT Image 2", icon: Image },
+  { type: "image", model: "GPT Image 2.5", icon: Image },
   { type: "video", model: "Seedance 2.0", icon: Film },
   { type: "model-3d", model: "Meshy T2", icon: Box },
 ];
