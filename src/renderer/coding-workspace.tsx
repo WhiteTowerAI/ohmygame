@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   Globe2,
+  House,
   Image as ImageIcon,
   LaptopMinimalistic,
   Layers3,
@@ -40,6 +41,10 @@ interface CodingWorkspaceProps {
   onPublish: (details: PublishDetails) => Promise<boolean>;
   onRestart: () => void;
   onClose?: () => void;
+  chatOnRight?: boolean;
+  chatCollapsed?: boolean;
+  onHome?: () => void;
+  onToggleChat?: () => void;
 }
 
 export function CodingWorkspace({
@@ -50,6 +55,10 @@ export function CodingWorkspace({
   onPublish,
   onRestart,
   onClose,
+  chatOnRight = false,
+  chatCollapsed = false,
+  onHome,
+  onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = project?.type === "web-game";
   const publishingUnavailable = project?.type === "godot-game";
@@ -150,18 +159,25 @@ export function CodingWorkspace({
     <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <nav
-          className="workspace-tabs"
-          data-active-tab={activeTab}
-          data-tab-count={supportsPreview ? 3 : 2}
-          aria-label="Workspace views"
-        >
-          {supportsPreview ? (
-            <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
+        <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
+          {chatOnRight && onHome ? (
+            <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
+              <House size={14} />
+            </button>
           ) : null}
-          <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
-          <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
-        </nav>
+          <nav
+            className="workspace-tabs"
+            data-active-tab={activeTab}
+            data-tab-count={supportsPreview ? 3 : 2}
+            aria-label="Workspace views"
+          >
+            {supportsPreview ? (
+              <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
+            ) : null}
+            <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
+            <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
+          </nav>
+        </div>
         <div className="viewer-controls-slot">
           {supportsPreview && activeTab === "preview" ? (
             <PreviewControls
@@ -197,6 +213,17 @@ export function CodingWorkspace({
               onClick={onClose}
               title="Hide workspace"
               aria-label="Hide workspace"
+            >
+              <PanelToggle size={14} />
+            </button>
+          ) : null}
+          {chatOnRight && chatCollapsed && onToggleChat ? (
+            <button
+              className="icon-button pane-header-action"
+              type="button"
+              onClick={onToggleChat}
+              title="Show chat"
+              aria-label="Show chat"
             >
               <PanelToggle size={14} />
             </button>

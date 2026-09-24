@@ -55,6 +55,7 @@ import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
+import { readChatLayout, type ChatLayout } from "./chat-layout.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PublishDetails } from "./publish-dialog.js";
 
@@ -93,6 +94,7 @@ export function ProjectShell({
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
   const [agentWidth, setAgentWidth] = useState(readAgentWidth);
+  const [chatLayout] = useState<ChatLayout>(readChatLayout);
   const [maximumAgentWidth, setMaximumAgentWidth] = useState(DEFAULT_AGENT_WIDTH);
   const [resizingAgent, setResizingAgent] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -139,7 +141,8 @@ export function ProjectShell({
     const bounds = shell?.getBoundingClientRect();
     if (!shell || !bounds) return;
     const maximum = getMaximumAgentWidth(bounds.width);
-    const width = Math.round(Math.min(maximum, Math.max(MIN_AGENT_WIDTH, clientX - bounds.left)));
+    const distance = chatLayout === "right" ? bounds.right - clientX : clientX - bounds.left;
+    const width = Math.round(Math.min(maximum, Math.max(MIN_AGENT_WIDTH, distance)));
     agentWidthRef.current = width;
     shell.style.setProperty("--agent-width", `${width}px`);
   }
@@ -166,10 +169,15 @@ export function ProjectShell({
   function resizeAgentWithKeyboard(event: KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const direction = chatLayout === "left"
+      ? (event.key === "ArrowLeft" ? -1 : 1)
+      : (event.key === "ArrowLeft" ? 1 : -1);
     const bounds = workspaceShell.current?.getBoundingClientRect();
     if (!bounds) return;
-    resizeAgent(bounds.left + agentWidthRef.current + direction * 16);
+    const clientX = chatLayout === "right"
+      ? bounds.right - agentWidthRef.current - direction * 16
+      : bounds.left + agentWidthRef.current + direction * 16;
+    resizeAgent(clientX);
     setAgentWidth(agentWidthRef.current);
     saveAgentWidth();
   }
@@ -586,7 +594,7 @@ export function ProjectShell({
 
   return (
     <main
-      className={`workspace-shell${agentIsCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
+      className={`workspace-shell workspace-shell-chat-${chatLayout}${agentIsCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
       ref={workspaceShell}
       style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}
     >
@@ -594,11 +602,13 @@ export function ProjectShell({
         <div className="workspace-resize-shield" />
       ) : null}
 
-      <WorkspaceNavigationActions
-        collapsed={agentIsCollapsed}
-        onHome={requestHome}
-        onExpand={() => setAgentCollapsed(false)}
-      />
+      {chatLayout === "left" ? (
+        <WorkspaceNavigationActions
+          collapsed={agentIsCollapsed}
+          onHome={requestHome}
+          onExpand={() => setAgentCollapsed(false)}
+        />
+      ) : null}
 
       <section className="agent-pane" aria-label="Agent">
         <header className="pane-header window-drag-handle">
@@ -767,6 +777,10 @@ export function ProjectShell({
           onPublish={publish}
           onRestart={restartPreview}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
+          chatOnRight={chatLayout === "right"}
+          chatCollapsed={agentIsCollapsed}
+          onHome={requestHome}
+          onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
         />
       ) : <InteractiveDramaWorkspace
         project={project}
@@ -774,6 +788,10 @@ export function ProjectShell({
         publishing={publishing}
         workspaceRevision={workspaceRevision}
         onPublish={publish}
+        chatOnRight={chatLayout === "right"}
+        chatCollapsed={agentIsCollapsed}
+        onHome={requestHome}
+        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       />}
     </main>
   );

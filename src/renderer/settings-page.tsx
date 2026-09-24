@@ -10,6 +10,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
+import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 
 const BILLING_DASHBOARD_URL = "https://ohmygame.ai/account/billing";
 
@@ -99,10 +100,16 @@ function BillingSettings() {
 
 function AppearanceSettings() {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+  const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
 
   function chooseAppearance(next: Appearance): void {
     setAppearance(next);
     persistAppearance(next);
+  }
+
+  function chooseChatLayout(next: ChatLayout): void {
+    updateChatLayout(next);
+    setChatLayout(next);
   }
 
   return (
@@ -115,6 +122,16 @@ function AppearanceSettings() {
           <ThemeOption appearance="light" selected={appearance === "light"} onSelect={chooseAppearance} />
           <ThemeOption appearance="dark" selected={appearance === "dark"} onSelect={chooseAppearance} />
         </fieldset>
+      </div>
+      <div className="settings-appearance-group">
+        <h4 className="settings-section-heading">Workspace</h4>
+        <div className="settings-chat-layout-row">
+          <span className="settings-chat-layout-label">Chat position</span>
+          <div className="settings-chat-layout-control" role="group" aria-label="Chat panel position">
+            <button className={chatLayout === "left" ? "is-selected" : ""} type="button" aria-pressed={chatLayout === "left"} onClick={() => chooseChatLayout("left")}>Left</button>
+            <button className={chatLayout === "right" ? "is-selected" : ""} type="button" aria-pressed={chatLayout === "right"} onClick={() => chooseChatLayout("right")}>Right</button>
+          </div>
+        </div>
       </div>
     </section>
   );
