@@ -6,6 +6,7 @@ import type {
   ModelAuthNotification,
   ModelAuthPrompt,
   ModelProviderSummary,
+  ProviderCapability,
   ProviderSummary,
 } from "../shared/contracts.js";
 import {
@@ -25,12 +26,25 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "ohmygame"];
+const POPULAR_PROVIDER_IDS = ["openai-codex", "openai", "anthropic"];
+const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "language", label: "Language" },
+  { value: "image", label: "Image" },
+  { value: "video", label: "Video" },
+  { value: "3d", label: "3D" },
+];
+const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
+  language: "Language",
+  image: "Image",
+  video: "Video",
+  "3d": "3D",
+};
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   const openProvider = (provider: ProviderSummary): void => {
     if (provider.kind === "account") {
-      void openExternal("https://ohmygame.ai/account/billing");
+      void openExternal("https://account.ohmygame.ai/account/billing");
       return;
     }
     onViewChange({ page: "provider", provider });
@@ -49,6 +63,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
     let active = true;
     void listProviders().then((loaded) => {
@@ -61,40 +76,50 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     return () => { active = false; };
   }, []);
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleProviders = normalizedQuery ? providers.filter((provider) => [
-    provider.name,
-    providerDescription(provider),
-  ].some((value) => value.toLowerCase().includes(normalizedQuery))) : providers;
+  const visibleProviders = providers.filter((provider) => (
+    (capability === "all" || provider.capabilities.includes(capability))
+    && (!normalizedQuery || [
+      provider.name,
+      providerDescription(provider),
+      ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
+    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
+  ));
   const accountProviders = visibleProviders.filter((provider) => provider.kind === "account");
   const popularProviders = visibleProviders
     .filter((provider) => provider.kind !== "account" && POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
   const moreProviders = visibleProviders.filter((provider) => provider.kind !== "account" && !POPULAR_PROVIDER_IDS.includes(provider.id));
+  const filteredProviders = [...popularProviders, ...moreProviders];
+  const filtering = capability !== "all" || Boolean(normalizedQuery);
   const accountDetail = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
   return (
     <section className="settings-panel settings-overview-panel">
       <header className="settings-panel-header">
-        <h3>Providers</h3>
+        <h3>Providers &amp; Models</h3>
         <label className="settings-provider-search">
           <Search size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
         </label>
       </header>
       <div className="settings-provider-list">
+        <div className="settings-provider-filters" role="group" aria-label="Filter providers by capability">
+          {PROVIDER_CAPABILITY_FILTERS.map((filter) => (
+            <button type="button" aria-pressed={capability === filter.value} onClick={() => setCapability(filter.value)} key={filter.value}>{filter.label}</button>
+          ))}
+        </div>
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
-        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match your search.</p> : null}
+        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
         {accountProviders.length ? <ProviderGroup title="OhMyGame" providers={accountProviders} featured detail={accountDetail} onProvider={onProvider} /> : null}
-        {popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
-        {moreProviders.length ? (
+        {filtering && filteredProviders.length ? <ProviderGroup title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
+        {!filtering && moreProviders.length ? (
           <section className="settings-provider-group">
-            {normalizedQuery ? <h4>More providers</h4> : (
-              <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
-                <span>More providers <small>({moreProviders.length})</small></span>
-                <ChevronDown size={14} />
-              </button>
-            )}
-            {normalizedQuery || moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
+            <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+              <span>More providers <small>({moreProviders.length})</small></span>
+              <ChevronDown size={14} />
+            </button>
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
           </section>
         ) : null}
         {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -118,7 +143,12 @@ function ProviderRow({ detail, featured = false, onProvider, provider }: { detai
       <ProviderMark provider={provider} />
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
-        <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
+        <span className="settings-provider-details">
+          <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
+          <span className="settings-provider-capabilities" aria-label={`Capabilities: ${provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]).join(", ")}`}>
+            {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
+          </span>
+        </span>
       </span>
       {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
       <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.kind !== "account" && provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>

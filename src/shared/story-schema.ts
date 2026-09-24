@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODELS, VIDEO_RESOLUTIONS } from "./contracts.js";
 
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const id = ref("id");
@@ -224,11 +224,19 @@ const nodes = [
     type: "object", additionalProperties: false, required: ["prompt", "model", "resolution", "aspectRatio", "duration", "references"],
     properties: {
       prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
-      model: { const: VIDEO_MODEL }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
+      model: { enum: VIDEO_MODELS.map((model) => model.id) }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
       references: { type: "array", maxItems: 15, items: assetReference }, assetId: id,
     },
   }),
-  node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio"] } } }),
+  node("model-3d", {
+    type: "object", additionalProperties: false, required: ["targetPolycount", "texture", "pbr", "images"],
+    properties: {
+      targetPolycount: { type: "integer", minimum: 100, maximum: 15000 },
+      texture: { type: "boolean" }, pbr: { type: "boolean" }, images: { type: "array", maxItems: 1, items: assetReference },
+      assetId: id,
+    },
+  }),
+  node("asset", { type: "object", additionalProperties: false, required: ["assetId", "mediaType"], properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } } }),
 ];
 
 /** JSON Schema for the persisted story.json file. Cross-file graph rules remain runtime validations. */

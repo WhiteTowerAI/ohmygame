@@ -13,6 +13,7 @@ const PROJECT_INSTRUCTIONS: Record<ProjectType, readonly string[]> = {
   ],
   "godot-game": [],
   "interactive-drama": [],
+  "asset-canvas": [],
 };
 
 export function appendSystemPromptForProject(projectType: ProjectType): string[] {

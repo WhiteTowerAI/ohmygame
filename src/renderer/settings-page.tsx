@@ -12,13 +12,13 @@ import { readAppearance, setAppearance as persistAppearance, type Appearance } f
 import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 
-const BILLING_DASHBOARD_URL = "https://ohmygame.ai/account/billing";
+const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
+  { section: "providers", label: "Providers & Models", icon: Server },
   { section: "account", label: "Account", icon: UserRound },
   { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
-  { section: "providers", label: "Providers", icon: Server },
   { section: "web-search", label: "Web Search", icon: Globe2 },
   { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },

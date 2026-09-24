@@ -1,6 +1,7 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODELS, VIDEO_RESOLUTIONS, type ImageModelRef, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG } from "./generation-config.js";
 
-const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "asset"]);
+const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "model-3d", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
 export const DEFAULT_SCENE_DURATION_MS = 3_000;
 
@@ -274,6 +275,56 @@ export function createStoryDocument(): StoryDocument {
   };
 }
 
+export type AssetCanvasStarter = "image" | "video" | "model-3d";
+
+export function createAssetGenerationNode(type: AssetCanvasStarter, position: { x: number; y: number }, options: {
+  imageModel?: ImageModelRef;
+  imageResolution?: Extract<StoryNode, { type: "image" }>["data"]["resolution"];
+  imageAspectRatio?: Extract<StoryNode, { type: "image" }>["data"]["aspectRatio"];
+  videoAspectRatio?: Extract<StoryNode, { type: "video" }>["data"]["aspectRatio"];
+} = {}): Extract<StoryNode, { type: AssetCanvasStarter }> {
+  const nodeId = crypto.randomUUID();
+  if (type === "image") return {
+    id: nodeId,
+    type,
+    position,
+    data: {
+      prompt: "",
+      ...(options.imageModel ? { model: options.imageModel } : {}),
+      resolution: options.imageResolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+      aspectRatio: options.imageAspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
+      images: [],
+    },
+  };
+  if (type === "video") return {
+    id: nodeId,
+    type,
+    position,
+    data: {
+      prompt: "",
+      model: DEFAULT_VIDEO_NODE_CONFIG.model,
+      resolution: DEFAULT_VIDEO_NODE_CONFIG.resolution,
+      aspectRatio: options.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+      duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
+      references: [],
+    },
+  };
+  return {
+    id: nodeId,
+    type,
+    position,
+    data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] },
+  };
+}
+
+export function createAssetCanvasStarterStory(type: AssetCanvasStarter, imageModel?: ImageModelRef): { story: StoryDocument; nodeId: string } {
+  const story = createStoryDocument();
+  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, { imageModel });
+  story.chapter.nodes = [node];
+  story.editorLayout.nodes = { [node.id]: node.position };
+  return { story, nodeId: node.id };
+}
+
 export function isStoryDocument(value: unknown): value is StoryDocument {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.chapter)) return false;
   if (!hasOnlyKeys(value, ["version", "editorLayout", "player", "variables", "chapter"])) return false;
@@ -308,7 +359,7 @@ export function isStoryDocument(value: unknown): value is StoryDocument {
         if (item.source.nodeId === node.id || !isPresentationMediaSourceNode(nodeById.get(item.source.nodeId), item.type)) return false;
       }
     }
-    if (node.type === "image") {
+    if (node.type === "image" || node.type === "model-3d") {
       for (const image of node.data.images) {
         if (image.type === "node" && (image.nodeId === node.id || !isImageSourceNode(nodeById.get(image.nodeId)))) return false;
       }
@@ -890,7 +941,7 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
       hasOnlyKeys(value.data, ["title", "description", "presentation"]);
   }
   if (value.type === "asset") return nonEmptyString(value.data.assetId) &&
-    (value.data.mediaType === "image" || value.data.mediaType === "video" || value.data.mediaType === "audio") &&
+    (value.data.mediaType === "image" || value.data.mediaType === "video" || value.data.mediaType === "audio" || value.data.mediaType === "model") &&
     Object.keys(value.data).length === 2;
   if (value.type === "text") return typeof value.data.text === "string" &&
     typeof value.data.instruction === "string" &&
@@ -910,13 +961,21 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   if (value.type === "video") {
     const data = value.data;
     return typeof data.prompt === "string" &&
-      (data.promptSource === undefined || isTextReference(data.promptSource)) && data.model === VIDEO_MODEL &&
+      (data.promptSource === undefined || isTextReference(data.promptSource)) && VIDEO_MODELS.some((model) => model.id === data.model) &&
       typeof data.resolution === "string" && VIDEO_RESOLUTIONS.some((resolution) => resolution === data.resolution) &&
       typeof data.aspectRatio === "string" && VIDEO_ASPECT_RATIOS.some((aspectRatio) => aspectRatio === data.aspectRatio) &&
       typeof data.duration === "number" && Number.isInteger(data.duration) && data.duration >= 4 && data.duration <= 15 &&
       Array.isArray(data.references) && data.references.length <= 15 && data.references.every(isAssetReference) &&
       (data.assetId === undefined || nonEmptyString(data.assetId)) &&
       hasOnlyKeys(data, ["prompt", "promptSource", "model", "resolution", "aspectRatio", "duration", "references", "assetId"]);
+  }
+  if (value.type === "model-3d") {
+    const data = value.data;
+    return typeof data.targetPolycount === "number" && Number.isInteger(data.targetPolycount) && data.targetPolycount >= 100 && data.targetPolycount <= 15_000 &&
+      typeof data.texture === "boolean" && typeof data.pbr === "boolean" &&
+      Array.isArray(data.images) && data.images.length <= 1 && data.images.every(isAssetReference) &&
+      (data.assetId === undefined || nonEmptyString(data.assetId)) &&
+      hasOnlyKeys(data, ["targetPolycount", "texture", "pbr", "images", "assetId"]);
   }
   if (value.type !== "choice" || typeof value.data.title !== "string" || !Array.isArray(value.data.options) || value.data.options.length < 1) return false;
   const optionIds = new Set<string>();
@@ -1194,8 +1253,8 @@ function isTextReference(value: unknown): boolean {
   return isRecord(value) && value.type === "node" && nonEmptyString(value.nodeId) && Object.keys(value).length === 2;
 }
 
-function isCanvasOnlyNode(node: StoryNode): node is Extract<StoryNode, { type: "text" | "image" | "video" | "asset" }> {
-  return node.type === "text" || node.type === "image" || node.type === "video" || node.type === "asset";
+function isCanvasOnlyNode(node: StoryNode): node is Extract<StoryNode, { type: "text" | "image" | "video" | "model-3d" | "asset" }> {
+  return node.type === "text" || node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "asset";
 }
 
 function isImageSourceNode(node: StoryNode | undefined): boolean {

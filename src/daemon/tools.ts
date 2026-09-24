@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_OUTPUT_COUNTS,
   IMAGE_RESOLUTIONS,
   IMAGE_SIZES,
+  TOOL_IDS,
+  DEFAULT_VIDEO_MODEL,
   VIDEO_ASPECT_RATIOS,
+  VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
-  MODEL_3D_MODELS,
-  MODEL_3D_POSES,
-  MODEL_3D_QUALITIES,
-  MODEL_3D_TEXTURE_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
   type ImageResolution,
@@ -24,8 +23,9 @@ import {
   type Run3DToolRequest,
   type RunVideoToolRequest,
   type RunToolRequest,
-  type ToolDefinition,
+  type ToolId,
   type ToolJob,
+  type ToolJobContext,
   type ToolRun,
   type ToolRunFile,
 } from "../shared/contracts.js";
@@ -34,63 +34,23 @@ import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./seedance-video.js";
 import type { AssetLibrary } from "./asset-library.js";
 
-const generateImage: ToolDefinition = {
-  id: "generate-image",
-  name: "Image Generator",
-  description: "Generate a game-ready image from a text prompt.",
-  category: "images",
-  inputKind: "prompt",
-  outputKind: "image",
-  sizes: IMAGE_SIZES,
-  defaultSize: "1024x1024",
-};
-
-const imageTo3D: ToolDefinition = {
-  id: "image-to-3d",
-  name: "3D Generator",
-  description: "Generate a 3D model from a text prompt or reference image.",
-  category: "3d",
-  inputKind: "image-prompt",
-  outputKind: "model",
-};
-
 const VIDEO_DEFAULT_DURATION = 6;
-const generateVideo: ToolDefinition = {
-  id: "generate-video",
-  name: "Video Generator",
-  description: "Generate a project-ready video from a prompt and optional image, video, or audio references.",
-  category: "video",
-  inputKind: "image-prompt",
-  outputKind: "video",
-  defaultDuration: VIDEO_DEFAULT_DURATION,
-  minDuration: 4,
-  maxDuration: 15,
-  aspectRatios: VIDEO_ASPECT_RATIOS,
-  resolutions: VIDEO_RESOLUTIONS,
-};
-
 const HISTORY_LIMIT = 20;
 
 interface ToolJobRecord extends ToolJob {
   input?: RunToolRequest;
-  metadata: ToolRunMetadata;
+  metadata: ToolJobMetadata;
   controller: AbortController;
 }
 
 interface StoredToolRun extends ToolRun {
   version: 1;
-  files: StoredToolRunFile[];
-  requestId?: string;
-  prompt?: string;
   preview?: { fileName: string; mediaType: "image/png" | "image/jpeg" };
 }
 
-interface StoredToolRunFile extends ToolRunFile {
-  assetId?: string;
-}
-
-interface ToolRunMetadata {
+interface ToolJobMetadata {
   title?: string;
+  context?: ToolJobContext;
 }
 
 export class ToolRunError extends Error {
@@ -117,11 +77,7 @@ export class ToolRunner {
     await mkdir(this.#runsDirectory, { recursive: true });
   }
 
-  list(): ToolDefinition[] {
-    return [generateImage, imageTo3D, generateVideo];
-  }
-
-  start(toolId: string, input: RunToolRequest, metadata: ToolRunMetadata = {}): ToolJob {
+  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}): ToolJob {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     const id = randomUUID();
     const controller = new AbortController();
@@ -131,6 +87,7 @@ export class ToolRunner {
       createdAt: new Date().toISOString(),
       status: "running",
       title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
+      ...(metadata.context ? { context: metadata.context } : {}),
       input,
       metadata,
       controller,
@@ -174,7 +131,10 @@ export class ToolRunner {
 
   async #execute(job: ToolJobRecord): Promise<void> {
     try {
-      job.run = await this.run(job.toolId, job.input!, job.controller.signal, job.metadata);
+      job.run = await this.run(job.toolId, job.input!, job.controller.signal);
+      if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
+        await this.removeRun(job.run.id);
+      }
       job.status = "succeeded";
       job.input = undefined;
     } catch (cause) {
@@ -197,28 +157,28 @@ export class ToolRunner {
     for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
-  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, metadata: ToolRunMetadata = {}): Promise<ToolRun> {
-    if (toolId === imageTo3D.id) {
-      assertOnlyKeys(input, ["prompt", "images", "model", "quality", "targetPolycount", "texture", "textureResolution", "pbr", "pose", "imageEnhancement"]);
-      return this.#run3D(input as Run3DToolRequest, signal, metadata);
+  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+    if (toolId === "image-to-3d") {
+      assertOnlyKeys(input, ["images", "targetPolycount", "texture", "pbr"]);
+      return this.#run3D(input as Run3DToolRequest, signal);
     }
-    if (toolId === generateVideo.id) {
-      assertOnlyKeys(input, ["prompt", "references", "duration", "aspectRatio", "resolution"]);
-      return this.#runVideo(input as RunVideoToolRequest, signal, metadata);
+    if (toolId === "generate-video") {
+      assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution"]);
+      return this.#runVideo(input as RunVideoToolRequest, signal);
     }
-    if (toolId !== generateImage.id) throw new ToolRunError("Tool not found", 404);
+    if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "size", "resolution", "aspectRatio", "outputs", "images"]);
-    return this.#runImage(input as RunImageToolRequest, signal, metadata);
+    return this.#runImage(input as RunImageToolRequest, signal);
   }
 
-  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
+  async #runImage(input: RunImageToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
-    const usesStudioOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
-    if (input.size !== undefined && usesStudioOptions) throw new ToolRunError("Image size cannot be combined with Asset Studio options", 400);
-    if (usesStudioOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
-      throw new ToolRunError("Resolution and aspect ratio are required for Asset Studio images", 400);
+    const usesConfiguredOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
+    if (input.size !== undefined && usesConfiguredOptions) throw new ToolRunError("Image size cannot be combined with resolution, aspect ratio, output count, or reference images", 400);
+    if (usesConfiguredOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
+      throw new ToolRunError("Resolution and aspect ratio are required for configured image generation", 400);
     }
     const size = input.size ?? "1024x1024";
     if (!isImageSize(size)) throw new ToolRunError("Unsupported image size", 400);
@@ -239,10 +199,10 @@ export class ToolRunner {
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
-        ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
-      const files: StoredToolRunFile[] = generated.map((image, index) => ({
+      const files: ToolRunFile[] = generated.map((image, index) => ({
         name: imageFileName(image.mediaType, outputs > 1 ? index + 1 : undefined),
         mediaType: image.mediaType,
       }));
@@ -258,11 +218,9 @@ export class ToolRunner {
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: generateImage.id,
+        toolId: "generate-image",
         createdAt: new Date().toISOString(),
         files,
-        prompt,
-        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await Promise.all(generated.map((image, index) => writeFile(path.join(temporary, files[index]!.name), image.bytes)));
@@ -278,78 +236,50 @@ export class ToolRunner {
     }
   }
 
-  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
-    if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
-    const prompt = input.prompt?.trim();
-    const images = "images" in input ? input.images : undefined;
-    const hasImages = images !== undefined;
-    if (Boolean(prompt) === hasImages) throw new ToolRunError("Provide either a prompt or reference images", 400);
-    if (prompt && prompt.length > 800) throw new ToolRunError("3D prompt must not exceed 800 characters", 400);
-    if (images && (images.length < 1 || images.length > 4)) throw new ToolRunError("Provide 1 to 4 reference images", 400);
-    if (images?.some((image) => !isPromptImage(image))) throw new ToolRunError("PNG or JPEG reference images are required", 400);
-    if (input.model !== undefined && !MODEL_3D_MODELS.includes(input.model)) throw new ToolRunError("Unsupported 3D model", 400);
-    if (input.quality !== undefined && !MODEL_3D_QUALITIES.includes(input.quality)) throw new ToolRunError("Unsupported 3D quality", 400);
+  async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+    const { images } = input;
+    if (!Array.isArray(images) || images.length !== 1) throw new ToolRunError("Provide exactly one reference image", 400);
+    if (images.some((image) => !isPromptImage(image))) throw new ToolRunError("A PNG or JPEG reference image is required", 400);
     if (input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < 100 || input.targetPolycount > 15_000)) {
       throw new ToolRunError("3D poly count must be between 100 and 15000", 400);
     }
-    if (input.textureResolution !== undefined && !MODEL_3D_TEXTURE_RESOLUTIONS.includes(input.textureResolution)) throw new ToolRunError("Unsupported texture resolution", 400);
-    if (input.pose !== undefined && !MODEL_3D_POSES.includes(input.pose)) throw new ToolRunError("Unsupported 3D pose", 400);
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
-    if (input.imageEnhancement !== undefined && typeof input.imageEnhancement !== "boolean") throw new ToolRunError("Image enhancement must be a boolean", 400);
-    if (prompt && input.imageEnhancement !== undefined) throw new ToolRunError("Image enhancement requires reference images", 400);
-    const model = input.model ?? "meshy-7";
-    if (model === "meshy-t2" && images && images.length !== 1) throw new ToolRunError("Meshy T2 requires exactly one reference image", 400);
-    if (model === "meshy-t2" && input.quality !== undefined) throw new ToolRunError("Meshy T2 does not support quality modes", 400);
-    if (model === "meshy-t2" && input.imageEnhancement !== undefined) throw new ToolRunError("Meshy T2 does not support image enhancement", 400);
-    if (model !== "meshy-t2" && input.targetPolycount !== undefined) throw new ToolRunError("Poly count requires Meshy T2", 400);
+    if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const options = {
-        model: input.model,
-        quality: input.quality,
+      const generated = await this.model3DGenerator.generate({
+        images,
         targetPolycount: input.targetPolycount,
         texture: input.texture,
-        textureResolution: input.textureResolution,
         pbr: input.pbr,
-        pose: input.pose,
-      };
-      const generated = await this.model3DGenerator.generate(
-        prompt
-          ? { ...options, prompt }
-          : { ...options, images: images!, ...(input.imageEnhancement !== undefined ? { imageEnhancement: input.imageEnhancement } : {}) },
-        signal,
-      );
+      }, signal);
       signal?.throwIfAborted();
-      const primaryImage = images?.[0];
+      const primaryImage = images[0];
       const preview = primaryImage ? {
         fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
         mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
       } : undefined;
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("model.glb", generated.bytes, {
-          ...(prompt ? { prompt } : {}),
           sourceKey: `tool:${id}:model.glb`,
         })).id;
       }
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: imageTo3D.id,
+        toolId: "image-to-3d",
         createdAt: new Date().toISOString(),
         files: [{
           name: "model.glb",
           mediaType: generated.mediaType,
           ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
         }],
-        requestId: generated.requestId,
-        ...(prompt ? { prompt } : {}),
         ...(preview ? { preview } : {}),
-        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
@@ -366,7 +296,7 @@ export class ToolRunner {
     }
   }
 
-  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined, metadata: ToolRunMetadata): Promise<ToolRun> {
+  async #runVideo(input: RunVideoToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     if (!this.videoGenerator) throw new ToolRunError("Video generation is not configured", 503);
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
@@ -382,11 +312,13 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const aspectRatio = input.aspectRatio ?? "adaptive";
       const resolution = input.resolution ?? "720p";
+      const model = input.model ?? DEFAULT_VIDEO_MODEL;
+      if (!VIDEO_MODELS.some((candidate) => candidate.id === model)) throw new ToolRunError("Unsupported video model", 400);
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
       validateVideoReferenceDurations(resolvedReferences);
-      const generated = await this.videoGenerator.generate({ prompt, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
@@ -398,16 +330,13 @@ export class ToolRunner {
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: generateVideo.id,
+        toolId: "generate-video",
         createdAt: new Date().toISOString(),
         files: [{
           name: "output.mp4",
           mediaType: generated.mediaType,
           ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
         }],
-        requestId: generated.requestId,
-        prompt,
-        ...(metadata.title ? { title: metadata.title } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "output.mp4"), generated.bytes);
@@ -445,19 +374,7 @@ export class ToolRunner {
     }
   }
 
-  async recentRuns(): Promise<ToolRun[]> {
-    const entries = await readdir(this.#runsDirectory, { withFileTypes: true });
-    const runs = await Promise.all(entries
-      .filter((entry) => entry.isDirectory() && isRunId(entry.name))
-      .map((entry) => this.#readRun(entry.name)));
-    return runs
-      .filter((run): run is StoredToolRun => Boolean(run))
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .slice(0, HISTORY_LIMIT)
-      .map(publicRun);
-  }
-
-  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; title?: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
+  async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {
     if (!isRunId(runId) || !isToolRunFileName(fileName)) return undefined;
     try {
       const directory = path.join(this.#runsDirectory, runId);
@@ -469,13 +386,10 @@ export class ToolRunner {
       const preview = run.preview
         ? { bytes: await readFile(path.join(directory, run.preview.fileName)), mediaType: run.preview.mediaType }
         : undefined;
-      const title = promptTitle(run.prompt) ?? run.title;
       return {
         bytes: await readFile(filePath),
         mediaType: file.mediaType,
         ...(file.assetId ? { assetId: file.assetId } : {}),
-        ...(title ? { title } : {}),
-        ...(run.prompt ? { prompt: run.prompt } : {}),
         ...(preview ? { preview } : {}),
       };
     } catch (error) {
@@ -484,11 +398,15 @@ export class ToolRunner {
     }
   }
 
+  async removeRun(runId: string): Promise<void> {
+    if (!isRunId(runId)) return;
+    await rm(path.join(this.#runsDirectory, runId), { recursive: true, force: true });
+  }
+
   async #readRun(runId: string): Promise<StoredToolRun | undefined> {
     try {
       const value = JSON.parse(await readFile(path.join(this.#runsDirectory, runId, "run.json"), "utf8")) as Partial<StoredToolRun>;
       if (value.version !== 1 || value.id !== runId || typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) || !isToolId(value.toolId) || !Array.isArray(value.files)) return undefined;
-      if (value.title !== undefined && typeof value.title !== "string") return undefined;
       if (value.files.some((file) => !file || typeof file.name !== "string" || typeof file.mediaType !== "string" ||
         file.assetId !== undefined && typeof file.assetId !== "string")) return undefined;
       return value as StoredToolRun;
@@ -534,20 +452,15 @@ function supportedVideoReferenceType(type: VideoGenerationReference["type"], con
   return contentType === "audio/mpeg" || contentType === "audio/wav";
 }
 
-function publicRun({ version: _, requestId: __, prompt, preview: ___, ...run }: StoredToolRun): ToolRun {
-  const title = promptTitle(prompt) ?? run.title;
-  return {
-    ...run,
-    files: run.files.map((file) => ({ ...file })),
-    ...(title ? { title } : {}),
-  };
+function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun {
+  return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
 function publicJob({ input: _, metadata: __, controller: ___, ...job }: ToolJobRecord): ToolJob {
   return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
 }
 
-function toolName(toolId: ToolDefinition["id"]): string {
+function toolName(toolId: ToolId): string {
   if (toolId === "generate-video") return "Generated Video";
   if (toolId === "image-to-3d") return "Generated 3D Model";
   return "Generated Image";
@@ -588,8 +501,8 @@ function isToolRunFileName(value: string): boolean {
   return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(value);
 }
 
-function isToolId(value: unknown): value is ToolDefinition["id"] {
-  return value === generateImage.id || value === imageTo3D.id || value === generateVideo.id;
+function isToolId(value: unknown): value is ToolId {
+  return typeof value === "string" && TOOL_IDS.includes(value as ToolId);
 }
 
 function imageFileName(mediaType: string, index?: number): string {

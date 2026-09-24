@@ -24,7 +24,7 @@ describe("image protocol adapters", () => {
     });
   });
 
-  it("passes an Asset Studio reference image and aspect ratio to Gemini", async () => {
+  it("passes a reference image and aspect ratio to Gemini", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
       candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/webp", data: Buffer.from("webp").toString("base64") } }] } }],
     }));
@@ -45,7 +45,7 @@ describe("image protocol adapters", () => {
     });
   });
 
-  it("passes multiple Asset Studio reference images to Gemini", async () => {
+  it("passes multiple reference images to Gemini", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
       candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "cG5n" } }] } }],
     }));

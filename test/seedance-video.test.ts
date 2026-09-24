@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ManagedVideoGenerator, type VideoSource } from "../src/daemon/seedance-video.js";
-import { VIDEO_MODEL } from "../src/shared/contracts.js";
+import { DEFAULT_VIDEO_MODEL, VIDEO_MODELS } from "../src/shared/contracts.js";
 
 describe("managed Seedance video adapter", () => {
   it("creates, polls, and downloads a video through the New API contract", async () => {
@@ -10,7 +10,7 @@ describe("managed Seedance video adapter", () => {
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
     const generator = new ManagedVideoGenerator(() => source(), request);
 
-    await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "1080p", aspectRatio: "21:9" }))
+    await expect(generator.generate({ prompt: "Animate", model: DEFAULT_VIDEO_MODEL, duration: 6, resolution: "1080p", aspectRatio: "21:9" }))
       .resolves.toMatchObject({ bytes: Buffer.from([1, 2, 3]), mediaType: "video/mp4", requestId: "task-1" });
     expect(request).toHaveBeenNthCalledWith(1, "https://account.example/v1/video/generations", expect.objectContaining({
       method: "POST",
@@ -21,7 +21,7 @@ describe("managed Seedance video adapter", () => {
     }));
     expect(request).toHaveBeenNthCalledWith(3, "https://files.example/video.mp4", { signal: undefined });
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
-      model: VIDEO_MODEL,
+      model: DEFAULT_VIDEO_MODEL,
       prompt: "Animate",
       seconds: "6",
       metadata: { resolution: "1080p", ratio: "21:9" },
@@ -41,6 +41,7 @@ describe("managed Seedance video adapter", () => {
 
     await expect(generator.generate({
       prompt: "Animate",
+      model: VIDEO_MODELS[1].id,
       duration: 6,
       resolution: "720p",
       aspectRatio: "adaptive",
@@ -51,7 +52,7 @@ describe("managed Seedance video adapter", () => {
       ],
     })).rejects.toThrow("blocked");
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
-      model: VIDEO_MODEL,
+      model: VIDEO_MODELS[1].id,
       prompt: "Animate",
       seconds: "6",
       metadata: {
@@ -74,7 +75,7 @@ describe("managed Seedance video adapter", () => {
       .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
     const generator = new ManagedVideoGenerator(() => source(), request);
 
-    await expect(generator.generate({ prompt: "Animate", duration: 6, resolution: "720p", aspectRatio: "adaptive" }))
+    await expect(generator.generate({ prompt: "Animate", model: DEFAULT_VIDEO_MODEL, duration: 6, resolution: "720p", aspectRatio: "adaptive" }))
       .resolves.toMatchObject({ bytes: Buffer.from([4, 5, 6]), requestId: "task-content" });
     expect(request).toHaveBeenNthCalledWith(3, "https://account.example/v1/videos/task-content/content", expect.objectContaining({
       headers: { authorization: "Bearer secret" },
@@ -86,7 +87,7 @@ function source(overrides: Partial<VideoSource> = {}): VideoSource {
   return {
     baseUrl: "https://account.example/v1",
     apiKey: "secret",
-    modelIds: [VIDEO_MODEL],
+    modelIds: VIDEO_MODELS.map((model) => model.id),
     stageMedia: async () => ({ id: "staged", url: "https://media.example/reference" }),
     removeMedia: async () => undefined,
     ...overrides,

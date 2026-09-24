@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
-import { findStoryCoverSource } from "../src/shared/story-cover.js";
+import { createStoryDocument } from "../src/shared/story.js";
+import { findAssetCanvasCoverSource, findStoryCoverSource } from "../src/shared/story-cover.js";
 
 describe("findStoryCoverSource", () => {
   it("finds the first library image on the story entry path", () => {
@@ -21,5 +22,16 @@ describe("findStoryCoverSource", () => {
     scene.data.presentation.media.items = [{ id: "media", type: "video", source: { type: "library", assetId: "video-1" } }];
 
     expect(findStoryCoverSource(story)).toEqual({ assetId: "video-1", mediaType: "video" });
+  });
+
+  it("uses the last generated visual output in an Asset Canvas", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [
+      { id: "image", type: "image", position: { x: 0, y: 0 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "image-1" } },
+      { id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: "doubao-seedance-2-0-260128", resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "video-1" } },
+      { id: "model", type: "model-3d", position: { x: 0, y: 0 }, data: { targetPolycount: 4_000, texture: true, pbr: false, images: [], assetId: "model-1" } },
+    ];
+
+    expect(findAssetCanvasCoverSource(story)).toEqual({ assetId: "video-1", mediaType: "video" });
   });
 });

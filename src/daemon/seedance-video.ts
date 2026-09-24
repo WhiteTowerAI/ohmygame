@@ -1,10 +1,11 @@
-import { VIDEO_MODEL, type VideoAspectRatio, type VideoGenerationReference, type VideoResolution } from "../shared/contracts.js";
+import type { VideoAspectRatio, VideoGenerationReference, VideoModelId, VideoResolution } from "../shared/contracts.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const MAX_WAIT_MS = 10 * 60_000;
 
 interface VideoGenerationInput {
   prompt: string;
+  model: VideoModelId;
   references?: VideoReferenceAsset[];
   duration: number;
   resolution: VideoResolution;
@@ -57,7 +58,7 @@ export class ManagedVideoGenerator implements VideoGenerator {
 
   async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
     const source = this.source();
-    if (!source || !source.modelIds.includes(VIDEO_MODEL)) throw new VideoGenerationError("Seedance 2.0 is not available", 503);
+    if (!source || !source.modelIds.includes(input.model)) throw new VideoGenerationError("The selected video model is not available", 503);
     const staged: Array<StagedVideoReference & { type: VideoReferenceAsset["type"] }> = [];
     try {
       for (const reference of input.references ?? []) {
@@ -68,7 +69,7 @@ export class ManagedVideoGenerator implements VideoGenerator {
         method: "POST",
         headers: { authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
         body: JSON.stringify({
-          model: VIDEO_MODEL,
+          model: input.model,
           prompt: input.prompt,
           seconds: String(input.duration),
           metadata: {

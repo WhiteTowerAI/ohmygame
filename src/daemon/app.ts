@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -24,7 +24,6 @@ import { PreviewManager } from "./preview.js";
 import { AccountServiceClient } from "./account-service-client.js";
 import { AccountConnection } from "./account-connection.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
-import { ImageSettingsStore } from "./image-settings.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -43,10 +42,6 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
-import { AssetTemplateError, AssetTemplateStore } from "./asset-templates.js";
-import { AssetStudioDraftStore } from "./asset-studio-draft.js";
-import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
-import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
@@ -87,7 +82,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
       storyViewport: {
         type: "object",
@@ -371,15 +366,12 @@ const toolRunSchema = {
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 4, maximum: 15 },
-      model: { type: "string", enum: [...MODEL_3D_MODELS] },
-      quality: { type: "string", enum: [...MODEL_3D_QUALITIES] },
       targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
       texture: { type: "boolean" },
-      textureResolution: { type: "string", enum: [...MODEL_3D_TEXTURE_RESOLUTIONS] },
       pbr: { type: "boolean" },
-      pose: { type: "string", enum: [...MODEL_3D_POSES] },
-      imageEnhancement: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
+      projectId: { type: "string", minLength: 1, maxLength: 200 },
+      nodeId: { type: "string", minLength: 1, maxLength: 200 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -415,18 +407,6 @@ const toolRunSchema = {
           },
         },
       },
-    },
-  },
-} as const;
-
-const addToolResultSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["runId", "fileName"],
-    properties: {
-      runId: { type: "string", minLength: 1, maxLength: 100 },
-      fileName: { type: "string", minLength: 1, maxLength: 200 },
     },
   },
 } as const;
@@ -470,25 +450,6 @@ const accountConnectionSchema = {
   },
 } as const;
 
-const imageSettingsSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["model"],
-    properties: {
-      model: {
-        type: "object",
-        additionalProperties: false,
-        required: ["provider", "id"],
-        properties: {
-          provider: { type: "string", minLength: 1, maxLength: 100 },
-          id: { type: "string", minLength: 1, maxLength: 200 },
-        },
-      },
-    },
-  },
-} as const;
-
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 
 export function createApp(options: AppOptions = {}) {
@@ -507,10 +468,7 @@ export function createApp(options: AppOptions = {}) {
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
-  const assetTemplates = new AssetTemplateStore(dataDirectory);
-  const assetStudioDraft = new AssetStudioDraftStore(dataDirectory);
   const previews = new PreviewManager(events);
-  const imageSettings = new ImageSettingsStore(dataDirectory);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
@@ -549,7 +507,7 @@ export function createApp(options: AppOptions = {}) {
     getModelRuntime,
     accountServiceClient,
   );
-  const providerImages = new ProviderImages(getModelRuntime, accountConnection, () => imageSettings.get().model, options.imageFetch);
+  const providerImages = new ProviderImages(getModelRuntime, accountConnection, options.imageFetch);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -632,7 +590,7 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, tools.list().map((tool) => tool.id), registered, webSearch.enabled());
+      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -663,7 +621,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), webSearchSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -901,29 +859,21 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/tools", async () => tools.list());
-
-  app.get("/asset-studio/draft", async () => assetStudioDraft.get() ?? null);
-
-  app.put<{ Body: AssetStudioDraft }>("/asset-studio/draft", async (request, reply) => {
-    try {
-      return await assetStudioDraft.update(request.body);
-    } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.get("/tool-runs", async () => tools.recentRuns());
-
   app.get("/tool-jobs", async () => tools.jobs());
 
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
     "/tools/:toolId/jobs",
     { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
     async (request, reply) => {
       try {
-        const { title, ...input } = request.body;
-        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, { title: title?.trim() }));
+        const { title, projectId, nodeId, ...input } = request.body;
+        if (Boolean(projectId) !== Boolean(nodeId)) {
+          throw new ToolRunError("Project and node context must be provided together", 400);
+        }
+        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, {
+          title: title?.trim(),
+          ...(projectId && nodeId ? { context: { projectId, nodeId } } : {}),
+        }));
       } catch (cause) {
         if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;
@@ -948,59 +898,6 @@ export function createApp(options: AppOptions = {}) {
       throw cause;
     }
   });
-
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
-    "/tools/:toolId/runs",
-    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
-    async (request, reply) => {
-      try {
-        const { title, ...input } = request.body;
-        return reply.code(201).send(await tools.run(request.params.toolId, input as RunToolRequest, undefined, { title: title?.trim() }));
-      } catch (cause) {
-        if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
-        throw cause;
-      }
-    },
-  );
-
-  app.get<{ Params: { runId: string; fileName: string } }>(
-    "/tool-runs/:runId/files/:fileName",
-    async (request, reply) => {
-      const file = await tools.file(request.params.runId, request.params.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      reply.header("content-type", file.mediaType);
-      reply.header("x-content-type-options", "nosniff");
-      reply.header("cache-control", "private, max-age=31536000, immutable");
-      return reply.send(file.bytes);
-    },
-  );
-
-  app.post<{ Params: { projectId: string }; Body: AddToolResultRequest }>(
-    "/projects/:projectId/tool-results",
-    { schema: addToolResultSchema },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const file = await tools.file(request.body.runId, request.body.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      const extension = path.extname(request.body.fileName).toLowerCase();
-      const prefix = extension === ".glb" ? "model" : extension === ".mp4" || extension === ".webm" ? "video" : "image";
-      const outputSuffix = request.body.fileName.match(/^output(-[1-4])?\./)?.[1] ?? "";
-      const fileName = `${prefix}-${request.body.runId}${outputSuffix}${extension}`;
-      return reply.code(201).send({
-        path: await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-          ...(file.prompt ? { prompt: file.prompt } : {}),
-          ...(file.preview ? {
-            preview: {
-              bytes: file.preview.bytes,
-              extension: file.preview.mediaType === "image/png" ? "png" : "jpg",
-            },
-          } : {}),
-        }),
-      });
-    },
-  );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
@@ -1206,51 +1103,6 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
-
-  app.get("/asset-templates", async (_request, reply) => {
-    try {
-      return await assetTemplates.list();
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.post<{ Body: CreateAssetTemplateRequest }>("/asset-templates", async (request, reply) => {
-    try {
-      if (!isAssetTemplateDefinition(request.body)) throw new AssetTemplateError("Asset template is invalid");
-      return reply.code(201).send(await assetTemplates.create(request.body));
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.get<{ Params: { templateId: string } }>("/asset-templates/:templateId/cover", async (request, reply) => {
-    const cover = await assetTemplates.cover(request.params.templateId);
-    if (!cover) return reply.code(404).send({ error: "Asset template cover not found" });
-    return reply.type("image/webp").header("cache-control", "no-store").header("x-content-type-options", "nosniff").send(cover);
-  });
-
-  app.put<{ Params: { templateId: string }; Body: Buffer }>("/asset-templates/:templateId/cover", async (request, reply) => {
-    try {
-      if (!isWebp(request.body)) return reply.code(400).send({ error: "Asset template cover must be a WebP image" });
-      return await assetTemplates.setCover(request.params.templateId, request.body);
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.delete<{ Params: { templateId: string } }>("/asset-templates/:templateId", async (request, reply) => {
-    try {
-      await assetTemplates.delete(request.params.templateId);
-      return reply.code(204).send();
-    } catch (cause) {
-      if (cause instanceof AssetTemplateError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
 
   app.get("/library/assets", async () => {
     await projects.syncLibraryAssets();
@@ -1668,26 +1520,7 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/settings/image-generation", async () => imageSettings.get());
-
   app.get("/image-models", async () => providerImages.models());
-
-  app.put<{ Body: UpdateImageGenerationSettings }>(
-    "/settings/image-generation",
-    { schema: imageSettingsSchema },
-    async (request, reply) => {
-      try {
-        const models = await providerImages.models();
-        const requested = request.body.model;
-        if (!models.some((model) => model.provider === requested.provider && model.id === requested.id)) {
-          return reply.code(400).send({ error: "Image model is not available" });
-        }
-        return await imageSettings.update(requested);
-      } catch (cause) {
-        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",

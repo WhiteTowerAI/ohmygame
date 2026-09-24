@@ -5,7 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
+import { DEFAULT_VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
 import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -500,7 +500,7 @@ describe("daemon", () => {
       position: { x: 0, y: 0 },
       data: {
         prompt: "Opening",
-        model: VIDEO_MODEL,
+        model: DEFAULT_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -647,7 +647,7 @@ describe("daemon", () => {
       position: { x: 100, y: 0 },
       data: {
         prompt: "Animate",
-        model: VIDEO_MODEL,
+        model: DEFAULT_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -1490,7 +1490,7 @@ describe("daemon", () => {
     expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
   });
 
-  it("uses the connected Account credential for Meshy 7 generation", async () => {
+  it("uses the connected Account credential for Meshy T2 generation", async () => {
     const runtime = {
       ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
       getModels: vi.fn(() => [{
@@ -1506,7 +1506,7 @@ describe("daemon", () => {
     } as unknown as ModelRuntime;
     const accountServiceFetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.ohmygame.test/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-7" }, { id: "meshy-t2" }] }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-t2" }] }))
       .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
       .mockResolvedValueOnce(Response.json({
         id: "task_123",
@@ -1514,8 +1514,9 @@ describe("daemon", () => {
         artifacts: [{ id: "artifact_123", kind: "model", variant: "primary", format: "glb", content_url: "/v1/3d/generations/task_123/content" }],
       }))
       .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-"));
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-")),
+      dataDirectory,
       createModelRuntime: async () => runtime,
       accountServiceFetch,
     });
@@ -1530,20 +1531,23 @@ describe("daemon", () => {
     ]));
     const generated = await app.inject({
       method: "POST",
-      url: "/tools/image-to-3d/runs",
+      url: "/tools/image-to-3d/jobs",
       payload: {
-        prompt: "A wooden knight",
-        model: "meshy-7",
-        quality: "standard",
+        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
         texture: true,
-        pose: "auto",
       },
     });
 
-    expect(generated.statusCode, generated.body).toBe(201);
-    const run = generated.json();
-    const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
-    expect(file.rawPayload).toEqual(Buffer.from("glb"));
+    expect(generated.statusCode, generated.body).toBe(202);
+    let job: { status: string; run?: { files: Array<{ assetId?: string }> } } | undefined;
+    await vi.waitFor(async () => {
+      job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json()
+        .find((candidate: { id: string }) => candidate.id === generated.json().id);
+      expect(job?.status).toBe("succeeded");
+    });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${job?.run?.files[0]?.assetId}/content` });
+    expect(content.statusCode).toBe(200);
+    expect(content.rawPayload).toEqual(Buffer.from("glb"));
     expect(accountServiceFetch).toHaveBeenNthCalledWith(3, "https://api.ohmygame.test/v1/3d/generations", expect.objectContaining({
       method: "POST",
       headers: { authorization: "Bearer sk-account", "content-type": "application/json" },

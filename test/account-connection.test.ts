@@ -53,7 +53,7 @@ describe("accountModels", () => {
   });
 
   it("excludes image-generation model IDs", () => {
-    const image = { ...knownModel, id: "gemini-3.1-flash-lite-image", name: "Nano Banana 2 Lite" };
+    const image = { ...knownModel, id: "gemini-3.1-flash-image", name: "Nano Banana 2" };
     const preview = { ...knownModel, id: "google/gemini-3-pro-image-preview", name: "Nano Banana Pro" };
 
     expect(accountModels([knownModel, image, preview] as never, [knownModel.id, image.id, preview.id]))
@@ -66,7 +66,7 @@ describe("AccountConnection", () => {
     const runtime = runtimeMock();
     const client = {
       credential: vi.fn(async () => ({ baseUrl: "https://account.ohmygame.ai/v1", apiKey: "sk-account" })),
-      modelIds: vi.fn(async () => ["known-model", "meshy-7", "meshy-t2"]),
+      modelIds: vi.fn(async () => ["known-model", "meshy-t2"]),
       stageMedia: vi.fn(async () => ({ id: "media", url: "https://storage.example/media" })),
       removeMedia: vi.fn(async () => undefined),
     } as unknown as AccountServiceClient;
@@ -76,7 +76,7 @@ describe("AccountConnection", () => {
     expect(connection.imageSource()).toEqual({
       baseUrl: "https://account.ohmygame.ai/v1",
       apiKey: "sk-account",
-      modelIds: ["known-model", "meshy-7", "meshy-t2"],
+      modelIds: ["known-model", "meshy-t2"],
     });
     expect(connection.model3DSource()).toEqual(connection.imageSource());
     expect(runtime.registerProvider).toHaveBeenCalledWith("ohmygame", expect.objectContaining({

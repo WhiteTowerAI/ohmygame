@@ -477,7 +477,7 @@ export class ProjectManager {
   async story(id: string): Promise<StoryDocument> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
+    if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
     const destination = path.join(project.workspacePath, STORY_FILE);
     try {
       const story = await readStoryCodebase(project.workspacePath);
@@ -497,7 +497,7 @@ export class ProjectManager {
   async setStory(id: string, story: StoryDocument): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "interactive-drama") throw new Error("Story documents require an Interactive Drama project");
+    if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
     if (!isStoryDocument(story)) throw new Error("Invalid story document");
     await writeStoryCodebase(project.workspacePath, story, { preserveExistingSources: true });
     await this.touch(id);
@@ -512,7 +512,7 @@ export class ProjectManager {
         references.push(project);
         continue;
       }
-      if (project.type !== "interactive-drama") continue;
+      if (project.type !== "interactive-drama" && project.type !== "asset-canvas") continue;
       if (!await exists(path.join(project.workspacePath, STORY_FILE))) continue;
       let story: StoryDocument;
       try {
@@ -822,7 +822,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama") &&
+      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama" || parsed.type === "asset-canvas") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
       (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&

@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { PlanMode, PlanState, ProjectState, QuestionnaireResult, RunVideoToolRequest, ToolDefinition } from "../shared/contracts.js";
+import { VIDEO_MODELS, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -11,14 +11,14 @@ import type { PlaytestDriver } from "../shared/playtest.js";
 import type { WebSearchExecution, WebSearchInput } from "../shared/web-search.js";
 import { createPlaytestTool } from "./playtest-tools.js";
 
-const PI_TOOL_NAMES: Record<ToolDefinition["id"], string> = {
+const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
 };
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin"]);
 
-export function activePiToolNames(enabledTools: readonly ToolDefinition["id"][], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
+export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
   return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
@@ -30,7 +30,7 @@ export function planningPiToolNames(webSearchEnabled = true): string[] {
 
 export function projectPiToolNames(
   mode: PlanMode,
-  enabledTools: readonly ToolDefinition["id"][],
+  enabledTools: readonly ToolId[],
   registeredToolNames: readonly string[] = [],
   webSearchEnabled = true,
 ): string[] {
@@ -185,21 +185,25 @@ export function createAgentTools(
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
       const run = await tools.run("generate-image", input, signal);
-      const output = run.files[0];
-      if (!output) throw new Error("Image generator returned no output");
-      const file = await tools.file(run.id, output.name);
-      if (!file) throw new Error("Generated image could not be read");
-      signal?.throwIfAborted();
-      const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
-      const fileName = `image-${run.id}.${extension}`;
-      const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-        prompt: input.prompt,
-        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-      });
-      return {
-        content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
-        details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
-      };
+      try {
+        const output = run.files[0];
+        if (!output) throw new Error("Image generator returned no output");
+        const file = await tools.file(run.id, output.name);
+        if (!file) throw new Error("Generated image could not be read");
+        signal?.throwIfAborted();
+        const extension = output.mediaType === "image/png" ? "png" : output.mediaType === "image/jpeg" ? "jpg" : "webp";
+        const fileName = `image-${run.id}.${extension}`;
+        const relativePath = await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
+          prompt: input.prompt,
+          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return {
+          content: [{ type: "text", text: `Generated image saved to ${relativePath}` }],
+          details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } },
+        };
+      } finally {
+        await tools.removeRun(run.id);
+      }
     },
   }), defineTool({
     name: PI_TOOL_NAMES["image-to-3d"],
@@ -217,26 +221,30 @@ export function createAgentTools(
       const run = await tools.run("image-to-3d", {
         images: [{ mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") }],
       }, signal);
-      const output = run.files[0];
-      if (!output) throw new Error("3D generator returned no output");
-      const file = await tools.file(run.id, output.name);
-      if (!file) throw new Error("Generated 3D model could not be read");
-      signal?.throwIfAborted();
-      const sourcePrompt = await projects.generatedAssetPrompt(project.id, input.imagePath);
-      const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
-        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-        ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
-        ...(file.preview ? {
-          preview: {
-            bytes: file.preview.bytes,
-            extension: file.preview.mediaType === "image/png" ? "png" : "jpg",
-          },
-        } : {}),
-      });
-      return {
-        content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
-        details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
-      };
+      try {
+        const output = run.files[0];
+        if (!output) throw new Error("3D generator returned no output");
+        const file = await tools.file(run.id, output.name);
+        if (!file) throw new Error("Generated 3D model could not be read");
+        signal?.throwIfAborted();
+        const sourcePrompt = await projects.generatedAssetPrompt(project.id, input.imagePath);
+        const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
+          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+          ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
+          ...(file.preview ? {
+            preview: {
+              bytes: file.preview.bytes,
+              extension: file.preview.mediaType === "image/png" ? "png" : "jpg",
+            },
+          } : {}),
+        });
+        return {
+          content: [{ type: "text", text: `Generated 3D model saved to ${relativePath}` }],
+          details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
+        };
+      } finally {
+        await tools.removeRun(run.id);
+      }
     },
   }), defineTool({
     name: PI_TOOL_NAMES["generate-video"],
@@ -244,6 +252,7 @@ export function createAgentTools(
     description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
+      model: Type.Optional(Type.Union([Type.Literal(VIDEO_MODELS[0].id), Type.Literal(VIDEO_MODELS[1].id)], { description: "Video generation model" })),
       imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG, JPEG, or WebP image in the current project workspace" })),
       duration: Type.Optional(Type.Integer({ minimum: 4, maximum: 15, description: "Video duration in seconds" })),
       aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("1:1"), Type.Literal("3:4"), Type.Literal("9:16")], { description: "Video aspect ratio" })),
@@ -258,25 +267,30 @@ export function createAgentTools(
       const assetId = source ? await projects.ensureLibraryAsset(project.id, input.imagePath!) : undefined;
       const request: RunVideoToolRequest = {
         prompt: input.prompt,
+        model: input.model,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
         resolution: input.resolution,
         ...(assetId ? { references: [{ type: "image", assetId }] } : {}),
       };
       const run = await tools.run("generate-video", request, signal);
-      const output = run.files[0];
-      if (!output) throw new Error("Video generator returned no output");
-      const file = await tools.file(run.id, output.name);
-      if (!file) throw new Error("Generated video could not be read");
-      signal?.throwIfAborted();
-      const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, {
-        prompt: input.prompt,
-        ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-      });
-      return {
-        content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
-        details: { artifact: { type: "video", path: relativePath, mediaType: output.mediaType } },
-      };
+      try {
+        const output = run.files[0];
+        if (!output) throw new Error("Video generator returned no output");
+        const file = await tools.file(run.id, output.name);
+        if (!file) throw new Error("Generated video could not be read");
+        signal?.throwIfAborted();
+        const relativePath = await projects.addGeneratedAsset(project.id, `video-${run.id}.mp4`, file.bytes, {
+          prompt: input.prompt,
+          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return {
+          content: [{ type: "text", text: `Generated video saved to ${relativePath}` }],
+          details: { artifact: { type: "video", path: relativePath, mediaType: output.mediaType } },
+        };
+      } finally {
+        await tools.removeRun(run.id);
+      }
     },
   }), ...(playtest?.driver.available ? [createPlaytestTool(playtest.driver, playtest.ensurePreview)] : [])];
 }

@@ -3,7 +3,7 @@ import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "web-game" | "godot-game" | "interactive-drama";
+export type ProjectType = "web-game" | "godot-game" | "interactive-drama" | "asset-canvas";
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
@@ -84,10 +84,6 @@ export type ModelAuthEvent = {
   | { type: "error"; error: string }
 );
 
-export interface ImageGenerationSettings {
-  model?: ImageModelRef;
-}
-
 export interface ImageModelRef {
   provider: string;
   id: string;
@@ -104,10 +100,6 @@ export interface ImageModel extends ImageModelRef {
 }
 
 export type ImageProtocol = "openai-images" | "gemini-generate-content";
-
-export interface UpdateImageGenerationSettings {
-  model: ImageModelRef;
-}
 
 export interface PublicationState {
   gameId: string;
@@ -144,7 +136,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "model-3d" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -290,7 +282,7 @@ export type StoryNode = (
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
     assetId: string;
-    mediaType: "image" | "video" | "audio";
+    mediaType: "image" | "video" | "audio" | "model";
   } }
   | { id: string; type: "text"; position: StoryPosition; data: {
     text: string;
@@ -309,11 +301,18 @@ export type StoryNode = (
   | { id: string; type: "video"; position: StoryPosition; data: {
     prompt: string;
     promptSource?: StoryTextReference;
-    model: typeof VIDEO_MODEL;
+    model: VideoModelId;
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
     references: StoryAssetReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "model-3d"; position: StoryPosition; data: {
+    targetPolycount: number;
+    texture: boolean;
+    pbr: boolean;
+    images: StoryAssetReference[];
     assetId?: string;
   } }
 );
@@ -731,59 +730,27 @@ export interface ImageGenerationOption {
   aspectRatio: ImageAspectRatio;
 }
 
-interface BaseToolDefinition {
-  id: "generate-image" | "image-to-3d" | "generate-video";
-  name: string;
-  description: string;
-  category: "images" | "3d" | "video";
-}
-
-export interface ImageToolDefinition extends BaseToolDefinition {
-  id: "generate-image";
-  category: "images";
-  inputKind: "prompt";
-  outputKind: "image";
-  sizes: readonly ImageSize[];
-  defaultSize: ImageSize;
-}
-
-export interface Model3DToolDefinition extends BaseToolDefinition {
-  id: "image-to-3d";
-  category: "3d";
-  inputKind: "image-prompt";
-  outputKind: "model";
-}
-
-export interface VideoToolDefinition extends BaseToolDefinition {
-  id: "generate-video";
-  category: "video";
-  inputKind: "image-prompt";
-  outputKind: "video";
-  defaultDuration: number;
-  minDuration: number;
-  maxDuration: number;
-  aspectRatios: readonly VideoAspectRatio[];
-  resolutions: readonly VideoResolution[];
-}
-
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_MODEL = "doubao-seedance-2-0-260128" as const;
+export const VIDEO_MODELS = [
+  { id: "doubao-seedance-2-0-260128", name: "Seedance 2.0" },
+  { id: "doubao-seedance-2-5-260628", name: "Seedance 2.5" },
+] as const;
+export type VideoModelId = (typeof VIDEO_MODELS)[number]["id"];
+export const DEFAULT_VIDEO_MODEL: VideoModelId = VIDEO_MODELS[0].id;
 export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
-export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
-export type Model3DQuality = (typeof MODEL_3D_QUALITIES)[number];
-export const MODEL_3D_MODELS = ["meshy-7", "meshy-t2"] as const;
-export type Model3DModel = (typeof MODEL_3D_MODELS)[number];
-export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
-export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
-export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
-export type Model3DPose = (typeof MODEL_3D_POSES)[number];
+export interface Model3DGenerationConfig {
+  targetPolycount: number;
+  texture: boolean;
+  pbr: boolean;
+}
 
-export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video"] as const;
+export type ToolId = (typeof TOOL_IDS)[number];
 
-interface RunLegacyImageToolRequest {
+interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: ImageSize;
@@ -793,7 +760,7 @@ interface RunLegacyImageToolRequest {
   image?: never;
 }
 
-interface RunStudioImageToolRequest {
+interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: never;
@@ -803,25 +770,18 @@ interface RunStudioImageToolRequest {
   images?: PromptImage[];
 }
 
-export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
+export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageToolRequest;
 
-interface Run3DToolOptions {
-  model?: Model3DModel;
-  quality?: Model3DQuality;
+export interface Run3DToolRequest {
+  images: PromptImage[];
   targetPolycount?: number;
   texture?: boolean;
-  textureResolution?: Model3DTextureResolution;
   pbr?: boolean;
-  pose?: Model3DPose;
 }
-
-export type Run3DToolRequest = Run3DToolOptions & (
-  | { prompt: string; images?: never; imageEnhancement?: never }
-  | { prompt?: never; images: PromptImage[]; imageEnhancement?: boolean }
-);
 
 export interface RunVideoToolRequest {
   prompt: string;
+  model?: VideoModelId;
   references?: VideoGenerationReference[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;
@@ -843,20 +803,25 @@ export interface ToolRunFile {
 
 export interface ToolRun {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   files: ToolRunFile[];
-  title?: string;
 }
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
 
+export interface ToolJobContext {
+  projectId: string;
+  nodeId: string;
+}
+
 export interface ToolJob {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   status: ToolJobStatus;
   title: string;
+  context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
 }
@@ -865,15 +830,6 @@ export type ToolArtifact =
   | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
   | { type: "model"; path: string; mediaType: "model/gltf-binary" }
   | { type: "video"; path: string; mediaType: "video/mp4" | "video/webm" };
-
-export interface AddToolResultRequest {
-  runId: string;
-  fileName: string;
-}
-
-export interface AddedProjectAsset {
-  path: string;
-}
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };

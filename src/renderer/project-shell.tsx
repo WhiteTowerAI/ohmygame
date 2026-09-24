@@ -63,6 +63,8 @@ interface ProjectShellProps {
   conversationId?: string;
   initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode };
   initialDraft?: ComposerDraft;
+  initialCanvasNodeId?: string;
+  onInitialCanvasNodeHandled?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
@@ -80,6 +82,8 @@ export function ProjectShell({
   conversationId,
   initialPrompt,
   initialDraft,
+  initialCanvasNodeId,
+  onInitialCanvasNodeHandled,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
@@ -772,7 +776,7 @@ export function ProjectShell({
         onLostPointerCapture={finishAgentResize}
       />
 
-      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" ? (
+      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" && project.type !== "asset-canvas" ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
@@ -786,6 +790,9 @@ export function ProjectShell({
         />
       ) : <InteractiveDramaWorkspace
         project={project}
+        assetCanvas={project.type === "asset-canvas"}
+        initialNodeId={initialCanvasNodeId}
+        onInitialNodeHandled={onInitialCanvasNodeHandled}
         agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}

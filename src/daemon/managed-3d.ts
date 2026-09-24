@@ -1,16 +1,14 @@
 import type {
   Generated3DModel,
-  Image3DGenerationInput,
   Model3DGenerationInput,
   Model3DGenerator,
 } from "./model3d.js";
 import { Model3DGenerationError } from "./model3d.js";
 
-const DEFAULT_MODEL = "meshy-7";
+const MODEL = "meshy-t2";
 const POLL_INTERVAL_MS = 2_000;
 const MAX_WAIT_MS = 15 * 60_000;
 const MAX_GLB_BYTES = 100 * 1024 * 1024;
-const IMAGE_VIEWS = ["front", "left", "back", "right"] as const;
 
 export interface Model3DSource {
   baseUrl: string;
@@ -42,19 +40,18 @@ export class Managed3DGenerator implements Model3DGenerator {
     input: Model3DGenerationInput,
     signal?: AbortSignal,
   ): Promise<Generated3DModel> {
-    const model = input.model ?? DEFAULT_MODEL;
-    validateInput(input, model);
+    validateInput(input);
     const source = this.source();
-    if (!source || !source.modelIds.includes(model)) {
+    if (!source || !source.modelIds.includes(MODEL)) {
       throw new Model3DGenerationError(
-        `${modelName(model)} is not available through OhMyGame account`,
+        "Meshy T2 is not available through OhMyGame account",
         503,
       );
     }
     const timeout = AbortSignal.timeout(this.maxWaitMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
-      return await this.generateWithSource(source, input, model, requestSignal);
+      return await this.generateWithSource(source, input, requestSignal);
     } catch (cause) {
       if (timeout.aborted && !signal?.aborted) {
         throw new Model3DGenerationError("3D generation timed out", 504);
@@ -66,7 +63,6 @@ export class Managed3DGenerator implements Model3DGenerator {
   private async generateWithSource(
     source: Model3DSource,
     input: Model3DGenerationInput,
-    model: "meshy-7" | "meshy-t2",
     signal: AbortSignal,
   ): Promise<Generated3DModel> {
     const created = await this.jsonRequest(
@@ -75,7 +71,7 @@ export class Managed3DGenerator implements Model3DGenerator {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(generationRequest(input, model)),
+        body: JSON.stringify(generationRequest(input)),
         signal,
       },
       "3D generation request failed",
@@ -177,81 +173,22 @@ export class Managed3DGenerator implements Model3DGenerator {
   }
 }
 
-function validateInput(
-  input: Model3DGenerationInput,
-  model: string,
-): asserts input is Model3DGenerationInput {
-  if (model !== "meshy-7" && model !== "meshy-t2") {
-    throw new Model3DGenerationError("Unsupported 3D model", 400);
-  }
-  const isText = typeof input.prompt === "string";
-  if (model === "meshy-t2") {
-    if (isText) {
-      throw new Model3DGenerationError(
-        "Meshy T2 requires exactly one reference image",
-        400,
-      );
-    }
-    validateT2Input(input);
-    return;
-  }
-  if (isText) {
-    if (!input.prompt.trim()) {
-      throw new Model3DGenerationError("3D prompt must not be empty", 400);
-    }
-  } else if (input.images.length < 1 || input.images.length > 4) {
-    throw new Model3DGenerationError(
-      "Meshy 7 requires 1 to 4 reference images",
-      400,
-    );
-  }
-  if (input.targetPolycount !== undefined) {
-    throw new Model3DGenerationError("Poly count requires Meshy T2", 400);
-  }
-}
-
-function validateT2Input(input: Image3DGenerationInput): void {
+function validateInput(input: Model3DGenerationInput): void {
   if (input.images.length !== 1) {
     throw new Model3DGenerationError(
       "Meshy T2 requires exactly one reference image",
       400,
     );
   }
-  if (input.quality !== undefined) {
-    throw new Model3DGenerationError(
-      "Meshy T2 does not support quality modes",
-      400,
-    );
-  }
-  if (input.imageEnhancement !== undefined) {
-    throw new Model3DGenerationError(
-      "Meshy T2 does not support image enhancement",
-      400,
-    );
-  }
-  if (input.textureResolution !== undefined && input.textureResolution !== "2K") {
-    throw new Model3DGenerationError("Meshy T2 supports only 2K textures", 400);
-  }
-  if (input.pose !== undefined && input.pose !== "auto") {
-    throw new Model3DGenerationError(
-      "Meshy T2 does not support pose control",
-      400,
-    );
-  }
 }
 
-function generationRequest(
-  input: Model3DGenerationInput,
-  model: "meshy-7" | "meshy-t2",
-): Record<string, unknown> {
-  if (model === "meshy-t2") return t2Request(input as Image3DGenerationInput);
-  return meshy7Request(input);
-}
-
-function t2Request(input: Image3DGenerationInput): Record<string, unknown> {
+function generationRequest(input: Model3DGenerationInput): Record<string, unknown> {
   return {
-    model: "meshy-t2",
-    input: imageInput(input.images),
+    model: MODEL,
+    input: {
+      type: "image",
+      images: [{ data: `data:${input.images[0]!.mediaType};base64,${input.images[0]!.data}`, view: "front" }],
+    },
     geometry: {
       target_face_count: input.targetPolycount ?? 4_000,
       topology: "triangle",
@@ -262,37 +199,6 @@ function t2Request(input: Image3DGenerationInput): Record<string, unknown> {
       texture_resolution: "2k",
     },
     output: { formats: ["glb"] },
-  };
-}
-
-function meshy7Request(input: Model3DGenerationInput): Record<string, unknown> {
-  const texture = input.texture ?? true;
-  return {
-    model: "meshy-7",
-    quality: input.quality ?? "standard",
-    input: typeof input.prompt === "string"
-      ? { type: "text", prompt: input.prompt.trim() }
-      : {
-          ...imageInput(input.images),
-          image_enhancement: input.imageEnhancement ?? true,
-        },
-    geometry: { pose: input.pose ?? "auto" },
-    material: {
-      enabled: texture,
-      pbr: texture && (input.pbr ?? false),
-      texture_resolution: (input.textureResolution ?? "2K").toLowerCase(),
-    },
-    output: { formats: ["glb"] },
-  };
-}
-
-function imageInput(images: Image3DGenerationInput["images"]): Record<string, unknown> {
-  return {
-    type: images.length === 1 ? "image" : "images",
-    images: images.map((image, index) => ({
-      data: `data:${image.mediaType};base64,${image.data}`,
-      view: IMAGE_VIEWS[index],
-    })),
   };
 }
 
@@ -330,10 +236,6 @@ function artifactPath(baseUrl: string, contentUrl: string): string {
 
 function endpoint(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, "")}${path}`;
-}
-
-function modelName(model: string): string {
-  return model === "meshy-t2" ? "Meshy T2" : "Meshy 7";
 }
 
 function record(value: unknown): Record<string, unknown> {

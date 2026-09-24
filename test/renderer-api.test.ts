@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addToolResultToProject, approvePlan, cancelPlan, compactConversation, createAssetTemplate, createConversation, createLibraryImage, createProject, deleteAsset, deleteAssetTemplate, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getAssetStudioDraft, getAssetTemplateCover, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getProjectCover, getToolRunFile, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listAssetTemplates, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listToolRuns, listTools, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, runTool, sendPrompt, setAssetTemplateCover, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateAssetStudioDraft, updateOpenAIEndpointSettings, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
+import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteAsset, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -71,42 +71,6 @@ describe("renderer event stream", () => {
       "/api/library/assets/upload?name=opening.mp4&mediaType=video%2Fmp4&duration=6.5",
       expect.objectContaining({ method: "POST", body: file, headers: expect.objectContaining({ "content-type": "application/octet-stream" }) }),
     );
-  });
-
-  it("uploads and reads Asset Template covers", async () => {
-    installWindow();
-    const cover = new Blob(["cover"], { type: "image/webp" });
-    const local = { id: "local-1", hasCover: true };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(local))
-      .mockResolvedValueOnce(new Response(cover, { headers: { "content-type": "image/webp" } }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(setAssetTemplateCover("local-1", cover)).resolves.toEqual(local);
-    await expect(getAssetTemplateCover("local-1")).resolves.toBeInstanceOf(Blob);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/asset-templates/local-1/cover", expect.objectContaining({
-      method: "PUT", body: cover, headers: expect.objectContaining({ "content-type": "image/webp" }),
-    }));
-  });
-
-  it("uses the local Asset Template endpoints", async () => {
-    installWindow();
-    const definition = {
-      mode: "image" as const, name: "Character", description: "",
-      promptPlaceholder: "Describe a character", defaults: { imageResolution: "1K" as const },
-    };
-    const local = { ...definition, id: "local-1", source: "local" as const, createdAt: new Date(0).toISOString() };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json([local]))
-      .mockResolvedValueOnce(Response.json(local, { status: 201 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(listAssetTemplates()).resolves.toEqual([local]);
-    await expect(createAssetTemplate(definition)).resolves.toEqual(local);
-    await expect(deleteAssetTemplate("local-1")).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-templates", expect.objectContaining({ method: "POST", body: JSON.stringify(definition) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/asset-templates/local-1", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("handles chunked UTF-8 and ignores malformed events", async () => {
@@ -667,44 +631,6 @@ describe("renderer project API", () => {
 });
 
 describe("renderer tools API", () => {
-  it("loads and updates the Asset Studio draft", async () => {
-    installWindow();
-    const draft = { mode: "image", templateIds: {}, panelView: "templates", image: {}, video: {}, model3D: {} } as never;
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(draft))
-      .mockResolvedValueOnce(Response.json(draft));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getAssetStudioDraft()).resolves.toEqual(draft);
-    await expect(updateAssetStudioDraft(draft)).resolves.toEqual(draft);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/asset-studio/draft", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/asset-studio/draft", expect.objectContaining({
-      method: "PUT",
-      body: JSON.stringify(draft),
-    }));
-  });
-
-  it("lists and runs tools", async () => {
-    installWindow();
-    const tool = { id: "generate-image", name: "Image Generator" };
-    const run = { id: "run-1", toolId: tool.id, files: [] };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json([tool]))
-      .mockResolvedValueOnce(Response.json(run, { status: 201 }))
-      .mockResolvedValueOnce(Response.json([run]));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(listTools()).resolves.toEqual([tool]);
-    await expect(runTool("generate-image", { prompt: "A forest", size: "1536x1024" }, "General Image")).resolves.toEqual(run);
-    await expect(listToolRuns()).resolves.toEqual([run]);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tools/generate-image/runs", expect.objectContaining({
-      method: "POST",
-      body: JSON.stringify({ prompt: "A forest", size: "1536x1024", title: "General Image" }),
-    }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-runs", expect.objectContaining({ headers: {} }));
-  });
-
   it("creates, lists, cancels, and retries background tool jobs", async () => {
     installWindow();
     const job = { id: "job-1", toolId: "generate-image", status: "running" };
@@ -716,44 +642,15 @@ describe("renderer tools API", () => {
       .mockResolvedValueOnce(Response.json(retry, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" })).resolves.toEqual(job);
+    await expect(startToolJob("generate-image", { prompt: "A forest", size: "1024x1024" }, undefined, { projectId: "project-1", nodeId: "node-1" })).resolves.toEqual(job);
     await expect(listToolJobs()).resolves.toEqual([job]);
     await expect(cancelToolJob("job-1")).resolves.toMatchObject({ status: "cancelled" });
     await expect(retryToolJob("job-1")).resolves.toEqual(retry);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/tools/generate-image/jobs", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ projectId: "project-1", nodeId: "node-1" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/tool-jobs", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/tool-jobs/job-1/cancel", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/tool-jobs/job-1/retry", expect.objectContaining({ method: "POST" }));
-  });
-
-  it("downloads tool output with desktop authorization", async () => {
-    vi.stubGlobal("window", {
-      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
-      setTimeout,
-      clearTimeout,
-    });
-    const blob = new Blob(["image"], { type: "image/webp" });
-    const fetchMock = vi.fn(async () => new Response(blob));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getToolRunFile("run-1", "output.webp")).resolves.toBeInstanceOf(Blob);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:43210/tool-runs/run-1/files/output.webp",
-      { headers: { authorization: "Bearer secret" } },
-    );
-  });
-
-  it("adds a tool result to a project", async () => {
-    installWindow();
-    const fetchMock = vi.fn(async () => Response.json({ path: "assets/generated/image.webp" }, { status: 201 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(addToolResultToProject("project-1", { runId: "run-1", fileName: "output.webp" }))
-      .resolves.toEqual({ path: "assets/generated/image.webp" });
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/tool-results", expect.objectContaining({
-      method: "POST",
-      body: JSON.stringify({ runId: "run-1", fileName: "output.webp" }),
-    }));
   });
 
 });
