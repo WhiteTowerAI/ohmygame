@@ -6,7 +6,6 @@ import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityHash, conversationHash, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
-import { AssetStudioPage } from "./asset-studio.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
@@ -46,7 +45,6 @@ export function App() {
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
-  if (route.page === "asset-studio") return <AssetStudioPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
   return (

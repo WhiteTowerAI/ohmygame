@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -174,6 +174,9 @@ export class ToolRunner {
   async #execute(job: ToolJobRecord): Promise<void> {
     try {
       job.run = await this.run(job.toolId, job.input!, job.controller.signal, job.metadata);
+      if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
+        await rm(path.join(this.#runsDirectory, job.run.id), { recursive: true, force: true });
+      }
       job.status = "succeeded";
       job.input = undefined;
     } catch (cause) {
@@ -214,10 +217,10 @@ export class ToolRunner {
     const prompt = input.prompt?.trim();
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const imageInput = "images" in input ? input.images : undefined;
-    const usesStudioOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
-    if (input.size !== undefined && usesStudioOptions) throw new ToolRunError("Image size cannot be combined with Asset Studio options", 400);
-    if (usesStudioOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
-      throw new ToolRunError("Resolution and aspect ratio are required for Asset Studio images", 400);
+    const usesConfiguredOptions = input.resolution !== undefined || input.aspectRatio !== undefined || input.outputs !== undefined || imageInput !== undefined;
+    if (input.size !== undefined && usesConfiguredOptions) throw new ToolRunError("Image size cannot be combined with resolution, aspect ratio, output count, or reference images", 400);
+    if (usesConfiguredOptions && (input.resolution === undefined || input.aspectRatio === undefined)) {
+      throw new ToolRunError("Resolution and aspect ratio are required for configured image generation", 400);
     }
     const size = input.size ?? "1024x1024";
     if (!isImageSize(size)) throw new ToolRunError("Unsupported image size", 400);
@@ -238,7 +241,7 @@ export class ToolRunner {
       const generated = await Promise.all(Array.from({ length: outputs }, () => this.imageGenerator.generate({
         prompt,
         ...(input.imageModel ? { imageModel: input.imageModel } : {}),
-        ...(usesStudioOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
+        ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
       const files: StoredToolRunFile[] = generated.map((image, index) => ({
@@ -416,18 +419,6 @@ export class ToolRunner {
       if (cause instanceof ToolRunError) throw cause;
       throw new ToolRunError(cause instanceof Error ? cause.message : String(cause), 400);
     }
-  }
-
-  async recentRuns(): Promise<ToolRun[]> {
-    const entries = await readdir(this.#runsDirectory, { withFileTypes: true });
-    const runs = await Promise.all(entries
-      .filter((entry) => entry.isDirectory() && isRunId(entry.name))
-      .map((entry) => this.#readRun(entry.name)));
-    return runs
-      .filter((run): run is StoredToolRun => Boolean(run))
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .slice(0, HISTORY_LIMIT)
-      .map(publicRun);
   }
 
   async file(runId: string, fileName: string): Promise<{ bytes: Buffer; mediaType: string; assetId?: string; title?: string; prompt?: string; preview?: { bytes: Buffer; mediaType: "image/png" | "image/jpeg" } } | undefined> {

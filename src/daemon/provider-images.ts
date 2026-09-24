@@ -9,7 +9,6 @@ export class ProviderImages implements ImageGenerator {
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly accountConnection: AccountConnection,
-    private readonly selected: () => ImageModelRef | undefined,
     private readonly request: typeof fetch = fetch,
   ) {}
 
@@ -31,30 +30,49 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
-    const selected = input.imageModel ?? this.selected();
-    const definition = selected ? imageModelDefinition(selected.id) : undefined;
-    if (!selected || !definition) throw new ImageGenerationError("Image generation is not configured", 503);
+    const selection = await this.#selection(input.imageModel, signal);
+    const definition = selection ? imageModelDefinition(selection.model.id) : undefined;
+    if (!selection || !definition) throw new ImageGenerationError("Image generation is not configured", 503);
     if (input.size && !definition.sizes.includes(input.size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
     if (input.resolution || input.aspectRatio) {
       const supported = definition.generationOptions.some((option) => option.resolution === input.resolution && option.aspectRatio === input.aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
-    let source: ImageSource | undefined;
-    if (selected.provider === "ohmygame") {
-      const accountSource = this.accountConnection.imageSource();
-      if (accountSource && accountSource.modelIds.includes(selected.id)) source = accountSource;
-    } else {
-      const runtime = await this.runtime();
-      source = await runtimeSource(runtime, selected.provider);
-      const ids = await modelIds(source, this.request, signal);
-      if (!ids.includes(selected.id)) source = undefined;
-    }
-    if (!source) throw new ImageGenerationError("Image generation is not configured", 503);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
     const { imageModel: _, ...generationInput } = input;
-    return adapter.generate(source, selected.id, generationInput, signal);
+    return adapter.generate(selection.source, selection.model.id, generationInput, signal);
   }
+
+  async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<{ model: ImageModelRef; source: ImageSource } | undefined> {
+    const accountSource = this.accountConnection.imageSource();
+    if (requested?.provider === "ohmygame") {
+      return accountSource?.modelIds.includes(requested.id) ? { model: requested, source: accountSource } : undefined;
+    }
+    if (!requested && accountSource) {
+      const id = preferredModel(accountSource.modelIds);
+      if (id) return { model: { provider: "ohmygame", id }, source: accountSource };
+    }
+
+    const runtime = await this.runtime();
+    const provider = requested?.provider ?? "openai";
+    if (!runtime.getProvider(provider) || !runtime.hasConfiguredAuth(provider)) return undefined;
+    try {
+      const source = await runtimeSource(runtime, provider);
+      const ids = await modelIds(source, this.request, signal);
+      const id = requested ? (ids.includes(requested.id) ? requested.id : undefined) : preferredModel(ids);
+      return id ? { model: { provider, id }, source } : undefined;
+    } catch (cause) {
+      if (signal?.aborted) throw cause;
+      return undefined;
+    }
+  }
+}
+
+const IMAGE_MODEL_PREFERENCE = ["gpt-image-2", "gemini-3.1-flash-image", "gemini-3.1-flash-lite-image"] as const;
+
+function preferredModel(ids: readonly string[]): string | undefined {
+  return IMAGE_MODEL_PREFERENCE.find((id) => ids.includes(id));
 }
 
 async function runtimeSource(runtime: ModelRuntime, provider: string): Promise<ImageSource> {

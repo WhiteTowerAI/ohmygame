@@ -77,10 +77,6 @@ export type ModelAuthEvent = {
   | { type: "error"; error: string }
 );
 
-export interface ImageGenerationSettings {
-  model?: ImageModelRef;
-}
-
 export interface ImageModelRef {
   provider: string;
   id: string;
@@ -97,10 +93,6 @@ export interface ImageModel extends ImageModelRef {
 }
 
 export type ImageProtocol = "openai-images" | "gemini-generate-content";
-
-export interface UpdateImageGenerationSettings {
-  model: ImageModelRef;
-}
 
 export interface PublicationState {
   gameId: string;
@@ -766,7 +758,7 @@ export interface Model3DGenerationConfig {
 
 export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
 
-interface RunLegacyImageToolRequest {
+interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: ImageSize;
@@ -776,7 +768,7 @@ interface RunLegacyImageToolRequest {
   image?: never;
 }
 
-interface RunStudioImageToolRequest {
+interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: never;
@@ -786,7 +778,7 @@ interface RunStudioImageToolRequest {
   images?: PromptImage[];
 }
 
-export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
+export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageToolRequest;
 
 export interface Run3DToolRequest {
   images: PromptImage[];
@@ -846,15 +838,6 @@ export type ToolArtifact =
   | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
   | { type: "model"; path: string; mediaType: "model/gltf-binary" }
   | { type: "video"; path: string; mediaType: "video/mp4" | "video/webm" };
-
-export interface AddToolResultRequest {
-  runId: string;
-  fileName: string;
-}
-
-export interface AddedProjectAsset {
-  path: string;
-}
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };

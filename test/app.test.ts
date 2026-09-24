@@ -1444,8 +1444,9 @@ describe("daemon", () => {
         artifacts: [{ id: "artifact_123", kind: "model", variant: "primary", format: "glb", content_url: "/v1/3d/generations/task_123/content" }],
       }))
       .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-"));
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-")),
+      dataDirectory,
       createModelRuntime: async () => runtime,
       accountServiceFetch,
     });
@@ -1460,17 +1461,23 @@ describe("daemon", () => {
     ]));
     const generated = await app.inject({
       method: "POST",
-      url: "/tools/image-to-3d/runs",
+      url: "/tools/image-to-3d/jobs",
       payload: {
         images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
         texture: true,
       },
     });
 
-    expect(generated.statusCode, generated.body).toBe(201);
-    const run = generated.json();
-    const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
-    expect(file.rawPayload).toEqual(Buffer.from("glb"));
+    expect(generated.statusCode, generated.body).toBe(202);
+    let job: { status: string; run?: { files: Array<{ assetId?: string }> } } | undefined;
+    await vi.waitFor(async () => {
+      job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json()
+        .find((candidate: { id: string }) => candidate.id === generated.json().id);
+      expect(job?.status).toBe("succeeded");
+    });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${job?.run?.files[0]?.assetId}/content` });
+    expect(content.statusCode).toBe(200);
+    expect(content.rawPayload).toEqual(Buffer.from("glb"));
     expect(accountServiceFetch).toHaveBeenNthCalledWith(3, "https://api.ohmygame.test/v1/3d/generations", expect.objectContaining({
       method: "POST",
       headers: { authorization: "Bearer sk-account", "content-type": "application/json" },
