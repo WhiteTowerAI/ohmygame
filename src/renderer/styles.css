@@ -2047,11 +2047,12 @@ button.home-nav-item-active:hover {
 }
 
 .asset-canvas-home {
-  padding-top: 128px;
+  padding-top: 68px;
 }
 
-.asset-canvas-start {
-  width: min(720px, 100%);
+.asset-canvas-home-inner {
+  width: min(1096px, 100%);
+  margin: 0 auto;
 }
 
 .home-start-subtitle {
@@ -2092,24 +2093,138 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 
-.asset-canvas-start h1 {
-  margin-bottom: 18px;
+.asset-canvas-primary-create {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 168px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background-color: var(--home-surface);
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
 
-.asset-canvas-create {
-  height: 34px;
-  margin-top: 22px;
-  padding: 0 12px;
+.asset-canvas-primary-create:not(:disabled):hover,
+.asset-canvas-primary-create:not(:disabled):focus-visible {
+  border-color: var(--text-muted);
+  background-color: var(--surface-raised);
+}
+
+.asset-canvas-primary-create:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.asset-canvas-primary-create:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.asset-canvas-primary-create > span:last-child {
+  display: grid;
+  gap: 4px;
+}
+
+.asset-canvas-primary-create strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.asset-canvas-primary-create small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.asset-canvas-primary-icon {
+  display: grid;
+  width: 52px;
+  height: 44px;
+  place-items: center;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface-raised);
   color: var(--text);
-  font-size: 12px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
 }
 
-.asset-canvas-create:hover {
-  border-color: var(--text-muted);
+.asset-canvas-quick-start {
+  margin-top: 30px;
+}
+
+.asset-canvas-quick-start h2,
+.asset-canvas-recent h2 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.asset-canvas-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 112px);
+  gap: 18px;
+}
+
+.asset-canvas-quick-grid > button {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+}
+
+.asset-canvas-quick-grid > button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.asset-canvas-quick-grid > button:disabled {
+  cursor: default;
+}
+
+.asset-canvas-quick-grid > button:disabled:not([aria-busy="true"]) {
+  opacity: 0.45;
+}
+
+.asset-canvas-quick-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asset-canvas-quick-icon {
+  display: grid;
+  width: 100%;
+  height: 62px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--home-surface);
+  color: var(--text-secondary);
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.asset-canvas-quick-grid > button:not(:disabled):hover .asset-canvas-quick-icon,
+.asset-canvas-quick-grid > button:not(:disabled):focus-visible .asset-canvas-quick-icon {
+  border-color: var(--border-strong);
   background: var(--surface-hover);
+  color: var(--text);
 }
 
 .interactive-drama-recent .home-section-heading {
@@ -2270,15 +2385,25 @@ button.home-nav-item-active:hover {
 }
 
 .asset-canvas-recent {
-  margin-top: 72px;
+  margin-top: 38px;
+}
+
+.asset-canvas-recent .home-section-heading {
+  margin-bottom: 12px;
+}
+
+.asset-canvas-recent .home-section-heading h2 {
+  margin-bottom: 0;
 }
 
 .asset-canvas-empty {
   display: flex;
-  min-height: 64px;
+  min-height: 82px;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 0 2px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -13043,6 +13168,19 @@ button {
   .home-content {
     overflow: visible;
     padding: 38px 18px 28px;
+  }
+
+  .asset-canvas-home {
+    padding-top: 28px;
+  }
+
+  .asset-canvas-primary-create {
+    min-height: 148px;
+  }
+
+  .asset-canvas-quick-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .home-start h1 {

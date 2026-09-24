@@ -19,6 +19,7 @@ export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
   const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
+  const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
@@ -43,7 +44,7 @@ export function App() {
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
-  if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
@@ -54,6 +55,8 @@ export function App() {
       conversationId={route.conversationId}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
+      initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
+      onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
@@ -69,6 +72,14 @@ export function App() {
   function openProject(projectId: string): void {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
+    setInitialCanvasNode(undefined);
+    navigateToProject(projectId);
+  }
+
+  function openAssetCanvasProject(projectId: string, nodeId?: string): void {
+    setInitialPrompt(undefined);
+    setInitialDraft(undefined);
+    setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
     navigateToProject(projectId);
   }
 

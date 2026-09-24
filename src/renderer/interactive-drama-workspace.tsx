@@ -116,7 +116,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { combineStoryPrompt, createAssetGenerationNode, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
 import { buildInteractiveDrama, cancelToolJob, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, listToolJobs, retryToolJob, setProjectCover, startToolJob, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -363,9 +363,11 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
+export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, onPublish }: {
   project: ProjectState;
   assetCanvas?: boolean;
+  initialNodeId?: string;
+  onInitialNodeHandled?: () => void;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
@@ -418,6 +420,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   const queuedStory = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
   const nodeClickTimer = useRef<number | undefined>(undefined);
+  const initialNodeRequest = useRef({ nodeId: initialNodeId, onHandled: onInitialNodeHandled });
   const editorUndoHistory = useRef<StoryDocument[]>([]);
   const editorRedoHistory = useRef<StoryDocument[]>([]);
   const historyObserved = useRef<StoryDocument | undefined>(undefined);
@@ -445,7 +448,18 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       setChapter({ id: loadedChapter.id, title: loadedChapter.title });
       setVariables(story.variables);
       setPlayer(story.player);
-      setNodes(loadedChapter.nodes.map((node) => toFlowNode(node, models)));
+      const loadedNodes = loadedChapter.nodes.map((node) => toFlowNode(node, models));
+      const request = initialNodeRequest.current;
+      initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
+      const initialNode = assetCanvas && request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
+      setNodes(loadedNodes.map((node) => ({ ...node, selected: node.id === initialNode?.id })));
+      if (request.nodeId) {
+        request.onHandled?.();
+      }
+      if (initialNode) {
+        setSelectedId(initialNode.id);
+        setOpenedNodeId(hasNodeEditor(initialNode) ? initialNode.id : undefined);
+      }
       const loadedLayout = story.editorLayout ?? { version: 1 as const, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" as const };
       const normalizedLayout = loadedLayout;
       setEditorLayout(normalizedLayout);
@@ -461,7 +475,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
       setPhase("error");
     });
     return () => { disposed = true; };
-  }, [projectId, workspaceRevision]);
+  }, [assetCanvas, projectId, workspaceRevision]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -798,7 +812,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, agentB
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
     if (assetCanvas && type !== "text" && type !== "image" && type !== "video" && type !== "model-3d") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
-    const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
+    const node = { ...createFlowNode(type, position, imageModels, player.viewport, assetCanvas, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
   }
@@ -3601,7 +3615,23 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], viewport: StoryPlayerConfig["viewport"], defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], viewport: StoryPlayerConfig["viewport"], assetCanvas: boolean, defaultTextModel?: AgentModelRef): StoryFlowNode {
+  if (type === "image") {
+    const model = imageModels[0];
+    const option = preferredImageOption(model, assetCanvas ? undefined : storyViewportRatio(viewport));
+    return toFlowNode(createAssetGenerationNode(type, position, {
+      ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
+      ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
+    }), imageModels);
+  }
+  if (type === "video") {
+    const projectRatio = storyViewportRatio(viewport);
+    const aspectRatio = assetCanvas
+      ? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio
+      : VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
+    return toFlowNode(createAssetGenerationNode(type, position, { videoAspectRatio: aspectRatio }), imageModels);
+  }
+  if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels);
   const id = crypto.randomUUID();
   if (type === "start") return { id, type, position, data: {} };
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
@@ -3628,48 +3658,6 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
     const draft = createStoryInteractionTemplate("continue");
     return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { items: [] }, surface: { files: draft.files } } } };
   }
-  if (type === "image") {
-    const model = imageModels[0];
-    const option = preferredImageOption(model, storyViewportRatio(viewport));
-    return {
-      id,
-      type,
-      position,
-      data: {
-        prompt: "",
-        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-        resolution: option?.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
-        aspectRatio: option?.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
-        images: [],
-      },
-    };
-  }
-  if (type === "video") {
-    const projectRatio = storyViewportRatio(viewport);
-    const aspectRatio = VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
-    return {
-      id,
-      type,
-      position,
-      data: {
-        prompt: "",
-        videoModel: DEFAULT_VIDEO_NODE_CONFIG.model,
-        videoResolution: DEFAULT_VIDEO_NODE_CONFIG.resolution,
-        videoAspectRatio: aspectRatio,
-        duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
-        references: [],
-      },
-    };
-  }
-  if (type === "model-3d") return {
-    id,
-    type,
-    position,
-    data: {
-      images: [],
-      model3DConfig: DEFAULT_MODEL_3D_CONFIG,
-    },
-  };
   return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
 

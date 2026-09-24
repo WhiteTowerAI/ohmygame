@@ -1,4 +1,5 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODEL, VIDEO_RESOLUTIONS, type ImageModelRef, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG } from "./generation-config.js";
 
 const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "model-3d", "asset"]);
 const MAX_AUTOMATIC_STORY_STEPS = 100;
@@ -272,6 +273,56 @@ export function createStoryDocument(): StoryDocument {
     player: structuredClone(DEFAULT_STORY_PLAYER_CONFIG),
     chapter: { id: crypto.randomUUID(), title: "Untitled", nodes: [], edges: [] },
   };
+}
+
+export type AssetCanvasStarter = "image" | "video" | "model-3d";
+
+export function createAssetGenerationNode(type: AssetCanvasStarter, position: { x: number; y: number }, options: {
+  imageModel?: ImageModelRef;
+  imageResolution?: Extract<StoryNode, { type: "image" }>["data"]["resolution"];
+  imageAspectRatio?: Extract<StoryNode, { type: "image" }>["data"]["aspectRatio"];
+  videoAspectRatio?: Extract<StoryNode, { type: "video" }>["data"]["aspectRatio"];
+} = {}): Extract<StoryNode, { type: AssetCanvasStarter }> {
+  const nodeId = crypto.randomUUID();
+  if (type === "image") return {
+    id: nodeId,
+    type,
+    position,
+    data: {
+      prompt: "",
+      ...(options.imageModel ? { model: options.imageModel } : {}),
+      resolution: options.imageResolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+      aspectRatio: options.imageAspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
+      images: [],
+    },
+  };
+  if (type === "video") return {
+    id: nodeId,
+    type,
+    position,
+    data: {
+      prompt: "",
+      model: DEFAULT_VIDEO_NODE_CONFIG.model,
+      resolution: DEFAULT_VIDEO_NODE_CONFIG.resolution,
+      aspectRatio: options.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+      duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
+      references: [],
+    },
+  };
+  return {
+    id: nodeId,
+    type,
+    position,
+    data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] },
+  };
+}
+
+export function createAssetCanvasStarterStory(type: AssetCanvasStarter, imageModel?: ImageModelRef): { story: StoryDocument; nodeId: string } {
+  const story = createStoryDocument();
+  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, { imageModel });
+  story.chapter.nodes = [node];
+  story.editorLayout.nodes = { [node.id]: node.position };
+  return { story, nodeId: node.id };
 }
 
 export function isStoryDocument(value: unknown): value is StoryDocument {
