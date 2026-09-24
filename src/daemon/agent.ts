@@ -16,7 +16,11 @@ import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentSt
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
-import { ensureOhMyGamePiEnvironment, withRequiredPiPackages } from "./pi-agent.js";
+import {
+  ensureOhMyGamePiEnvironment,
+  resolveBundledMcpAdapterPath,
+  withBundledMcpAdapter,
+} from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
@@ -2189,7 +2193,10 @@ async function createPiResourceLoader(
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
-  sessionSettings.setPackages(withRequiredPiPackages(sessionSettings.getPackages()));
+  sessionSettings.setPackages(withBundledMcpAdapter(
+    sessionSettings.getPackages(),
+    resolveBundledMcpAdapterPath(),
+  ));
   const pluginSkills = await options.resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,

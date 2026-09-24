@@ -186,27 +186,9 @@ body {
   flex-direction: column;
 }
 
-.home-sidebar-traffic {
-  display: flex;
-  gap: 8px;
+.home-sidebar-header-spacer {
   height: 16px;
-  padding: 0 11px;
-}
-
-.home-sidebar-traffic span {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.home-sidebar-traffic-red {
-  background: #ff5f57;
-}
-.home-sidebar-traffic-yellow {
-  background: #febc2e;
-}
-.home-sidebar-traffic-green {
-  background: #28c840;
+  flex: 0 0 auto;
 }
 
 .home-sidebar-brand {
@@ -242,10 +224,6 @@ body {
 .desktop-macos .home-sidebar {
   app-region: drag;
   user-select: none;
-}
-
-.desktop-macos .home-sidebar-traffic {
-  visibility: hidden;
 }
 
 .desktop-macos .home-sidebar nav,
@@ -337,29 +315,37 @@ body {
 
 .home-sidebar-update {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 0;
   overflow: hidden;
   padding: 0;
-  border: 0;
-  border-radius: 16px;
-  background: #298ff2;
-  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--control-selected);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: width 140ms ease;
+  transition: width 140ms ease, height 140ms ease, flex-basis 140ms ease, gap 140ms ease, background-color 120ms ease;
 }
 
 .home-sidebar-update:hover,
 .home-sidebar-update:focus-visible {
   width: 72px;
+  height: 32px;
   flex-basis: 72px;
+  gap: 4px;
+  background: color-mix(in srgb, var(--text) 12%, var(--surface));
+  outline: 0;
+}
+
+.home-sidebar-update svg {
+  flex: 0 0 auto;
 }
 
 .home-sidebar-update span {
@@ -14876,9 +14862,9 @@ button {
     display: none;
   }
 
-  .home-sidebar-traffic {
+  .home-sidebar-header-spacer {
+    width: 52px;
     height: auto;
-    padding: 0;
   }
 
   .home-sidebar-brand {
@@ -14913,7 +14899,7 @@ button {
     padding: 8px 14px 4px;
   }
 
-  .settings-page-sidebar .home-sidebar-traffic {
+  .settings-page-sidebar .home-sidebar-header-spacer {
     grid-column: 1;
     grid-row: 1;
   }

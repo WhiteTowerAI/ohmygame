@@ -40,11 +40,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
   return (
     <main className="home-shell settings-page-shell" style={sidebarStyle}>
       <aside className="home-sidebar settings-page-sidebar">
-        <div className="home-sidebar-traffic" aria-hidden="true">
-          <span className="home-sidebar-traffic-red" />
-          <span className="home-sidebar-traffic-yellow" />
-          <span className="home-sidebar-traffic-green" />
-        </div>
+        <div className="home-sidebar-header-spacer" aria-hidden="true" />
         <button className="settings-page-back" type="button" onClick={onBack}>
           <ArrowLeft size={17} />
           <span>Back to app</span>
