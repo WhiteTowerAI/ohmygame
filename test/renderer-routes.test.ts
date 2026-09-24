@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityHash, conversationHash, gameHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, projectHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -31,7 +31,8 @@ describe("renderer routes", () => {
   });
 
   it("parses and formats Settings routes", () => {
-    expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "account" });
+    expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
+    expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });
     for (const section of ["account", "billing", "appearance", "providers", "connections", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);

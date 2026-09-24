@@ -1,4 +1,4 @@
-import { ArrowDownToLine, LogOut, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
+import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -21,7 +21,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [resizing, setResizing] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [accountError, setAccountError] = useState<string>();
   const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
   const sidebar = useRef<HTMLElement>(null);
   const account = useRef<HTMLDivElement>(null);
@@ -125,7 +124,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
           <button className="home-sidebar-account-main" type="button" aria-label="Open account menu" aria-expanded={accountMenuOpen} onClick={() => {
-            setAccountError(undefined);
             setAccountMenuOpen((open) => !open);
           }}>
             <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
@@ -141,15 +139,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
                 <Wrench size={16} />
                 <span>Settings</span>
               </button>
-              <button className="home-sidebar-account-sign-out" type="button" role="menuitem" onClick={() => void auth.signOut().then(() => {
-                setAccountMenuOpen(false);
-              }).catch((error) => {
-                setAccountError(errorMessage(error));
-              })}>
-                <LogOut size={16} />
-                <span>Sign out</span>
-              </button>
-              {accountError ? <p className="home-sidebar-account-error" role="alert">{accountError}</p> : null}
             </div>
           ) : null}
         </div>
@@ -203,10 +192,6 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       />
     </aside>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function clampSidebarWidth(width: number): number {

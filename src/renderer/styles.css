@@ -481,22 +481,6 @@ body {
   color: var(--text);
 }
 
-.home-sidebar-account-popover .home-sidebar-account-sign-out {
-  color: #ff7b78;
-}
-
-.home-sidebar-account-popover .home-sidebar-account-sign-out:hover,
-.home-sidebar-account-popover .home-sidebar-account-sign-out:focus-visible {
-  color: #ff7b78;
-}
-
-.home-sidebar-account-error {
-  margin: 5px 9px 3px;
-  color: var(--danger);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
 .settings-panel h3,
 .settings-panel h4,
 .settings-back-heading h3 {

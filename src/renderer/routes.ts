@@ -11,6 +11,8 @@ export type SettingsSection = "account" | "billing" | "appearance" | "providers"
 export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community">;
 
+export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
+
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
   "home", "projects", "library", "plugins", "interactive-drama", "asset-canvas",
 ]);
@@ -26,7 +28,7 @@ export type AppRoute =
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|connections|about))?$/.exec(hash);
-  if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? "account" };
+  if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);

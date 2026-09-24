@@ -5,7 +5,7 @@ import { LibraryPage } from "./library.js";
 import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityHash, conversationHash, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
@@ -138,9 +138,9 @@ export function App() {
 
   function navigateToSidebarPage(page: AppNavigationTarget): void {
     if (page === "settings") {
-      const hash = settingsHash("account");
+      const hash = settingsHash(DEFAULT_SETTINGS_SECTION);
       window.history.pushState({ ...historyState(), settingsEntry: true }, "", hash);
-      setRoute({ page: "settings", section: "account" });
+      setRoute({ page: "settings", section: DEFAULT_SETTINGS_SECTION });
       return;
     }
     if (page === "community") {

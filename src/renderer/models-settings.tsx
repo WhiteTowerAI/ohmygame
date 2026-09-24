@@ -95,7 +95,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   return (
     <section className="settings-panel settings-overview-panel">
       <header className="settings-panel-header">
-        <h3>Providers</h3>
+        <h3>Providers &amp; Models</h3>
         <label className="settings-provider-search">
           <Search size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
