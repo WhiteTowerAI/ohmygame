@@ -751,6 +751,25 @@ schemas/
 `shell/` is absent when the project has no Shell. `shared/` is a normal source
 directory and has no special runtime format.
 
+## Compiler contract
+
+The compiler consumes one validated Playable Graph and the project workspace.
+It produces a self-contained browser module and stylesheet for every Node and
+for the optional Shell. HTML remains ordinary authored markup. JavaScript and
+CSS are bundled so local Shared Modules and dependencies from the project's
+own `node_modules` can be used without a separate build system per Node.
+
+Compilation follows real filesystem paths, including symbolic links. Every
+entry point and recursively imported file must resolve inside the project
+workspace. A dependency accidentally found in OhMyGame's own installation or
+in a parent directory is rejected. Browser-safe imported images, fonts, media,
+shaders, and binary modules are embedded in the surface bundle; project Assets
+used through `context.assets` remain governed by the Asset Manifest.
+
+The result records the workspace-relative input files used by each surface.
+This supports actionable errors now and incremental rebuilding later without
+making a build cache part of the persisted graph contract.
+
 ## Agent-facing open-source design
 
 Playable Nodes uses ordinary, inspectable project files. A coding Agent can
