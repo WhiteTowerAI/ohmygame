@@ -452,13 +452,13 @@ describe("conversationItems", () => {
       sessionMessage("user", { role: "user", content: "Capture", timestamp: 1 }),
       sessionMessage("assistant", {
         role: "assistant",
-        content: [{ type: "toolCall", id: "capture-1", name: "playtest_browser", arguments: { operation: "capture", sessionId: "session-1" } }],
+        content: [{ type: "toolCall", id: "capture-1", name: "game_use", arguments: { operation: "capture", sessionId: "session-1" } }],
         stopReason: "toolUse",
       }),
       sessionMessage("tool", {
         role: "toolResult",
         toolCallId: "capture-1",
-        toolName: "playtest_browser",
+        toolName: "game_use",
         content: [
           { type: "text", text: "{\"width\":780,\"height\":1688}" },
           { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },

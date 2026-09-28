@@ -7,9 +7,9 @@ import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
-import type { PlaytestDriver } from "../shared/playtest.js";
+import type { GameRuntimeAdapter, GameUseOpenTarget } from "../shared/playtest.js";
 import type { WebSearchExecution, WebSearchInput } from "../shared/web-search.js";
-import { createPlaytestTool } from "./playtest-tools.js";
+import { createGameUseTool } from "./playtest-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -61,7 +61,7 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: PlaytestDriver; ensurePreview: () => Promise<string> },
+  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
 ): PiToolDefinition[] {
   return [defineTool({
@@ -295,5 +295,7 @@ export function createAgentTools(
         await tools.removeRun(run.id);
       }
     },
-  }), ...(playtest?.driver.available ? [createPlaytestTool(playtest.driver, playtest.ensurePreview)] : [])];
+  }), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type)
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget)]
+    : [])];
 }

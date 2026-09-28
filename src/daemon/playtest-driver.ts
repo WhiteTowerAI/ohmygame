@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PlaytestDriver, PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
+import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type PlaytestIpcMessage, type PlaytestRequest, type PlaytestResult } from "../shared/playtest.js";
 
 interface ProcessIpc {
   connected?: boolean;
@@ -18,7 +18,8 @@ interface PendingRequest {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
-export class ProcessPlaytestDriver implements PlaytestDriver {
+export class ProcessPlaytestDriver implements GameRuntimeAdapter {
+  readonly capabilities = WEB_GAME_USE_CAPABILITIES;
   readonly #pending = new Map<string, PendingRequest>();
   readonly #onMessage = (message: unknown) => this.#handleMessage(message);
   readonly #onDisconnect = () => this.#rejectAll(new Error("Desktop playtest service disconnected"));
@@ -37,12 +38,12 @@ export class ProcessPlaytestDriver implements PlaytestDriver {
   }
 
   request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
-    if (!this.available) return Promise.reject(new Error("Browser playtesting is not available in this environment"));
+    if (!this.available) return Promise.reject(new Error("Game use is not available in this environment"));
     if (signal?.aborted) return Promise.reject(abortError());
     const id = randomUUID();
     return new Promise<PlaytestResult>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.#settle(id, new Error(`Browser playtest request timed out after ${this.timeoutMs}ms`));
+        this.#settle(id, new Error(`Game use request timed out after ${this.timeoutMs}ms`));
         this.#send({ channel: "ohmygame:playtest-cancel", id });
       }, this.timeoutMs);
       const onAbort = signal ? () => {
@@ -62,7 +63,7 @@ export class ProcessPlaytestDriver implements PlaytestDriver {
     this.#closed = true;
     this.ipc.off("message", this.#onMessage);
     this.ipc.off("disconnect", this.#onDisconnect);
-    this.#rejectAll(new Error("Browser playtest driver closed"));
+    this.#rejectAll(new Error("Game use driver closed"));
   }
 
   #send(message: PlaytestIpcMessage, callback?: (error: Error | null) => void): void {
@@ -103,5 +104,5 @@ function isResponse(value: unknown): value is Extract<PlaytestIpcMessage, { chan
 }
 
 function abortError(): Error {
-  return new DOMException("Browser playtest request aborted", "AbortError");
+  return new DOMException("Game use request aborted", "AbortError");
 }

@@ -1,7 +1,37 @@
+import type { ProjectType } from "./contracts.js";
+
 export interface PlaytestViewport {
   width: number;
   height: number;
 }
+
+export type GameRuntime = "web" | "godot" | "unity";
+export type GameProjectType = ProjectType;
+export type GameUseInputCapability = "pointer" | "keyboard" | "text" | "touch" | "resize";
+export type GameUseObservationCapability = "screenshot" | "dom" | "canvas" | "console" | "network";
+export type GameUseDeterminismCapability = "snapshot" | "reset" | "seed" | "step";
+
+export interface GameUseCapabilities {
+  runtime: GameRuntime;
+  projectTypes: readonly GameProjectType[];
+  input: readonly GameUseInputCapability[];
+  observation: readonly GameUseObservationCapability[];
+  deterministic: readonly GameUseDeterminismCapability[];
+  watch: boolean;
+}
+
+export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
+  runtime: "web",
+  projectTypes: ["web-game"],
+  input: ["pointer", "keyboard", "text", "touch", "resize"],
+  observation: ["screenshot", "dom", "canvas", "console", "network"],
+  deterministic: [],
+  watch: true,
+};
+
+export type GameUseOpenTarget =
+  | { runtime: "web"; url: string }
+  | { runtime: "godot" | "unity"; projectPath: string };
 
 export type PlaytestTarget =
   | { selector: string }
@@ -13,7 +43,7 @@ export type PlaytestTarget =
 export type PlaytestAction =
   | { type: "click"; target: PlaytestTarget }
   | { type: "type"; target: Exclude<PlaytestTarget, { x: number; y: number }>; text: string }
-  | { type: "press"; key: string }
+  | { type: "press"; key: string; duration?: number }
   | { type: "touch"; x: number; y: number }
   | { type: "wait"; milliseconds: number }
   | { type: "resize"; viewport: PlaytestViewport }
@@ -53,18 +83,23 @@ export interface PlaytestFailedRequest {
   timestamp: string;
 }
 
-export interface PlaytestSnapshot {
+export interface GameUseSnapshot {
   sessionId: string;
+  runtime: GameRuntime;
+  capabilities: GameUseCapabilities;
+  viewport: PlaytestViewport;
+  gameState?: unknown;
+  bridgeCapabilities?: string[];
+}
+
+export interface PlaytestSnapshot extends GameUseSnapshot {
   url: string;
   title: string;
   readyState: string;
-  viewport: PlaytestViewport;
   elements: PlaytestElement[];
   canvases: PlaytestCanvas[];
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
-  gameState?: unknown;
-  bridgeCapabilities?: string[];
 }
 
 export interface PlaytestCapture {
@@ -82,8 +117,13 @@ export interface PlaytestCapture {
   };
 }
 
+export interface PlaytestWatchState {
+  visible: boolean;
+  activeSessions: number;
+}
+
 export type PlaytestRequest =
-  | { operation: "open"; url: string; viewport: PlaytestViewport }
+  | { operation: "open"; target: GameUseOpenTarget; viewport: PlaytestViewport }
   | { operation: "inspect"; sessionId: string }
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
   | { operation: "capture"; sessionId: string }
@@ -91,14 +131,15 @@ export type PlaytestRequest =
   | { operation: "closeAll" };
 
 export type PlaytestResult =
-  | { operation: "open"; snapshot: PlaytestSnapshot }
-  | { operation: "inspect"; snapshot: PlaytestSnapshot }
-  | { operation: "act"; snapshot: PlaytestSnapshot }
+  | { operation: "open"; snapshot: GameUseSnapshot }
+  | { operation: "inspect"; snapshot: GameUseSnapshot }
+  | { operation: "act"; snapshot: GameUseSnapshot }
   | { operation: "capture"; capture: PlaytestCapture }
   | { operation: "close" | "closeAll" };
 
-export interface PlaytestDriver {
+export interface GameRuntimeAdapter {
   readonly available: boolean;
+  readonly capabilities: GameUseCapabilities;
   request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult>;
   close(): void;
 }

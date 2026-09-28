@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ProjectFileOpenMode } from "../shared/contracts.js";
+import type { PlaytestWatchState } from "../shared/playtest.js";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -29,6 +30,15 @@ if (process.isMainFrame) {
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
     openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId, viewport) as Promise<void>,
+    agentPlaytests: Object.freeze({
+      state: () => ipcRenderer.invoke("ohmygame:agent-playtest-state") as Promise<PlaytestWatchState>,
+      setVisible: (visible: boolean) => ipcRenderer.invoke("ohmygame:set-agent-playtest-visible", visible) as Promise<PlaytestWatchState>,
+      onState: (listener: (state: PlaytestWatchState) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, state: PlaytestWatchState) => listener(state);
+        ipcRenderer.on("ohmygame:agent-playtest-state", callback);
+        return () => ipcRenderer.removeListener("ohmygame:agent-playtest-state", callback);
+      },
+    }),
     updates: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:update-state") as Promise<DesktopUpdateState | null>,
       check: () => ipcRenderer.invoke("ohmygame:check-for-update") as Promise<void>,

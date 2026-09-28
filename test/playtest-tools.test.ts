@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPlaytestTool, previewUrl } from "../src/daemon/playtest-tools.js";
-import type { PlaytestDriver, PlaytestRequest, PlaytestResult, PlaytestSnapshot } from "../src/shared/playtest.js";
+import { createGameUseTool, previewUrl } from "../src/daemon/playtest-tools.js";
+import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseCapabilities, type PlaytestRequest, type PlaytestResult, type PlaytestSnapshot } from "../src/shared/playtest.js";
 
 const snapshot: PlaytestSnapshot = {
   sessionId: "session-1",
+  runtime: "web",
+  capabilities: WEB_GAME_USE_CAPABILITIES,
   url: "http://127.0.0.1:43210/level-1",
   title: "Test Game",
   readyState: "complete",
@@ -16,10 +18,15 @@ const snapshot: PlaytestSnapshot = {
   bridgeCapabilities: ["snapshot", "reset"],
 };
 
-class FakeDriver implements PlaytestDriver {
+class FakeDriver implements GameRuntimeAdapter {
   available = true;
+  readonly capabilities: GameUseCapabilities;
   readonly requests: PlaytestRequest[] = [];
   close = vi.fn();
+
+  constructor(capabilities: GameUseCapabilities = WEB_GAME_USE_CAPABILITIES) {
+    this.capabilities = capabilities;
+  }
 
   async request(request: PlaytestRequest): Promise<PlaytestResult> {
     this.requests.push(request);
@@ -41,9 +48,9 @@ class FakeDriver implements PlaytestDriver {
   }
 }
 
-describe("playtest browser tool", () => {
+describe("game use tool", () => {
   it("uses a provider-compatible object schema at the function root", () => {
-    const tool = createPlaytestTool(new FakeDriver(), async () => "http://127.0.0.1:43210/");
+    const tool = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
 
     expect(tool.parameters.type).toBe("object");
     expect(tool.parameters).not.toHaveProperty("anyOf");
@@ -52,8 +59,8 @@ describe("playtest browser tool", () => {
 
   it("starts the current preview and opens a project-local route", async () => {
     const driver = new FakeDriver();
-    const ensurePreview = vi.fn(async () => "http://127.0.0.1:43210/");
-    const tool = createPlaytestTool(driver, ensurePreview);
+    const resolveOpenTarget = vi.fn(async () => ({ runtime: "web" as const, url: "http://127.0.0.1:43210/" }));
+    const tool = createGameUseTool(driver, resolveOpenTarget);
 
     const result = await tool.execute("open-1", {
       operation: "open",
@@ -61,17 +68,17 @@ describe("playtest browser tool", () => {
       viewport: { width: 390, height: 844 },
     }, undefined, undefined, {} as never);
 
-    expect(ensurePreview).toHaveBeenCalledOnce();
+    expect(resolveOpenTarget).toHaveBeenCalledOnce();
     expect(driver.requests).toEqual([{
       operation: "open",
-      url: "http://127.0.0.1:43210/level-1?difficulty=hard",
+      target: { runtime: "web", url: "http://127.0.0.1:43210/level-1?difficulty=hard" },
       viewport: { width: 390, height: 844 },
     }]);
     expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining('"score": 10') });
   });
 
   it("returns screenshots to the model as image content", async () => {
-    const tool = createPlaytestTool(new FakeDriver(), async () => "http://127.0.0.1:43210/");
+    const tool = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
 
     const result = await tool.execute("capture-1", {
       operation: "capture",
@@ -92,7 +99,7 @@ describe("playtest browser tool", () => {
   it("fails clearly when the desktop driver disconnects", async () => {
     const driver = new FakeDriver();
     driver.available = false;
-    const tool = createPlaytestTool(driver, async () => "http://127.0.0.1:43210/");
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
 
     await expect(tool.execute("inspect-1", {
       operation: "inspect",
@@ -101,7 +108,7 @@ describe("playtest browser tool", () => {
   });
 
   it("validates fields required by session operations", async () => {
-    const tool = createPlaytestTool(new FakeDriver(), async () => "http://127.0.0.1:43210/");
+    const tool = createGameUseTool(new FakeDriver(), async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
 
     await expect(tool.execute("inspect-1", {
       operation: "inspect",
@@ -110,5 +117,32 @@ describe("playtest browser tool", () => {
       operation: "act",
       sessionId: "session-1",
     }, undefined, undefined, {} as never)).rejects.toThrow("actions are required for act");
+  });
+
+  it("rejects actions that the runtime does not advertise", async () => {
+    const driver = new FakeDriver({ ...WEB_GAME_USE_CAPABILITIES, input: ["keyboard"], observation: ["screenshot"] });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+
+    await expect(tool.execute("act-unsupported", {
+      operation: "act",
+      sessionId: "session-1",
+      actions: [{ type: "click", target: { x: 20, y: 20 } }],
+    }, undefined, undefined, {} as never)).rejects.toThrow("does not support pointer input");
+    expect(driver.requests).toHaveLength(0);
+  });
+
+  it("does not apply web preview paths to non-web targets", async () => {
+    const driver = new FakeDriver({
+      ...WEB_GAME_USE_CAPABILITIES,
+      runtime: "godot",
+      projectTypes: ["godot-game"],
+    });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "godot", projectPath: "/tmp/game" }));
+
+    await expect(tool.execute("open-godot-path", {
+      operation: "open",
+      path: "/level-1",
+    }, undefined, undefined, {} as never)).rejects.toThrow("path is only supported by the web game runtime");
+    expect(driver.requests).toHaveLength(0);
   });
 });

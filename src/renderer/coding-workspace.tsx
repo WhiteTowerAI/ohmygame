@@ -21,6 +21,7 @@ import {
   Share2,
   Smartphone,
   Tablet,
+  Video,
   Wrench,
   X,
   type IconComponent,
@@ -29,6 +30,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { PlaytestWatchState } from "../shared/playtest.js";
 import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
@@ -88,6 +90,10 @@ export function CodingWorkspace({
   const [reload, setReload] = useState(0);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
+    typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
+  ));
+  const [agentPlaytestWatchPending, setAgentPlaytestWatchPending] = useState(false);
   const fileRequest = useRef(0);
   const preview = project?.preview;
   const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
@@ -104,6 +110,15 @@ export function CodingWorkspace({
   useEffect(() => {
     setKnownPaths(["/"]);
   }, [project?.id]);
+
+  useEffect(() => {
+    const watch = window.ohMyGameDesktop?.agentPlaytests;
+    if (!watch) return;
+    let disposed = false;
+    const unsubscribe = watch.onState((state) => { if (!disposed) setAgentPlaytestWatch(state); });
+    void watch.state().then((state) => { if (!disposed) setAgentPlaytestWatch(state); }).catch(() => undefined);
+    return () => { disposed = true; unsubscribe(); };
+  }, []);
 
   useEffect(() => {
     if (!project || activeTab === "preview") return;
@@ -181,6 +196,15 @@ export function CodingWorkspace({
     }
   }
 
+  async function toggleAgentPlaytestWatch(): Promise<void> {
+    const watch = window.ohMyGameDesktop?.agentPlaytests;
+    if (!watch || agentPlaytestWatchPending) return;
+    setAgentPlaytestWatchPending(true);
+    try { setAgentPlaytestWatch(await watch.setVisible(!agentPlaytestWatch?.visible)); }
+    catch { try { setAgentPlaytestWatch(await watch.state()); } catch {} }
+    finally { setAgentPlaytestWatchPending(false); }
+  }
+
   return (
     <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
@@ -213,9 +237,12 @@ export function CodingWorkspace({
               refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
               refreshLabel={preview?.status === "ready" ? "Reload preview" : "Restart preview"}
               viewport={viewport}
+              agentPlaytestWatch={agentPlaytestWatch}
+              agentPlaytestWatchPending={agentPlaytestWatchPending}
               onOpenSettings={() => setProjectSettingsOpen(true)}
               onNavigate={navigatePreview}
               onRefresh={refreshPreview}
+              onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
               onViewportChange={setViewport}
             />
           ) : null}
@@ -323,9 +350,12 @@ function PreviewControls({
   refreshDisabled,
   refreshLabel,
   viewport,
+  agentPlaytestWatch,
+  agentPlaytestWatchPending,
   onOpenSettings,
   onNavigate,
   onRefresh,
+  onToggleAgentPlaytestWatch,
   onViewportChange,
 }: {
   path: string;
@@ -334,9 +364,12 @@ function PreviewControls({
   refreshDisabled: boolean;
   refreshLabel: string;
   viewport: PreviewViewport;
+  agentPlaytestWatch?: PlaytestWatchState;
+  agentPlaytestWatchPending: boolean;
   onOpenSettings: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
+  onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
   return (
@@ -351,6 +384,11 @@ function PreviewControls({
         onNavigate={onNavigate}
         onRefresh={onRefresh}
       />
+      {agentPlaytestWatch ? (
+        <button className="icon-button quiet-button preview-agent-watch-button" type="button" aria-label={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} title={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} onClick={onToggleAgentPlaytestWatch}>
+          <Video size={15} />
+        </button>
+      ) : null}
       <button
         className="icon-button quiet-button preview-settings-button"
         type="button"

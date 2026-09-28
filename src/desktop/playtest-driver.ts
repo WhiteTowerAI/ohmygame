@@ -1,22 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type NativeImage } from "electron";
-import type {
-  PlaytestAction,
-  PlaytestCapture,
-  PlaytestDriver,
-  PlaytestFailedRequest,
-  PlaytestLog,
-  PlaytestRequest,
-  PlaytestResult,
-  PlaytestSnapshot,
-  PlaytestTarget,
-  PlaytestViewport,
+import {
+  WEB_GAME_USE_CAPABILITIES,
+  type GameRuntimeAdapter,
+  type GameUseOpenTarget,
+  type PlaytestAction,
+  type PlaytestCapture,
+  type PlaytestFailedRequest,
+  type PlaytestLog,
+  type PlaytestRequest,
+  type PlaytestResult,
+  type PlaytestSnapshot,
+  type PlaytestTarget,
+  type PlaytestViewport,
+  type PlaytestWatchState,
 } from "../shared/playtest.js";
 
 interface PlaytestSession {
   id: string;
   origin: string;
   window: BrowserWindow;
+  ready: boolean;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
 }
@@ -25,14 +29,38 @@ const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
 const MAX_SESSIONS = 4;
 
-export class ElectronPlaytestDriver implements PlaytestDriver {
+export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   readonly available = true;
+  readonly capabilities = WEB_GAME_USE_CAPABILITIES;
   readonly #sessions = new Map<string, PlaytestSession>();
+  readonly #closingSessions = new Set<string>();
+  #visible = false;
+
+  constructor(
+    private readonly onWatchStateChange?: (state: PlaytestWatchState) => void,
+  ) {}
+
+  watchState(): PlaytestWatchState {
+    return { visible: this.#visible, activeSessions: this.#sessions.size };
+  }
+
+  setVisible(visible: boolean): PlaytestWatchState {
+    this.#visible = visible;
+    for (const state of this.#sessions.values()) {
+      if (state.window.isDestroyed() || !state.ready) continue;
+      if (visible) {
+        state.window.showInactive();
+      } else {
+        state.window.hide();
+      }
+    }
+    return this.#publishWatchState();
+  }
 
   async request(request: PlaytestRequest, signal?: AbortSignal): Promise<PlaytestResult> {
     signal?.throwIfAborted();
     switch (request.operation) {
-      case "open": return { operation: "open", snapshot: await this.#open(request.url, request.viewport, signal) };
+      case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport, signal) };
       case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#session(request.sessionId), signal) };
       case "act": return { operation: "act", snapshot: await this.#act(this.#session(request.sessionId), request.actions, signal) };
       case "capture": return { operation: "capture", capture: await this.#capture(this.#session(request.sessionId), signal) };
@@ -49,11 +77,12 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     for (const id of [...this.#sessions.keys()]) this.#close(id);
   }
 
-  async #open(urlValue: string, viewport: PlaytestViewport, signal?: AbortSignal): Promise<PlaytestSnapshot> {
-    const url = validatedPlaytestUrl(urlValue);
+  async #open(target: GameUseOpenTarget, viewport: PlaytestViewport, signal?: AbortSignal): Promise<PlaytestSnapshot> {
+    if (target.runtime !== "web") throw new Error(`Electron game use does not support the ${target.runtime} runtime`);
+    const url = validatedPlaytestUrl(target.url);
     validateViewport(viewport);
     if (this.#sessions.size >= MAX_SESSIONS) {
-      throw new Error(`Close an existing browser playtest session before opening more than ${MAX_SESSIONS}`);
+      throw new Error(`Close an existing game session before opening more than ${MAX_SESSIONS}`);
     }
     url.searchParams.set("ohmygamePlaytest", "1");
     const id = randomUUID();
@@ -62,6 +91,13 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
       height: viewport.height,
       useContentSize: true,
       show: false,
+      title: "Agent Playtest - View only",
+      autoHideMenuBar: true,
+      resizable: true,
+      maximizable: true,
+      fullscreenable: true,
+      minWidth: 240,
+      minHeight: 240,
       backgroundColor: "#000000",
       webPreferences: {
         sandbox: true,
@@ -71,15 +107,25 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
         partition: `ohmygame-playtest-${id}`,
       },
     });
-    const state: PlaytestSession = { id, origin: url.origin, window, logs: [], failedRequests: [] };
+    const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [] };
     this.#sessions.set(id, state);
-    window.once("closed", () => this.#sessions.delete(id));
+    this.#publishWatchState();
+    window.on("close", (event) => {
+      if (this.#closingSessions.has(id)) return;
+      event.preventDefault();
+      this.setVisible(false);
+    });
+    window.once("closed", () => {
+      this.#closingSessions.delete(id);
+      if (this.#sessions.delete(id)) this.#publishWatchState();
+    });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     const preventCrossOriginNavigation = (event: { preventDefault(): void }, destination: string) => {
       if (!sameOrigin(destination, state.origin)) event.preventDefault();
     };
     window.webContents.on("will-navigate", preventCrossOriginNavigation);
     window.webContents.on("will-redirect", preventCrossOriginNavigation);
+    window.webContents.on("page-title-updated", (event) => event.preventDefault());
     window.webContents.on("console-message", (details) => {
       state.logs.push({
         level: details.level,
@@ -116,6 +162,8 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
       window.webContents.debugger.attach("1.3");
       await window.loadURL(url.href);
       signal?.throwIfAborted();
+      state.ready = true;
+      if (this.#visible) window.showInactive();
       return await this.#inspect(state, signal);
     } catch (cause) {
       this.#close(id);
@@ -129,8 +177,10 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     const page = await state.window.webContents.executeJavaScript(PAGE_INSPECTION_SCRIPT, true) as Omit<PlaytestSnapshot, "sessionId" | "logs" | "failedRequests">;
     signal?.throwIfAborted();
     return {
-      sessionId: state.id,
       ...page,
+      sessionId: state.id,
+      runtime: this.capabilities.runtime,
+      capabilities: this.capabilities,
       logs: [...state.logs],
       failedRequests: [...state.failedRequests],
     };
@@ -167,8 +217,16 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
       }
       case "press": {
         const event = keyboardEvent(action.key);
+        const duration = action.duration ?? 0;
+        if (!Number.isInteger(duration) || duration < 0 || duration > 5_000) {
+          throw new Error("Playtest key holds must be between 0 and 5000ms");
+        }
         await debuggerApi.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", ...event });
-        await debuggerApi.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", ...event });
+        try {
+          await abortableDelay(duration, signal);
+        } finally {
+          await debuggerApi.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", ...event });
+        }
         await abortableDelay(50, signal);
         return;
       }
@@ -222,14 +280,14 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
 
   #session(id: string): PlaytestSession {
     const state = this.#sessions.get(id);
-    if (!state) throw new Error(`Browser playtest session not found: ${id}`);
+    if (!state) throw new Error(`Game session not found: ${id}`);
     return state;
   }
 
   #assertLive(state: PlaytestSession): void {
     if (state.window.isDestroyed() || state.window.webContents.isDestroyed()) {
       this.#sessions.delete(state.id);
-      throw new Error(`Browser playtest session is no longer available: ${state.id}`);
+      throw new Error(`Game session is no longer available: ${state.id}`);
     }
   }
 
@@ -237,8 +295,18 @@ export class ElectronPlaytestDriver implements PlaytestDriver {
     const state = this.#sessions.get(id);
     if (!state) return;
     this.#sessions.delete(id);
+    this.#publishWatchState();
     if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
-    if (!state.window.isDestroyed()) state.window.destroy();
+    if (!state.window.isDestroyed()) {
+      this.#closingSessions.add(id);
+      state.window.destroy();
+    }
+  }
+
+  #publishWatchState(): PlaytestWatchState {
+    const state = this.watchState();
+    this.onWatchStateChange?.(state);
+    return state;
   }
 }
 
@@ -246,7 +314,7 @@ export function validatedPlaytestUrl(value: string): URL {
   const url = new URL(value);
   const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
   if (url.protocol !== "http:" || !loopback || url.username || url.password) {
-    throw new Error("Browser playtesting only supports local HTTP preview URLs");
+    throw new Error("Game use only supports local HTTP preview URLs");
   }
   return url;
 }
@@ -313,10 +381,10 @@ function keyboardEvent(key: string): { key: string; code: string; text?: string 
 }
 
 async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) throw new DOMException("Browser playtest request aborted", "AbortError");
+  if (signal?.aborted) throw new DOMException("Game use request aborted", "AbortError");
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(done, milliseconds);
-    const onAbort = () => done(new DOMException("Browser playtest request aborted", "AbortError"));
+    const onAbort = () => done(new DOMException("Game use request aborted", "AbortError"));
     signal?.addEventListener("abort", onAbort, { once: true });
     function done(error?: Error) {
       clearTimeout(timeout);

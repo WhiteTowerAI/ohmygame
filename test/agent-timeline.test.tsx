@@ -757,13 +757,13 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Godot: Run project");
   });
 
-  it("describes browser playtest operations with player-facing labels", () => {
+  it("describes game use operations with player-facing labels", () => {
     const playtest = (id: string, operation: string, status: "inProgress" | "completed", extra: Record<string, unknown> = {}): ThreadItem => ({
       id,
       turnId: "turn-1",
       type: "dynamicToolCall",
       toolCallId: id,
-      tool: "playtest_browser",
+      tool: "game_use",
       status,
       arguments: { operation, ...extra },
     });
@@ -781,10 +781,10 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Ran playtest actions");
     expect(html).not.toContain("Ran 2 playtest actions");
     expect(html).toContain("solar-gamepad-linear");
-    expect(html).not.toContain("Used playtest_browser");
+    expect(html).not.toContain("Used game_use");
   });
 
-  it("summarizes completed browser checks as a game playtest", () => {
+  it("summarizes completed game checks as a game playtest", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
       {
@@ -792,7 +792,7 @@ describe("AgentTimeline", () => {
         turnId: "turn-1",
         type: "dynamicToolCall",
         toolCallId: "open",
-        tool: "playtest_browser",
+        tool: "game_use",
         status: "completed",
         arguments: { operation: "open" },
       },
@@ -801,7 +801,7 @@ describe("AgentTimeline", () => {
         turnId: "turn-1",
         type: "dynamicToolCall",
         toolCallId: "close",
-        tool: "playtest_browser",
+        tool: "game_use",
         status: "completed",
         arguments: { operation: "close", sessionId: "session-1" },
       },
@@ -810,7 +810,7 @@ describe("AgentTimeline", () => {
 
     expect(html).toContain("Playtested the game");
     expect(html).toContain("Closed game preview");
-    expect(html).not.toContain("playtest_browser tools");
+    expect(html).not.toContain("game_use tools");
   });
 
   it("shows a captured playtest frame inside the tool details", () => {
@@ -821,7 +821,7 @@ describe("AgentTimeline", () => {
         turnId: "turn-1",
         type: "dynamicToolCall",
         toolCallId: "capture",
-        tool: "playtest_browser",
+        tool: "game_use",
         status: "completed",
         arguments: { operation: "capture", sessionId: "session-1" },
         output: "{\"width\":780,\"height\":1688}",

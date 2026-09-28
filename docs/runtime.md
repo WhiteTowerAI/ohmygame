@@ -85,13 +85,13 @@ and events remain in the daemon. Closing the last window quits the application
 and gives the daemon time to stop active Pi and preview processes before it
 exits.
 
-### Agent browser playtesting
+### Agent game use
 
-The desktop runtime exposes browser-game verification as the Pi custom tool
-`playtest_browser`. This is an OhMyGame core capability rather than a Plugin:
+The desktop runtime exposes game interaction and verification as the Pi custom
+tool `game_use`. This is an OhMyGame core capability rather than a Plugin:
 
-1. The daemon starts or reuses the current project's local Preview and accepts
-   only a path, query, or hash on that Preview origin.
+1. The current Web adapter starts or reuses the project's local Preview and
+   accepts only a path, query, or hash on that Preview origin.
 2. A private child-process IPC channel forwards typed requests from the daemon
    to Electron main. It is not part of the renderer API.
 3. Electron main owns hidden, per-playtest `BrowserWindow` sessions using the
@@ -100,13 +100,24 @@ The desktop runtime exposes browser-game verification as the Pi custom tool
    optional game-state data. PNG captures are returned to the model as image
    content.
 
-The tool supports `open`, `inspect`, `act`, `capture`, and `close`. Actions
-cover semantic or coordinate clicks, text input, key presses, touch, bounded
-waits, viewport resizing, and the optional game bridge below. Calls are
-sequential, abort with the Agent turn, and time out after 30 seconds. Sessions
-are destroyed when explicitly closed, when the daemon or Electron app shuts
-down, or after an open failure. At most four sessions may remain open at once,
-which bounds hidden-window resource use if an Agent misses cleanup.
+The tool supports `open`, `inspect`, `act`, `capture`, and `close`. Runtime
+adapters receive a typed open target; the Web adapter uses a Preview URL while
+other adapters can use their project or process identity. Actions
+cover semantic or coordinate clicks, text input, instant or held key presses,
+touch, bounded waits, viewport resizing, and the optional game bridge below.
+Calls are sequential, abort with the Agent turn, and time out after 30 seconds.
+Sessions are destroyed when explicitly closed, when the daemon or Electron app
+shuts down, or after an open failure. At most four sessions may remain open at
+once, which bounds hidden-window resource use if an Agent misses cleanup.
+
+The Preview toolbar can reveal the same isolated windows in a watch mode. These
+are independent, movable, resizable native windows with the normal macOS title
+bar and traffic-light controls. Showing them initially does not take focus, but
+they accept normal window interaction after the user clicks them. They do not
+stay above unrelated applications. This does not reuse the user Preview or
+mirror screenshots: the user sees the exact Chromium surface receiving Agent
+input. Closing the watch surface hides it without terminating the playtest
+session.
 
 Playtest windows use an isolated partition with sandboxing, context isolation,
 and Node integration disabled. Main-frame navigation stays on the original
@@ -116,10 +127,24 @@ URLs are accepted. This capability is available only when the daemon is owned
 by the Electron process; browser-only daemon development does not register the
 tool.
 
-This is deliberately a game-focused browser driver, not unrestricted Browser
-Use or desktop Computer Use. It provides the smallest stable surface needed for
+This is deliberately a game-use runtime, not unrestricted Browser Use or
+desktop Computer Use. It provides the smallest stable surface needed for
 repeatable gameplay and visual checks without adding Playwright, Puppeteer, or
 a system Chrome dependency to generated games.
+
+#### Runtime adapter boundary
+
+`game_use` is backed by a typed runtime adapter. The adapter advertises its
+runtime, supported project types, input methods, observations, deterministic
+operations, and whether it can be shown in watch mode. The daemon registers
+the tool only when the current project's type is included in those capabilities.
+
+The shipped adapter is `web` for `web-game` projects and uses Electron's
+bundled Chromium. Godot and Unity projects do not receive this tool yet. When
+their runtime bridges are added, they should implement the same adapter
+contract for launch or attach, input, screenshots, state, reset or stepping,
+and shutdown. An editor MCP connection alone is not a runtime adapter and
+must not be presented as gameplay verification.
 
 #### Optional game bridge
 
