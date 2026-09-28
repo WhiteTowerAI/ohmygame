@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
+import { type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
   advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, createStorySave, defaultStoryNodeSource, getNextNode,
@@ -9,6 +9,8 @@ import {
   transparentStorySurfaceFiles, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT,
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
+
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("canonical Interactive Drama story", () => {
   it("creates a valid blank story document", () => {
@@ -543,7 +545,7 @@ describe("canonical Interactive Drama story", () => {
   it("resolves canonical presentation media through Library and media nodes", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: DEFAULT_VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
+  chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: TEST_VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
     expect(resolveStoryAssetId(chapter, { type: "library", assetId: "library" })).toBe("library");
     expect(resolveStoryAssetId(chapter, { type: "node", nodeId: "video" })).toBe("generated");
   });

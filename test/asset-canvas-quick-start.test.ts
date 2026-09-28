@@ -31,14 +31,14 @@ describe("Asset Canvas quick start", () => {
   });
 
   it("creates a canvas with the selected image model", async () => {
-    api.listImageModels.mockResolvedValue([{ provider: "ohmygame", id: "gpt-image-2.5-flare" }]);
+    api.listImageModels.mockResolvedValue([{ provider: "openrouter", id: "openai/gpt-image-2.5-flare" }]);
 
     const result = await createAssetCanvasQuickStart("image");
 
     expect(api.createProject).toHaveBeenCalledWith({ type: "asset-canvas" });
     expect(api.updateStory).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({
       chapter: expect.objectContaining({
-        nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "ohmygame", id: "gpt-image-2.5-flare" } }) })],
+        nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } }) })],
       }),
     }));
     expect(result.project).toBe(PROJECT);

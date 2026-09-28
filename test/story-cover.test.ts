@@ -3,6 +3,8 @@ import { createInteractiveDramaStarterStory } from "../src/shared/interactive-dr
 import { createStoryDocument } from "../src/shared/story.js";
 import { findAssetCanvasCoverSource, findStoryCoverSource } from "../src/shared/story-cover.js";
 
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
+
 describe("findStoryCoverSource", () => {
   it("finds the first library image on the story entry path", () => {
     const story = createInteractiveDramaStarterStory();
@@ -28,7 +30,7 @@ describe("findStoryCoverSource", () => {
     const story = createStoryDocument();
     story.chapter.nodes = [
       { id: "image", type: "image", position: { x: 0, y: 0 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [], assetId: "image-1" } },
-      { id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: "doubao-seedance-2-0-260128", resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "video-1" } },
+      { id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: TEST_VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "video-1" } },
       { id: "model", type: "model-3d", position: { x: 0, y: 0 }, data: { targetPolycount: 4_000, texture: true, pbr: false, images: [], assetId: "model-1" } },
     ];
 

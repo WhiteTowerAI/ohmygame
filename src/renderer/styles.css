@@ -1303,11 +1303,6 @@ body {
   object-fit: contain;
 }
 
-.settings-provider-mark.is-ohmygame img {
-  width: 100%;
-  height: 100%;
-}
-
 .settings-provider-mark.is-monochrome img {
   filter: invert(1);
 }
@@ -14081,8 +14076,8 @@ button {
 
 :root[data-appearance="light"]
   .settings-provider-row
-  > button:hover:not(:disabled),
-:root[data-appearance="light"] .settings-provider-row > button:focus-visible {
+  > button:not(.is-primary):hover:not(:disabled),
+:root[data-appearance="light"] .settings-provider-row > button:not(.is-primary):focus-visible {
   background: var(--surface-hover);
 }
 

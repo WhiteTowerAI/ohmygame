@@ -70,9 +70,6 @@ import {
 import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./story-canvas-alignment.js";
 import { duplicateStoryNode, snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
 import {
-  VIDEO_ASPECT_RATIOS,
-  VIDEO_MODELS,
-  VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
@@ -113,17 +110,18 @@ import {
   type StoryVariableValue,
   type ToolJob,
   type VideoAspectRatio,
-  type VideoModelId,
+  type VideoModel,
+  type VideoModelRef,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineStoryPrompt, createAssetGenerationNode, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { buildInteractiveDrama, cancelToolJob, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, listToolJobs, retryToolJob, setProjectCover, startToolJob, updateStory, uploadLibraryAsset } from "./api.js";
+import { buildInteractiveDrama, cancelToolJob, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, listToolJobs, listVideoModels, retryToolJob, setProjectCover, startToolJob, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { playtestHash } from "./routes.js";
-import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
+import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
 import { findAssetCanvasCoverSource, findStoryCoverSource, type StoryCoverSource } from "../shared/story-cover.js";
@@ -265,7 +263,7 @@ type StoryFlowData = {
   model?: ImageModelRef;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
-  videoModel?: VideoModelId;
+  videoModel?: VideoModelRef;
   videoResolution?: VideoResolution;
   videoAspectRatio?: VideoAspectRatio;
   duration?: number;
@@ -334,7 +332,9 @@ interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
 }
 
-type VideoNodeRuntime = ReferenceMediaNodeRuntime;
+interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
+  models: VideoModel[];
+}
 
 interface MediaReferenceView {
   assetId?: string;
@@ -410,6 +410,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
+  const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
@@ -452,13 +453,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(([story, assets, models]) => {
+    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => []), listVideoModels().catch(() => [])]).then(([story, assets, models, loadedVideoModels]) => {
       if (disposed) return;
       const loadedChapter = story.chapter;
       setChapter({ id: loadedChapter.id, title: loadedChapter.title });
       setVariables(story.variables);
       setPlayer(story.player);
-      const loadedNodes = loadedChapter.nodes.map((node) => toFlowNode(node, models));
+      const loadedNodes = loadedChapter.nodes.map((node) => toFlowNode(node, models, loadedVideoModels));
       const request = initialNodeRequest.current;
       initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
       const initialNode = assetCanvas && request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
@@ -478,6 +479,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       queuedStory.current = JSON.stringify(story);
       setLibraryAssets(assets);
       setImageModels(models);
+      setVideoModels(loadedVideoModels);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -832,7 +834,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
     if (assetCanvas && type !== "text" && type !== "image" && type !== "video" && type !== "model-3d") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
-    const node = { ...createFlowNode(type, position, imageModels, player.viewport, assetCanvas, defaultTextModel), selected: true };
+    const node = { ...createFlowNode(type, position, imageModels, videoModels, player.viewport, assetCanvas, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
   }
@@ -927,7 +929,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
 
   function insertNodeCopy(source: StoryNode, position: { x: number; y: number }): void {
     if (isSingletonStoryNode(source) && nodes.some((node) => node.type === source.type)) return;
-    const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels), selected: true };
+    const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels, videoModels), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), duplicate]);
     setSelectedAssetEdgeId(undefined);
     setSelectedId(duplicate.id);
@@ -1028,11 +1030,12 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     if (node.type !== "video") return;
     const prompt = resolveNodePrompt(node, nodes).trim();
     if (!prompt) { setGenerationError({ nodeId: node.id, message: "Add a prompt before generating." }); return; }
+    if (!node.data.videoModel) { setGenerationError({ nodeId: node.id, message: "Select a video model before generating." }); return; }
     try {
       const references = resolveVideoReferences(node);
       await generateMedia(node, "generate-video", {
         prompt,
-        model: node.data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model,
+        model: node.data.videoModel,
         ...(references.length ? { references } : {}),
         duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
         aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
@@ -1070,14 +1073,11 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       const assetId = resolveStoryAssetId(activeChapter, reference);
       if (!assetId) throw new Error("Generate every connected media node before running this node.");
       const asset = libraryAssets.find((candidate) => candidate.id === assetId);
-      if (!asset || (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio")) {
+      if (!asset || asset.mediaType !== "image") {
         throw new Error("A connected reference is missing from Library.");
       }
       return { type: asset.mediaType, assetId, duration: asset.duration };
     });
-    validateVideoReferenceCounts(references.map((reference) => reference.type));
-    validateVideoReferenceDurations([], references);
-    if (!validVideoReferenceCombination(references)) throw new Error("Add an image or video to use an audio reference.");
     return references.map(({ type, assetId }) => ({ type, assetId }));
   }
 
@@ -1129,11 +1129,8 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     setGenerationError(undefined);
     try {
       const uploads = await Promise.all(files.map(prepareVideoReferenceFile));
-      const existing = videoReferenceViews(node, nodes, libraryAssets);
-      validateVideoReferenceCounts([...existing.map((reference) => reference.type), ...uploads.map((upload) => upload.type)]);
-      validateVideoReferenceDurations(existing, uploads);
       for (const upload of uploads) {
-        const asset = await uploadLibraryAsset(upload.file, upload.mediaType, upload.duration);
+        const asset = await uploadLibraryAsset(upload.file, upload.mediaType);
         setLibraryAssets((current) => [{ ...asset, assetId: asset.id, path: asset.name }, ...current.filter((candidate) => candidate.id !== asset.id)]);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "video"
           ? { ...candidate, data: { ...candidate.data, references: [...(candidate.data.references ?? []), { type: "library", assetId: asset.id }] } }
@@ -1309,10 +1306,10 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     const referenceRuntime: ReferenceMediaNodeRuntime = {
       ...runtime,
       references: node.type === "image" ? imageReferenceViews(node, nodes, libraryAssets) : videoReferenceViews(node, nodes, libraryAssets),
-      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : 15,
+      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : selectedVideoModel(node, videoModels)?.maxImageReferences ?? 0,
       uploading: uploadingNodeId === node.id,
-      accept: node.type === "image" ? "image/png,image/jpeg,image/webp" : VIDEO_REFERENCE_ACCEPT,
-      addLabel: node.type === "image" ? "Upload reference images" : "Upload image, video, or audio references",
+      accept: "image/png,image/jpeg,image/webp",
+      addLabel: "Upload reference images",
       onRemoveReference: (index) => {
         setSelectedAssetEdgeId(undefined);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "image"
@@ -1327,7 +1324,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       ...node,
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels } satisfies ImageNodeRuntime }
-        : { ...node.data, videoRuntime: referenceRuntime },
+        : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels } satisfies VideoNodeRuntime },
     };
   });
 
@@ -1400,7 +1397,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     setChapter({ id: nextChapter.id, title: nextChapter.title });
     setVariables(next.variables ?? []);
     setPlayer(next.player);
-    setNodes(nextChapter.nodes.map((node) => toFlowNode(node, imageModels)));
+    setNodes(nextChapter.nodes.map((node) => toFlowNode(node, imageModels, videoModels)));
     setEdges(nextChapter.edges);
     if (next.editorLayout) {
       setEditorLayout(next.editorLayout);
@@ -1987,9 +1984,22 @@ function ImageNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 
 function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
-  const referenceError = runtime?.references.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(runtime.references)
-    ? "Add an image or video to use an audio reference."
-    : undefined;
+  const selectedModel = runtime?.models.find((model) => sameModel(model, data.videoModel));
+
+  function selectModel(key: string): void {
+    const model = runtime?.models.find((candidate) => modelKey(candidate) === key);
+    if (!model || !runtime) return;
+    runtime.onChange({
+      ...data,
+      videoRuntime: undefined,
+      videoModel: { provider: model.provider, id: model.id },
+      videoResolution: model.resolutions.includes(data.videoResolution as VideoResolution) ? data.videoResolution : model.resolutions[0],
+      videoAspectRatio: model.aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio) ? data.videoAspectRatio : model.aspectRatios[0],
+      duration: model.durations.includes(data.duration ?? 0) ? data.duration : model.durations[0],
+      references: (data.references ?? []).slice(0, model.maxImageReferences),
+    });
+  }
+
   return (
     <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
@@ -1999,21 +2009,22 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
         runtime={runtime}
         onChange={(prompt) => runtime?.onChange({ ...data, videoRuntime: undefined, prompt })}
       />
-      {runtime?.error || referenceError ? <p role="alert">{runtime?.error ?? referenceError}</p> : null}
+      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Video model" value={data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoModel: event.target.value as VideoModelId })}>
-          {VIDEO_MODELS.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+        <select aria-label="Video model" value={selectedModel ? modelKey(selectedModel) : ""} disabled={runtime?.busy} onChange={(event) => selectModel(event.target.value)}>
+          {!selectedModel ? <option value="">{runtime?.models.length ? "Select model" : "No video model"}</option> : null}
+          {runtime?.models.map((model) => <option key={modelKey(model)} value={modelKey(model)}>{model.name}</option>)}
         </select>
-        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
-          {VIDEO_ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
+        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
+          {selectedModel?.aspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
         </select>
-        <select aria-label="Video resolution" value={data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
-          {VIDEO_RESOLUTIONS.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
+        <select aria-label="Video resolution" value={data.videoResolution ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
+          {selectedModel?.resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
         </select>
-        <select aria-label="Video duration" value={data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
-          {Array.from({ length: 12 }, (_, index) => index + 4).map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
+        <select aria-label="Video duration" value={data.duration ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
+          {selectedModel?.durations.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
         </select>
-        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || Boolean(referenceError)} />
+        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
       </div>
     </MediaNodeShell>
   );
@@ -3574,7 +3585,7 @@ function ZoomControls() {
   );
 }
 
-function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
+function toFlowNode(node: StoryNode, imageModels: ImageModel[], videoModels: VideoModel[]): StoryFlowNode {
   if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || node.type === "settings") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, durationMs: node.data.durationMs, presentation: node.data.presentation } };
@@ -3590,22 +3601,25 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
       ...(node.data.model ? { textModel: node.data.model } : {}),
     },
   };
-  if (node.type === "video") return {
-    id: node.id,
-    type: "video",
-    position: node.position,
-    deletable: true,
-    data: {
-      prompt: node.data.prompt,
-      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      videoModel: node.data.model,
-      videoResolution: node.data.resolution,
-      videoAspectRatio: node.data.aspectRatio,
-      duration: node.data.duration,
-      references: node.data.references,
-      ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
-    },
-  };
+  if (node.type === "video") {
+    const model = videoModels.find((candidate) => sameModel(candidate, node.data.model));
+    return {
+      id: node.id,
+      type: "video",
+      position: node.position,
+      deletable: true,
+      data: {
+        prompt: node.data.prompt,
+        ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+        ...(model ? { videoModel: { provider: model.provider, id: model.id } } : node.data.model ? { videoModel: node.data.model } : {}),
+        videoResolution: model?.resolutions.includes(node.data.resolution) ? node.data.resolution : model?.resolutions[0] ?? node.data.resolution,
+        videoAspectRatio: model?.aspectRatios.includes(node.data.aspectRatio) ? node.data.aspectRatio : model?.aspectRatios[0] ?? node.data.aspectRatio,
+        duration: model?.durations.includes(node.data.duration) ? node.data.duration : model?.durations[0] ?? node.data.duration,
+        references: node.data.references.slice(0, model?.maxImageReferences ?? node.data.references.length),
+        ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      },
+    };
+  }
   if (node.type === "model-3d") return {
     id: node.id,
     type: "model-3d",
@@ -3636,23 +3650,24 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], viewport: StoryPlayerConfig["viewport"], assetCanvas: boolean, defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], videoModels: VideoModel[], viewport: StoryPlayerConfig["viewport"], assetCanvas: boolean, defaultTextModel?: AgentModelRef): StoryFlowNode {
   if (type === "image") {
     const model = imageModels[0];
     const option = preferredImageOption(model, assetCanvas ? undefined : storyViewportRatio(viewport));
     return toFlowNode(createAssetGenerationNode(type, position, {
       ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
       ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
-    }), imageModels);
+    }), imageModels, videoModels);
   }
   if (type === "video") {
+    const model = videoModels[0];
     const projectRatio = storyViewportRatio(viewport);
     const aspectRatio = assetCanvas
-      ? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio
-      : VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
-    return toFlowNode(createAssetGenerationNode(type, position, { videoAspectRatio: aspectRatio }), imageModels);
+      ? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio
+      : model?.aspectRatios.find((ratio) => ratio === projectRatio) ?? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
+    return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id } } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
   }
-  if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels);
+  if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
   const id = crypto.randomUUID();
   if (type === "start") return { id, type, position, data: {} };
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
@@ -3792,7 +3807,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      model: node.data.videoModel ?? DEFAULT_VIDEO_NODE_CONFIG.model,
+      ...(node.data.videoModel ? { model: node.data.videoModel } : {}),
       resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
       aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
       duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
@@ -3893,7 +3908,20 @@ function videoReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], librar
 
 function imageReferenceLimit(node: StoryFlowNode, imageModels: ImageModel[]): number {
   if (node.type !== "image") return 0;
-  return imageModels.find((model) => sameImageModel(model, node.data.model))?.supportsReferenceImage ? IMAGE_REFERENCE_LIMIT : 0;
+  const model = imageModels.find((candidate) => sameImageModel(candidate, node.data.model));
+  return model?.supportsReferenceImage ? Math.min(IMAGE_REFERENCE_LIMIT, model.maxReferenceImages ?? IMAGE_REFERENCE_LIMIT) : 0;
+}
+
+function selectedVideoModel(node: StoryFlowNode, videoModels: VideoModel[]): VideoModel | undefined {
+  return node.type === "video" ? videoModels.find((model) => sameModel(model, node.data.videoModel)) : undefined;
+}
+
+function modelKey(model: { provider: string; id: string }): string {
+  return `${model.provider}:${model.id}`;
+}
+
+function sameModel(model: { provider: string; id: string }, ref?: VideoModelRef): boolean {
+  return Boolean(ref && model.provider === ref.provider && model.id === ref.id);
 }
 
 function nodeModel3DConfig(node: Pick<StoryFlowNode, "type" | "data">): Model3DGenerationConfig {
@@ -4069,13 +4097,9 @@ function isVideoFlowSource(node: StoryFlowNode | undefined): boolean {
 
 function videoReferenceType(node: StoryFlowNode | undefined, libraryAssets: LibraryAsset[]): VideoGenerationReference["type"] | undefined {
   if (node?.type === "image") return "image";
-  if (node?.type === "video") return "video";
-  if (node?.type !== "asset") return undefined;
+  if (node?.type !== "asset" || node.data.mediaType !== "image") return undefined;
   const asset = libraryAssets.find((candidate) => candidate.id === node.data.assetId);
-  if (node.data.mediaType === "image" && asset?.contentType !== "image/png" && asset?.contentType !== "image/jpeg" && asset?.contentType !== "image/webp") return undefined;
-  if (node.data.mediaType === "video" && asset?.contentType !== "video/mp4" && asset?.contentType !== "video/quicktime") return undefined;
-  if (node.data.mediaType === "audio" && asset?.contentType !== "audio/mpeg" && asset?.contentType !== "audio/wav") return undefined;
-  return node.data.mediaType === "image" || node.data.mediaType === "video" || node.data.mediaType === "audio" ? node.data.mediaType : undefined;
+  return asset?.contentType === "image/png" || asset?.contentType === "image/jpeg" || asset?.contentType === "image/webp" ? "image" : undefined;
 }
 
 function canAddVideoReference(target: StoryFlowNode, source: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): boolean {
@@ -4083,16 +4107,7 @@ function canAddVideoReference(target: StoryFlowNode, source: StoryFlowNode, node
   const type = videoReferenceType(source, libraryAssets);
   if (!type) return false;
   const references = videoReferenceViews(target, nodes, libraryAssets);
-  if (references.filter((reference) => reference.type === type).length >= VIDEO_REFERENCE_LIMITS[type]) return false;
-  const duration = source.type === "asset" || source.type === "video"
-    ? libraryAssets.find((asset) => asset.id === source.data.assetId)?.duration
-    : undefined;
-  try {
-    validateVideoReferenceDurations(references, [{ type, duration }]);
-  } catch {
-    return false;
-  }
-  return true;
+  return references.filter((reference) => reference.type === type).length < 9;
 }
 
 function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "presentation", targetId: string, referenceId: string): string {

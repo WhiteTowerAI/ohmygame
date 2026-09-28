@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODELS, VIDEO_RESOLUTIONS } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS } from "./contracts.js";
 
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const id = ref("id");
@@ -221,10 +221,10 @@ const nodes = [
     },
   }),
   node("video", {
-    type: "object", additionalProperties: false, required: ["prompt", "model", "resolution", "aspectRatio", "duration", "references"],
+    type: "object", additionalProperties: false, required: ["prompt", "resolution", "aspectRatio", "duration", "references"],
     properties: {
       prompt: { type: "string" }, promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
-      model: { enum: VIDEO_MODELS.map((model) => model.id) }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 4, maximum: 15 },
+      model: { type: "object", additionalProperties: false, required: ["provider", "id"], properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } } }, resolution: { enum: VIDEO_RESOLUTIONS }, aspectRatio: { enum: VIDEO_ASPECT_RATIOS }, duration: { type: "integer", minimum: 1, maximum: 30 },
       references: { type: "array", maxItems: 15, items: assetReference }, assetId: id,
     },
   }),

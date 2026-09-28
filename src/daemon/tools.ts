@@ -7,9 +7,7 @@ import {
   IMAGE_RESOLUTIONS,
   IMAGE_SIZES,
   TOOL_IDS,
-  DEFAULT_VIDEO_MODEL,
   VIDEO_ASPECT_RATIOS,
-  VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type ImageOutputCount,
@@ -31,7 +29,7 @@ import {
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
 import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
-import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./seedance-video.js";
+import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import type { AssetLibrary } from "./asset-library.js";
 
 const VIDEO_DEFAULT_DURATION = 6;
@@ -303,21 +301,20 @@ export class ToolRunner {
     const references = input.references ?? [];
     validateVideoReferences(references);
     const duration = input.duration ?? VIDEO_DEFAULT_DURATION;
-    if (!Number.isInteger(duration) || duration < 4 || duration > 15) throw new ToolRunError("Unsupported video duration", 400);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 30) throw new ToolRunError("Unsupported video duration", 400);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
+      const model = input.model;
       const aspectRatio = input.aspectRatio ?? "adaptive";
       const resolution = input.resolution ?? "720p";
-      const model = input.model ?? DEFAULT_VIDEO_MODEL;
-      if (!VIDEO_MODELS.some((candidate) => candidate.id === model)) throw new ToolRunError("Unsupported video model", 400);
+      if (!model || !model.provider.trim() || !model.id.trim() || model.provider.length > 100 || model.id.length > 200) throw new ToolRunError("A valid video model is required", 400);
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      validateVideoReferenceDurations(resolvedReferences);
       const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
       signal?.throwIfAborted();
       if (this.assetLibrary) {
@@ -424,25 +421,8 @@ function isPromptImage(value: unknown, allowWebP = false): value is PromptImage 
 }
 
 function validateVideoReferences(references: VideoGenerationReference[]): void {
-  if (!Array.isArray(references) || references.some((reference) => !reference || typeof reference.assetId !== "string" || !reference.assetId || !["image", "video", "audio"].includes(reference.type))) {
+  if (!Array.isArray(references) || references.some((reference) => !reference || typeof reference.assetId !== "string" || !reference.assetId || reference.type !== "image")) {
     throw new ToolRunError("Invalid video references", 400);
-  }
-  const count = (type: VideoGenerationReference["type"]) => references.filter((reference) => reference.type === type).length;
-  if (count("image") > 9) throw new ToolRunError("Seedance supports up to 9 reference images", 400);
-  if (count("video") > 3) throw new ToolRunError("Seedance supports up to 3 reference videos", 400);
-  if (count("audio") > 3) throw new ToolRunError("Seedance supports up to 3 reference audio files", 400);
-  if (count("audio") && !count("image") && !count("video")) throw new ToolRunError("Audio references require an image or video reference", 400);
-}
-
-function validateVideoReferenceDurations(references: VideoReferenceAsset[]): void {
-  for (const type of ["video", "audio"] as const) {
-    const durations = references.filter((reference) => reference.type === type && reference.duration !== undefined).map((reference) => reference.duration!);
-    if (durations.some((duration) => duration < 2 || duration > 15)) {
-      throw new ToolRunError(`${type === "video" ? "Video" : "Audio"} references must be 2 to 15 seconds long`, 400);
-    }
-    if (durations.reduce((total, duration) => total + duration, 0) > 15) {
-      throw new ToolRunError(`Reference ${type}s must total no more than 15 seconds`, 400);
-    }
   }
 }
 

@@ -21,18 +21,18 @@ import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
-import { AccountServiceClient } from "./account-service-client.js";
-import { AccountConnection } from "./account-connection.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
-import { Managed3DGenerator } from "./managed-3d.js";
+import { MeshyProvider } from "./meshy-provider.js";
+import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { ManagedVideoGenerator, type VideoGenerator } from "./seedance-video.js";
+import type { VideoGenerator } from "./video-generation.js";
+import { ProviderVideos } from "./provider-videos.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
@@ -60,13 +60,13 @@ export interface AppOptions {
   allowedOrigins?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
-  accountServiceUrl?: string;
-  accountServiceFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
+  model3DFetch?: typeof fetch;
   videoGenerator?: VideoGenerator;
+  videoFetch?: typeof fetch;
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
@@ -365,7 +365,7 @@ const toolRunSchema = {
       resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
-      duration: { type: "integer", minimum: 4, maximum: 15 },
+      duration: { type: "integer", minimum: 1, maximum: 30 },
       targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
@@ -441,12 +441,12 @@ const modelEndpointSchema = {
   },
 } as const;
 
-const accountConnectionSchema = {
+const meshySettingsSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    required: ["accessToken"],
-    properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
+    required: ["apiKey"],
+    properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 } },
   },
 } as const;
 
@@ -470,6 +470,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const meshySettings = new MeshySettingsStore(dataDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
@@ -499,20 +500,13 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
-  const accountServiceClient = new AccountServiceClient(
-    options.accountServiceUrl ?? process.env.CLOUD_API_URL ?? process.env.ACCOUNT_SERVICE_URL ?? "https://cloud.ohmygame.ai",
-    options.accountServiceFetch,
-  );
-  const accountConnection = new AccountConnection(
-    getModelRuntime,
-    accountServiceClient,
-  );
-  const providerImages = new ProviderImages(getModelRuntime, accountConnection, options.imageFetch);
+  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch);
+  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new Managed3DGenerator(() => accountConnection.model3DSource(), options.accountServiceFetch),
-    options.videoGenerator ?? new ManagedVideoGenerator(() => accountConnection.videoSource(), options.accountServiceFetch),
+    options.model3DGenerator ?? new MeshyProvider(() => meshySettings.key(), options.model3DFetch),
+    options.videoGenerator ?? providerVideos,
     library,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
@@ -621,7 +615,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -1407,52 +1401,34 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.get("/account/connection", async () => accountConnection.get());
-
-  app.put<{ Body: { accessToken: string } }>(
-    "/account/connection",
-    { schema: accountConnectionSchema },
-    async (request, reply) => {
-      const state = await accountConnection.connect(request.body.accessToken);
-      if (state.status === "error") return reply.code(502).send({ error: state.error });
-      return state;
-    },
-  );
-
-  app.delete("/account/connection", async (_request, reply) => {
-    await accountConnection.disconnect();
-    return reply.code(204).send();
-  });
-
   app.get("/settings/providers", async () => {
     const piProviders = await modelAuth.providers();
-    const accountState = accountConnection.get();
-    const accountStatus = accountState.status === "connected"
-      ? "connected"
-      : accountState.status === "connecting"
-        ? "connecting"
-        : accountState.status === "error" ? "error" : "not_configured";
-    return [
-      ...piProviders
-        .filter((provider) => provider.id !== "ohmygame")
-        .map((provider) => ({
-          ...provider,
-          kind: "pi" as const,
-          status: provider.configured ? "connected" as const : "not_configured" as const,
-          capabilities: provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
-        })),
-      {
-        id: "ohmygame",
-        name: "OhMyGame",
-        configured: accountStatus === "connected",
-        kind: "account" as const,
-        status: accountStatus,
-        capabilities: ["language", "image", "video", "3d"] as const,
-        methods: [],
-        ...(accountState.error ? { error: accountState.error } : {}),
-      },
-    ].sort((left, right) => left.name.localeCompare(right.name));
+    const providers = piProviders
+      .map((provider) => ({
+        ...provider,
+        status: provider.configured ? "connected" as const : "not_configured" as const,
+        capabilities: provider.id === "openrouter"
+          ? ["language", "image", "video"] as const
+          : provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    return [...providers, {
+      id: "meshy",
+      name: "Meshy",
+      configured: meshySettings.get().configured,
+      status: meshySettings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: "Meshy API key" }],
+      credentialType: "api_key" as const,
+      capabilities: ["3d"] as const,
+    }].sort((left, right) => left.name.localeCompare(right.name));
   });
+
+  app.get("/settings/models/providers/meshy", async () => meshySettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/meshy", { schema: meshySettingsSchema }, async (request, reply) => {
+    try { return await meshySettings.update(request.body.apiKey); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/meshy", async (_request, reply) => { await meshySettings.clear(); return reply.code(204).send(); });
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 
@@ -1521,6 +1497,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/image-models", async () => providerImages.models());
+  app.get("/video-models", async () => providerVideos.models());
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",

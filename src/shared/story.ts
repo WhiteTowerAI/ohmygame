@@ -1,4 +1,4 @@
-import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_MODELS, VIDEO_RESOLUTIONS, type ImageModelRef, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
+import { IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type ImageModelRef, type VideoModelRef, type StoryAction, type StoryAssetReference, type StoryChapter, type StoryChoiceOption, type StoryDocument, type StoryEdge, type StoryEditorLayout, type StoryInteractionCommand, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StoryOpenUiContent, type StoryOpenUiAction, type StoryOpenUiPresentation, type StoryPlayerConfig, type StorySceneMedia, type StorySourceFiles, type StoryVariable, type StoryVariableCondition, type StoryVariableValue } from "./contracts.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG } from "./generation-config.js";
 
 const STORY_NODE_TYPES = new Set(["start", "update-state", "condition", "open-ui", "story-map", "settings", "scene", "interaction", "choice", "ending", "text", "image", "video", "model-3d", "asset"]);
@@ -279,6 +279,7 @@ export type AssetCanvasStarter = "image" | "video" | "model-3d";
 
 export function createAssetGenerationNode(type: AssetCanvasStarter, position: { x: number; y: number }, options: {
   imageModel?: ImageModelRef;
+  videoModel?: VideoModelRef;
   imageResolution?: Extract<StoryNode, { type: "image" }>["data"]["resolution"];
   imageAspectRatio?: Extract<StoryNode, { type: "image" }>["data"]["aspectRatio"];
   videoAspectRatio?: Extract<StoryNode, { type: "video" }>["data"]["aspectRatio"];
@@ -302,7 +303,7 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
     position,
     data: {
       prompt: "",
-      model: DEFAULT_VIDEO_NODE_CONFIG.model,
+      ...(options.videoModel ? { model: options.videoModel } : {}),
       resolution: DEFAULT_VIDEO_NODE_CONFIG.resolution,
       aspectRatio: options.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
       duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
@@ -961,10 +962,10 @@ function isStoryNode(value: unknown, variables: ReadonlyMap<string, StoryVariabl
   if (value.type === "video") {
     const data = value.data;
     return typeof data.prompt === "string" &&
-      (data.promptSource === undefined || isTextReference(data.promptSource)) && VIDEO_MODELS.some((model) => model.id === data.model) &&
+      (data.promptSource === undefined || isTextReference(data.promptSource)) && (data.model === undefined || isModelRef(data.model)) &&
       typeof data.resolution === "string" && VIDEO_RESOLUTIONS.some((resolution) => resolution === data.resolution) &&
       typeof data.aspectRatio === "string" && VIDEO_ASPECT_RATIOS.some((aspectRatio) => aspectRatio === data.aspectRatio) &&
-      typeof data.duration === "number" && Number.isInteger(data.duration) && data.duration >= 4 && data.duration <= 15 &&
+      typeof data.duration === "number" && Number.isInteger(data.duration) && data.duration >= 1 && data.duration <= 30 &&
       Array.isArray(data.references) && data.references.length <= 15 && data.references.every(isAssetReference) &&
       (data.assetId === undefined || nonEmptyString(data.assetId)) &&
       hasOnlyKeys(data, ["prompt", "promptSource", "model", "resolution", "aspectRatio", "duration", "references", "assetId"]);

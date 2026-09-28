@@ -4,7 +4,7 @@ import { createProject, deleteProject, listImageModels, updateStory } from "./ap
 
 export async function createAssetCanvasQuickStart(type: AssetCanvasStarter): Promise<{ project: ProjectState; nodeId: string }> {
   const imageModel = type === "image"
-    ? (await listImageModels()).find((model) => model.id === "gpt-image-2.5-flare")
+    ? (await listImageModels()).find((model) => model.id === "gpt-image-2.5-flare" || model.id.endsWith("/gpt-image-2.5-flare"))
     : undefined;
   if (type === "image" && !imageModel) throw new Error("GPT Image 2.5 is not available");
 

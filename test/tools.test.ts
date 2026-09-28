@@ -6,7 +6,8 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { VIDEO_MODELS } from "../src/shared/contracts.js";
+
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -63,28 +64,24 @@ describe("tool runner", () => {
     }, undefined);
   });
 
-  it("runs the selected Seedance model with typed Library references", async () => {
+  it("runs the selected video model with a Library image reference", async () => {
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("video"),
       mediaType: "video/mp4" as const,
-      requestId: "seedance-task-1",
+      requestId: "video-task-1",
     });
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
     await library.load();
     const image = await library.add("frame.png", Buffer.from("image"));
-    const video = await library.add("motion.mp4", Buffer.from("video"));
-    const audio = await library.add("music.mp3", Buffer.from("audio"));
     const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, library);
     await runner.load();
 
     const run = await runner.run("generate-video", {
       prompt: "  A spaceship crossing a nebula  ",
-      model: VIDEO_MODELS[1].id,
+      model: TEST_VIDEO_MODEL,
       references: [
         { type: "image", assetId: image.id },
-        { type: "video", assetId: video.id },
-        { type: "audio", assetId: audio.id },
       ],
       duration: 6,
       aspectRatio: "16:9",
@@ -93,11 +90,9 @@ describe("tool runner", () => {
 
     expect(generate).toHaveBeenCalledWith({
       prompt: "A spaceship crossing a nebula",
-      model: VIDEO_MODELS[1].id,
+      model: TEST_VIDEO_MODEL,
       references: [
         expect.objectContaining({ type: "image", name: "frame.png", mediaType: "image/png" }),
-        expect.objectContaining({ type: "video", name: "motion.mp4", mediaType: "video/mp4" }),
-        expect.objectContaining({ type: "audio", name: "music.mp3", mediaType: "audio/mpeg" }),
       ],
       duration: 6,
       aspectRatio: "16:9",
@@ -109,17 +104,17 @@ describe("tool runner", () => {
     });
   });
 
-  it("rejects out-of-range Seedance reference durations recorded in Library", async () => {
+  it("rejects non-image video references", async () => {
     const generate = vi.fn();
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
     await library.load();
-    const video = await library.add("short.mp4", Buffer.from("video"), { duration: 1.5 });
+    const video = await library.add("motion.mp4", Buffer.from("video"), { duration: 8 });
     const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, { generate }, library);
     await runner.load();
 
-    await expect(runner.run("generate-video", { prompt: "Animate", references: [{ type: "video", assetId: video.id }] }))
-      .rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("2 to 15 seconds") });
+    await expect(runner.run("generate-video", { prompt: "Animate", model: TEST_VIDEO_MODEL, references: [{ type: "video", assetId: video.id }] }))
+      .rejects.toMatchObject({ statusCode: 400, message: "Invalid video references" });
     expect(generate).not.toHaveBeenCalled();
   });
 
