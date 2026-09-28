@@ -10,7 +10,6 @@ import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import { createStoryDocument } from "../shared/story.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -52,6 +51,14 @@ import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
 import { buildPlayableProject } from "./playable-project.js";
+import {
+  createPlayableCodebase,
+  createPlayableStarterCodebase,
+  PlayableCodebaseError,
+  readPlayableCodebase,
+  writePlayableCodebase,
+} from "./playable-codebase.js";
+import type { PlayableCodebase } from "../shared/playable-codebase.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -918,14 +925,25 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(201).send(project);
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
-      if (project.type === "interactive-drama" && request.body?.storyViewport) {
-        const story = createStoryDocument();
-        story.player.viewport = request.body.storyViewport;
-        await projects.setStory(project.id, story);
+      if (project.type === "interactive-drama") {
+        try {
+          await createPlayableCodebase(
+            project.workspacePath,
+            createPlayableStarterCodebase(
+              project.name,
+              request.body?.storyViewport ?? { width: 1280, height: 720 },
+            ),
+          );
+        } catch (cause) {
+          await projects.delete(project.id);
+          throw cause;
+        }
       }
       return reply.code(201).send(project);
     } catch (cause) {
-      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      if (cause instanceof ProjectWorkspaceError || cause instanceof PlayableCodebaseError) {
+        return reply.code(400).send({ error: cause.message });
+      }
       throw cause;
     }
   });
@@ -951,6 +969,37 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/codebase", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    try {
+      return await readPlayableCodebase(project.workspacePath);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.put<{ Params: { projectId: string }; Body: PlayableCodebase }>("/projects/:projectId/playable/codebase", {
+    schema: { body: { type: "object" } },
+    bodyLimit: 1_000_000,
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    try {
+      await writePlayableCodebase(project.workspacePath, request.body);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    try {
+      await projects.touch(project.id);
+    } catch {
+      return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
+    }
+    return reply.code(204).send();
   });
 
   app.put<{ Params: { projectId: string }; Body: StoryDocument }>("/projects/:projectId/story", {

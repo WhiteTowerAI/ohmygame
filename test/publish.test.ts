@@ -9,8 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
-import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
-import { createPlayableStoryDocument } from "./story-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -99,16 +97,20 @@ describePublishContract("remote publish", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: videoContents,
     })).json();
-    const story = createPlayableStoryDocument();
-    const chapter = story.chapter;
-    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
-    const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
-    const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
-    if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
-    chapter.edges.push({ id: "open-scene", source: openUi.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
-    syncStoryLayout(story);
-    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    const codebase = (await runtime.daemon.inject({
+      method: "GET",
+      url: `/projects/${project.id}/playable/codebase`,
+    })).json();
+    codebase.graph.assets.clip = {
+      type: "video",
+      source: { kind: "library", assetId: video.id },
+    };
+    codebase.graph.nodes[0].assets = ["clip"];
+    expect((await runtime.daemon.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: codebase,
+    })).statusCode).toBe(204);
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
     expect(built.statusCode).toBe(200);
@@ -118,28 +120,24 @@ describePublishContract("remote publish", () => {
     expect(published.statusCode, published.body).toBe(201);
     const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
     expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
-    expect(await readFile(path.join(output, "scene-surface.html"), "utf8")).toContain("ohmygame:scene-surface");
-    const publishedStory = JSON.parse(await readFile(path.join(output, "story.json"), "utf8"));
-    const persistedStory = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    const { editorLayout: _editorLayout, ...runtimeStory } = persistedStory;
-    expect(publishedStory).toEqual(runtimeStory);
-    expect(publishedStory.editorLayout).toBeUndefined();
+    const playable = JSON.parse(await readFile(path.join(output, "playable.json"), "utf8"));
+    expect(playable.graph).toEqual(codebase.graph);
+    expect(playable.compiled.nodes.start).toBeDefined();
     expect(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"))).toMatchObject({
       version: 1,
-      story: "story.json",
+      runtime: "playable-nodes",
+      playable: "playable.json",
       scope: `published:${project.id}`,
       assets: {
-        [video.id]: `./assets/media/${video.id}.mp4`,
+        clip: "./assets/media/clip.mp4",
       },
     });
-    expect(await readFile(path.join(output, "assets", "media", `${video.id}.mp4`))).toEqual(videoContents);
+    expect(await readFile(path.join(output, "assets", "media", "clip.mp4"))).toEqual(videoContents);
   });
 
   it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
-    const story = createPlayableStoryDocument();
-    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
@@ -452,10 +450,6 @@ describePublishContract("remote publish", () => {
   });
 });
 
-function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>): void {
-  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
-}
-
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("ohmygame-publish-server-");
   const publishServer = createPublishApp!({
@@ -466,9 +460,12 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   apps.push(publishServer);
   const apiUrl = await publishServer.listen({ host: "127.0.0.1", port: 0 });
   const playerDirectory = await temporary("ohmygame-player-");
+  await mkdir(path.join(playerDirectory, "assets"));
   await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
   await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
   await writeFile(path.join(playerDirectory, "scene-surface.html"), "ohmygame:scene-surface");
+  await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "<main>Playable sandbox</main>");
+  await writeFile(path.join(playerDirectory, "assets/playable-sandbox.js"), "window.playableSandbox = true");
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("ohmygame-daemon-"),
     publishApiUrl: apiUrl,

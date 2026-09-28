@@ -767,6 +767,27 @@ schemas/
 `shell/` is absent when the project has no Shell. `shared/` is a normal source
 directory and has no special runtime format.
 
+New Interactive Drama projects are created directly in this format; they do
+not also receive a legacy `story.json`. A blank project contains one ordinary
+`start` Node so `entryNodeId` is always valid. The Night Train starter uses the
+same primitives as any authored project: ordinary Nodes, declared Signals,
+State, edges, and an optional Shell.
+
+The local Daemon exposes the authored codebase separately from the compiled
+Player definition:
+
+```text
+GET /projects/:projectId/playable/codebase
+PUT /projects/:projectId/playable/codebase
+GET /projects/:projectId/playable
+```
+
+The codebase endpoints read and validate `{ graph, editorLayout }`. Source
+files remain ordinary workspace files and must exist before a graph update can
+refer to them. The Player endpoint validates and compiles the same `graph.json`
+for Playtest and published playback. Invalid graph or layout updates are
+rejected before either persisted JSON file changes.
+
 ## Compiler contract
 
 The compiler consumes one validated Playable Graph and the project workspace.

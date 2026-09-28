@@ -47,6 +47,7 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { PlayableProjectRuntimeResponse } from "../shared/playable-player-protocol.js";
+import type { PlayableCodebase } from "../shared/playable-codebase.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -348,6 +349,20 @@ export async function getStory(projectId: string): Promise<StoryDocument> {
 
 export async function getPlayableProjectRuntime(projectId: string): Promise<PlayableProjectRuntimeResponse> {
   return request(`/projects/${projectId}/playable`);
+}
+
+export async function getPlayableCodebase(projectId: string): Promise<PlayableCodebase> {
+  return request(`/projects/${projectId}/playable/codebase`);
+}
+
+export async function updatePlayableCodebase(
+  projectId: string,
+  codebase: PlayableCodebase,
+): Promise<void> {
+  await request(`/projects/${projectId}/playable/codebase`, {
+    method: "PUT",
+    body: JSON.stringify(codebase),
+  });
 }
 
 export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
