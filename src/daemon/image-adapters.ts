@@ -4,6 +4,7 @@ import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type G
 export interface ImageSource {
   baseUrl: string;
   apiKey: string;
+  headers?: Record<string, string>;
 }
 
 export interface ImageProtocolAdapter {
@@ -20,7 +21,55 @@ export function createImageProtocolAdapters(request: Fetch = fetch): Record<Imag
     "gemini-generate-content": {
       generate: (source, model, input, signal) => generateGemini(source, model, input, signal, request),
     },
+    "openrouter-images": {
+      generate: (source, model, input, signal) => generateOpenRouter(source, model, input, signal, request),
+    },
   };
+}
+
+async function generateOpenRouter(source: ImageSource, model: string, input: ImageGenerationInput, signal: AbortSignal | undefined, request: Fetch): Promise<GeneratedImage> {
+  const timeout = AbortSignal.timeout(180_000);
+  let response: Response;
+  try {
+    response = await request(`${source.baseUrl.replace(/\/$/, "")}/images`, {
+      method: "POST",
+      headers: { ...source.headers, authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt: input.prompt,
+        ...(input.resolution ? { resolution: input.resolution } : {}),
+        ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
+        ...(input.images?.length ? {
+          input_references: input.images.map((image) => ({
+            type: "image_url",
+            image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+          })),
+        } : {}),
+      }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+  } catch (cause) {
+    if (signal?.aborted) throw signal.reason ?? cause;
+    throw new ImageGenerationError(cause instanceof Error && cause.name === "TimeoutError" ? "Image generation timed out" : "Could not reach OpenRouter image generation");
+  }
+  const body = await response.json().catch(() => ({})) as {
+    error?: { message?: unknown };
+    data?: Array<{ b64_json?: unknown; url?: unknown; media_type?: unknown }>;
+  };
+  if (!response.ok) throw openRouterImageError(response.status, body.error?.message);
+  const result = body.data?.[0];
+  if (!result) throw new ImageGenerationError("OpenRouter returned no generated image");
+  const mediaType = imageMediaType(result.media_type) ?? "image/png";
+  if (typeof result.b64_json === "string" && result.b64_json) {
+    return { bytes: Buffer.from(result.b64_json, "base64"), mediaType, requestId: response.headers.get("x-request-id") ?? undefined };
+  }
+  if (typeof result.url === "string" && /^https?:\/\//.test(result.url)) {
+    const imageResponse = await request(result.url, { signal });
+    if (!imageResponse.ok) throw new ImageGenerationError("Could not download the generated image");
+    const downloadedType = imageMediaType(imageResponse.headers.get("content-type")) ?? mediaType;
+    return { bytes: Buffer.from(await imageResponse.arrayBuffer()), mediaType: downloadedType, requestId: response.headers.get("x-request-id") ?? undefined };
+  }
+  throw new ImageGenerationError("OpenRouter returned no generated image");
 }
 
 async function generateGemini(source: ImageSource, model: string, input: ImageGenerationInput, signal: AbortSignal | undefined, request: Fetch): Promise<GeneratedImage> {
@@ -99,4 +148,11 @@ function geminiStatusCode(status: number): number {
   if (status === 401 || status === 403) return 503;
   if (status === 429) return 429;
   return status >= 500 ? 502 : 400;
+}
+
+function openRouterImageError(status: number, message: unknown): ImageGenerationError {
+  const detail = typeof message === "string" && message.trim() ? message : undefined;
+  if (status === 401 || status === 403) return new ImageGenerationError("OpenRouter credentials were rejected", 503);
+  if (status === 429) return new ImageGenerationError("OpenRouter image generation is temporarily rate limited", 429);
+  return new ImageGenerationError(detail ?? "OpenRouter image generation failed", status >= 500 ? 502 : 400);
 }

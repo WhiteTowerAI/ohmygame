@@ -5,10 +5,11 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
+import { type StoryDocument } from "../src/shared/contracts.js";
 import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
@@ -174,6 +175,55 @@ describe("daemon", () => {
     })).json();
 
     expect(project.preview).toEqual({ status: "stopped" });
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("sets a Web Game startup directory when its dev server is nested", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-preview-"));
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-workspace-"));
+    const startupDirectory = path.join(workspacePath, "apps", "game");
+    await mkdir(startupDirectory, { recursive: true });
+    await writeFile(path.join(startupDirectory, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nested workspace", workspacePath } })).json();
+    expect(project.preview).toEqual({ status: "waiting" });
+
+    const configured = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "apps/game" },
+    });
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
+
+    const runSettings = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: {
+        startupDirectory: "apps/game",
+        startupScript: "dev",
+        packageManager: "pnpm",
+        previewPath: "/play",
+        previewViewport: "mobile",
+      },
+    });
+    expect(runSettings.statusCode).toBe(200);
+    expect(runSettings.json()).toMatchObject({
+      startupDirectory: "apps/game",
+      packageManager: "pnpm",
+      previewPath: "/play",
+      previewViewport: "mobile",
+    });
+
+    const invalid = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/startup-directory`,
+      payload: { startupDirectory: "../outside" },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual({ error: "Startup directory must be a relative path inside the project workspace" });
     await rm(workspacePath, { recursive: true, force: true });
   });
 
@@ -374,6 +424,7 @@ describe("daemon", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "hello world.txt"), "Hello\n");
     await writeFile(path.join(project.workspacePath, "cover.png"), Buffer.from([1, 2, 3]));
+    await mkdir(path.join(project.workspacePath, "empty-folder"));
 
     const files = await app.inject({ method: "GET", url: `/projects/${project.id}/files` });
     const content = await app.inject({
@@ -381,15 +432,26 @@ describe("daemon", () => {
       url: `/projects/${project.id}/files/content?path=${encodeURIComponent("hello world.txt")}`,
     });
     const media = await app.inject({ method: "GET", url: `/projects/${project.id}/files/raw?path=cover.png` });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("hello world.txt")}`,
+    });
+    const folderLocation = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=empty-folder`,
+    });
 
     expect(files.json()).toEqual([
       { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
+      { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
     ]);
     expect(content.json()).toMatchObject({ path: "hello world.txt", content: "Hello\n", binary: false });
     expect(media.headers["content-type"]).toBe("image/png");
     expect(media.rawPayload).toEqual(Buffer.from([1, 2, 3]));
+    expect(location.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "hello world.txt") });
+    expect(folderLocation.json()).toEqual({ path: path.join(await realpath(project.workspacePath), "empty-folder") });
   });
 
   it("renames and deletes workspace assets", async () => {
@@ -439,7 +501,7 @@ describe("daemon", () => {
       position: { x: 0, y: 0 },
       data: {
         prompt: "Opening",
-        model: VIDEO_MODEL,
+        model: TEST_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -586,7 +648,7 @@ describe("daemon", () => {
       position: { x: 100, y: 0 },
       data: {
         prompt: "Animate",
-        model: VIDEO_MODEL,
+        model: TEST_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -687,6 +749,11 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "Invalid workspace path" });
+    const location = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/files/location?path=${encodeURIComponent("../project.json")}`,
+    });
+    expect(location.statusCode).toBe(400);
   });
 
   it("validates workspace references before prompting", async () => {
@@ -838,6 +905,7 @@ describe("daemon", () => {
       "write",
       "edit",
       "bash",
+      "web_search",
       "update_plan",
       "install_plugin",
       "generate_image",
@@ -1180,7 +1248,10 @@ describe("daemon", () => {
     const detail = (await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` })).json();
 
     expect(steered.statusCode).toBe(204);
-    expect(detail.pendingPrompts).toEqual([expect.objectContaining({ turnId: second.turnId, prompt: "Second" })]);
+    expect(detail.pendingPrompts).toEqual([
+      expect.objectContaining({ turnId: third.turnId, prompt: "Third", steering: true }),
+      expect.objectContaining({ turnId: second.turnId, prompt: "Second" }),
+    ]);
     expect(clearQueue).toHaveBeenCalledOnce();
     expect(steer).toHaveBeenLastCalledWith("Third", undefined);
     finishPrompt();
@@ -1388,113 +1459,28 @@ describe("daemon", () => {
     expect(unregisterProvider).toHaveBeenCalledWith("openai");
   });
 
-  it("connects and disconnects the OhMyGame account provider", async () => {
-    const runtime = {
-      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
-      getModels: vi.fn(() => [{
-        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
-        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
-      }]),
-      registerProvider: vi.fn(),
-      unregisterProvider: vi.fn(),
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      removeRuntimeApiKey: vi.fn(async () => undefined),
-      listCredentials: vi.fn(async () => []),
-    } as unknown as ModelRuntime;
-    const accountServiceFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://account.ohmygame.ai/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }] }));
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-")),
-      createModelRuntime: async () => runtime,
-      accountServiceFetch,
-    });
+  it("does not expose the removed Cloud model connection", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-cloud-removed-")) });
     apps.push(app);
-
     const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-    const disconnected = await app.inject({ method: "DELETE", url: "/account/connection" });
-
-    expect(connected.json()).toEqual({ status: "connected", modelCount: 1 });
-    expect(disconnected.statusCode).toBe(204);
-    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("ohmygame", "sk-account");
-    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
+    expect(connected.statusCode).toBe(404);
   });
 
-  it("uses the connected Account credential for Meshy 7 generation", async () => {
-    const runtime = {
-      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
-      getModels: vi.fn(() => [{
-        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
-        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
-      }]),
-      registerProvider: vi.fn(),
-      unregisterProvider: vi.fn(),
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      removeRuntimeApiKey: vi.fn(async () => undefined),
-      listCredentials: vi.fn(async () => []),
-      getProviders: vi.fn(() => []),
-    } as unknown as ModelRuntime;
-    const accountServiceFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.ohmygame.test/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-7" }, { id: "meshy-t2" }] }))
-      .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
-      .mockResolvedValueOnce(Response.json({
-        id: "task_123",
-        status: "completed",
-        artifacts: [{ id: "artifact_123", kind: "model", variant: "primary", format: "glb", content_url: "/v1/3d/generations/task_123/content" }],
-      }))
-      .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-")),
-      createModelRuntime: async () => runtime,
-      accountServiceFetch,
-    });
+  it("stores and clears Meshy credentials", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-meshy-settings-")) });
     apps.push(app);
 
-    const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-    expect(connected.statusCode).toBe(200);
-    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
-    expect(providers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "meshy" })]));
-    expect(providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "ohmygame", capabilities: ["language", "image", "video", "3d"] }),
-    ]));
-    const generated = await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/runs",
-      payload: {
-        prompt: "A wooden knight",
-        model: "meshy-7",
-        quality: "standard",
-        texture: true,
-        pose: "auto",
-      },
-    });
-
-    expect(generated.statusCode, generated.body).toBe(201);
-    const run = generated.json();
-    const file = await app.inject({ method: "GET", url: `/tool-runs/${run.id}/files/model.glb` });
-    expect(file.rawPayload).toEqual(Buffer.from("glb"));
-    expect(accountServiceFetch).toHaveBeenNthCalledWith(3, "https://api.ohmygame.test/v1/3d/generations", expect.objectContaining({
-      method: "POST",
-      headers: { authorization: "Bearer sk-account", "content-type": "application/json" },
-    }));
-    expect(accountServiceFetch).toHaveBeenNthCalledWith(5, "https://api.ohmygame.test/v1/3d/generations/task_123/content", expect.objectContaining({
-      headers: { authorization: "Bearer sk-account" },
-    }));
-  });
-
-  it("reports Account connection failures as gateway errors", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-error-")),
-      createModelRuntime: async () => fakeModelRuntime([]),
-      accountServiceFetch: vi.fn(async () => Response.json({ error: "unavailable" }, { status: 503 })),
-    });
-    apps.push(app);
-
-    const response = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-
-    expect(response.statusCode).toBe(502);
-    expect(response.json()).toEqual({ error: "Account service request failed (503)" });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/meshy" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/meshy",
+      payload: { apiKey: "meshy-key" },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/meshy" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/meshy" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
   });
 
   it("validates request bodies before they reach a manager", async () => {

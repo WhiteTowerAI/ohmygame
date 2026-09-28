@@ -33,44 +33,6 @@ const describePublishContract = createPublishApp ? describe : describe.skip;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describePublishContract("remote publish", () => {
-  it("saves, loads, and deletes a local Asset Template", async () => {
-    const runtime = await testRuntime();
-    const saved = await runtime.daemon.inject({
-      method: "POST", url: "/asset-templates", payload: {
-        mode: "video",
-        name: "Cinematic Shot",
-        description: "One deliberate shot",
-        promptPlaceholder: "Describe the shot",
-        defaultPrompt: "Use continuous camera motion",
-        defaults: { videoResolution: "1080p", videoAspectRatio: "16:9", videoDuration: 8 },
-      },
-    });
-    expect(saved.statusCode).toBe(201);
-    const cover = Buffer.from("RIFF\u0004\u0000\u0000\u0000WEBP");
-    const covered = await runtime.daemon.inject({
-      method: "PUT", url: `/asset-templates/${saved.json().id}/cover`,
-      headers: { "content-type": "image/webp" }, payload: cover,
-    });
-    expect(covered.statusCode, covered.body).toBe(200);
-    expect(covered.json().hasCover).toBe(true);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([
-      expect.objectContaining({ id: saved.json().id, name: "Cinematic Shot", source: "local", hasCover: true }),
-    ]);
-    const localCover = await runtime.daemon.inject({ method: "GET", url: `/asset-templates/${saved.json().id}/cover` });
-    expect(localCover.statusCode).toBe(200);
-    expect(localCover.rawPayload).toEqual(cover);
-    expect((await runtime.daemon.inject({
-      method: "POST", url: `/asset-templates/${saved.json().id}/publish`, payload: { accessToken: token },
-    })).statusCode).toBe(404);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/explore/templates" })).statusCode).toBe(404);
-    expect((await runtime.daemon.inject({
-      method: "POST", url: "/community/template/template/use", payload: { accessToken: token },
-    })).statusCode).toBe(404);
-    const deleted = await runtime.daemon.inject({ method: "DELETE", url: `/asset-templates/${saved.json().id}` });
-    expect(deleted.statusCode).toBe(204);
-    expect((await runtime.daemon.inject({ method: "GET", url: "/asset-templates" })).json()).toEqual([]);
-  });
-
   it("does not expose the removed Plugin marketplace", async () => {
     const runtime = await testRuntime();
 

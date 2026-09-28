@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  Box,
   ChevronLeft,
   ChevronRight,
   CircleStop,
@@ -30,6 +31,7 @@ import {
   Plus,
   Search,
   Share2,
+  Square,
   Settings,
   Trash2,
   Upload,
@@ -69,9 +71,6 @@ import {
 import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./story-canvas-alignment.js";
 import { duplicateStoryNode, snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
 import {
-  VIDEO_ASPECT_RATIOS,
-  VIDEO_MODEL,
-  VIDEO_RESOLUTIONS,
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
@@ -80,9 +79,11 @@ import {
   type ImageModelRef,
   type ImageResolution,
   type LibraryUploadMediaType,
+  type Model3DGenerationConfig,
   type PromptImage,
   type ProjectState,
   type RunImageToolRequest,
+  type Run3DToolRequest,
   type RunVideoToolRequest,
   type StoryAction,
   type StoryChoiceTimeout,
@@ -108,22 +109,26 @@ import {
   type StoryVariableCondition,
   type StoryVariableType,
   type StoryVariableValue,
+  type ToolJob,
   type VideoAspectRatio,
+  type VideoModel,
+  type VideoModelRef,
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineStoryPrompt, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
-import { buildInteractiveDrama, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, runTool, setProjectCover, updateStory, uploadLibraryAsset } from "./api.js";
+import { combineStoryPrompt, createAssetGenerationNode, DEFAULT_CHOICE_SURFACE_FILES, DEFAULT_ENDING_SURFACE_FILES, DEFAULT_OPEN_UI_CODE, DEFAULT_OPEN_UI_CONTENT, DEFAULT_SCENE_DURATION_MS, DEFAULT_SCENE_SURFACE_FILES, DEFAULT_SETTINGS_SURFACE_FILES, DEFAULT_STORY_MAP_SURFACE_FILES, DEFAULT_STORY_PLAYER_CONFIG, defaultStoryNodeSource, isStoryDocument, isVideoOnlySceneMedia, matchesStoryCondition, normalizeStoryActions, normalizeStoryCondition, normalizeStoryVariableReferences, replaceOutgoingEdge, resolveStoryAssetId, resolveStoryImageAssetId, sceneDurationForMedia, storyNodePresentation, validatePlayableChapter, type StoryPlayIssue } from "../shared/story.js";
+import { buildInteractiveDrama, cancelToolJob, createLibraryImage, generateStoryText, getLibraryAsset, getProjectCover, getStory, listImageModels, listToolJobs, listVideoModels, retryToolJob, setProjectCover, startToolJob, updateStory, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { playtestHash } from "./routes.js";
-import { prepareVideoReferenceFile, readMediaFileDuration, validateVideoReferenceCounts, validateVideoReferenceDurations, validVideoReferenceCombination, VIDEO_REFERENCE_ACCEPT, VIDEO_REFERENCE_LIMITS } from "./video-reference-files.js";
+import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
-import { findStoryCoverSource } from "../shared/story-cover.js";
+import { findAssetCanvasCoverSource, findStoryCoverSource, type StoryCoverSource } from "../shared/story-cover.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { ModelPreview } from "./model-preview.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { StoryVariablesDialog } from "./story-variables-dialog.js";
@@ -131,6 +136,7 @@ import { StoryPlayerPreviewSession, StoryPlayerSnapshot, type StoryPreviewSessio
 import { StoryMapSurface } from "./story-map.js";
 import { StorySettingsSurface } from "./story-settings.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
 const MIN_ZOOM = 0.25;
@@ -218,12 +224,20 @@ const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: "Text", description: "Write a reusable prompt", icon: FileText, action: { kind: "node", type: "text" } },
       { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
       { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
+      { label: "Model 3D", description: "Generate a 3D model on canvas", icon: Box, action: { kind: "node", type: "model-3d" } },
     ],
   },
 ];
 
 function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasNodeCreationLeaf {
   return "action" in item;
+}
+
+function canvasCreationGroups(assetCanvas: boolean): CanvasNodeCreationGroup[] {
+  if (assetCanvas) return CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets");
+  return CANVAS_NODE_CREATION_GROUPS.map((group) => group.label === "Assets"
+    ? { ...group, items: group.items.filter((item) => !isCanvasNodeCreationLeaf(item) || item.action.kind !== "node" || item.action.type !== "model-3d") }
+    : group);
 }
 
 function isSingletonStoryNode(node: { type?: string }): boolean {
@@ -250,14 +264,15 @@ type StoryFlowData = {
   model?: ImageModelRef;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
-  videoModel?: typeof VIDEO_MODEL;
+  videoModel?: VideoModelRef;
   videoResolution?: VideoResolution;
   videoAspectRatio?: VideoAspectRatio;
   duration?: number;
   images?: StoryAssetReference[];
   references?: StoryAssetReference[];
   assetId?: string;
-  mediaType?: "image" | "video" | "audio";
+  mediaType?: "image" | "video" | "audio" | "model";
+  model3DConfig?: Model3DGenerationConfig;
   contentType?: string;
   assetDuration?: number;
   name?: string;
@@ -275,6 +290,7 @@ type StoryFlowData = {
   variables?: StoryVariable[];
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
+  model3DRuntime?: ReferenceMediaNodeRuntime;
   textRuntime?: TextNodeRuntime;
 };
 type StoryFlowNode = Node<StoryFlowData, StoryNodeType>;
@@ -286,8 +302,10 @@ interface MediaNodeRuntime {
   error?: string;
   onChange: (data: StoryFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
+  onCancel?: () => void;
+  onRetry?: () => void;
   linkedPrompt?: string;
-  onDisconnectPrompt: () => void;
+  onDisconnectPrompt?: () => void;
 }
 
 interface TextNodeRuntime {
@@ -315,7 +333,9 @@ interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
 }
 
-type VideoNodeRuntime = ReferenceMediaNodeRuntime;
+interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
+  models: VideoModel[];
+}
 
 interface MediaReferenceView {
   assetId?: string;
@@ -341,14 +361,19 @@ const STORY_NODE_TYPES: NodeTypes = {
   text: TextNode,
   image: ImageNode,
   video: VideoNode,
+  "model-3d": Model3DNode,
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
+export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
   project: ProjectState;
+  assetCanvas?: boolean;
+  initialNodeId?: string;
+  onInitialNodeHandled?: () => void;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
+  openFileRequest?: { path: string; id: number };
   onPublish: (details: PublishDetails) => Promise<boolean>;
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
@@ -381,10 +406,22 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const [copiedNode, setCopiedNode] = useState<StoryNode>();
   const [playIssue, setPlayIssue] = useState<StoryPlayIssue>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
+
+  useEffect(() => {
+    if (!openFileRequest) return;
+    clearSelection();
+    setOpenedNodeId(undefined);
+    setEditorPreviewSession(undefined);
+    setWorkspaceView("code");
+  }, [openFileRequest?.id]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
+  const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
-  const [generatingNodeId, setGeneratingNodeId] = useState<string>();
+  const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
+  const startingCanvasNodesRef = useRef(new Set<string>());
+  const hydratedJobRuns = useRef(new Set<string>());
   const [generatingTextNodeId, setGeneratingTextNodeId] = useState<string>();
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
@@ -399,6 +436,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const queuedStory = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
   const nodeClickTimer = useRef<number | undefined>(undefined);
+  const initialNodeRequest = useRef({ nodeId: initialNodeId, onHandled: onInitialNodeHandled });
   const editorUndoHistory = useRef<StoryDocument[]>([]);
   const editorRedoHistory = useRef<StoryDocument[]>([]);
   const historyObserved = useRef<StoryDocument | undefined>(undefined);
@@ -420,13 +458,24 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => [])]).then(([story, assets, models]) => {
+    void Promise.all([getStory(projectId), loadLibraryAssets(), listImageModels().catch(() => []), listVideoModels().catch(() => [])]).then(([story, assets, models, loadedVideoModels]) => {
       if (disposed) return;
       const loadedChapter = story.chapter;
       setChapter({ id: loadedChapter.id, title: loadedChapter.title });
       setVariables(story.variables);
       setPlayer(story.player);
-      setNodes(loadedChapter.nodes.map((node) => toFlowNode(node, models)));
+      const loadedNodes = loadedChapter.nodes.map((node) => toFlowNode(node, models, loadedVideoModels));
+      const request = initialNodeRequest.current;
+      initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
+      const initialNode = assetCanvas && request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
+      setNodes(loadedNodes.map((node) => ({ ...node, selected: node.id === initialNode?.id })));
+      if (request.nodeId) {
+        request.onHandled?.();
+      }
+      if (initialNode) {
+        setSelectedId(initialNode.id);
+        setOpenedNodeId(hasNodeEditor(initialNode) ? initialNode.id : undefined);
+      }
       const loadedLayout = story.editorLayout ?? { version: 1 as const, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" as const };
       const normalizedLayout = loadedLayout;
       setEditorLayout(normalizedLayout);
@@ -435,6 +484,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       queuedStory.current = JSON.stringify(story);
       setLibraryAssets(assets);
       setImageModels(models);
+      setVideoModels(loadedVideoModels);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -442,7 +492,52 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       setPhase("error");
     });
     return () => { disposed = true; };
-  }, [projectId, workspaceRevision]);
+  }, [assetCanvas, projectId, workspaceRevision]);
+
+  useEffect(() => {
+    if (phase !== "ready") return;
+    let stopped = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const jobs = (await listToolJobs()).filter((job) => job.context?.projectId === projectId);
+        if (stopped) return;
+        const latestJobs = new Map<string, ToolJob>();
+        for (const job of jobs) {
+          const nodeId = job.context?.nodeId;
+          if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
+        }
+        setCanvasJobs(Object.fromEntries(latestJobs));
+        const completedAssetIds: string[] = [];
+        let completedCover: StoryCoverSource | undefined;
+        for (const job of jobs) {
+          const nodeId = job.context?.nodeId;
+          const file = job.run?.files[0];
+          if (job.status !== "succeeded" || !nodeId || !file?.assetId || hydratedJobRuns.current.has(job.id)) continue;
+          hydratedJobRuns.current.add(job.id);
+          setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, assetId: file.assetId } } : node));
+          completedAssetIds.push(file.assetId);
+          if (assetCanvas && !completedCover) {
+            const mediaType = file.mediaType.startsWith("image/") ? "image" : file.mediaType.startsWith("video/") ? "video" : undefined;
+            if (mediaType) completedCover = { assetId: file.assetId, mediaType };
+          }
+        }
+        if (completedAssetIds.length) {
+          const assets = await loadLibraryAssets();
+          if (completedCover && !stopped) {
+            try {
+              const cover = await projectCoverBlob(completedCover, assets);
+              if (!stopped && cover) await setProjectCover(projectId, cover);
+            } catch { /* Cover generation is best-effort. */ }
+          }
+          if (!stopped) setLibraryAssets(assets);
+        }
+      } catch { /* Job polling is best-effort; the node keeps its last state. */ }
+      if (!stopped) timer = window.setTimeout(poll, 1_500);
+    };
+    void poll();
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [assetCanvas, phase, projectId]);
 
   const document = useMemo(
     () => chapter ? storyDocument(player, variables, chapter, nodes, edges, {
@@ -460,17 +555,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     if (phase !== "ready" || !document || libraryAssets.length === 0) return;
     let disposed = false;
     void (async () => {
-      const source = findStoryCoverSource(document);
-      const asset = source && libraryAssets.find((candidate) => candidate.id === source.assetId);
-      if (!source || !asset || (asset.mediaType !== "image" && asset.mediaType !== "video") || asset.contentType === "image/svg+xml" || asset.name.toLowerCase().endsWith(".svg")) return;
-      // A manually supplied cover is authoritative. Automatic covers only fill an empty slot.
-      if (await getProjectCover(projectId)) return;
-      const blob = await getLibraryAsset(asset.id);
-      const cover = await mediaBlobToWebP(blob, asset.mediaType);
+      const source = assetCanvas ? findAssetCanvasCoverSource(document) : findStoryCoverSource(document);
+      if (!source || await getProjectCover(projectId)) return;
+      const cover = await projectCoverBlob(source, libraryAssets);
       if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover);
     })().catch(() => {});
     return () => { disposed = true; };
-  }, [document, libraryAssets, phase, projectId]);
+  }, [assetCanvas, document, libraryAssets, phase, projectId]);
 
   function updateHistoryControls(): void {
     setHistoryRevision((revision) => revision + 1);
@@ -580,7 +671,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }, [document, workspaceView]);
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
-    if (node.type === "image") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
+    if (node.type === "image" || node.type === "model-3d") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
       id: assetEdgeId("image", node.id, image.nodeId),
       source: image.nodeId,
       target: node.id,
@@ -665,7 +756,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         const relation = edge?.data?.relation;
         const referenceId = edge?.data?.referenceId;
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
-          if (relation === "media-image" && node.id === edge.target && node.type === "image") {
+          if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d")) {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
           }
           if (relation === "video-reference" && node.id === edge.target && node.type === "video") {
@@ -693,8 +784,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
     const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels);
-    if (relation === "image-reference" && target.type === "image") {
-      setNodes((current) => current.map((node) => node.id === target.id && node.type === "image"
+    if (relation === "image-reference" && (target.type === "image" || target.type === "model-3d")) {
+      setNodes((current) => current.map((node) => node.id === target.id && (node.type === "image" || node.type === "model-3d")
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
         : node));
       return;
@@ -746,14 +837,16 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
+    if (assetCanvas && type !== "text" && type !== "image" && type !== "video" && type !== "model-3d") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
-    const node = { ...createFlowNode(type, position, imageModels, player.viewport, defaultTextModel), selected: true };
+    const node = { ...createFlowNode(type, position, imageModels, videoModels, player.viewport, assetCanvas, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration">, position: { x: number; y: number }): void {
-    if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio") return;
+    if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio" && asset.mediaType !== "model") return;
+    if (!assetCanvas && asset.mediaType === "model") return;
     const node: StoryFlowNode = {
       id: crypto.randomUUID(),
       type: "asset",
@@ -841,7 +934,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
 
   function insertNodeCopy(source: StoryNode, position: { x: number; y: number }): void {
     if (isSingletonStoryNode(source) && nodes.some((node) => node.type === source.type)) return;
-    const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels), selected: true };
+    const duplicate = { ...toFlowNode(duplicateStoryNode(source, position), imageModels, videoModels), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), duplicate]);
     setSelectedAssetEdgeId(undefined);
     setSelectedId(duplicate.id);
@@ -893,7 +986,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   async function generateImage(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "image" || generatingNodeId) return;
+    if (node.type !== "image") return;
     const prompt = resolveNodePrompt(node, nodes).trim();
     if (!prompt) { setGenerationError({ nodeId: node.id, message: "Add a prompt before generating." }); return; }
     if (!node.data.model) { setGenerationError({ nodeId: node.id, message: "Select an image model before generating." }); return; }
@@ -902,8 +995,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       await generateMedia(node, "generate-image", {
         prompt,
         imageModel: node.data.model,
-        resolution: node.data.resolution ?? "1K",
-        aspectRatio: node.data.aspectRatio ?? "1:1",
+        resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+        aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
         outputs: 1,
         ...(images.length ? { images } : {}),
       }, "Image");
@@ -913,7 +1006,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   async function generateTextNode(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "text" || generatingTextNodeId || generatingNodeId) return;
+    if (node.type !== "text" || generatingTextNodeId) return;
     const instruction = node.data.instruction?.trim();
     if (!instruction) {
       setGenerationError({ nodeId: node.id, message: "Add an instruction before generating." });
@@ -939,21 +1032,44 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   async function generateVideo(node: StoryFlowNode): Promise<void> {
-    if (node.type !== "video" || generatingNodeId) return;
+    if (node.type !== "video") return;
     const prompt = resolveNodePrompt(node, nodes).trim();
     if (!prompt) { setGenerationError({ nodeId: node.id, message: "Add a prompt before generating." }); return; }
+    if (!node.data.videoModel) { setGenerationError({ nodeId: node.id, message: "Select a video model before generating." }); return; }
     try {
       const references = resolveVideoReferences(node);
       await generateMedia(node, "generate-video", {
         prompt,
+        model: node.data.videoModel,
         ...(references.length ? { references } : {}),
-        duration: node.data.duration ?? 6,
-        aspectRatio: node.data.videoAspectRatio ?? "adaptive",
-        resolution: node.data.videoResolution ?? "720p",
+        duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
+        aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+        resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
       }, "Video");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     }
+  }
+
+  async function generateModel3D(node: StoryFlowNode): Promise<void> {
+    if (node.type !== "model-3d") return;
+    const config = nodeModel3DConfig(node);
+    try {
+      const images = await resolveModelReferenceImages(node);
+      if (images.length !== MODEL_3D_REFERENCE_LIMIT) throw new Error("Add one reference image before generating.");
+      await generateMedia(node, "image-to-3d", buildModel3DToolRequest(config, images), "3D model");
+    } catch (error) {
+      setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+    }
+  }
+
+  async function resolveModelReferenceImages(node: StoryFlowNode): Promise<PromptImage[]> {
+    if (node.type !== "model-3d" || !activeChapter) return [];
+    return Promise.all((node.data.images ?? []).map(async (reference) => {
+      const assetId = resolveStoryImageAssetId(activeChapter, reference);
+      if (!assetId) throw new Error("Generate every connected image before running this node.");
+      return modelPromptImage(await getLibraryAsset(assetId));
+    }));
   }
 
   function resolveVideoReferences(node: StoryFlowNode): VideoGenerationReference[] {
@@ -962,14 +1078,11 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       const assetId = resolveStoryAssetId(activeChapter, reference);
       if (!assetId) throw new Error("Generate every connected media node before running this node.");
       const asset = libraryAssets.find((candidate) => candidate.id === assetId);
-      if (!asset || (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio")) {
+      if (!asset || asset.mediaType !== "image") {
         throw new Error("A connected reference is missing from Library.");
       }
       return { type: asset.mediaType, assetId, duration: asset.duration };
     });
-    validateVideoReferenceCounts(references.map((reference) => reference.type));
-    validateVideoReferenceDurations([], references);
-    if (!validVideoReferenceCombination(references)) throw new Error("Add an image or video to use an audio reference.");
     return references.map(({ type, assetId }) => ({ type, assetId }));
   }
 
@@ -983,8 +1096,8 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   async function uploadReferenceImages(node: StoryFlowNode, files: File[]): Promise<void> {
-    if (node.type !== "image" || files.length === 0 || generatingNodeId || uploadingNodeId) return;
-    const available = imageReferenceLimit(node, imageModels) - (node.data.images?.length ?? 0);
+    if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || uploadingNodeId) return;
+    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : MODEL_3D_REFERENCE_LIMIT) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
       return;
@@ -998,7 +1111,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     try {
       const images = await Promise.all(files.map(readUploadImage));
       const assets = await Promise.all(images.map(({ name, image }) => createLibraryImage({ name, image })));
-      setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "image"
+      setNodes((current) => current.map((candidate) => candidate.id === node.id && (candidate.type === "image" || candidate.type === "model-3d")
         ? {
             ...candidate,
             data: {
@@ -1016,16 +1129,13 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
   }
 
   async function uploadVideoReferences(node: StoryFlowNode, files: File[]): Promise<void> {
-    if (node.type !== "video" || files.length === 0 || generatingNodeId || uploadingNodeId) return;
+    if (node.type !== "video" || files.length === 0 || uploadingNodeId) return;
     setUploadingNodeId(node.id);
     setGenerationError(undefined);
     try {
       const uploads = await Promise.all(files.map(prepareVideoReferenceFile));
-      const existing = videoReferenceViews(node, nodes, libraryAssets);
-      validateVideoReferenceCounts([...existing.map((reference) => reference.type), ...uploads.map((upload) => upload.type)]);
-      validateVideoReferenceDurations(existing, uploads);
       for (const upload of uploads) {
-        const asset = await uploadLibraryAsset(upload.file, upload.mediaType, upload.duration);
+        const asset = await uploadLibraryAsset(upload.file, upload.mediaType);
         setLibraryAssets((current) => [{ ...asset, assetId: asset.id, path: asset.name }, ...current.filter((candidate) => candidate.id !== asset.id)]);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "video"
           ? { ...candidate, data: { ...candidate.data, references: [...(candidate.data.references ?? []), { type: "library", assetId: asset.id }] } }
@@ -1038,21 +1148,47 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     }
   }
 
-  async function generateMedia(node: StoryFlowNode, toolId: "generate-image" | "generate-video", input: RunImageToolRequest | RunVideoToolRequest, label: string): Promise<void> {
-    setGeneratingNodeId(node.id);
+  async function generateMedia(node: StoryFlowNode, toolId: "generate-image" | "generate-video" | "image-to-3d", input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest, label: string): Promise<void> {
+    if (canvasJobs[node.id]?.status === "running" || startingCanvasNodesRef.current.has(node.id)) return;
+    startingCanvasNodesRef.current.add(node.id);
+    setStartingCanvasNodes((current) => new Set(current).add(node.id));
     setGenerationError(undefined);
     try {
-      const run = await runTool(toolId, input);
-      const file = run.files[0];
-      if (!file?.assetId) throw new Error(`${label} generation completed without a Library asset.`);
-      setNodes((current) => current.map((candidate) => candidate.id === node.id
-        ? { ...candidate, data: { ...candidate.data, assetId: file.assetId } }
-        : candidate));
-      setLibraryAssets(await loadLibraryAssets());
+      const job = await startToolJob(toolId, input, label, { projectId, nodeId: node.id });
+      setCanvasJobs((current) => ({ ...current, [node.id]: job }));
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     } finally {
-      setGeneratingNodeId(undefined);
+      startingCanvasNodesRef.current.delete(node.id);
+      setStartingCanvasNodes((current) => {
+        const next = new Set(current);
+        next.delete(node.id);
+        return next;
+      });
+    }
+  }
+
+  async function cancelCanvasJob(nodeId: string): Promise<void> {
+    const job = canvasJobs[nodeId];
+    if (!job) return;
+    try {
+      setCanvasJobs((current) => ({ ...current, [nodeId]: { ...job, status: "cancelled" } }));
+      const next = await cancelToolJob(job.id);
+      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
+    } catch (error) {
+      setGenerationError({ nodeId, message: errorMessage(error) });
+    }
+  }
+
+  async function retryCanvasJob(nodeId: string): Promise<void> {
+    const job = canvasJobs[nodeId];
+    if (!job || (job.status !== "failed" && job.status !== "cancelled")) return;
+    try {
+      const next = await retryToolJob(job.id);
+      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
+      setGenerationError((error) => error?.nodeId === nodeId ? undefined : error);
+    } catch (error) {
+      setGenerationError({ nodeId, message: errorMessage(error) });
     }
   }
 
@@ -1110,7 +1246,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
           generating: generatingTextNodeId === node.id,
-          busy: Boolean(generatingNodeId || generatingTextNodeId),
+          busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
           onChange: (data: StoryFlowData) => {
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
@@ -1120,12 +1256,45 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
         },
       },
     };
+    if (node.type === "model-3d") {
+      const nodeJob = canvasJobs[node.id];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          model3DRuntime: {
+            generating: nodeJob?.status === "running",
+            busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
+            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
+            onChange: (data: StoryFlowData) => {
+              setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
+              setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
+            },
+            onGenerate: () => void generateModel3D(node),
+            references: imageReferenceViews(node, nodes, libraryAssets),
+            maxReferences: MODEL_3D_REFERENCE_LIMIT,
+            uploading: uploadingNodeId === node.id,
+            accept: "image/png,image/jpeg,image/webp",
+            addLabel: "Upload reference images",
+            onRemoveReference: (index: number) => setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "model-3d"
+              ? { ...candidate, data: { ...candidate.data, images: (candidate.data.images ?? []).filter((_, candidateIndex) => candidateIndex !== index) } }
+              : candidate)),
+            onUploadReferences: (files: File[]) => void uploadReferenceImages(node, files),
+          },
+        },
+      };
+    }
     if (!isMediaNodeType(node.type)) return node;
     const linkedPrompt = resolveLinkedPrompt(node, nodes);
+    const nodeJob = canvasJobs[node.id];
     const runtime: MediaNodeRuntime = {
-      generating: generatingNodeId === node.id,
-      busy: Boolean(generatingNodeId || uploadingNodeId),
-      ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      generating: nodeJob?.status === "running",
+      busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
+      ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+      onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
+      onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
       onChange: (data) => {
         setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
         setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1142,10 +1311,10 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     const referenceRuntime: ReferenceMediaNodeRuntime = {
       ...runtime,
       references: node.type === "image" ? imageReferenceViews(node, nodes, libraryAssets) : videoReferenceViews(node, nodes, libraryAssets),
-      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : 15,
+      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : selectedVideoModel(node, videoModels)?.maxImageReferences ?? 0,
       uploading: uploadingNodeId === node.id,
-      accept: node.type === "image" ? "image/png,image/jpeg,image/webp" : VIDEO_REFERENCE_ACCEPT,
-      addLabel: node.type === "image" ? "Upload reference images" : "Upload image, video, or audio references",
+      accept: "image/png,image/jpeg,image/webp",
+      addLabel: "Upload reference images",
       onRemoveReference: (index) => {
         setSelectedAssetEdgeId(undefined);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "image"
@@ -1160,7 +1329,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
       ...node,
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels } satisfies ImageNodeRuntime }
-        : { ...node.data, videoRuntime: referenceRuntime },
+        : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels } satisfies VideoNodeRuntime },
     };
   });
 
@@ -1233,48 +1402,50 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
     setChapter({ id: nextChapter.id, title: nextChapter.title });
     setVariables(next.variables ?? []);
     setPlayer(next.player);
-    setNodes(nextChapter.nodes.map((node) => toFlowNode(node, imageModels)));
+    setNodes(nextChapter.nodes.map((node) => toFlowNode(node, imageModels, videoModels)));
     setEdges(nextChapter.edges);
     if (next.editorLayout) {
       setEditorLayout(next.editorLayout);
-      setWorkspaceView(next.editorLayout.view === "code" ? "code" : "canvas");
+      setWorkspaceView(!assetCanvas && next.editorLayout.view === "code" ? "code" : "canvas");
     }
     setSelectedId((current) => current && nextChapter.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
+  const creationGroups = canvasCreationGroups(assetCanvas);
   return (
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label={assetCanvas ? "Asset Canvas workspace" : "Interactive Drama workspace"} style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
+          {!assetCanvas ? <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button> : null}
+          {!assetCanvas ? <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button> : null}
           {chatOnRight && onHome ? (
             <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
           <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
-          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
         </div>
-        <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+        {!assetCanvas ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
           <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
           <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
-        </nav>
+        </nav> : null}
         <div className="interactive-drama-header-actions">
-          <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
+          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
-          </button>
-          <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          </button> : null}
+          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
-          </button>
+          </button> : null}
           {chatOnRight && chatCollapsed && onToggleChat ? (
             <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
+          {!assetCanvas ? <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
             <span>{building ? "Exporting" : "Export"}</span>
-          </button>
+          </button> : null}
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
@@ -1364,13 +1535,14 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
               <StoryCanvasAlignmentGuides guides={alignmentGuides} />
               <ZoomControls />
               <CanvasToolbar
+                assetCanvas={assetCanvas}
                 mode={interactionMode}
                 canvas={canvas}
                 hasStart={nodes.some((node) => node.type === "start")}
                 hasOpenUi={nodes.some((node) => node.type === "open-ui")}
                 hasStoryMap={nodes.some((node) => node.type === "story-map")}
                 hasSettings={nodes.some((node) => node.type === "settings")}
-                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
+                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || (assetCanvas && asset.mediaType === "model"))}
                 importing={importingAssets}
                 reserveInspector={false}
                 onAdd={addNode}
@@ -1383,6 +1555,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             </StoryCanvasPlayerContext.Provider>
           ) : null}
           {canvasContextMenu ? <StoryCanvasContextMenu
+            assetCanvas={assetCanvas}
             menu={canvasContextMenu}
             canUndo={canUndo}
             canRedo={canRedo}
@@ -1412,7 +1585,7 @@ export function InteractiveDramaWorkspace({ project, agentBusy, publishing, work
             </div>
           ) : null}
         </div>
-      </div> : <main className="story-code-view" aria-label="Interactive Drama code"><WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} /></main>}
+      </div> : <main className="story-code-view" aria-label="Interactive Drama code"><WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /></main>}
       {openedNodeId && activeChapter ? <NodeEditorPage
         node={nodes.find((candidate) => candidate.id === openedNodeId)}
         chapter={activeChapter}
@@ -1825,9 +1998,22 @@ function ImageNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 
 function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
-  const referenceError = runtime?.references.some((reference) => reference.type === "audio") && !validVideoReferenceCombination(runtime.references)
-    ? "Add an image or video to use an audio reference."
-    : undefined;
+  const selectedModel = runtime?.models.find((model) => sameModel(model, data.videoModel));
+
+  function selectModel(key: string): void {
+    const model = runtime?.models.find((candidate) => modelKey(candidate) === key);
+    if (!model || !runtime) return;
+    runtime.onChange({
+      ...data,
+      videoRuntime: undefined,
+      videoModel: { provider: model.provider, id: model.id },
+      videoResolution: model.resolutions.includes(data.videoResolution as VideoResolution) ? data.videoResolution : model.resolutions[0],
+      videoAspectRatio: model.aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio) ? data.videoAspectRatio : model.aspectRatios[0],
+      duration: model.durations.includes(data.duration ?? 0) ? data.duration : model.durations[0],
+      references: (data.references ?? []).slice(0, model.maxImageReferences),
+    });
+  }
+
   return (
     <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
@@ -1837,22 +2023,57 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
         runtime={runtime}
         onChange={(prompt) => runtime?.onChange({ ...data, videoRuntime: undefined, prompt })}
       />
-      {runtime?.error || referenceError ? <p role="alert">{runtime?.error ?? referenceError}</p> : null}
+      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Video model" value={data.videoModel ?? VIDEO_MODEL} disabled={runtime?.busy} onChange={() => undefined}>
-          <option value={VIDEO_MODEL}>Seedance 2.0</option>
+        <select aria-label="Video model" value={selectedModel ? modelKey(selectedModel) : ""} disabled={runtime?.busy} onChange={(event) => selectModel(event.target.value)}>
+          {!selectedModel ? <option value="">{runtime?.models.length ? "Select model" : "No video model"}</option> : null}
+          {runtime?.models.map((model) => <option key={modelKey(model)} value={modelKey(model)}>{model.name}</option>)}
         </select>
-        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? "adaptive"} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
-          {VIDEO_ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
+        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
+          {selectedModel?.aspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
         </select>
-        <select aria-label="Video resolution" value={data.videoResolution ?? "720p"} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
-          {VIDEO_RESOLUTIONS.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
+        <select aria-label="Video resolution" value={data.videoResolution ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
+          {selectedModel?.resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
         </select>
-        <select aria-label="Video duration" value={data.duration ?? 6} disabled={runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
-          {Array.from({ length: 12 }, (_, index) => index + 4).map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
+        <select aria-label="Video duration" value={data.duration ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
+          {selectedModel?.durations.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
         </select>
-        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || Boolean(referenceError)} />
+        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
       </div>
+    </MediaNodeShell>
+  );
+}
+
+function Model3DNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
+  const runtime = data.model3DRuntime;
+  const config = nodeModel3DConfig({ type: "model-3d", data });
+  const hasImages = Boolean(data.images?.length);
+  const updateConfig = (next: Partial<Model3DGenerationConfig>) => runtime?.onChange({
+    ...data,
+    model3DRuntime: undefined,
+    model3DConfig: normalizeModel3DConfig({ ...config, ...next }),
+  });
+  return (
+    <MediaNodeShell
+      kind="model"
+      selected={selected}
+      assetId={data.assetId}
+      inputCount={data.images?.length}
+      runtime={runtime}
+    >
+      <MediaReferenceStrip runtime={runtime} large />
+      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      <div className="story-media-controls">
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages} />
+      </div>
+      <details className="story-media-advanced">
+        <summary>Settings</summary>
+        <div className="story-media-advanced-grid">
+          <label><span>Polycount</span><input type="number" min={100} max={15000} step={100} value={config.targetPolycount} disabled={runtime?.busy} onChange={(event) => updateConfig({ targetPolycount: Number(event.target.value) || DEFAULT_MODEL_3D_CONFIG.targetPolycount })} /></label>
+          <label className="story-media-checkbox"><input type="checkbox" checked={config.texture} disabled={runtime?.busy} onChange={(event) => updateConfig({ texture: event.target.checked, ...(!event.target.checked ? { pbr: false } : {}) })} />Texture</label>
+          {config.texture ? <label className="story-media-checkbox"><input type="checkbox" checked={config.pbr} disabled={runtime?.busy} onChange={(event) => updateConfig({ pbr: event.target.checked })} />PBR</label> : null}
+        </div>
+      </details>
     </MediaNodeShell>
   );
 }
@@ -1860,8 +2081,8 @@ function VideoNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "selected">) {
   const kind = data.mediaType ?? "image";
   const preview = useWorkspaceAssetUrl(undefined, "", 0, kind === "audio" ? undefined : data.assetId);
-  const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : ImageIcon;
-  const mediaLayout = useMediaNodeLayout(kind === "audio" ? undefined : preview.url);
+  const Icon = kind === "video" ? Film : kind === "audio" ? Music2 : kind === "model" ? Box : ImageIcon;
+  const mediaLayout = useMediaNodeLayout(kind === "audio" || kind === "model" ? undefined : preview.url);
   const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "92px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
@@ -1869,6 +2090,7 @@ function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
       <div data-alignment-frame className="story-media-stage">
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || "Library image"} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
+        {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
         {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{preview.error ? "Asset unavailable" : "Audio"}</strong>{data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
         {!preview.url && kind !== "audio" ? <div className="story-media-empty"><Icon size={34} /><strong>{preview.error ? "Asset unavailable" : "Loading asset..."}</strong></div> : null}
       </div>
@@ -1878,29 +2100,29 @@ function AssetNode({ data, selected }: Pick<NodeProps<StoryFlowNode>, "data" | "
 }
 
 function MediaPrompt({ kind, value, runtime, onChange }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   value: string;
   runtime?: MediaNodeRuntime;
   onChange: (prompt: string) => void;
 }) {
   return (
     <textarea
-      aria-label={`${kind === "image" ? "Image" : "Video"} prompt`}
+      aria-label={`${kind === "model" ? "3D model" : titleCase(kind)} prompt`}
       rows={3}
       value={value}
       disabled={runtime?.busy}
-      placeholder={`Describe the ${kind} you want to create`}
+      placeholder={`Describe the ${kind === "model" ? "3D model" : kind} you want to create`}
       onChange={(event) => onChange(event.target.value)}
     />
   );
 }
 
-function MediaReferenceStrip({ runtime }: { runtime?: ReferenceMediaNodeRuntime }) {
+function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMediaNodeRuntime; large?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const references = runtime?.references ?? [];
   if (!runtime || (runtime.linkedPrompt === undefined && references.length === 0 && runtime.maxReferences === 0)) return null;
   return (
-    <div className="story-media-references" aria-label="References">
+    <div className={`story-media-references${large ? " is-large" : ""}`} aria-label="References">
       {runtime?.linkedPrompt !== undefined ? <TextReferenceThumbnail runtime={runtime} /> : null}
       {references.map((reference, index) => (
         <MediaReferenceThumbnail
@@ -1920,14 +2142,14 @@ function MediaReferenceStrip({ runtime }: { runtime?: ReferenceMediaNodeRuntime 
             disabled={runtime?.busy}
             onClick={() => input.current?.click()}
           >
-            {runtime?.uploading ? <LoaderCircle className="spin" size={16} /> : <Plus size={18} />}
+            {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
           </button>
           <input
             ref={input}
             className="visually-hidden"
             type="file"
             accept={runtime.accept}
-            multiple
+            multiple={(runtime?.maxReferences ?? 0) > 1}
             onChange={(event) => {
               const files = [...(event.target.files ?? [])];
               event.target.value = "";
@@ -1946,7 +2168,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
     <div className="story-media-reference story-text-reference is-linked" title={text || "Connected Text node is empty"}>
       <FileText size={19} />
       <span className="story-media-reference-link" aria-label="Connected Text node" />
-      <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={runtime.onDisconnectPrompt}><X size={11} /></button>
+      <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
 }
@@ -1972,7 +2194,7 @@ function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
 }
 
 function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, runtime, children }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   selected: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
@@ -1981,23 +2203,30 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
-  const Icon = kind === "image" ? ImageIcon : Film;
-  const label = kind === "image" ? "Image" : "Video";
-  const mediaLayout = useMediaNodeLayout(preview.url, aspectRatio);
+  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : Box;
+  const label = kind === "image" ? "Image" : kind === "video" ? "Video" : "Model 3D";
+  const mediaLayout = useMediaNodeLayout(kind === "model" ? undefined : preview.url, aspectRatio);
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
-      <div data-alignment-frame className="story-media-stage">
+      <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {!preview.url ? (
+        {preview.url && kind === "model" ? <ModelPreview source={preview.url} label="Generated 3D model" minHeight={220} interactive={false} /> : null}
+        {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
             <Icon size={34} />
-            <strong>{runtime?.generating ? `Generating ${kind}...` : `No ${kind} yet`}</strong>
-            <span>{runtime?.generating ? "This can take a moment" : `Describe a ${kind} below, then generate`}</span>
+            <strong>No {kind} yet</strong>
+            <span>{kind === "model" ? "Add a reference image below, then generate" : `Describe a ${kind} below, then generate`}</span>
           </div>
         ) : null}
-        {runtime?.generating && preview.url ? <div className="story-media-running"><span className="spin"><LoaderCircle size={18} /></span>Generating...</div> : null}
+        {runtime?.generating ? (
+          <div className="story-media-empty story-media-generation" role="status">
+            <LoaderCircle className="spin" size={20} />
+            <strong>{`Generating ${kind === "model" ? "3D model" : kind}...`}</strong>
+            <span>This can take a moment</span>
+          </div>
+        ) : null}
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
@@ -2143,12 +2372,19 @@ function fitMediaNode(aspectRatio = 16 / 10): { width: number; height: number } 
 }
 
 function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "model";
   assetId?: string;
   runtime?: MediaNodeRuntime;
   disabled: boolean;
 }) {
-  const label = assetId ? `Generate ${kind} again` : `Generate ${kind}`;
+  const labelKind = kind === "model" ? "3D model" : kind;
+  const label = assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
+  if (runtime?.onCancel && runtime.generating) {
+    return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
+  }
+  if (runtime?.onRetry && !runtime.generating) {
+    return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
+  }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
       {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
@@ -2976,7 +3212,7 @@ function StoryAssetPicker({ title, assets, onClose, onSelect }: {
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
           {visibleAssets.map((asset) => {
-            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : ImageIcon;
+            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
             return <button type="button" key={asset.id} onClick={() => onSelect(asset)}>
               <span><Icon size={17} /></span>
               <span><strong>{asset.prompt ?? asset.name}</strong><small>{asset.name}</small></span>
@@ -3002,6 +3238,7 @@ function InspectorField({ label, children }: { label: string; children: React.Re
 }
 
 function CanvasToolbar({
+  assetCanvas,
   mode,
   canvas,
   hasStart,
@@ -3017,6 +3254,7 @@ function CanvasToolbar({
   onUpload,
   onModeChange,
 }: {
+  assetCanvas: boolean;
   mode: InteractionMode;
   canvas: React.RefObject<HTMLDivElement | null>;
   hasStart: boolean;
@@ -3032,6 +3270,7 @@ function CanvasToolbar({
   onUpload: (file: File, position: { x: number; y: number }) => void;
   onModeChange: (mode: InteractionMode) => void;
 }) {
+  const creationGroups = canvasCreationGroups(assetCanvas);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -3086,7 +3325,7 @@ function CanvasToolbar({
         {addOpen ? (
           <div className="story-add-node-menu-shell">
             <div className="story-add-node-menu" role="menu" aria-label="Add node">
-              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              {creationGroups.map((group) => <Fragment key={group.label}>
                 <span className="story-add-node-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;
@@ -3146,6 +3385,7 @@ function CanvasToolbar({
 }
 
 function StoryCanvasContextMenu({
+  assetCanvas,
   menu,
   canUndo,
   canRedo,
@@ -3167,6 +3407,7 @@ function StoryCanvasContextMenu({
   onDuplicate,
   onDelete,
 }: {
+  assetCanvas: boolean;
   menu: CanvasContextMenuState;
   canUndo: boolean;
   canRedo: boolean;
@@ -3188,6 +3429,7 @@ function StoryCanvasContextMenu({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const creationGroups = canvasCreationGroups(assetCanvas);
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -3245,7 +3487,7 @@ function StoryCanvasContextMenu({
           <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add node</span><ChevronRight size={13} /></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
             <div className="story-canvas-context-submenu" role="menu" aria-label="Add node">
-              {CANVAS_NODE_CREATION_GROUPS.map((group) => <Fragment key={group.label}>
+              {creationGroups.map((group) => <Fragment key={group.label}>
                 <span className="story-canvas-context-menu-label">{group.label}</span>
                 {group.items.map((item) => {
                   const Icon = item.icon;
@@ -3357,7 +3599,7 @@ function ZoomControls() {
   );
 }
 
-function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
+function toFlowNode(node: StoryNode, imageModels: ImageModel[], videoModels: VideoModel[]): StoryFlowNode {
   if (node.type === "update-state" || node.type === "condition" || node.type === "open-ui" || node.type === "story-map" || node.type === "settings") return { ...node, deletable: true };
   if (node.type === "asset") return { ...node, deletable: true };
   if (node.type === "scene") return { id: node.id, type: node.type, position: node.position, deletable: true, data: { title: node.data.title, durationMs: node.data.durationMs, presentation: node.data.presentation } };
@@ -3373,19 +3615,38 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
       ...(node.data.model ? { textModel: node.data.model } : {}),
     },
   };
-  if (node.type === "video") return {
+  if (node.type === "video") {
+    const model = videoModels.find((candidate) => sameModel(candidate, node.data.model));
+    return {
+      id: node.id,
+      type: "video",
+      position: node.position,
+      deletable: true,
+      data: {
+        prompt: node.data.prompt,
+        ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+        ...(model ? { videoModel: { provider: model.provider, id: model.id } } : node.data.model ? { videoModel: node.data.model } : {}),
+        videoResolution: model?.resolutions.includes(node.data.resolution) ? node.data.resolution : model?.resolutions[0] ?? node.data.resolution,
+        videoAspectRatio: model?.aspectRatios.includes(node.data.aspectRatio) ? node.data.aspectRatio : model?.aspectRatios[0] ?? node.data.aspectRatio,
+        duration: model?.durations.includes(node.data.duration) ? node.data.duration : model?.durations[0] ?? node.data.duration,
+        references: node.data.references.slice(0, model?.maxImageReferences ?? node.data.references.length),
+        ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      },
+    };
+  }
+  if (node.type === "model-3d") return {
     id: node.id,
-    type: "video",
+    type: "model-3d",
     position: node.position,
     deletable: true,
     data: {
-      prompt: node.data.prompt,
-      ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      videoModel: node.data.model,
-      videoResolution: node.data.resolution,
-      videoAspectRatio: node.data.aspectRatio,
-      duration: node.data.duration,
-      references: node.data.references,
+      prompt: "",
+      model3DConfig: normalizeModel3DConfig({
+        targetPolycount: node.data.targetPolycount,
+        texture: node.data.texture,
+        pbr: node.data.pbr,
+      }),
+      images: node.data.images.slice(0, MODEL_3D_REFERENCE_LIMIT),
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
@@ -3403,7 +3664,24 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[]): StoryFlowNode {
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], viewport: StoryPlayerConfig["viewport"], defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], videoModels: VideoModel[], viewport: StoryPlayerConfig["viewport"], assetCanvas: boolean, defaultTextModel?: AgentModelRef): StoryFlowNode {
+  if (type === "image") {
+    const model = imageModels[0];
+    const option = preferredImageOption(model, assetCanvas ? undefined : storyViewportRatio(viewport));
+    return toFlowNode(createAssetGenerationNode(type, position, {
+      ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
+      ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
+    }), imageModels, videoModels);
+  }
+  if (type === "video") {
+    const model = videoModels[0];
+    const projectRatio = storyViewportRatio(viewport);
+    const aspectRatio = assetCanvas
+      ? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio
+      : model?.aspectRatios.find((ratio) => ratio === projectRatio) ?? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
+    return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id } } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
+  }
+  if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
   const id = crypto.randomUUID();
   if (type === "start") return { id, type, position, data: {} };
   if (type === "update-state") return { id, type, position, data: { title: "Update State", actions: [] } };
@@ -3429,39 +3707,6 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   if (type === "interaction") {
     const draft = createStoryInteractionTemplate("continue");
     return { id, type, position, data: { title: "Continue", outcomes: draft.outcomes, ...(draft.timeout ? { interactionTimeout: draft.timeout } : {}), presentation: { media: { items: [] }, surface: { files: draft.files } } } };
-  }
-  if (type === "image") {
-    const model = imageModels[0];
-    const option = preferredImageOption(model, storyViewportRatio(viewport));
-    return {
-      id,
-      type,
-      position,
-      data: {
-        prompt: "",
-        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
-        resolution: option?.resolution ?? "1K",
-        aspectRatio: option?.aspectRatio ?? "1:1",
-        images: [],
-      },
-    };
-  }
-  if (type === "video") {
-    const projectRatio = storyViewportRatio(viewport);
-    const aspectRatio = VIDEO_ASPECT_RATIOS.find((ratio) => ratio === projectRatio) ?? "adaptive";
-    return {
-      id,
-      type,
-      position,
-      data: {
-        prompt: "",
-        videoModel: VIDEO_MODEL,
-        videoResolution: "720p",
-        videoAspectRatio: aspectRatio,
-        duration: 6,
-        references: [],
-      },
-    };
   }
   return { id, type, position, data: { title: "Untitled ending", description: "", presentation: { media: { items: [] }, surface: { files: structuredClone(DEFAULT_ENDING_SURFACE_FILES) } } } };
 }
@@ -3563,8 +3808,8 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { model: node.data.model } : {}),
-      resolution: node.data.resolution ?? "1K",
-      aspectRatio: node.data.aspectRatio ?? "1:1",
+      resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
+      aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
       images: node.data.images ?? [],
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
@@ -3576,14 +3821,29 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      model: node.data.videoModel ?? VIDEO_MODEL,
-      resolution: node.data.videoResolution ?? "720p",
-      aspectRatio: node.data.videoAspectRatio ?? "adaptive",
-      duration: node.data.duration ?? 6,
+      ...(node.data.videoModel ? { model: node.data.videoModel } : {}),
+      resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
+      aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
+      duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
       references: node.data.references ?? [],
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "model-3d") {
+    const config = nodeModel3DConfig(node);
+    return {
+      id: node.id,
+      type: "model-3d",
+      position: node.position,
+      data: {
+        targetPolycount: config.targetPolycount,
+        texture: config.texture,
+        pbr: config.pbr,
+        images: (node.data.images ?? []).slice(0, MODEL_3D_REFERENCE_LIMIT),
+        ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      },
+    };
+  }
   return {
     id: node.id,
     type: node.type,
@@ -3614,11 +3874,12 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
 }
 
 function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
-  if (node.type !== "image") return [];
+  if (node.type !== "image" && node.type !== "model-3d") return [];
   return (node.data.images ?? []).map((reference, index) => {
+    const label = node.type === "model-3d" ? "Reference" : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
-      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label: `Image ${index + 1}`, type: "image" };
+      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label, type: "image" };
     }
     const source = nodes.find((candidate) => candidate.id === reference.nodeId && isImageFlowSource(candidate));
     const assetId = source?.data.assetId;
@@ -3628,7 +3889,7 @@ function imageReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], librar
       key: `node:${reference.nodeId}`,
       linked: true,
       type: "image",
-      label: `Image ${index + 1}`,
+      label,
       name: source?.type === "image"
         ? source.data.prompt?.trim() || "Connected image"
         : asset?.name ?? (source ? "Connected image" : "Missing image node"),
@@ -3661,7 +3922,25 @@ function videoReferenceViews(node: StoryFlowNode, nodes: StoryFlowNode[], librar
 
 function imageReferenceLimit(node: StoryFlowNode, imageModels: ImageModel[]): number {
   if (node.type !== "image") return 0;
-  return imageModels.find((model) => sameImageModel(model, node.data.model))?.supportsReferenceImage ? IMAGE_REFERENCE_LIMIT : 0;
+  const model = imageModels.find((candidate) => sameImageModel(candidate, node.data.model));
+  return model?.supportsReferenceImage ? Math.min(IMAGE_REFERENCE_LIMIT, model.maxReferenceImages ?? IMAGE_REFERENCE_LIMIT) : 0;
+}
+
+function selectedVideoModel(node: StoryFlowNode, videoModels: VideoModel[]): VideoModel | undefined {
+  return node.type === "video" ? videoModels.find((model) => sameModel(model, node.data.videoModel)) : undefined;
+}
+
+function modelKey(model: { provider: string; id: string }): string {
+  return `${model.provider}:${model.id}`;
+}
+
+function sameModel(model: { provider: string; id: string }, ref?: VideoModelRef): boolean {
+  return Boolean(ref && model.provider === ref.provider && model.id === ref.id);
+}
+
+function nodeModel3DConfig(node: Pick<StoryFlowNode, "type" | "data">): Model3DGenerationConfig {
+  if (node.type !== "model-3d") return DEFAULT_MODEL_3D_CONFIG;
+  return normalizeModel3DConfig(node.data.model3DConfig);
 }
 
 type ConnectionRelation = "image-reference" | "video-reference" | "prompt" | "presentation-media" | "story";
@@ -3682,6 +3961,12 @@ function connectionRelation(
   if (target.type === "story-map" || target.type === "settings") return undefined;
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "image") {
     return (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&
+      !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
+      ? "image-reference"
+      : undefined;
+  }
+  if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d") {
+    return (target.data.images?.length ?? 0) < MODEL_3D_REFERENCE_LIMIT &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
       ? "image-reference"
       : undefined;
@@ -3775,8 +4060,8 @@ function hasNodeEditor(node: StoryFlowNode): boolean {
     || node.type === "ending";
 }
 
-function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "asset" {
-  return type === "text" || type === "asset" || isMediaNodeType(type);
+function isInlineNodeType(type: StoryNodeType): type is "text" | "image" | "video" | "model-3d" | "asset" {
+  return type === "text" || type === "asset" || type === "model-3d" || isMediaNodeType(type);
 }
 
 function isVisiblePresentationFlowNode(node: StoryFlowNode): boolean {
@@ -3826,13 +4111,9 @@ function isVideoFlowSource(node: StoryFlowNode | undefined): boolean {
 
 function videoReferenceType(node: StoryFlowNode | undefined, libraryAssets: LibraryAsset[]): VideoGenerationReference["type"] | undefined {
   if (node?.type === "image") return "image";
-  if (node?.type === "video") return "video";
-  if (node?.type !== "asset") return undefined;
+  if (node?.type !== "asset" || node.data.mediaType !== "image") return undefined;
   const asset = libraryAssets.find((candidate) => candidate.id === node.data.assetId);
-  if (node.data.mediaType === "image" && asset?.contentType !== "image/png" && asset?.contentType !== "image/jpeg" && asset?.contentType !== "image/webp") return undefined;
-  if (node.data.mediaType === "video" && asset?.contentType !== "video/mp4" && asset?.contentType !== "video/quicktime") return undefined;
-  if (node.data.mediaType === "audio" && asset?.contentType !== "audio/mpeg" && asset?.contentType !== "audio/wav") return undefined;
-  return node.data.mediaType;
+  return asset?.contentType === "image/png" || asset?.contentType === "image/jpeg" || asset?.contentType === "image/webp" ? "image" : undefined;
 }
 
 function canAddVideoReference(target: StoryFlowNode, source: StoryFlowNode, nodes: StoryFlowNode[], libraryAssets: LibraryAsset[]): boolean {
@@ -3840,16 +4121,7 @@ function canAddVideoReference(target: StoryFlowNode, source: StoryFlowNode, node
   const type = videoReferenceType(source, libraryAssets);
   if (!type) return false;
   const references = videoReferenceViews(target, nodes, libraryAssets);
-  if (references.filter((reference) => reference.type === type).length >= VIDEO_REFERENCE_LIMITS[type]) return false;
-  const duration = source.type === "asset" || source.type === "video"
-    ? libraryAssets.find((asset) => asset.id === source.data.assetId)?.duration
-    : undefined;
-  try {
-    validateVideoReferenceDurations(references, [{ type, duration }]);
-  } catch {
-    return false;
-  }
-  return true;
+  return references.filter((reference) => reference.type === type).length < 9;
 }
 
 function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "presentation", targetId: string, referenceId: string): string {
@@ -3859,7 +4131,7 @@ function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "pre
 function removeNodesAndReferences(nodes: StoryFlowNode[], removedIds: ReadonlySet<string>): StoryFlowNode[] {
   return nodes
     .filter((node) => !removedIds.has(node.id))
-    .map((node) => node.type === "image"
+    .map((node) => node.type === "image" || node.type === "model-3d"
         ? {
             ...node,
             data: {
@@ -3928,6 +4200,24 @@ async function promptImage(blob: Blob): Promise<CreateLibraryImageRequest["image
   return { mediaType: blob.type, data: dataUrl.split(",", 2)[1] ?? "" };
 }
 
+async function modelPromptImage(blob: Blob): Promise<CreateLibraryImageRequest["image"]> {
+  if (blob.type !== "image/webp") return promptImage(blob);
+  const image = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the connected image for 3D generation.");
+    context.drawImage(image, 0, 0);
+    const png = await new Promise<Blob | undefined>((resolve) => canvas.toBlob((value) => resolve(value ?? undefined), "image/png"));
+    if (!png) throw new Error("Could not prepare the connected image for 3D generation.");
+    return promptImage(png);
+  } finally {
+    image.close();
+  }
+}
+
 async function readUploadImage(file: File): Promise<{ name: string; image: CreateLibraryImageRequest["image"] }> {
   if (file.type !== "image/png" && file.type !== "image/jpeg" && file.type !== "image/webp") {
     throw new Error("Use PNG, JPEG, or WebP reference images.");
@@ -3955,6 +4245,12 @@ function titleCase(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function projectCoverBlob(source: StoryCoverSource, assets: LibraryAsset[]): Promise<Blob | undefined> {
+  const asset = assets.find((candidate) => candidate.id === source.assetId);
+  if (!asset || (asset.mediaType !== "image" && asset.mediaType !== "video") || asset.contentType === "image/svg+xml" || asset.name.toLowerCase().endsWith(".svg")) return undefined;
+  return mediaBlobToWebP(await getLibraryAsset(asset.id), asset.mediaType);
 }
 
 async function mediaBlobToWebP(blob: Blob, mediaType: "image" | "video"): Promise<Blob | undefined> {

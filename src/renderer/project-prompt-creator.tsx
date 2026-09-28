@@ -8,7 +8,7 @@ import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerIma
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox } from "./prompt-box.js";
-import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
+import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
@@ -16,8 +16,9 @@ import { STORY_FORMAT_PRESETS, storyFormatPreset, type StoryFormatPresetId } fro
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
-export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeChange, onCreate }: {
+export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES, placeholder, onProjectTypeChange, onCreate }: {
   projectType: ProjectType;
+  projectTypes?: readonly ProjectTypeOption[];
   placeholder: string;
   onProjectTypeChange?: (type: ProjectType) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
@@ -257,7 +258,7 @@ export function ProjectPromptCreator({ projectType, placeholder, onProjectTypeCh
         leading={(
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
-            {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} onChange={onProjectTypeChange} /> : null}
+            {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} options={projectTypes} onChange={onProjectTypeChange} /> : null}
             {projectType === "interactive-drama" ? <StoryFormatSelector disabled={creating} value={storyFormat} onChange={setStoryFormat} /> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
           </>
@@ -393,8 +394,9 @@ function StoryFormatSelector({
   );
 }
 
-function ProjectTypeSelector({ value, disabled, onChange }: {
+function ProjectTypeSelector({ value, options, disabled, onChange }: {
   value: ProjectType;
+  options: readonly ProjectTypeOption[];
   disabled?: boolean;
   onChange: (value: ProjectType) => void;
 }) {
@@ -403,7 +405,7 @@ function ProjectTypeSelector({ value, disabled, onChange }: {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const current = PROJECT_TYPES.find((option) => option.value === value)!;
+  const current = options.find((option) => option.value === value)!;
 
   useEffect(() => {
     if (!open) return;
@@ -473,7 +475,7 @@ function ProjectTypeSelector({ value, disabled, onChange }: {
             items[nextIndex]?.focus();
           }}
         >
-          {PROJECT_TYPES.map((option) => {
+          {options.map((option) => {
             const selected = option.value === value;
             return (
               <button

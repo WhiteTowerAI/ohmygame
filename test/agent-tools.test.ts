@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,26 +8,28 @@ import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
-import type { VideoGenerator } from "../src/daemon/seedance-video.js";
+import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import type { PlaytestDriver } from "../src/shared/playtest.js";
+
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
-    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
-    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+    expect(planningPiToolNames()).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
+    expect(activePiToolNames([])).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
     expect(activePiToolNames(["generate-image"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image",
     ]);
     expect(activePiToolNames(["image-to-3d"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_3d_asset",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_3d_asset",
     ]);
     expect(activePiToolNames(["generate-video"])).toEqual([
-      "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_video",
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_video",
     ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
-    )).toEqual(["web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin"]);
+    )).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
   });
 
   it("uses the shared Pi tools for every project type", () => {
@@ -35,12 +37,15 @@ describe("agent tools", () => {
       "normal",
       ["generate-image", "generate-video"],
       ["read", "mcp", "web_search", "generate_image"],
-    )).toEqual(["mcp", "web_search", "read", "write", "edit", "bash", "update_plan", "install_plugin", "generate_image", "generate_video"]);
+    )).toEqual(["mcp", "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_image", "generate_video"]);
     expect(projectPiToolNames(
       "planning",
       ["generate-image"],
       ["mcp", "questionnaire"],
-    )).toEqual(["read", "grep", "find", "ls", "questionnaire", "update_plan"]);
+    )).toEqual(["read", "grep", "find", "ls", "web_search", "questionnaire", "update_plan"]);
+    expect(projectPiToolNames("normal", [], ["web_search"], false)).toEqual([
+      "read", "write", "edit", "bash", "update_plan", "install_plugin",
+    ]);
   });
 
   it("registers browser playtesting only when a desktop driver is available", async () => {
@@ -65,6 +70,26 @@ describe("agent tools", () => {
       undefined,
       { driver, ensurePreview: async () => "http://127.0.0.1:43210/" },
     ).some(({ name }) => name === "playtest_browser")).toBe(true);
+  });
+
+  it("returns provider metadata from the built-in web search tool", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-search-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Search");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const search = createAgentTools(project, runner, projects, undefined, undefined, undefined, async (input, signal) => {
+      expect(input.query).toBe("Godot release notes");
+      signal?.throwIfAborted();
+      return { content: "https://godotengine.org/", provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" };
+    }).find(({ name }) => name === "web_search");
+    if (!search) throw new Error("Expected web search tool");
+
+    const result = await search.execute("search-1", { query: "Godot release notes" }, undefined, undefined, {} as never);
+
+    expect(result.content).toEqual([{ type: "text", text: "https://godotengine.org/" }]);
+    expect(result.details).toEqual({ webSearch: { provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" } });
   });
 
   it("installs a plugin only from inside the current workspace", async () => {
@@ -125,6 +150,7 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/image-[0-9a-f-]+\.webp$/);
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
   it("publishes a validated structured plan", async () => {
@@ -190,6 +216,7 @@ describe("agent tools", () => {
     expect(model?.previewPath).toMatch(/^\.data\/asset-previews\/model-[0-9a-f-]+\.png$/);
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");
     expect(result.details).toEqual({ artifact: { type: "model", path: relativePath, mediaType: "model/gltf-binary" } });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
   it("generates a video from a project image", async () => {
@@ -202,6 +229,7 @@ describe("agent tools", () => {
     const videoGenerator: VideoGenerator = {
       generate: async (input) => {
         expect(input.prompt).toBe("Slow camera move");
+        expect(input.model).toEqual(TEST_VIDEO_MODEL);
         expect(input.duration).toBe(8);
         expect(input.references).toHaveLength(1);
         expect(input.references?.[0]?.type).toBe("image");
@@ -213,12 +241,13 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
 
-    const result = await tool.execute("call-1", { prompt: "Slow camera move", imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-1", { prompt: "Slow camera move", model: TEST_VIDEO_MODEL, imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.replace("Generated video saved to ", "");
 
     expect(relativePath).toMatch(/^assets\/generated\/video-[0-9a-f-]+\.mp4$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 });

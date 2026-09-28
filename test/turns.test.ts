@@ -42,4 +42,24 @@ describe("groupThreadItems", () => {
 
     expect(groupThreadItems("conversation-1", items)[0]?.status).toBe("failed");
   });
+
+  it("closes orphaned running tools in a non-active restored turn", () => {
+    const items: ThreadItem[] = [
+      { id: "user", turnId: "turn-1", type: "userMessage", text: "Build" },
+      {
+        id: "tool",
+        turnId: "turn-1",
+        type: "dynamicToolCall",
+        toolCallId: "tool",
+        tool: "bash",
+        status: "inProgress",
+        arguments: { command: "npm test" },
+      },
+    ];
+
+    expect(groupThreadItems("conversation-1", items)[0]).toMatchObject({
+      status: "completed",
+      items: expect.arrayContaining([expect.objectContaining({ id: "tool", status: "failed" })]),
+    });
+  });
 });

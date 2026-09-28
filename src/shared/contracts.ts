@@ -1,8 +1,15 @@
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "web-game" | "godot-game" | "interactive-drama";
+export type ProjectType = "web-game" | "godot-game" | "interactive-drama" | "asset-canvas";
+export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
+export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
+export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
+export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
+export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
+export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 
 export interface AgentContextUsage {
   tokens: number | null;
@@ -10,10 +17,12 @@ export interface AgentContextUsage {
   percent: number | null;
 }
 
-export interface AgentModelRef {
+export interface ModelRef {
   provider: string;
   id: string;
 }
+
+export type AgentModelRef = ModelRef;
 
 export interface AgentModel extends AgentModelRef {
   name: string;
@@ -41,12 +50,10 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
-export type ProviderKind = "pi" | "account";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video";
 
 export interface ProviderSummary extends ModelProviderSummary {
-  kind: ProviderKind;
   status: ProviderStatus;
   capabilities: ProviderCapability[];
   error?: string;
@@ -77,14 +84,7 @@ export type ModelAuthEvent = {
   | { type: "error"; error: string }
 );
 
-export interface ImageGenerationSettings {
-  model?: ImageModelRef;
-}
-
-export interface ImageModelRef {
-  provider: string;
-  id: string;
-}
+export type ImageModelRef = ModelRef;
 
 export interface ImageModel extends ImageModelRef {
   name: string;
@@ -92,15 +92,14 @@ export interface ImageModel extends ImageModelRef {
   sizes: readonly ImageSize[];
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
+  maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
   protocol: ImageProtocol;
+  supportsResolution?: boolean;
+  supportsAspectRatio?: boolean;
 }
 
-export type ImageProtocol = "openai-images" | "gemini-generate-content";
-
-export interface UpdateImageGenerationSettings {
-  model: ImageModelRef;
-}
+export type ImageProtocol = "openai-images" | "gemini-generate-content" | "openrouter-images";
 
 export interface PublicationState {
   gameId: string;
@@ -117,6 +116,16 @@ export interface ProjectState {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** Directory, relative to the workspace root, in which the Web Game preview starts. */
+  startupDirectory?: string;
+  /** Package script that starts the Web Game preview. Defaults to `dev`. */
+  startupScript?: string;
+  /** Overrides automatic package-manager detection for the Web Game preview and build. */
+  packageManager?: ProjectPackageManager;
+  /** Route shown when a Web Game preview starts. */
+  previewPath?: string;
+  /** Device preset selected when a Web Game preview starts. */
+  previewViewport?: PreviewViewport;
   /** Internal OhMyGame data kept separately from a user-selected workspace. */
   storagePath?: string;
   /** Whether OhMyGame owns the workspace directory or only references it. */
@@ -127,7 +136,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "asset";
+export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "model-3d" | "asset";
 
 export interface StoryPosition {
   x: number;
@@ -273,7 +282,7 @@ export type StoryNode = (
   | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
   | { id: string; type: "asset"; position: StoryPosition; data: {
     assetId: string;
-    mediaType: "image" | "video" | "audio";
+    mediaType: "image" | "video" | "audio" | "model";
   } }
   | { id: string; type: "text"; position: StoryPosition; data: {
     text: string;
@@ -292,11 +301,18 @@ export type StoryNode = (
   | { id: string; type: "video"; position: StoryPosition; data: {
     prompt: string;
     promptSource?: StoryTextReference;
-    model: typeof VIDEO_MODEL;
+    model?: VideoModelRef;
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
     references: StoryAssetReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "model-3d"; position: StoryPosition; data: {
+    targetPolycount: number;
+    texture: boolean;
+    pbr: boolean;
+    images: StoryAssetReference[];
     assetId?: string;
   } }
 );
@@ -426,6 +442,7 @@ export interface PendingPrompt {
   references: PromptReference[];
   images: PromptImage[];
   attachments: ConversationAttachment[];
+  steering?: boolean;
 }
 
 export type CommunityGame = PublishCommunityGame;
@@ -493,6 +510,7 @@ export type ThreadItem = (
       truncated?: boolean;
       artifact?: ToolArtifact;
       images?: PromptImage[];
+      webSearch?: WebSearchToolMetadata;
     }
   | {
       id: string;
@@ -545,6 +563,7 @@ export interface Turn {
   conversationId: string;
   status: TurnStatus;
   items: ThreadItem[];
+  steering?: boolean;
 }
 
 export interface ConversationDetail {
@@ -656,6 +675,7 @@ export interface ConversationCapabilities {
 export interface WorkspaceFile {
   path: string;
   size: number;
+  directory?: true;
   mediaType?: "image" | "video" | "audio" | "model";
   prompt?: string;
   previewPath?: string;
@@ -710,59 +730,32 @@ export interface ImageGenerationOption {
   aspectRatio: ImageAspectRatio;
 }
 
-interface BaseToolDefinition {
-  id: "generate-image" | "image-to-3d" | "generate-video";
-  name: string;
-  description: string;
-  category: "images" | "3d" | "video";
-}
-
-export interface ImageToolDefinition extends BaseToolDefinition {
-  id: "generate-image";
-  category: "images";
-  inputKind: "prompt";
-  outputKind: "image";
-  sizes: readonly ImageSize[];
-  defaultSize: ImageSize;
-}
-
-export interface Model3DToolDefinition extends BaseToolDefinition {
-  id: "image-to-3d";
-  category: "3d";
-  inputKind: "image-prompt";
-  outputKind: "model";
-}
-
-export interface VideoToolDefinition extends BaseToolDefinition {
-  id: "generate-video";
-  category: "video";
-  inputKind: "image-prompt";
-  outputKind: "video";
-  defaultDuration: number;
-  minDuration: number;
-  maxDuration: number;
-  aspectRatios: readonly VideoAspectRatio[];
-  resolutions: readonly VideoResolution[];
-}
-
-export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_MODEL = "doubao-seedance-2-0-260128" as const;
-export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
+export type VideoModelRef = ModelRef;
+export interface VideoModel extends VideoModelRef {
+  name: string;
+  provider: string;
+  providerName: string;
+  resolutions: readonly VideoResolution[];
+  aspectRatios: readonly VideoAspectRatio[];
+  durations: readonly number[];
+  maxImageReferences: number;
+  imageReferenceMode?: "frame" | "reference";
+}
+export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "4K"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
-export const MODEL_3D_QUALITIES = ["standard", "ultra"] as const;
-export type Model3DQuality = (typeof MODEL_3D_QUALITIES)[number];
-export const MODEL_3D_MODELS = ["meshy-7", "meshy-t2"] as const;
-export type Model3DModel = (typeof MODEL_3D_MODELS)[number];
-export const MODEL_3D_TEXTURE_RESOLUTIONS = ["2K", "4K", "8K"] as const;
-export type Model3DTextureResolution = (typeof MODEL_3D_TEXTURE_RESOLUTIONS)[number];
-export const MODEL_3D_POSES = ["auto", "a-pose", "t-pose"] as const;
-export type Model3DPose = (typeof MODEL_3D_POSES)[number];
+export interface Model3DGenerationConfig {
+  targetPolycount: number;
+  texture: boolean;
+  pbr: boolean;
+}
 
-export type ToolDefinition = ImageToolDefinition | Model3DToolDefinition | VideoToolDefinition;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video"] as const;
+export type ToolId = (typeof TOOL_IDS)[number];
 
-interface RunLegacyImageToolRequest {
+interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: ImageSize;
@@ -772,7 +765,7 @@ interface RunLegacyImageToolRequest {
   image?: never;
 }
 
-interface RunStudioImageToolRequest {
+interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
   size?: never;
@@ -782,25 +775,18 @@ interface RunStudioImageToolRequest {
   images?: PromptImage[];
 }
 
-export type RunImageToolRequest = RunLegacyImageToolRequest | RunStudioImageToolRequest;
+export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageToolRequest;
 
-interface Run3DToolOptions {
-  model?: Model3DModel;
-  quality?: Model3DQuality;
+export interface Run3DToolRequest {
+  images: PromptImage[];
   targetPolycount?: number;
   texture?: boolean;
-  textureResolution?: Model3DTextureResolution;
   pbr?: boolean;
-  pose?: Model3DPose;
 }
-
-export type Run3DToolRequest = Run3DToolOptions & (
-  | { prompt: string; images?: never; imageEnhancement?: never }
-  | { prompt?: never; images: PromptImage[]; imageEnhancement?: boolean }
-);
 
 export interface RunVideoToolRequest {
   prompt: string;
+  model?: VideoModelRef;
   references?: VideoGenerationReference[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;
@@ -822,20 +808,25 @@ export interface ToolRunFile {
 
 export interface ToolRun {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   files: ToolRunFile[];
-  title?: string;
 }
 
 export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
 
+export interface ToolJobContext {
+  projectId: string;
+  nodeId: string;
+}
+
 export interface ToolJob {
   id: string;
-  toolId: ToolDefinition["id"];
+  toolId: ToolId;
   createdAt: string;
   status: ToolJobStatus;
   title: string;
+  context?: ToolJobContext;
   run?: ToolRun;
   error?: string;
 }
@@ -844,15 +835,6 @@ export type ToolArtifact =
   | { type: "image"; path: string; mediaType: "image/png" | "image/jpeg" | "image/webp" }
   | { type: "model"; path: string; mediaType: "model/gltf-binary" }
   | { type: "video"; path: string; mediaType: "video/mp4" | "video/webm" };
-
-export interface AddToolResultRequest {
-  runId: string;
-  fileName: string;
-}
-
-export interface AddedProjectAsset {
-  path: string;
-}
 
 export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
@@ -873,6 +855,7 @@ export interface RuntimeEventData {
   "agent.cancelled": Record<string, never>;
   "agent.error": { error: string };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
+  "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };
@@ -900,6 +883,7 @@ export const RUNTIME_EVENT_TYPES = [
   "agent.cancelled",
   "agent.error",
   "prompt.queued",
+  "prompt.steered",
   "prompt.removed",
   "publish.started",
   "publish.completed",

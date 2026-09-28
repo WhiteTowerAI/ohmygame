@@ -48,7 +48,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
       const body = images.length
         ? editForm({ ...input, images }, size)
         : JSON.stringify({
-            model: input.model ?? "gpt-image-2",
+            model: input.model ?? "gpt-image-2.5-flare",
             prompt: input.prompt,
             size,
             quality: "medium",
@@ -175,7 +175,7 @@ function editForm(input: ImageGenerationInput & { model?: string }, size: string
   const images = input.images;
   if (!images?.length) throw new ImageGenerationError("A reference image is required", 400);
   const form = new FormData();
-  form.set("model", input.model ?? "gpt-image-2");
+  form.set("model", input.model ?? "gpt-image-2.5-flare");
   form.set("prompt", input.prompt);
   form.set("size", size);
   form.set("quality", "medium");

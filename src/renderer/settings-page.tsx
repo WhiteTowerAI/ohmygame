@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, Check, ExternalLink, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
+import { ArrowLeft, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -9,16 +9,16 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
-import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
+import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 
-const BILLING_DASHBOARD_URL = "https://ohmygame.ai/account/billing";
+const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
+  { section: "providers", label: "Providers & Models", icon: Server },
   { section: "account", label: "Account", icon: UserRound },
-  { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
-  { section: "providers", label: "Providers", icon: Server },
+  { section: "web-search", label: "Web Search", icon: Globe2 },
   { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
 ];
@@ -39,11 +39,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
   return (
     <main className="home-shell settings-page-shell" style={sidebarStyle}>
       <aside className="home-sidebar settings-page-sidebar">
-        <div className="home-sidebar-traffic" aria-hidden="true">
-          <span className="home-sidebar-traffic-red" />
-          <span className="home-sidebar-traffic-yellow" />
-          <span className="home-sidebar-traffic-green" />
-        </div>
+        <div className="home-sidebar-header-spacer" aria-hidden="true" />
         <button className="settings-page-back" type="button" onClick={onBack}>
           <ArrowLeft size={17} />
           <span>Back to app</span>
@@ -69,6 +65,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
           {section === "billing" ? <BillingSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
+          {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>

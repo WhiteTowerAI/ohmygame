@@ -3,13 +3,14 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { CreateProjectRequest, ProjectState, ProjectType } from "../shared/contracts.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createProject } from "./api.js";
-import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
+import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
 import { storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
 import { StoryFormatOptions } from "./story-format-options.js";
 
-export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClose, onCreated }: {
+export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
   initialType?: ProjectType;
   fixedType?: ProjectType;
+  projectTypes?: readonly ProjectTypeOption[];
   onClose: () => void;
   onCreated: (project: ProjectState) => void;
 }) {
@@ -128,7 +129,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, onClo
           {!fixedType ? (
             <fieldset className="project-create-types">
               <legend>Type</legend>
-              {PROJECT_TYPES.map((option) => (
+              {projectTypes.map((option) => (
                 <button className={option.value === type ? "is-active" : undefined} type="button" key={option.value} aria-pressed={option.value === type} disabled={creating} onClick={() => { setType(option.value); if (option.value !== "interactive-drama") setTemplateId(undefined); }}>
                   <ProjectTypeIcon type={option.value} size={17} />
                   <span>{option.label}</span>
