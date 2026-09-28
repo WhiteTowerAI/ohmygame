@@ -9,7 +9,6 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
-import { WalletMoneyIcon } from "@solar-icons/react/linear/wallet-money";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
@@ -17,7 +16,6 @@ const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "providers", label: "Providers & Models", icon: Server },
   { section: "account", label: "Account", icon: UserRound },
-  { section: "billing", label: "Billing", icon: WalletMoneyIcon },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "web-search", label: "Web Search", icon: Globe2 },
   { section: "connections", label: "Connections", icon: Plug },
