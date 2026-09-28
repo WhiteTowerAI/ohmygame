@@ -75,6 +75,7 @@ export interface PlayableRuntimeOptions {
 export interface PlayableRuntimeSnapshot {
   currentNodeId: string;
   backStack: string[];
+  recentSignals: Array<{ nodeId: string; signal: string }>;
   state: JsonObject;
   hasSave: boolean;
   started: boolean;
@@ -130,6 +131,7 @@ export class PlayableRuntime {
 
   #navigation: PlayableNavigationState;
   #state: JsonObject;
+  #recentSignals: Array<{ nodeId: string; signal: string }> = [];
   #cachedSave?: PlayableSave;
   #activeNode?: ActiveSurface;
   #activeShell?: ActiveSurface;
@@ -209,6 +211,7 @@ export class PlayableRuntime {
     return {
       currentNodeId: this.#navigation.currentNodeId,
       backStack: [...this.#navigation.backStack],
+      recentSignals: this.#recentSignals.map((entry) => ({ ...entry })),
       state: cloneJsonObject(this.#state),
       hasSave: this.#cachedSave !== undefined,
       started: this.#started,
@@ -248,6 +251,10 @@ export class PlayableRuntime {
 
   async #emit(token: SurfaceToken, signal: string): Promise<void> {
     this.#assertNavigationReady(token);
+    this.#recentSignals = [
+      ...this.#recentSignals,
+      { nodeId: this.#navigation.currentNodeId, signal },
+    ].slice(-10);
     await this.#navigate(() =>
       navigatePlayableSignal(this.#graph, this.#navigation, signal),
     );

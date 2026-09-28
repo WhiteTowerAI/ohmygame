@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../shared/playable-graph-schema.js";
@@ -8,6 +8,7 @@ import {
   isPlayableEditorLayout,
   playableLayoutMatchesGraph,
   type PlayableCodebase,
+  type PlayableCodebaseUpdate,
   type PlayableEditorLayout,
 } from "../shared/playable-codebase.js";
 import type { PlayableGraph } from "../shared/playable-nodes.js";
@@ -142,13 +143,26 @@ export async function readPlayableCodebase(
 
 export async function writePlayableCodebase(
   workspacePath: string,
-  codebase: PlayableCodebase,
+  update: PlayableCodebaseUpdate,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
-    await validateCodebase(workspacePath, codebase, true);
+    const codebase: PlayableCodebase = {
+      graph: update.graph,
+      editorLayout: update.editorLayout,
+    };
+    const sources = validateSourceUpdates(codebase.graph, update.sources);
+    const sourceDeletions = await validateSourceDeletions(
+      workspacePath,
+      codebase.graph,
+      update.sourceDeletions,
+      Object.keys(sources),
+    );
+    await validateCodebase(workspacePath, codebase, true, Object.keys(sources));
     const touchedFiles = [
       GRAPH_FILE,
       LAYOUT_FILE,
+      ...Object.keys(sources),
+      ...sourceDeletions,
       "AGENTS.md",
       "README.md",
       GRAPH_SCHEMA_FILE,
@@ -156,9 +170,16 @@ export async function writePlayableCodebase(
     ];
     const snapshot = await snapshotFiles(workspacePath, touchedFiles);
     try {
+      for (const [relative, content] of Object.entries(sources)) {
+        await writeTextAtomic(workspacePath, relative, content);
+      }
+      for (const relative of sourceDeletions) {
+        await rm(await resolveWorkspaceMutationPath(workspacePath, relative), { force: true });
+      }
       await writeJsonAtomic(workspacePath, GRAPH_FILE, codebase.graph);
       await writeJsonAtomic(workspacePath, LAYOUT_FILE, codebase.editorLayout);
       await ensurePlayableCodebaseContract(workspacePath);
+      await removeEmptySourceDirectories(workspacePath, sourceDeletions);
     } catch (cause) {
       await restoreFiles(workspacePath, snapshot);
       throw cause;
@@ -187,12 +208,16 @@ async function validateCodebase(
   workspacePath: string,
   codebase: PlayableCodebase,
   requireFiles: boolean,
+  additionalFiles: string[] = [],
 ): Promise<void> {
   const availableFiles = requireFiles
     ? new Set(
-        (await listWorkspaceFiles(workspacePath))
+        [
+          ...(await listWorkspaceFiles(workspacePath))
           .filter((file) => !file.directory)
           .map((file) => file.path),
+          ...additionalFiles,
+        ],
       )
     : undefined;
   const validation = validatePlayableGraph(codebase.graph, {
@@ -458,7 +483,7 @@ async function writeJsonAtomic(
   relative: string,
   value: unknown,
 ): Promise<void> {
-  const destination = path.join(workspacePath, ...relative.split("/"));
+  const destination = await resolveWorkspaceMutationPath(workspacePath, relative);
   const temporary = `${destination}.tmp-${process.pid}-${randomUUID()}`;
   await mkdir(path.dirname(destination), { recursive: true });
   try {
@@ -469,6 +494,99 @@ async function writeJsonAtomic(
   }
 }
 
+async function writeTextAtomic(
+  workspacePath: string,
+  relative: string,
+  content: string,
+): Promise<void> {
+  const destination = await resolveWorkspaceMutationPath(workspacePath, relative);
+  const temporary = `${destination}.tmp-${process.pid}-${randomUUID()}`;
+  await mkdir(path.dirname(destination), { recursive: true });
+  try {
+    await writeFile(temporary, content, "utf8");
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+function validateSourceUpdates(
+  graph: PlayableGraph,
+  value: PlayableCodebaseUpdate["sources"],
+): Record<string, string> {
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Playable source updates must be an object.");
+  }
+  const declared = new Set<string>();
+  for (const node of graph.nodes) {
+    declared.add(node.source.html);
+    declared.add(node.source.css);
+    declared.add(node.source.javascript);
+  }
+  if (graph.shell) {
+    declared.add(graph.shell.source.html);
+    declared.add(graph.shell.source.css);
+    declared.add(graph.shell.source.javascript);
+  }
+  for (const [relative, content] of Object.entries(value)) {
+    if (!declared.has(relative)) {
+      throw new Error(`Source update "${relative}" is not declared by a Node or Shell.`);
+    }
+    if (typeof content !== "string") {
+      throw new Error(`Source update "${relative}" must be text.`);
+    }
+  }
+  return value;
+}
+
+async function validateSourceDeletions(
+  workspacePath: string,
+  nextGraph: PlayableGraph,
+  value: PlayableCodebaseUpdate["sourceDeletions"],
+  updatedSources: string[],
+): Promise<string[]> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((relative) => typeof relative !== "string")) {
+    throw new Error("Playable source deletions must be an array of paths.");
+  }
+  const deletions = [...new Set(value)];
+  if (deletions.length !== value.length) {
+    throw new Error("Playable source deletions must not contain duplicates.");
+  }
+  const currentValue = await readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE);
+  const currentValidation = validatePlayableGraph(currentValue);
+  if (!currentValidation.ok) {
+    throw new Error("The current graph.json is invalid and its sources cannot be deleted safely.");
+  }
+  const currentSources = declaredSourcePaths(currentValue as PlayableGraph);
+  const nextSources = declaredSourcePaths(nextGraph);
+  const updates = new Set(updatedSources);
+  for (const relative of deletions) {
+    if (!currentSources.has(relative)) {
+      throw new Error(`Source deletion "${relative}" is not declared by the current Node or Shell graph.`);
+    }
+    if (nextSources.has(relative)) {
+      throw new Error(`Source deletion "${relative}" is still declared by a Node or Shell.`);
+    }
+    if (updates.has(relative)) {
+      throw new Error(`Source "${relative}" cannot be updated and deleted together.`);
+    }
+  }
+  return deletions;
+}
+
+function declaredSourcePaths(graph: PlayableGraph): Set<string> {
+  const declared = new Set<string>();
+  for (const node of graph.nodes) {
+    for (const kind of ["html", "css", "javascript"] as const) declared.add(node.source[kind]);
+  }
+  if (graph.shell) {
+    for (const kind of ["html", "css", "javascript"] as const) declared.add(graph.shell.source[kind]);
+  }
+  return declared;
+}
+
 type FileSnapshot = Map<string, Buffer | undefined>;
 
 async function snapshotFiles(
@@ -477,8 +595,9 @@ async function snapshotFiles(
 ): Promise<FileSnapshot> {
   const snapshot: FileSnapshot = new Map();
   for (const relative of new Set(files)) {
+    const file = await resolveWorkspaceMutationPath(workspacePath, relative);
     try {
-      snapshot.set(relative, await readFile(path.join(workspacePath, relative)));
+      snapshot.set(relative, await readFile(file));
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
       snapshot.set(relative, undefined);
@@ -492,13 +611,76 @@ async function restoreFiles(
   snapshot: FileSnapshot,
 ): Promise<void> {
   for (const [relative, content] of snapshot) {
-    const file = path.join(workspacePath, relative);
+    const file = await resolveWorkspaceMutationPath(workspacePath, relative);
     if (content === undefined) {
       await rm(file, { force: true });
       continue;
     }
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, content);
+  }
+}
+
+async function removeEmptySourceDirectories(
+  workspacePath: string,
+  deletedSources: string[],
+): Promise<void> {
+  const directories = [...new Set(deletedSources.map((relative) => path.posix.dirname(relative)))]
+    .filter((relative) => relative !== ".")
+    .sort((left, right) => right.length - left.length);
+  for (const relative of directories) {
+    try {
+      await rmdir(await resolveWorkspaceMutationPath(workspacePath, relative));
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTEMPTY") throw cause;
+    }
+  }
+}
+
+async function resolveWorkspaceMutationPath(
+  workspacePath: string,
+  relative: string,
+): Promise<string> {
+  const normalized = relative.replaceAll("\\", "/");
+  if (
+    !normalized ||
+    path.posix.isAbsolute(normalized) ||
+    normalized.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new PlayableCodebaseError(`Invalid workspace path "${relative}".`);
+  }
+  const root = await realpath(workspacePath);
+  const candidate = path.resolve(root, ...normalized.split("/"));
+  assertInsideWorkspace(root, candidate, relative);
+
+  try {
+    if ((await lstat(candidate)).isSymbolicLink()) {
+      throw new PlayableCodebaseError(`Workspace path "${relative}" cannot be a symbolic link.`);
+    }
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+
+  let existingParent = path.dirname(candidate);
+  while (true) {
+    try {
+      const resolvedParent = await realpath(existingParent);
+      assertInsideWorkspace(root, resolvedParent, relative);
+      return candidate;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      const parent = path.dirname(existingParent);
+      if (parent === existingParent) throw cause;
+      existingParent = parent;
+    }
+  }
+}
+
+function assertInsideWorkspace(root: string, candidate: string, relative: string): void {
+  const relation = path.relative(root, candidate);
+  if (relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
+    throw new PlayableCodebaseError(`Workspace path "${relative}" leaves the project workspace.`);
   }
 }
 

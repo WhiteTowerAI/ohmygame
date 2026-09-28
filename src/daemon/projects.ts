@@ -5,10 +5,13 @@ import type { PreviewViewport, ProjectPackageManager, ProjectState, ProjectType,
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
+import { validatePlayableGraph } from "../shared/playable-graph-validation.js";
+import type { PlayableGraph } from "../shared/playable-nodes.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
+import { readPlayableCodebase, writePlayableCodebase } from "./playable-codebase.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -56,6 +59,7 @@ export interface ProjectRunSettings {
 
 const PROJECT_COVER_FILE = "cover.webp";
 const STORY_FILE = "story.json";
+const PLAYABLE_GRAPH_FILE = "graph.json";
 const WEB_GAME_AGENT_INSTRUCTIONS = `# Web Game Project
 
 This workspace is the source of truth for an OhMyGame browser game.
@@ -508,7 +512,18 @@ export class ProjectManager {
     for (const project of this.#projects.values()) {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
-      if (Object.values(metadata.libraryAssets).includes(assetId)) {
+      let referenced = Object.values(metadata.libraryAssets).includes(assetId);
+      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        try {
+          const graph = await readPlayableGraphForReferences(project.workspacePath);
+          referenced ||= Object.values(graph.assets).some((asset) => (
+            asset.source.kind === "library" && asset.source.assetId === assetId
+          ));
+        } catch (cause) {
+          throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      if (referenced) {
         references.push(project);
         continue;
       }
@@ -543,6 +558,26 @@ export class ProjectManager {
         }
       }
       if (project.type !== "interactive-drama") continue;
+      if (await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        const graph = await readPlayableGraphForReferences(project.workspacePath);
+        const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
+          asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
+        )));
+        if (removedIds.size > 0) {
+          const codebase = await readPlayableCodebase(project.workspacePath);
+          for (const id of removedIds) delete codebase.graph.assets[id];
+          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
+            ...node,
+            assets: node.assets.filter((id) => !removedIds.has(id)),
+          }));
+          if (codebase.graph.shell) {
+            codebase.graph.shell.assets = codebase.graph.shell.assets.filter((id) => !removedIds.has(id));
+          }
+          await writePlayableCodebase(project.workspacePath, codebase);
+          await this.touch(project.id);
+        }
+      }
+      if (!await exists(path.join(project.workspacePath, STORY_FILE))) continue;
       const current = await readStoryCodebase(project.workspacePath);
       const chapter = current.chapter;
       const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
@@ -903,6 +938,23 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function readPlayableGraphForReferences(workspacePath: string): Promise<PlayableGraph> {
+  const file = path.join(workspacePath, PLAYABLE_GRAPH_FILE);
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(file, "utf8")) as unknown;
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new Error("graph.json is not valid JSON.");
+    throw cause;
+  }
+  const validation = validatePlayableGraph(value, { mode: "draft" });
+  if (!validation.ok) {
+    const issue = validation.issues[0]!;
+    throw new Error(`${issue.path}: ${issue.message}`);
+  }
+  return value as PlayableGraph;
 }
 
 async function isDirectory(target: string): Promise<boolean> {

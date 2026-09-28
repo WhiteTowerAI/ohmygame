@@ -16,8 +16,11 @@ import { StoryMap } from "./story-map.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
 import { PlayablePlayer } from "./playable-player.js";
 import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { PlayableRuntimeSnapshot } from "../shared/playable-runtime.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
+  const [snapshot, setSnapshot] = useState<PlayableRuntimeSnapshot>();
+  const [diagnostic, setDiagnostic] = useState<string>();
   const [playable, setPlayable] = useState<
     | { status: "loading" }
     | { status: "legacy" }
@@ -28,6 +31,8 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
   useEffect(() => {
     let disposed = false;
     setPlayable({ status: "loading" });
+    setSnapshot(undefined);
+    setDiagnostic(undefined);
     void getPlayableProjectRuntime(projectId).then(async (result) => {
       if (!result.available) {
         if (!disposed) setPlayable({ status: "legacy" });
@@ -58,7 +63,15 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
         definition={playable.definition}
         assets={playable.assets}
         saveKey={`ohmygame:playable:project:${projectId}`}
+        onSnapshot={setSnapshot}
+        onDiagnostic={setDiagnostic}
       />
+      <aside className="playable-playtest-diagnostics" aria-label="Runtime diagnostics">
+        <header><strong>Runtime</strong><span>{snapshot?.failed ? "Failed" : snapshot?.transitioning ? "Transitioning" : "Running"}</span></header>
+        <dl><dt>Node</dt><dd>{snapshot?.currentNodeId ?? "Starting..."}</dd><dt>Back stack</dt><dd>{snapshot?.backStack.join(" -> ") || "Empty"}</dd><dt>Recent signals</dt><dd>{snapshot?.recentSignals.map((entry) => `${entry.nodeId}.${entry.signal}`).join(", ") || "None"}</dd></dl>
+        <details open={Boolean(diagnostic)}><summary>State</summary><pre>{JSON.stringify(snapshot?.state ?? {}, null, 2)}</pre></details>
+        {diagnostic ? <p role="alert">{diagnostic}</p> : null}
+      </aside>
     </>
   );
   return (

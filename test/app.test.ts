@@ -106,6 +106,9 @@ describe("daemon", () => {
     const codebase = loaded.json();
     codebase.graph.title = "Revised Story";
     codebase.editorLayout.nodes.start = { x: 360, y: 240 };
+    codebase.sources = {
+      "nodes/start/node.js": "export function mount(context) { context.root.innerHTML = 'Revised'; }\n",
+    };
 
     const updated = await app.inject({
       method: "PUT",
@@ -126,13 +129,16 @@ describe("daemon", () => {
 
     expect(loaded.statusCode).toBe(200);
     expect(updated.statusCode).toBe(204);
-    expect(afterUpdate).toEqual(codebase);
+    const { sources: _sources, ...persistedCodebase } = codebase;
+    expect(afterUpdate).toEqual(persistedCodebase);
+    expect(await readFile(path.join(project.workspacePath, "nodes/start/node.js"), "utf8"))
+      .toBe(codebase.sources["nodes/start/node.js"]);
     expect(rejected.statusCode).toBe(400);
     expect(rejected.json().error).toContain("Node IDs must exactly match");
     expect((await app.inject({
       method: "GET",
       url: `/projects/${project.id}/playable/codebase`,
-    })).json()).toEqual(codebase);
+    })).json()).toEqual(persistedCodebase);
   });
 
   it("rejects Playable codebase access for other project types", async () => {
@@ -643,6 +649,41 @@ describe("daemon", () => {
     expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
       { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
     ]);
+  });
+
+  it("protects Library assets declared by a Playable Nodes graph", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-playable-library-api-")) });
+    apps.push(app);
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
+    await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Playable", type: "interactive-drama" },
+    })).json();
+    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    codebase.graph.assets.portrait = {
+      type: "image",
+      source: { kind: "library", assetId: asset.id },
+    };
+    codebase.graph.nodes[0].assets.push("portrait");
+    expect((await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: codebase,
+    })).statusCode).toBe(204);
+
+    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
+
+    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` });
+    expect(removed.statusCode).toBe(204);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    expect(updated.graph.assets.portrait).toBeUndefined();
+    expect(updated.graph.nodes[0].assets).not.toContain("portrait");
   });
 
   it("materializes a Library asset once and checks unused Story projects without creating a document", async () => {

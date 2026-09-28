@@ -782,11 +782,17 @@ PUT /projects/:projectId/playable/codebase
 GET /projects/:projectId/playable
 ```
 
-The codebase endpoints read and validate `{ graph, editorLayout }`. Source
-files remain ordinary workspace files and must exist before a graph update can
-refer to them. The Player endpoint validates and compiles the same `graph.json`
-for Playtest and published playback. Invalid graph or layout updates are
-rejected before either persisted JSON file changes.
+The codebase endpoints read `{ graph, editorLayout }`. Updates may additionally
+include a `sources` map containing text for Node or Shell source paths declared
+by the submitted graph, plus `sourceDeletions` for paths declared by the
+currently persisted graph but no longer used by the submitted graph. The
+Daemon validates and writes or removes those source files, `graph.json`, and
+`editor/layout.json` under one workspace lock and rolls the whole update back
+if any mutation fails. Paths are resolved against the real workspace and may
+not traverse symlinks outside it. Source files remain ordinary workspace files;
+these optional fields only let the visual editor create or remove a Node or
+Shell atomically. The Player endpoint validates and compiles the same
+`graph.json` for Playtest and published playback.
 
 ## Compiler contract
 

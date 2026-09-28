@@ -92,6 +92,7 @@ describe("Playable Runtime", () => {
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "lobby",
       backStack: [],
+      recentSignals: [{ nodeId: "menu", signal: "start" }],
       hasSave: true,
     });
   });

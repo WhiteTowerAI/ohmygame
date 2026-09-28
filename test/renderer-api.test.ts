@@ -71,7 +71,8 @@ describe("renderer event stream", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getPlayableCodebase("project-1")).resolves.toEqual(codebase);
-    await expect(updatePlayableCodebase("project-1", codebase)).resolves.toBeUndefined();
+    const update = { ...codebase, sources: { "nodes/start/node.js": "export function mount() {}\n" } };
+    await expect(updatePlayableCodebase("project-1", update)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/projects/project-1/playable/codebase",
@@ -80,7 +81,7 @@ describe("renderer event stream", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/projects/project-1/playable/codebase",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify(codebase) }),
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(update) }),
     );
   });
 

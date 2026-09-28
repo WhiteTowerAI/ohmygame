@@ -14,6 +14,11 @@ export interface PlayableCodebase {
   editorLayout: PlayableEditorLayout;
 }
 
+export interface PlayableCodebaseUpdate extends PlayableCodebase {
+  sources?: Record<string, string>;
+  sourceDeletions?: string[];
+}
+
 export function isPlayableEditorLayout(
   value: unknown,
 ): value is PlayableEditorLayout {

@@ -47,7 +47,7 @@ import {
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { PlayableProjectRuntimeResponse } from "../shared/playable-player-protocol.js";
-import type { PlayableCodebase } from "../shared/playable-codebase.js";
+import type { PlayableCodebase, PlayableCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -357,7 +357,7 @@ export async function getPlayableCodebase(projectId: string): Promise<PlayableCo
 
 export async function updatePlayableCodebase(
   projectId: string,
-  codebase: PlayableCodebase,
+  codebase: PlayableCodebaseUpdate,
 ): Promise<void> {
   await request(`/projects/${projectId}/playable/codebase`, {
     method: "PUT",

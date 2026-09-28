@@ -58,7 +58,7 @@ import {
   readPlayableCodebase,
   writePlayableCodebase,
 } from "./playable-codebase.js";
-import type { PlayableCodebase } from "../shared/playable-codebase.js";
+import type { PlayableCodebaseUpdate } from "../shared/playable-codebase.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -982,7 +982,7 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.put<{ Params: { projectId: string }; Body: PlayableCodebase }>("/projects/:projectId/playable/codebase", {
+  app.put<{ Params: { projectId: string }; Body: PlayableCodebaseUpdate }>("/projects/:projectId/playable/codebase", {
     schema: { body: { type: "object" } },
     bodyLimit: 1_000_000,
   }, async (request, reply) => {

@@ -49,6 +49,7 @@ import type { ChatReference } from "./chat-reference.js";
 import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
+import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
@@ -802,9 +803,20 @@ export function ProjectShell({
           onHome={requestHome}
           onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
         />
-      ) : <InteractiveDramaWorkspace
+      ) : project.type === "interactive-drama" ? <PlayableEditorWorkspace
         project={project}
-        assetCanvas={project.type === "asset-canvas"}
+        agentBusy={agentBusy}
+        publishing={publishing}
+        workspaceRevision={workspaceRevision}
+        openFileRequest={openFileRequest}
+        onPublish={publish}
+        chatOnRight={chatLayout === "right"}
+        chatCollapsed={agentIsCollapsed}
+        onHome={requestHome}
+        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
+      /> : <InteractiveDramaWorkspace
+        project={project}
+        assetCanvas
         initialNodeId={initialCanvasNodeId}
         onInitialNodeHandled={onInitialCanvasNodeHandled}
         agentBusy={agentBusy}
