@@ -20,6 +20,11 @@ The daemon honors both uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify the runtime.
 
+The planned replacement for the current Interactive Drama model is documented
+in the [Playable Nodes Architecture](docs/playable-nodes.md). It defines one
+programmable node type, a small graph runtime, shared Project State and source,
+explicit asset dependencies, and an optional persistent Shell.
+
 The daemon also exposes an image generation tool. Connect OhMyGame account or
 OpenAI under Providers, then choose an available image model in the Images
 tool. Provider credentials remain in the daemon and are never exposed to the
