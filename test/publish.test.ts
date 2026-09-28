@@ -126,13 +126,51 @@ describePublishContract("remote publish", () => {
     expect(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"))).toMatchObject({
       version: 1,
       runtime: "playable-nodes",
-      playable: "playable.json",
       scope: `published:${project.id}`,
+      graphSignature: playable.graphSignature,
+      definition: {
+        path: "./playable.json",
+        integrity: expect.stringMatching(/^sha256-/),
+      },
       assets: {
-        clip: "./assets/media/clip.mp4",
+        clip: expect.objectContaining({
+          path: expect.stringMatching(/^\.\/assets\/media\/[a-f0-9]{64}\.mp4$/),
+          type: "video",
+          contentType: "video/mp4",
+          size: videoContents.length,
+          integrity: expect.stringMatching(/^sha256-/),
+        }),
       },
     });
-    expect(await readFile(path.join(output, "assets", "media", "clip.mp4"))).toEqual(videoContents);
+    const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
+    expect(await readFile(path.join(output, ...manifest.assets.clip.path.replace(/^\.\//, "").split("/")))).toEqual(videoContents);
+  });
+
+  it("rejects incompatible Playable Assets before contacting the publish service", async () => {
+    const publishFetch = vi.fn(fetch);
+    const runtime = await testRuntime(undefined, publishFetch);
+    const project = await createProject(runtime.daemon, "Invalid Drama", "interactive-drama");
+    await writeFile(path.join(project.workspacePath, "portrait.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const codebase = (await runtime.daemon.inject({
+      method: "GET",
+      url: `/projects/${project.id}/playable/codebase`,
+    })).json();
+    codebase.graph.assets.clip = {
+      type: "video",
+      source: { kind: "workspace", path: "portrait.png" },
+    };
+    codebase.graph.nodes[0].assets = ["clip"];
+    expect((await runtime.daemon.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: codebase,
+    })).statusCode).toBe(204);
+
+    const response = await publishProject(runtime.daemon, project.id);
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: 'Asset "clip" is not a compatible video asset.' });
+    expect(publishFetch).not.toHaveBeenCalled();
   });
 
   it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,7 +14,10 @@ import { packageManagerCommand, packageManagerInstallArguments, packageManagerRu
 import { resolveStartupDirectory } from "../projects.js";
 import { readStoryCodebase } from "../story-codebase.js";
 import { buildPlayableProject } from "../playable-project.js";
+import { isCompiledPlayableGraph } from "../../shared/playable-compiled.js";
 import type { PlayablePlayerDefinition } from "../../shared/playable-player-protocol.js";
+import { isPublishedPlayableManifest, type PublishedPlayableAsset, type PublishedPlayableManifest } from "../../shared/playable-publish.js";
+import { isPlayableGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 
 interface PackageJson {
@@ -122,7 +126,8 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
     return output;
   } catch (cause) {
     await rm(output, { recursive: true, force: true });
-    throw cause;
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
 }
 
@@ -136,46 +141,143 @@ async function preparePlayableProject(
   try {
     await cp(playerDirectory, output, { recursive: true });
     await mkdir(path.join(output, "assets", "media"), { recursive: true });
-    const assetPaths: Record<string, string> = {};
+    const assets: Record<string, PublishedPlayableAsset> = {};
+    const writtenAssets = new Set<string>();
     for (const [id, assetDefinition] of Object.entries(definition.graph.assets).sort(([left], [right]) => left.localeCompare(right))) {
       let absolutePath: string;
       let mediaType: string;
+      let contentType: string;
       let extension: string;
       if (assetDefinition.source.kind === "library") {
         const result = await library.content(assetDefinition.source.assetId);
         absolutePath = result.absolutePath;
         mediaType = result.asset.mediaType;
+        contentType = result.asset.contentType;
         extension = path.extname(result.asset.name).toLowerCase();
       } else {
         const result = await getWorkspaceMedia(project.workspacePath, assetDefinition.source.path);
         absolutePath = result.absolutePath;
         mediaType = result.mediaType;
+        contentType = result.contentType;
         extension = path.extname(result.relativePath).toLowerCase();
       }
       if (mediaType !== assetDefinition.type) {
         throw new PublishError(`Asset "${id}" is not a compatible ${assetDefinition.type} asset.`);
       }
-      const relative = `assets/media/${safeAssetFileName(id)}${extension}`;
-      await copyFile(absolutePath, path.join(output, ...relative.split("/")));
-      assetPaths[id] = `./${relative}`;
+      const bytes = await readFile(absolutePath);
+      const digest = sha256Hex(bytes);
+      const relative = `assets/media/${digest}${extension}`;
+      if (!writtenAssets.has(relative)) {
+        await writeFile(path.join(output, ...relative.split("/")), bytes);
+        writtenAssets.add(relative);
+      }
+      assets[id] = {
+        path: `./${relative}`,
+        type: assetDefinition.type,
+        contentType,
+        size: bytes.length,
+        integrity: sha256Integrity(bytes),
+      };
     }
-    await writeFile(path.join(output, "playable.json"), `${JSON.stringify(definition)}\n`);
-    await writeFile(path.join(output, "manifest.json"), `${JSON.stringify({
+    const definitionBytes = Buffer.from(`${JSON.stringify(definition)}\n`);
+    await writeFile(path.join(output, "playable.json"), definitionBytes);
+    const manifest: PublishedPlayableManifest = {
       version: 1,
       runtime: "playable-nodes",
-      playable: "playable.json",
       scope: `published:${project.id}`,
-      assets: assetPaths,
-    }, null, 2)}\n`);
+      graphSignature: definition.graphSignature,
+      definition: {
+        path: "./playable.json",
+        integrity: sha256Integrity(definitionBytes),
+      },
+      assets,
+    };
+    await writeFile(path.join(output, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    await validatePlayablePublishDirectory(output);
     return output;
   } catch (cause) {
     await rm(output, { recursive: true, force: true });
-    throw cause;
+    if (cause instanceof PublishError) throw cause;
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
 }
 
-function safeAssetFileName(id: string): string {
-  return id.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
+export async function validatePlayablePublishDirectory(directory: string): Promise<void> {
+  const manifestValue = await readJsonFile(path.join(directory, "manifest.json"), "Published manifest");
+  if (!isPublishedPlayableManifest(manifestValue)) {
+    throw new PublishError("Published Playable manifest is invalid.");
+  }
+  const manifest = manifestValue;
+  const definitionBytes = await readPublishedFile(directory, manifest.definition.path, "Playable definition");
+  assertIntegrity("Playable definition", definitionBytes, manifest.definition.integrity);
+  let definition: PlayablePlayerDefinition;
+  try {
+    definition = JSON.parse(definitionBytes.toString("utf8")) as PlayablePlayerDefinition;
+  } catch {
+    throw new PublishError("Published Playable definition is not valid JSON.");
+  }
+  const actualSignature = createHash("sha256")
+    .update(JSON.stringify({ graph: definition.graph, compiled: definition.compiled }))
+    .digest("hex");
+  if (definition.version !== 1 || !isPlayableGraph(definition.graph) ||
+    !isCompiledPlayableGraph(definition.compiled, definition.graph) ||
+    definition.graphSignature !== actualSignature || definition.graphSignature !== manifest.graphSignature) {
+    throw new PublishError("Published Playable definition does not match its manifest.");
+  }
+  const graphAssets = Object.entries(definition.graph?.assets ?? {}).sort(([left], [right]) => left.localeCompare(right));
+  const manifestAssets = Object.entries(manifest.assets).sort(([left], [right]) => left.localeCompare(right));
+  if (graphAssets.length !== manifestAssets.length || graphAssets.some(([id], index) => id !== manifestAssets[index]?.[0])) {
+    throw new PublishError("Published Playable asset manifest does not match the graph.");
+  }
+  for (const [id, asset] of manifestAssets) {
+    const declared = definition.graph.assets[id]!;
+    if (asset.type !== declared.type) {
+      throw new PublishError(`Published Asset "${id}" does not match its declared type.`);
+    }
+    const bytes = await readPublishedFile(directory, asset.path, `Published Asset "${id}"`);
+    if (bytes.length !== asset.size) {
+      throw new PublishError(`Published Asset "${id}" does not match its declared size.`);
+    }
+    assertIntegrity(`Published Asset "${id}"`, bytes, asset.integrity);
+    if (path.basename(asset.path, path.extname(asset.path)) !== sha256Hex(bytes)) {
+      throw new PublishError(`Published Asset "${id}" does not use its content-addressed path.`);
+    }
+  }
+}
+
+async function readJsonFile(file: string, label: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(file, "utf8")) as unknown;
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new PublishError(`${label} is not valid JSON.`);
+    throw new PublishError(`${label} is missing.`);
+  }
+}
+
+async function readPublishedFile(directory: string, publishedPath: string, label: string): Promise<Buffer> {
+  const relative = publishedPath.replace(/^\.\//, "");
+  const absolute = path.resolve(directory, ...relative.split("/"));
+  const relation = path.relative(path.resolve(directory), absolute);
+  if (!relative || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
+    throw new PublishError(`${label} has an unsafe path.`);
+  }
+  try {
+    return await readFile(absolute);
+  } catch {
+    throw new PublishError(`${label} is missing.`);
+  }
+}
+
+function assertIntegrity(label: string, bytes: Buffer, expected: string): void {
+  if (sha256Integrity(bytes) !== expected) throw new PublishError(`${label} failed integrity validation.`);
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function sha256Integrity(bytes: Uint8Array): string {
+  return `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
 }
 
 async function assertPlayablePlayerBuilt(playerDirectory: string): Promise<void> {

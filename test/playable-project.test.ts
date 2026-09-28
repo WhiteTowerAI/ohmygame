@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
+import { isCompiledPlayableGraph } from "../src/shared/playable-compiled.js";
 import {
   createPlayableGraphFixture,
   writePlayableFixtureWorkspace,
@@ -50,6 +51,25 @@ describe("Playable project build", () => {
     const second = await buildPlayableProject(workspace);
 
     expect(second?.graphSignature).not.toBe(first?.graphSignature);
+  });
+
+  it("validates compiled surfaces against the authored graph", async () => {
+    const workspace = await temporaryWorkspace();
+    await writePlayableFixtureWorkspace(workspace);
+    const definition = (await buildPlayableProject(workspace))!;
+
+    expect(isCompiledPlayableGraph(definition.compiled, definition.graph)).toBe(true);
+
+    const missingNode = structuredClone(definition.compiled);
+    delete missingNode.nodes.menu;
+    expect(isCompiledPlayableGraph(missingNode, definition.graph)).toBe(false);
+
+    const missingShell = structuredClone(definition.compiled);
+    delete missingShell.shell;
+    expect(isCompiledPlayableGraph(missingShell, definition.graph)).toBe(false);
+
+    const extraField = { ...structuredClone(definition.compiled), debug: true };
+    expect(isCompiledPlayableGraph(extraField, definition.graph)).toBe(false);
   });
 
   it("uses publish validation for the static Player", async () => {

@@ -813,6 +813,49 @@ The result records the workspace-relative input files used by each surface.
 This supports actionable errors now and incremental rebuilding later without
 making a build cache part of the persisted graph contract.
 
+## Publish contract
+
+Publishing first runs graph validation in `publish` mode and compiles the same
+Player definition used by Playtest. It then creates a self-contained static
+directory containing the Player, sandbox, `playable.json`, `manifest.json`, and
+the Assets declared by `graph.json`. Editor layout, source files, Library
+storage paths, and workspace metadata are not runtime inputs.
+
+Published Assets are addressed by a SHA-256 content hash rather than their
+Library name or workspace path. Two Asset IDs with identical bytes and file
+format share one static file while remaining separate IDs in the runtime
+manifest. The manifest records enough information to validate every input:
+
+```json
+{
+  "version": 1,
+  "runtime": "playable-nodes",
+  "scope": "published:project-id",
+  "graphSignature": "...",
+  "definition": {
+    "path": "./playable.json",
+    "integrity": "sha256-..."
+  },
+  "assets": {
+    "club-background": {
+      "path": "./assets/media/<sha256>.webp",
+      "type": "image",
+      "contentType": "image/webp",
+      "size": 1234,
+      "integrity": "sha256-..."
+    }
+  }
+}
+```
+
+Before creating the ZIP, the Daemon reads the static directory back and
+verifies the strict manifest schema, definition signature, exact Asset ID set,
+declared types, sizes, content-addressed paths, and file integrity. The
+Published Player repeats manifest, definition, Asset-set, size, type, and
+integrity checks before starting the Runtime. A missing, incompatible, or
+modified resource therefore fails explicitly instead of producing a partially
+working release.
+
 ## Agent-facing open-source design
 
 Playable Nodes uses ordinary, inspectable project files. A coding Agent can

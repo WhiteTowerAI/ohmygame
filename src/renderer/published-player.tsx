@@ -19,19 +19,14 @@ import { InteractiveDramaPlayer } from "./playtest.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import "./story-player.css";
 import { PlayablePlayer } from "./playable-player.js";
+import { isCompiledPlayableGraph } from "../shared/playable-compiled.js";
 import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
+import { isPlayableGraph } from "../shared/playable-graph-validation.js";
+import { isPublishedPlayableManifest, type PublishedPlayableManifest } from "../shared/playable-publish.js";
 
 interface PublishedStoryManifest {
   version: 1;
   story: string;
-  scope: string;
-  assets: Record<string, string>;
-}
-
-interface PublishedPlayableManifest {
-  version: 1;
-  runtime: "playable-nodes";
-  playable: string;
   scope: string;
   assets: Record<string, string>;
 }
@@ -43,7 +38,10 @@ function PublishedPlayer() {
   useEffect(() => {
     let disposed = false;
     void fetch("./manifest.json").then(requireJson).then((value) => {
-      if (!disposed) setManifest(value as PublishedStoryManifest | PublishedPlayableManifest);
+      if (disposed) return;
+      if (isPublishedPlayableManifest(value)) setManifest(value);
+      else if (isPublishedStoryManifest(value)) setManifest(value);
+      else throw new Error("The published manifest is invalid.");
     }).catch((cause) => {
       if (!disposed) setError(errorMessage(cause));
     });
@@ -67,15 +65,19 @@ function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableMani
   useEffect(() => {
     let disposed = false;
     void Promise.all([
-      fetch(`./${manifest.playable}`).then(requireJson),
-      Promise.all(Object.entries(manifest.assets).map(async ([id, url]) => {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Asset "${id}" could not be loaded.`);
-        return [id, await response.blob()] as const;
+      fetchVerified(manifest.definition.path, manifest.definition.integrity, "Playable definition")
+        .then((bytes) => JSON.parse(new TextDecoder().decode(bytes)) as unknown),
+      Promise.all(Object.entries(manifest.assets).map(async ([id, asset]) => {
+        const bytes = await fetchVerified(asset.path, asset.integrity, `Asset "${id}"`);
+        if (bytes.byteLength !== asset.size) throw new Error(`Asset "${id}" has an invalid size.`);
+        return [id, new Blob([bytes], { type: asset.contentType })] as const;
       })),
     ]).then(([definition, assets]) => {
       if (disposed) return;
-      const playable = definition as PlayablePlayerDefinition;
+      if (!isPublishedPlayableDefinition(definition, manifest)) {
+        throw new Error("The published Playable definition does not match its manifest.");
+      }
+      const playable = definition;
       document.title = playable.graph.title;
       setState({ loading: false, definition: playable, assets: Object.fromEntries(assets) });
     }).catch((cause) => {
@@ -91,6 +93,45 @@ function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableMani
     assets={state.assets}
     saveKey={`ohmygame:playable:${manifest.scope}`}
   />;
+}
+
+function isPublishedStoryManifest(value: unknown): value is PublishedStoryManifest {
+  if (!isRecord(value)) return false;
+  return value.version === 1 && value.story === "story.json" && typeof value.scope === "string" && isRecord(value.assets) &&
+    Object.values(value.assets).every((asset) => typeof asset === "string");
+}
+
+function isPublishedPlayableDefinition(
+  value: unknown,
+  manifest: PublishedPlayableManifest,
+): value is PlayablePlayerDefinition {
+  if (!isRecord(value) || value.version !== 1 || value.graphSignature !== manifest.graphSignature ||
+    !isPlayableGraph(value.graph) || !isCompiledPlayableGraph(value.compiled, value.graph)) return false;
+  const graphAssets = Object.entries(value.graph.assets).sort(([left], [right]) => left.localeCompare(right));
+  const manifestAssets = Object.entries(manifest.assets).sort(([left], [right]) => left.localeCompare(right));
+  return graphAssets.length === manifestAssets.length && graphAssets.every(([id, asset], index) => (
+    id === manifestAssets[index]?.[0] && asset.type === manifestAssets[index]?.[1].type
+  ));
+}
+
+async function fetchVerified(url: string, integrity: string, label: string): Promise<ArrayBuffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${label} could not be loaded.`);
+  const bytes = await response.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const actual = `sha256-${bytesToBase64(new Uint8Array(digest))}`;
+  if (actual !== integrity) throw new Error(`${label} failed integrity validation.`);
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function PublishedState({ error }: { error?: string }) {
