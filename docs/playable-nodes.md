@@ -371,7 +371,7 @@ The v1 context contains:
 
 ```ts
 interface RuntimeContext {
-  root: Document;
+  root: ShadowRoot;
 
   assets: {
     url(id: string): string;
@@ -562,6 +562,12 @@ Player
 └── Current Playable Node
 ```
 
+Both surfaces live in one sandbox document, with a separate `ShadowRoot` for
+the Shell and for the current node. Replacing a node destroys only the node
+root; the Shell root and its JavaScript instance remain mounted. The Shell
+layer does not consume pointer events by default, so authored interactive
+Shell elements must opt in with `pointer-events: auto`.
+
 The Shell uses the same assets, state, navigation, session, and lifecycle
 foundations. Its navigation capability is deliberately different: it opens
 named destinations and cannot emit a node-owned signal.
@@ -641,7 +647,10 @@ awaiting `reset()` and then emitting its normal `start` signal.
 
 ## Surface and lifecycle
 
-The Flow Runtime uses one isolated surface implementation for all nodes. On a
+The Flow Runtime uses one sandbox document and one surface implementation for
+all nodes. The document contains a persistent Shell layer and a replaceable
+node layer. Each mounted surface receives its own `ShadowRoot`, so authored
+markup and CSS remain scoped while both layers share the same Runtime. On a
 node transition it performs these steps:
 
 1. reject additional navigation from the exiting node;
@@ -663,6 +672,13 @@ The surface Content Security Policy denies network access by default. Project
 assets are available only through the Runtime asset service. Local ES module
 imports are resolved by the build pipeline so reusable source works without
 giving the surface unrestricted filesystem or network access.
+
+The Player hosts this document in an iframe with exactly `sandbox="allow-scripts"`;
+it must not add `allow-same-origin`. The surface host installs the required CSP
+meta policy before adding authored markup or loading authored JavaScript. A
+startup or Node mount failure unmounts both Node and Shell and places the
+Runtime in an explicit failed state instead of leaving a partially mounted
+experience.
 
 ## Editor model
 

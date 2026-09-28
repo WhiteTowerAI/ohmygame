@@ -1,0 +1,204 @@
+import type { CompiledPlayableSurface } from "./playable-compiled.js";
+import type {
+  PlayableCleanup,
+  PlayableNodeContext,
+  PlayableShellContext,
+} from "./playable-nodes.js";
+import type {
+  PlayableMountedSurface,
+  PlayableSurfaceHost,
+} from "./playable-runtime.js";
+
+export const PLAYABLE_SANDBOX_CSP =
+  "default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data: blob:; style-src 'unsafe-inline'; script-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+export const PLAYABLE_IFRAME_SANDBOX = "allow-scripts";
+
+export interface PlayableSurfaceModule {
+  mount(context: PlayableNodeContext | PlayableShellContext): unknown;
+}
+
+export type PlayableModuleLoader = (javascript: string) => Promise<unknown>;
+
+export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
+  readonly #document: Document;
+  readonly #loadModule: PlayableModuleLoader;
+  readonly #projectRoot: HTMLElement;
+  readonly #nodeLayer: HTMLElement;
+  readonly #shellLayer: HTMLElement;
+  #shellMounted = false;
+
+  constructor(
+    document: Document,
+    loadModule: PlayableModuleLoader = loadPlayableModule,
+  ) {
+    this.#document = document;
+    this.#loadModule = loadModule;
+    assertPlayableSandboxDocument(document);
+    installPlayableSandboxCsp(document);
+    const scaffold = createSandboxScaffold(document);
+    this.#projectRoot = scaffold.projectRoot;
+    this.#nodeLayer = scaffold.nodeLayer;
+    this.#shellLayer = scaffold.shellLayer;
+  }
+
+  mountNode(
+    surface: CompiledPlayableSurface,
+    context: Omit<PlayableNodeContext, "root">,
+  ): Promise<PlayableMountedSurface> {
+    return this.#mount(this.#nodeLayer, surface, context);
+  }
+
+  async mountShell(
+    surface: CompiledPlayableSurface,
+    context: Omit<PlayableShellContext, "root">,
+  ): Promise<PlayableMountedSurface> {
+    if (this.#shellMounted)
+      throw new Error("Playable Shell is already mounted.");
+    this.#shellMounted = true;
+    try {
+      const mounted = await this.#mount(this.#shellLayer, surface, context);
+      return {
+        cleanup: mounted.cleanup,
+        destroy: async () => {
+          try {
+            await mounted.destroy();
+          } finally {
+            this.#shellMounted = false;
+          }
+        },
+      };
+    } catch (cause) {
+      this.#shellMounted = false;
+      throw cause;
+    }
+  }
+
+  destroy(): void {
+    this.#projectRoot.remove();
+  }
+
+  async #mount(
+    layer: HTMLElement,
+    surface: CompiledPlayableSurface,
+    context:
+      Omit<PlayableNodeContext, "root"> | Omit<PlayableShellContext, "root">,
+  ): Promise<PlayableMountedSurface> {
+    const host = this.#document.createElement("div");
+    host.dataset.playableSurface = surface.id;
+    host.style.width = "100%";
+    host.style.height = "100%";
+    const root = host.attachShadow({ mode: "open" });
+    const style = this.#document.createElement("style");
+    style.textContent = surface.css;
+    const template = this.#document.createElement("template");
+    template.innerHTML = surface.html;
+    root.append(style, template.content.cloneNode(true));
+    layer.append(host);
+
+    try {
+      const module = await this.#loadModule(surface.javascript);
+      if (!isPlayableSurfaceModule(module))
+        throw new Error(
+          `Playable surface "${surface.id}" does not export a mount function.`,
+        );
+      const cleanup = await module.mount({ ...context, root } as
+        PlayableNodeContext | PlayableShellContext);
+      return {
+        cleanup: cleanup as PlayableCleanup | undefined,
+        destroy: () => host.remove(),
+      };
+    } catch (cause) {
+      host.remove();
+      throw cause;
+    }
+  }
+}
+
+export function assertPlayableSandboxDocument(document: Document): void {
+  const view = document.defaultView;
+  if (!view || view === view.top || view.origin !== "null") {
+    throw new Error(
+      'Playable surfaces require an opaque-origin iframe with sandbox="allow-scripts".',
+    );
+  }
+}
+
+export function installPlayableSandboxCsp(document: Document): void {
+  const existing = document.head.querySelector<HTMLMetaElement>(
+    'meta[data-playable-sandbox-csp="true"]',
+  );
+  if (existing) {
+    if (existing.content !== PLAYABLE_SANDBOX_CSP)
+      throw new Error(
+        "Playable sandbox CSP does not match the Runtime policy.",
+      );
+    return;
+  }
+
+  const meta = document.createElement("meta");
+  meta.httpEquiv = "Content-Security-Policy";
+  meta.content = PLAYABLE_SANDBOX_CSP;
+  meta.dataset.playableSandboxCsp = "true";
+  document.head.prepend(meta);
+}
+
+export async function loadPlayableModule(javascript: string): Promise<unknown> {
+  const url = URL.createObjectURL(
+    new Blob([javascript], { type: "text/javascript" }),
+  );
+  try {
+    return await import(/* @vite-ignore */ url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function createSandboxScaffold(document: Document): {
+  projectRoot: HTMLElement;
+  nodeLayer: HTMLElement;
+  shellLayer: HTMLElement;
+} {
+  document.documentElement.style.width = "100%";
+  document.documentElement.style.height = "100%";
+  document.body.replaceChildren();
+  document.body.style.width = "100%";
+  document.body.style.height = "100%";
+  document.body.style.margin = "0";
+  document.body.style.overflow = "hidden";
+
+  const projectRoot = document.createElement("main");
+  projectRoot.dataset.playableSandbox = "true";
+  projectRoot.style.position = "relative";
+  projectRoot.style.width = "100%";
+  projectRoot.style.height = "100%";
+  projectRoot.style.overflow = "hidden";
+
+  const nodeLayer = document.createElement("div");
+  nodeLayer.dataset.playableNodeLayer = "true";
+  setLayerStyle(nodeLayer, 0);
+
+  const shellLayer = document.createElement("div");
+  shellLayer.dataset.playableShellLayer = "true";
+  setLayerStyle(shellLayer, 1);
+  shellLayer.style.pointerEvents = "none";
+
+  projectRoot.append(nodeLayer, shellLayer);
+  document.body.append(projectRoot);
+  return { projectRoot, nodeLayer, shellLayer };
+}
+
+function setLayerStyle(layer: HTMLElement, zIndex: number): void {
+  layer.style.position = "absolute";
+  layer.style.inset = "0";
+  layer.style.zIndex = String(zIndex);
+}
+
+function isPlayableSurfaceModule(
+  value: unknown,
+): value is PlayableSurfaceModule {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "mount") === "function"
+  );
+}

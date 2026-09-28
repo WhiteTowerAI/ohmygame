@@ -191,7 +191,7 @@ async function createCompilerWorkspace(
         'import { sharedLabel } from "../../shared/action-bar.js";',
         'import { packageLabel } from "tiny-dep";',
         "export function mount(context) {",
-        "  context.root.body.dataset.label = sharedLabel + packageLabel;",
+        "  context.root.host.dataset.label = sharedLabel + packageLabel;",
         "}",
         "",
       ].join("\n"),

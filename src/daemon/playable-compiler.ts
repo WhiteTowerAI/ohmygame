@@ -9,6 +9,10 @@ import {
 } from "esbuild";
 import { validatePlayableGraph } from "../shared/playable-graph-validation.js";
 import type {
+  CompiledPlayableGraph,
+  CompiledPlayableSurface,
+} from "../shared/playable-compiled.js";
+import type {
   PlayableGraph,
   PlayableSource,
 } from "../shared/playable-nodes.js";
@@ -36,20 +40,10 @@ export interface PlayableCompilerOptions {
   sourcemap?: boolean;
 }
 
-export interface CompiledPlayableSurface {
-  id: string;
-  html: string;
-  css: string;
-  javascript: string;
-  /** Workspace-relative source files included in this surface. */
-  inputs: string[];
-}
-
-export interface CompiledPlayableGraph {
-  version: 1;
-  nodes: Record<string, CompiledPlayableSurface>;
-  shell?: CompiledPlayableSurface;
-}
+export type {
+  CompiledPlayableGraph,
+  CompiledPlayableSurface,
+} from "../shared/playable-compiled.js";
 
 const EMBEDDED_LOADERS: NonNullable<BuildOptions["loader"]> = {
   ".avif": "dataurl",

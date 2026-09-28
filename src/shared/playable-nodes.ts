@@ -74,7 +74,7 @@ export interface PlayableStateService {
 }
 
 export interface PlayableRuntimeContext {
-  root: Document;
+  root: ShadowRoot;
   assets: { url(id: string): string };
   state: PlayableStateService;
   session: {
