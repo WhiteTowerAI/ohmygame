@@ -7,7 +7,7 @@ import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
+import { GAME_PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
@@ -101,7 +101,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <div className="home-start">
           <h1>What are we making today?</h1>
           <div className="home-category-control" role="group" aria-label="Project examples">
-            {PROJECT_TYPES.map(({ label, value }) => (
+            {GAME_PROJECT_TYPES.map(({ label, value }) => (
               <button
                 className={value === projectType ? "is-active" : ""}
                 type="button"
@@ -116,6 +116,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           </div>
           <ProjectPromptCreator
             projectType={projectType}
+            projectTypes={GAME_PROJECT_TYPES}
             placeholder="Describe the game you want to create..."
             onProjectTypeChange={setProjectType}
             onCreate={onCreate}
@@ -172,7 +173,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
       </section>
-      {createOpen ? <ProjectCreateDialog initialType={projectType} onClose={() => setCreateOpen(false)} onCreated={(project) => {
+      {createOpen ? <ProjectCreateDialog initialType={projectType} projectTypes={GAME_PROJECT_TYPES} onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpen(project.id);
       }} /> : null}

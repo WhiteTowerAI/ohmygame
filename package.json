@@ -40,6 +40,7 @@
     "electron-updater": "6.8.9",
     "fastify": "^5.12.5",
     "jsonc-parser": "3.3.1",
+    "pi-mcp-adapter": "2.27.0",
     "posthog-js": "^1.434.11",
     "react": "19.2.8",
     "react-arborist": "3.16.0",

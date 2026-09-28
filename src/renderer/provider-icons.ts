@@ -15,12 +15,13 @@ import groq from "@lobehub/icons-static-svg/icons/groq.svg";
 import huggingFace from "@lobehub/icons-static-svg/icons/huggingface-color.svg";
 import kimi from "@lobehub/icons-static-svg/icons/kimi-color.svg";
 import minimax from "@lobehub/icons-static-svg/icons/minimax-color.svg";
+import meshy from "@lobehub/icons-static-svg/icons/meshy-color.svg";
 import mistral from "@lobehub/icons-static-svg/icons/mistral-color.svg";
 import moonshot from "@lobehub/icons-static-svg/icons/moonshot.svg";
 import nvidia from "@lobehub/icons-static-svg/icons/nvidia-color.svg";
 import openAI from "@lobehub/icons-static-svg/icons/openai.svg";
 import openCode from "@lobehub/icons-static-svg/icons/opencode.svg";
-import openRouter from "@lobehub/icons-static-svg/icons/openrouter-color.svg";
+import openRouter from "@lobehub/icons-static-svg/icons/openrouter.svg";
 import qwen from "@lobehub/icons-static-svg/icons/qwen-color.svg";
 import together from "@lobehub/icons-static-svg/icons/together-color.svg";
 import vercel from "@lobehub/icons-static-svg/icons/vercel.svg";
@@ -55,6 +56,7 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "kimi-coding": color(kimi),
   minimax: color(minimax),
   "minimax-cn": color(minimax),
+  meshy: color(meshy),
   mistral: color(mistral),
   moonshotai: monochrome(moonshot),
   "moonshotai-cn": monochrome(moonshot),
@@ -63,7 +65,7 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "openai-codex": color(codex),
   opencode: monochrome(openCode),
   "opencode-go": monochrome(openCode),
-  openrouter: color(openRouter),
+  openrouter: monochrome(openRouter),
   "qwen-token-plan": color(qwen),
   "qwen-token-plan-cn": color(qwen),
   "qwen-token-plan-individual": color(qwen),

@@ -6,6 +6,7 @@ import type {
   ModelAuthNotification,
   ModelAuthPrompt,
   ModelProviderSummary,
+  ProviderCapability,
   ProviderSummary,
 } from "../shared/contracts.js";
 import {
@@ -18,37 +19,43 @@ import {
   startModelProviderLogin,
   subscribeToModelAuth,
   updateOpenAIEndpointSettings,
+  updateMeshyApiKey,
+  clearMeshyApiKey,
 } from "./api.js";
-import { useAuth } from "./auth.js";
-import ohMyGameLogo from "../../build/logo.svg";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openai", "anthropic", "ohmygame"];
+const POPULAR_PROVIDER_IDS = ["openrouter", "openai-codex", "openai", "anthropic"];
+const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "language", label: "Language" },
+  { value: "image", label: "Image" },
+  { value: "video", label: "Video" },
+  { value: "3d", label: "3D" },
+];
+const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
+  language: "Language",
+  image: "Image",
+  video: "Video",
+  "3d": "3D",
+};
 
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
-  const openProvider = (provider: ProviderSummary): void => {
-    if (provider.kind === "account") {
-      void openExternal("https://ohmygame.ai/account/billing");
-      return;
-    }
-    onViewChange({ page: "provider", provider });
-  };
+  const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
   if (view.page === "providers") {
     return <ProviderList onProvider={openProvider} />;
   }
-  if (view.provider.kind === "account") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
 function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
-  const auth = useAuth();
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
     let active = true;
     void listProviders().then((loaded) => {
@@ -61,40 +68,47 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     return () => { active = false; };
   }, []);
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleProviders = normalizedQuery ? providers.filter((provider) => [
-    provider.name,
-    providerDescription(provider),
-  ].some((value) => value.toLowerCase().includes(normalizedQuery))) : providers;
-  const accountProviders = visibleProviders.filter((provider) => provider.kind === "account");
+  const visibleProviders = providers.filter((provider) => (
+    (capability === "all" || provider.capabilities.includes(capability))
+    && (!normalizedQuery || [
+      provider.name,
+      providerDescription(provider),
+      ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
+    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
+  ));
   const popularProviders = visibleProviders
-    .filter((provider) => provider.kind !== "account" && POPULAR_PROVIDER_IDS.includes(provider.id))
+    .filter((provider) => POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
-  const moreProviders = visibleProviders.filter((provider) => provider.kind !== "account" && !POPULAR_PROVIDER_IDS.includes(provider.id));
-  const accountDetail = auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : undefined;
+  const moreProviders = visibleProviders.filter((provider) => !POPULAR_PROVIDER_IDS.includes(provider.id));
+  const filteredProviders = [...popularProviders, ...moreProviders];
+  const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
     <section className="settings-panel settings-overview-panel">
       <header className="settings-panel-header">
-        <h3>Providers</h3>
+        <h3>Providers &amp; Models</h3>
         <label className="settings-provider-search">
           <Search size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
         </label>
       </header>
       <div className="settings-provider-list">
+        <div className="settings-provider-filters" role="group" aria-label="Filter providers by capability">
+          {PROVIDER_CAPABILITY_FILTERS.map((filter) => (
+            <button type="button" aria-pressed={capability === filter.value} onClick={() => setCapability(filter.value)} key={filter.value}>{filter.label}</button>
+          ))}
+        </div>
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
-        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match your search.</p> : null}
-        {accountProviders.length ? <ProviderGroup title="OhMyGame" providers={accountProviders} featured detail={accountDetail} onProvider={onProvider} /> : null}
-        {popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
-        {moreProviders.length ? (
+        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
+        {filtering && filteredProviders.length ? <ProviderGroup title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
+        {!filtering && moreProviders.length ? (
           <section className="settings-provider-group">
-            {normalizedQuery ? <h4>More providers</h4> : (
-              <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
-                <span>More providers <small>({moreProviders.length})</small></span>
-                <ChevronDown size={14} />
-              </button>
-            )}
-            {normalizedQuery || moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
+            <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+              <span>More providers <small>({moreProviders.length})</small></span>
+              <ChevronDown size={14} />
+            </button>
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
           </section>
         ) : null}
         {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -103,11 +117,11 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   );
 }
 
-function ProviderGroup({ detail, featured = false, onProvider, providers, title }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
+function ProviderGroup({ detail, onProvider, providers, title }: { detail?: string; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
   return (
     <section className="settings-provider-group">
       <h4>{title}</h4>
-      {providers.map((provider) => <ProviderRow provider={provider} detail={detail} featured={featured} onProvider={onProvider} key={provider.id} />)}
+      {providers.map((provider) => <ProviderRow provider={provider} detail={detail} featured={provider.id === "openrouter"} onProvider={onProvider} key={provider.id} />)}
     </section>
   );
 }
@@ -118,28 +132,91 @@ function ProviderRow({ detail, featured = false, onProvider, provider }: { detai
       <ProviderMark provider={provider} />
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
-        <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
+        <span className="settings-provider-details">
+          <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
+          <span className="settings-provider-capabilities" aria-label={`Capabilities: ${provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]).join(", ")}`}>
+            {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
+          </span>
+        </span>
       </span>
       {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
-      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.kind !== "account" && provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
+      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
     </div>
   );
 }
 
 function ProviderMark({ provider }: { provider: ProviderSummary }) {
-  if (provider.kind === "account") {
-    return <span className="settings-provider-mark is-ohmygame" aria-hidden="true"><img src={ohMyGameLogo} alt="" /></span>;
-  }
   const icon = PROVIDER_ICONS[provider.id];
   if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
 }
 
 function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  if (provider.id === "meshy") return <MeshyAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} onDisconnected={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateMeshyApiKey(apiKey);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear(): Promise<void> {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await clearMeshyApiKey();
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="settings-panel">
+      <SettingsBack title={provider.name} onBack={onBack} />
+      <form className="settings-auth-form" onSubmit={(event) => void save(event)}>
+        <label htmlFor="meshy-api-key">Meshy API key</label>
+        <input
+          id="meshy-api-key"
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={provider.configured ? "Replace current key" : "Paste API key"}
+          disabled={saving}
+        />
+        <div className="settings-form-actions">
+          <button className="settings-primary-button" type="submit" disabled={saving || !apiKey.trim()}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {provider.configured ? (
+            <button className="settings-secondary-button" type="button" disabled={saving} onClick={() => void clear()}>
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+      </form>
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    </section>
+  );
 }
 
 function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProviderSummary; onBack: () => void; onChoose: (method: ModelAuthMethod) => void }) {
@@ -182,7 +259,6 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
     }
   }
   const displayedError = error ?? endpoint.error;
-  const managedByOhMyGameAccount = provider.id === "ohmygame";
   return (
     <section className="settings-panel">
       <SettingsBack title={provider.name} onBack={onBack} />
@@ -197,9 +273,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
         </form>
       ) : null}
       <div className="settings-form-actions">
-        {managedByOhMyGameAccount ? (
-          <span className="settings-managed-label">Managed by your OhMyGame account</span>
-        ) : provider.credentialType ? (
+        {provider.credentialType ? (
           <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
         ) : (
           <span className="settings-managed-label">Managed outside OhMyGame</span>
@@ -368,7 +442,6 @@ function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) 
 }
 
 function providerDescription(provider: ProviderSummary): string {
-  if (provider.kind === "account") return "Unified access to OhMyGame models";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";
@@ -384,7 +457,6 @@ function providerStatus(provider: ProviderSummary): string {
 }
 
 function providerAction(provider: ProviderSummary): string {
-  if (provider.kind === "account") return "Open account";
   if (provider.status === "connected") return "Manage";
   if (provider.status === "connecting") return "Checking…";
   if (provider.status === "error") return "Retry";

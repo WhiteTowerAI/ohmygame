@@ -1,14 +1,16 @@
 import { randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, dialog, ipcMain, nativeTheme, session, shell, type BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
+import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +32,37 @@ async function stopServices(): Promise<void> {
   await Promise.all([daemon?.stop(), oauth.cancel()]);
 }
 
+async function openProjectFile(filePath: string, mode: ProjectFileOpenMode): Promise<void> {
+  if (mode === "reveal") {
+    shell.showItemInFolder(filePath);
+    return;
+  }
+  if (mode === "default") {
+    const error = await shell.openPath(filePath);
+    if (error) throw new Error(error);
+    return;
+  }
+  if (process.platform === "darwin") {
+    const application = mode === "vscode" ? "Visual Studio Code" : mode === "zed" ? "Zed" : "TextEdit";
+    await executeFile("/usr/bin/open", ["-a", application, filePath]);
+    return;
+  }
+  if (mode === "text-editor") {
+    if (process.platform !== "win32") throw new Error("A system text editor is not available on this platform");
+    await executeFile("notepad.exe", [filePath]);
+    return;
+  }
+  const target = new URL(`${mode}://file`);
+  target.pathname = filePath.replaceAll("\\", "/");
+  await shell.openExternal(target.toString());
+}
+
+function executeFile(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, (error) => error ? reject(error) : resolve());
+  });
+}
+
 ipcMain.handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
   if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
   await shell.openExternal(url);
@@ -37,6 +70,14 @@ ipcMain.handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
 ipcMain.handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
 ipcMain.handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
 ipcMain.handle("ohmygame:cancel-auth", () => oauth.cancel());
+ipcMain.handle("ohmygame:set-appearance", (event, appearance: unknown) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow || senderWindow.isDestroyed()) throw new Error("Invalid appearance source");
+  if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
+    throw new Error("Invalid appearance");
+  }
+  nativeTheme.themeSource = appearance;
+});
 ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
@@ -48,6 +89,20 @@ ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unkno
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid plugin directory");
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
+});
+ipcMain.handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath: unknown, mode: unknown = "default") => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid file open source");
+  if (!validRouteId(projectId) || typeof filePath !== "string" || !filePath || filePath.length > 1_000 ||
+    typeof mode !== "string" || !PROJECT_FILE_OPEN_MODES.includes(mode as ProjectFileOpenMode) || !daemon) {
+    throw new Error("Invalid project file");
+  }
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}/files/location?path=${encodeURIComponent(filePath)}`, {
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) throw new Error("Project file is not available");
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid project file path");
+  await openProjectFile(result.path, mode as ProjectFileOpenMode);
 });
 ipcMain.handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");

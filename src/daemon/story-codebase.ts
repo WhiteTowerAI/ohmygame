@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { VIDEO_MODEL, type StoryDocument, type StoryEditorLayout, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StorySourceFiles } from "../shared/contracts.js";
+import { type StoryDocument, type StoryEditorLayout, type StorySurfaceFiles, type StoryNode, type StoryNodePresentation, type StorySourceFiles } from "../shared/contracts.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { defaultStoryNodeSource, parseStoryDocument, storyNodePresentation } from "../shared/story.js";
 import { STORY_CODEBASE_SCHEMA } from "../shared/story-schema.js";
@@ -135,7 +135,6 @@ The minimal persisted Video node is:
   "type": "video",
   "data": {
     "prompt": "",
-    "model": "${VIDEO_MODEL}",
     "resolution": "720p",
     "aspectRatio": "16:9",
     "duration": 6,

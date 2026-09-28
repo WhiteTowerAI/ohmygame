@@ -1,8 +1,6 @@
 import {
   RUNTIME_EVENT_TYPES,
-  type AddedProjectAsset,
   type AgentContextUsage,
-  type AddToolResultRequest,
   type AnswerQuestionnaireRequest,
   type AgentModelCatalog,
   type AgentModelRef,
@@ -12,7 +10,6 @@ import {
   type CreateLibraryImageRequest,
   type LibraryAsset,
   type LibraryUploadMediaType,
-  type ImageGenerationSettings,
   type ImageModel,
   type ModelAuthEvent,
   type ModelAuthMethod,
@@ -22,6 +19,9 @@ import {
   type CommunityGame,
   type ConversationDetail,
   type ConversationSummary,
+  type PreviewViewport,
+  type ProjectPackageManager,
+  type ProjectFileOpenMode,
   type ProjectState,
   type StoryDocument,
   type StoryTextGenerationRequest,
@@ -31,10 +31,10 @@ import {
   type PublishResult,
   type RuntimeEvent,
   type RunToolRequest,
-  type ToolDefinition,
+  type ToolId,
   type ToolJob,
-  type ToolRun,
-  type UpdateImageGenerationSettings,
+  type ToolJobContext,
+  type VideoModel,
   type PromptImage,
   type PromptAttachment,
   type PluginMention,
@@ -48,8 +48,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
-import type { CreateAssetTemplateRequest, LocalAssetTemplate } from "../shared/asset-templates.js";
-import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
+import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 
 const API_BASE = "/api";
 
@@ -64,6 +63,8 @@ declare global {
       platform: string;
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
+      setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
@@ -105,6 +106,26 @@ export async function renameProject(projectId: string, name: string): Promise<Pr
   return request(`/projects/${projectId}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
 
+export async function updateProjectStartupDirectory(projectId: string, startupDirectory: string): Promise<ProjectState> {
+  return request(`/projects/${projectId}/settings/startup-directory`, {
+    method: "PUT",
+    body: JSON.stringify({ startupDirectory }),
+  });
+}
+
+export async function updateProjectRunSettings(projectId: string, input: {
+  startupDirectory: string;
+  startupScript: string;
+  packageManager?: ProjectPackageManager;
+  previewPath: string;
+  previewViewport: PreviewViewport;
+}): Promise<ProjectState> {
+  return request(`/projects/${projectId}/settings/run`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function duplicateProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}/duplicate`, { method: "POST" });
 }
@@ -122,16 +143,6 @@ export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Pr
     method: "PUT",
     body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel }),
   });
-}
-
-export async function connectAccount(accessToken: string): Promise<void> {
-  await request("/account/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
-  notifyAgentModelsChanged();
-}
-
-export async function disconnectAccount(): Promise<void> {
-  await request("/account/connection", { method: "DELETE" });
-  notifyAgentModelsChanged();
 }
 
 export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
@@ -153,6 +164,13 @@ export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<Mod
     method: "PUT",
     body: JSON.stringify({ baseUrl }),
   });
+}
+
+export async function updateMeshyApiKey(apiKey: string): Promise<{ configured: boolean }> {
+  return request("/settings/models/providers/meshy", { method: "PUT", body: JSON.stringify({ apiKey }) });
+}
+export async function clearMeshyApiKey(): Promise<void> {
+  await request("/settings/models/providers/meshy", { method: "DELETE" });
 }
 
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
@@ -187,16 +205,20 @@ export function subscribeToModelAuth(
   return () => controller.abort();
 }
 
-export async function getImageGenerationSettings(): Promise<ImageGenerationSettings> {
-  return request("/settings/image-generation");
-}
-
 export async function listImageModels(): Promise<ImageModel[]> {
   return request("/image-models");
 }
 
-export async function updateImageGenerationSettings(input: UpdateImageGenerationSettings): Promise<ImageGenerationSettings> {
-  return request("/settings/image-generation", { method: "PUT", body: JSON.stringify(input) });
+export async function listVideoModels(): Promise<VideoModel[]> {
+  return request("/video-models");
+}
+
+export async function getWebSearchSettings(): Promise<WebSearchSettings> {
+  return request("/settings/web-search");
+}
+
+export async function updateWebSearchSettings(input: UpdateWebSearchSettings): Promise<WebSearchSettings> {
+  return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
 export async function listExploreGames(): Promise<CommunityGame[]> {
@@ -214,10 +236,6 @@ export async function getExploreGameCover(gameId: string, deploymentId: string):
   if (response.status === 404) return undefined;
   if (!response.ok) throw await responseError(response);
   return response.blob();
-}
-
-export async function listTools(): Promise<ToolDefinition[]> {
-  return request("/tools");
 }
 
 export async function listPlugins(): Promise<PluginCatalog> {
@@ -276,20 +294,8 @@ export async function removeConnection(id: string): Promise<void> {
   await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function getAssetStudioDraft(): Promise<AssetStudioDraft | null> {
-  return request("/asset-studio/draft");
-}
-
-export async function updateAssetStudioDraft(draft: AssetStudioDraft): Promise<AssetStudioDraft> {
-  return request("/asset-studio/draft", { method: "PUT", body: JSON.stringify(draft) });
-}
-
-export async function runTool(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolRun> {
-  return request(`/tools/${toolId}/runs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
-}
-
-export async function startToolJob(toolId: ToolDefinition["id"], input: RunToolRequest, title?: string): Promise<ToolJob> {
-  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}) }) });
+export async function startToolJob(toolId: ToolId, input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
+  return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}), ...(context ? { projectId: context.projectId, nodeId: context.nodeId } : {}) }) });
 }
 
 export async function listToolJobs(): Promise<ToolJob[]> {
@@ -302,25 +308,6 @@ export async function cancelToolJob(jobId: string): Promise<ToolJob> {
 
 export async function retryToolJob(jobId: string): Promise<ToolJob> {
   return request(`/tool-jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
-}
-
-export async function listToolRuns(): Promise<ToolRun[]> {
-  return request("/tool-runs");
-}
-
-export async function getToolRunFile(runId: string, fileName: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/tool-runs/${runId}/files/${encodeURIComponent(fileName)}`), {
-    headers: runtimeHeaders(),
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
-
-export async function addToolResultToProject(
-  projectId: string,
-  input: AddToolResultRequest,
-): Promise<AddedProjectAsset> {
-  return request(`/projects/${projectId}/tool-results`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
@@ -441,35 +428,6 @@ export async function listLibraryAssetReferences(assetId: string): Promise<Libra
 
 export async function forceDeleteLibraryAsset(assetId: string): Promise<void> {
   await request(`/library/assets/${encodeURIComponent(assetId)}?force=true`, { method: "DELETE" });
-}
-
-export async function listAssetTemplates(): Promise<LocalAssetTemplate[]> {
-  return request("/asset-templates");
-}
-
-export async function createAssetTemplate(input: CreateAssetTemplateRequest): Promise<LocalAssetTemplate> {
-  return request("/asset-templates", { method: "POST", body: JSON.stringify(input) });
-}
-
-export async function setAssetTemplateCover(templateId: string, cover: Blob): Promise<LocalAssetTemplate> {
-  const response = await fetch(apiUrl(`/asset-templates/${encodeURIComponent(templateId)}/cover`), {
-    method: "PUT",
-    headers: { "content-type": "image/webp", ...runtimeHeaders() },
-    body: cover,
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<LocalAssetTemplate>;
-}
-
-export async function getAssetTemplateCover(templateId: string): Promise<Blob | undefined> {
-  const response = await fetch(apiUrl(`/asset-templates/${encodeURIComponent(templateId)}/cover`), { headers: runtimeHeaders() });
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
-}
-
-export async function deleteAssetTemplate(templateId: string): Promise<void> {
-  await request(`/asset-templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
 }
 
 export async function getWorkspaceFile(projectId: string, filePath: string): Promise<WorkspaceFileContent> {

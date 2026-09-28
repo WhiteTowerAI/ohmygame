@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VIDEO_MODEL, type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
+import { type StoryChapter, type StoryDocument, type StoryNode } from "../src/shared/contracts.js";
 import { createInteractiveDramaStarterStory } from "../src/shared/interactive-drama-starter.js";
 import {
   advanceOpenUi, advanceSceneTime, applyStoryActions, chooseOption, completeSceneMedia, createPlayerState, createStoryDocument, createStorySave, defaultStoryNodeSource, getNextNode,
@@ -10,12 +10,91 @@ import {
 } from "../src/shared/story.js";
 import { createPlayableStoryDocument } from "./story-fixture.js";
 
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
+
 describe("canonical Interactive Drama story", () => {
   it("creates a valid blank story document", () => {
     const story = createStoryDocument();
     expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
     expect(story.editorLayout.nodes).toEqual({});
     expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("accepts canvas-only 3D generation and model asset nodes", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [
+      {
+        id: "model-generator",
+        type: "model-3d",
+        position: { x: 80, y: 120 },
+        data: {
+          targetPolycount: 4_000, texture: true, pbr: true, images: [],
+        },
+      },
+      {
+        id: "model-asset",
+        type: "asset",
+        position: { x: 560, y: 120 },
+        data: { assetId: "library-model", mediaType: "model" },
+      },
+    ];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 }, "model-asset": { x: 560, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(true);
+  });
+
+  it("rejects non-image node references in 3D generation nodes", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [
+      {
+        id: "model-generator",
+        type: "model-3d",
+        position: { x: 80, y: 120 },
+        data: { targetPolycount: 4_000, texture: true, pbr: false, images: [{ type: "node", nodeId: "model-asset" }] },
+      },
+      {
+        id: "model-asset",
+        type: "asset",
+        position: { x: 560, y: 120 },
+        data: { assetId: "library-model", mediaType: "model" },
+      },
+    ];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 }, "model-asset": { x: 560, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("rejects 3D generation nodes without required settings", () => {
+    const story = createStoryDocument();
+    const node: StoryNode = {
+      id: "model-generator",
+      type: "model-3d",
+      position: { x: 80, y: 120 },
+      data: { targetPolycount: 4_000, texture: true, pbr: false, images: [] },
+    };
+    Reflect.deleteProperty(node.data, "targetPolycount");
+    story.chapter.nodes = [node];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
+  });
+
+  it("rejects more than one 3D reference image", () => {
+    const story = createStoryDocument();
+    story.chapter.nodes = [{
+      id: "model-generator",
+      type: "model-3d",
+      position: { x: 80, y: 120 },
+      data: {
+        targetPolycount: 4_000,
+        texture: true,
+        pbr: false,
+        images: [{ type: "library", assetId: "first" }, { type: "library", assetId: "second" }],
+      },
+    }];
+    story.editorLayout.nodes = { "model-generator": { x: 80, y: 120 } };
+
+    expect(isStoryDocument(story)).toBe(false);
   });
 
   it("derives stable source paths for presentation nodes", () => {
@@ -466,7 +545,7 @@ describe("canonical Interactive Drama story", () => {
   it("resolves canonical presentation media through Library and media nodes", () => {
     const story = createPlayableStoryDocument();
     const chapter = story.chapter;
-    chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
+  chapter.nodes.push({ id: "video", type: "video", position: { x: 0, y: 0 }, data: { prompt: "", model: TEST_VIDEO_MODEL, resolution: "720p", aspectRatio: "adaptive", duration: 6, references: [], assetId: "generated" } });
     expect(resolveStoryAssetId(chapter, { type: "library", assetId: "library" })).toBe("library");
     expect(resolveStoryAssetId(chapter, { type: "node", nodeId: "video" })).toBe("generated");
   });

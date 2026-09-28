@@ -25,7 +25,7 @@ reload the project shell. A generated workspace still updates its own preview.
 
 - `POST /projects` creates an empty workspace.
 - `GET /tools` lists the fixed local tool catalog.
-- `POST /tools/generate-image/runs` generates one image with GPT Image 2 and
+- `POST /tools/generate-image/runs` generates one image with GPT Image 2.5 and
   stores the completed run outside project workspaces.
 - `POST /tools/image-to-3d/runs` submits a PNG or JPEG to Meshy and stores the
   resulting textured GLB.

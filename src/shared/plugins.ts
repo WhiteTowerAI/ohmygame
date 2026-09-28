@@ -176,6 +176,7 @@ const InterfaceSchema = Type.Object({
     Type.Literal("web-game"),
     Type.Literal("godot-game"),
     Type.Literal("interactive-drama"),
+    Type.Literal("asset-canvas"),
   ]), { minItems: 1, uniqueItems: true })),
 }, { additionalProperties: false });
 

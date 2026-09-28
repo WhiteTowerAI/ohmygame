@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, MODEL_3D_MODELS, MODEL_3D_POSES, MODEL_3D_QUALITIES, MODEL_3D_TEXTURE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AddToolResultRequest, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest, type UpdateImageGenerationSettings } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -21,19 +21,18 @@ import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
-import { AccountServiceClient } from "./account-service-client.js";
-import { AccountConnection } from "./account-connection.js";
-import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError } from "./projects.js";
-import { ImageSettingsStore } from "./image-settings.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
-import { Managed3DGenerator } from "./managed-3d.js";
+import { MeshyProvider } from "./meshy-provider.js";
+import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
-import { ManagedVideoGenerator, type VideoGenerator } from "./seedance-video.js";
+import type { VideoGenerator } from "./video-generation.js";
+import { ProviderVideos } from "./provider-videos.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
@@ -43,16 +42,15 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { listMcpServers } from "./pi-agent.js";
 import { ConnectionError, ConnectionManager } from "./connections.js";
-import { AssetTemplateError, AssetTemplateStore } from "./asset-templates.js";
-import { AssetStudioDraftStore } from "./asset-studio-draft.js";
-import type { AssetStudioDraft } from "../shared/asset-studio-draft.js";
-import { isAssetTemplateDefinition, type CreateAssetTemplateRequest } from "../shared/asset-templates.js";
 import type { SaveConnectionRequest } from "../shared/connections.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
-import { getWorkspaceMedia, listWorkspaceFiles, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { GameRuntimeAdapter } from "../shared/playtest.js";
+import type { UpdateWebSearchSettings } from "../shared/web-search.js";
+import { WebSearchSettingsStore } from "./web-search-settings.js";
+import { WebSearchService } from "./web-search.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -62,19 +60,20 @@ export interface AppOptions {
   allowedOrigins?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
-  accountServiceUrl?: string;
-  accountServiceFetch?: typeof fetch;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
+  model3DFetch?: typeof fetch;
   videoGenerator?: VideoGenerator;
+  videoFetch?: typeof fetch;
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
+  webSearchFetch?: typeof fetch;
 }
 
 const createProjectSchema = {
@@ -83,7 +82,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
       storyViewport: {
         type: "object",
@@ -105,6 +104,30 @@ const renameProjectSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH } },
+  },
+} as const;
+
+const startupDirectorySchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["startupDirectory"],
+    properties: { startupDirectory: { type: "string", minLength: 1, maxLength: 1_000 } },
+  },
+} as const;
+
+const runSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["startupDirectory", "startupScript", "previewPath", "previewViewport"],
+    properties: {
+      startupDirectory: { type: "string", minLength: 1, maxLength: 1_000 },
+      startupScript: { type: "string", minLength: 1, maxLength: 200 },
+      packageManager: { enum: ["npm", "pnpm", "yarn", "bun"] },
+      previewPath: { type: "string", maxLength: 1_000 },
+      previewViewport: { enum: ["fit", "tablet", "mobile"] },
+    },
   },
 } as const;
 
@@ -164,6 +187,23 @@ const saveConnectionSchema = {
   },
 } as const;
 
+const nullableSecretSchema = { anyOf: [{ type: "string", maxLength: 10_000 }, { type: "null" }] } as const;
+const webSearchSettingsSchema = {
+  body: {
+    type: "object", additionalProperties: false, required: ["enabled", "provider", "fallback"],
+    properties: {
+      enabled: { type: "boolean" }, provider: { enum: ["auto", "exa", "parallel", "custom"] }, fallback: { type: "boolean" },
+      exaApiKey: nullableSecretSchema, parallelApiKey: nullableSecretSchema,
+      custom: {
+        type: "object", additionalProperties: false, required: ["name", "endpoint", "toolName"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 100 }, endpoint: { type: "string", minLength: 1, maxLength: 2_000 },
+          toolName: { type: "string", minLength: 1, maxLength: 200 }, apiKey: nullableSecretSchema,
+        },
+      },
+    },
+  },
+} as const;
 const publishProjectSchema = {
   body: {
     type: "object",
@@ -325,16 +365,13 @@ const toolRunSchema = {
       resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
-      duration: { type: "integer", minimum: 4, maximum: 15 },
-      model: { type: "string", enum: [...MODEL_3D_MODELS] },
-      quality: { type: "string", enum: [...MODEL_3D_QUALITIES] },
+      duration: { type: "integer", minimum: 1, maximum: 30 },
       targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
       texture: { type: "boolean" },
-      textureResolution: { type: "string", enum: [...MODEL_3D_TEXTURE_RESOLUTIONS] },
       pbr: { type: "boolean" },
-      pose: { type: "string", enum: [...MODEL_3D_POSES] },
-      imageEnhancement: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
+      projectId: { type: "string", minLength: 1, maxLength: 200 },
+      nodeId: { type: "string", minLength: 1, maxLength: 200 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -374,18 +411,6 @@ const toolRunSchema = {
   },
 } as const;
 
-const addToolResultSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["runId", "fileName"],
-    properties: {
-      runId: { type: "string", minLength: 1, maxLength: 100 },
-      fileName: { type: "string", minLength: 1, maxLength: 200 },
-    },
-  },
-} as const;
-
 const modelAuthLoginSchema = {
   body: {
     type: "object",
@@ -416,31 +441,12 @@ const modelEndpointSchema = {
   },
 } as const;
 
-const accountConnectionSchema = {
+const meshySettingsSchema = {
   body: {
     type: "object",
     additionalProperties: false,
-    required: ["accessToken"],
-    properties: { accessToken: { type: "string", minLength: 1, maxLength: 10_000 } },
-  },
-} as const;
-
-const imageSettingsSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["model"],
-    properties: {
-      model: {
-        type: "object",
-        additionalProperties: false,
-        required: ["provider", "id"],
-        properties: {
-          provider: { type: "string", minLength: 1, maxLength: 100 },
-          id: { type: "string", minLength: 1, maxLength: 200 },
-        },
-      },
-    },
+    required: ["apiKey"],
+    properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 } },
   },
 } as const;
 
@@ -462,10 +468,10 @@ export function createApp(options: AppOptions = {}) {
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
-  const assetTemplates = new AssetTemplateStore(dataDirectory);
-  const assetStudioDraft = new AssetStudioDraftStore(dataDirectory);
   const previews = new PreviewManager(events);
-  const imageSettings = new ImageSettingsStore(dataDirectory);
+  const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const meshySettings = new MeshySettingsStore(dataDirectory);
+  const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
     "openai-endpoint.json",
@@ -494,20 +500,13 @@ export function createApp(options: AppOptions = {}) {
     events.publish(project.id, "project.renamed", { project });
   };
   const modelAuth = new ModelAuthManager(getModelRuntime);
-  const accountServiceClient = new AccountServiceClient(
-    options.accountServiceUrl ?? process.env.CLOUD_API_URL ?? process.env.ACCOUNT_SERVICE_URL ?? "https://cloud.ohmygame.ai",
-    options.accountServiceFetch,
-  );
-  const accountConnection = new AccountConnection(
-    getModelRuntime,
-    accountServiceClient,
-  );
-  const providerImages = new ProviderImages(getModelRuntime, accountConnection, () => imageSettings.get().model, options.imageFetch);
+  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch);
+  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new Managed3DGenerator(() => accountConnection.model3DSource(), options.accountServiceFetch),
-    options.videoGenerator ?? new ManagedVideoGenerator(() => accountConnection.videoSource(), options.accountServiceFetch),
+    options.model3DGenerator ?? new MeshyProvider(() => meshySettings.key(), options.model3DFetch),
+    options.videoGenerator ?? providerVideos,
     library,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
@@ -578,6 +577,7 @@ export function createApp(options: AppOptions = {}) {
                 : await previews.start(project),
             }),
           } : undefined,
+          webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
         ),
         modelRuntime,
         model,
@@ -587,13 +587,16 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, tools.list().map((tool) => tool.id), registered);
+      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
-      void isRunnableWorkspace(project.workspacePath).then((runnable) => {
-        if (runnable) return previews.start(project).catch(() => {});
-      });
+      void resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")
+        .then(({ absolutePath }) => isRunnableWorkspace(absolutePath, project.startupScript ?? "dev"))
+        .then((runnable) => {
+          if (runnable) return previews.start(project).catch(() => {});
+        })
+        .catch(() => {});
     },
   });
   const invalidatePluginSessions = () => {
@@ -615,7 +618,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), imageSettings.load(), openAIEndpoint.load(), assetStudioDraft.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     await localPlugins.list();
   });
@@ -639,6 +642,18 @@ export function createApp(options: AppOptions = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.get("/settings/connections", async () => connections.list());
+
+  app.get("/settings/web-search", async () => webSearchSettings.get());
+
+  app.put<{ Body: UpdateWebSearchSettings }>("/settings/web-search", { schema: webSearchSettingsSchema }, async (request, reply) => {
+    try {
+      const settings = await webSearchSettings.update(request.body);
+      invalidatePluginSessions();
+      return settings;
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
 
   app.post<{ Body: SaveConnectionRequest }>("/settings/connections", { schema: saveConnectionSchema }, async (request, reply) => {
     try {
@@ -841,29 +856,21 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/tools", async () => tools.list());
-
-  app.get("/asset-studio/draft", async () => assetStudioDraft.get() ?? null);
-
-  app.put<{ Body: AssetStudioDraft }>("/asset-studio/draft", async (request, reply) => {
-    try {
-      return await assetStudioDraft.update(request.body);
-    } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.get("/tool-runs", async () => tools.recentRuns());
-
   app.get("/tool-jobs", async () => tools.jobs());
 
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
+  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
     "/tools/:toolId/jobs",
     { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
     async (request, reply) => {
       try {
-        const { title, ...input } = request.body;
-        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, { title: title?.trim() }));
+        const { title, projectId, nodeId, ...input } = request.body;
+        if (Boolean(projectId) !== Boolean(nodeId)) {
+          throw new ToolRunError("Project and node context must be provided together", 400);
+        }
+        return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, {
+          title: title?.trim(),
+          ...(projectId && nodeId ? { context: { projectId, nodeId } } : {}),
+        }));
       } catch (cause) {
         if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;
@@ -888,59 +895,6 @@ export function createApp(options: AppOptions = {}) {
       throw cause;
     }
   });
-
-  app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string } }>(
-    "/tools/:toolId/runs",
-    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
-    async (request, reply) => {
-      try {
-        const { title, ...input } = request.body;
-        return reply.code(201).send(await tools.run(request.params.toolId, input as RunToolRequest, undefined, { title: title?.trim() }));
-      } catch (cause) {
-        if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
-        throw cause;
-      }
-    },
-  );
-
-  app.get<{ Params: { runId: string; fileName: string } }>(
-    "/tool-runs/:runId/files/:fileName",
-    async (request, reply) => {
-      const file = await tools.file(request.params.runId, request.params.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      reply.header("content-type", file.mediaType);
-      reply.header("x-content-type-options", "nosniff");
-      reply.header("cache-control", "private, max-age=31536000, immutable");
-      return reply.send(file.bytes);
-    },
-  );
-
-  app.post<{ Params: { projectId: string }; Body: AddToolResultRequest }>(
-    "/projects/:projectId/tool-results",
-    { schema: addToolResultSchema },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      const file = await tools.file(request.body.runId, request.body.fileName);
-      if (!file) return reply.code(404).send({ error: "Tool output not found" });
-      const extension = path.extname(request.body.fileName).toLowerCase();
-      const prefix = extension === ".glb" ? "model" : extension === ".mp4" || extension === ".webm" ? "video" : "image";
-      const outputSuffix = request.body.fileName.match(/^output(-[1-4])?\./)?.[1] ?? "";
-      const fileName = `${prefix}-${request.body.runId}${outputSuffix}${extension}`;
-      return reply.code(201).send({
-        path: await projects.addGeneratedAsset(project.id, fileName, file.bytes, {
-          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
-          ...(file.prompt ? { prompt: file.prompt } : {}),
-          ...(file.preview ? {
-            preview: {
-              bytes: file.preview.bytes,
-              extension: file.preview.mediaType === "image/png" ? "png" : "jpg",
-            },
-          } : {}),
-        }),
-      });
-    },
-  );
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
@@ -1058,6 +1012,43 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.put<{ Params: { projectId: string }; Body: { startupDirectory: string } }>(
+    "/projects/:projectId/settings/startup-directory",
+    { schema: startupDirectorySchema },
+    async (request, reply) => {
+      try {
+        const project = await projects.setStartupDirectory(request.params.projectId, request.body.startupDirectory);
+        await previews.stop(project);
+        return project;
+      } catch (cause) {
+        const statusCode = (cause as Error).message.startsWith("Project not found") ? 404 : 400;
+        return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.put<{
+    Params: { projectId: string };
+    Body: { startupDirectory: string; startupScript: string; packageManager?: "npm" | "pnpm" | "yarn" | "bun"; previewPath: string; previewViewport: "fit" | "tablet" | "mobile" };
+  }>(
+    "/projects/:projectId/settings/run",
+    { schema: runSettingsSchema },
+    async (request, reply) => {
+      const existing = projects.get(request.params.projectId);
+      if (!existing) return reply.code(404).send({ error: "Project not found" });
+      const restartRequired = existing.startupDirectory !== (request.body.startupDirectory === "." ? undefined : request.body.startupDirectory) ||
+        existing.startupScript !== (request.body.startupScript === "dev" ? undefined : request.body.startupScript) ||
+        existing.packageManager !== request.body.packageManager;
+      try {
+        const project = await projects.setRunSettings(request.params.projectId, request.body);
+        if (restartRequired) await previews.stop(project);
+        return project;
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/duplicate", async (request, reply) => {
     try {
       return reply.code(201).send(await projects.duplicate(request.params.projectId));
@@ -1109,51 +1100,6 @@ export function createApp(options: AppOptions = {}) {
       }
     },
   );
-
-  app.get("/asset-templates", async (_request, reply) => {
-    try {
-      return await assetTemplates.list();
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.post<{ Body: CreateAssetTemplateRequest }>("/asset-templates", async (request, reply) => {
-    try {
-      if (!isAssetTemplateDefinition(request.body)) throw new AssetTemplateError("Asset template is invalid");
-      return reply.code(201).send(await assetTemplates.create(request.body));
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.get<{ Params: { templateId: string } }>("/asset-templates/:templateId/cover", async (request, reply) => {
-    const cover = await assetTemplates.cover(request.params.templateId);
-    if (!cover) return reply.code(404).send({ error: "Asset template cover not found" });
-    return reply.type("image/webp").header("cache-control", "no-store").header("x-content-type-options", "nosniff").send(cover);
-  });
-
-  app.put<{ Params: { templateId: string }; Body: Buffer }>("/asset-templates/:templateId/cover", async (request, reply) => {
-    try {
-      if (!isWebp(request.body)) return reply.code(400).send({ error: "Asset template cover must be a WebP image" });
-      return await assetTemplates.setCover(request.params.templateId, request.body);
-    } catch (cause) {
-      const statusCode = cause instanceof AssetTemplateError ? cause.statusCode : 500;
-      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.delete<{ Params: { templateId: string } }>("/asset-templates/:templateId", async (request, reply) => {
-    try {
-      await assetTemplates.delete(request.params.templateId);
-      return reply.code(204).send();
-    } catch (cause) {
-      if (cause instanceof AssetTemplateError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
 
   app.get("/library/assets", async () => {
     await projects.syncLibraryAssets();
@@ -1319,6 +1265,21 @@ export function createApp(options: AppOptions = {}) {
     return listWorkspaceFiles(project.workspacePath);
   });
 
+  app.get<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/files/location",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try {
+        return { path: await locateWorkspaceEntry(project.workspacePath, request.query.path) };
+      } catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
   app.patch<{ Params: { projectId: string }; Querystring: { path: string }; Body: { name: string } }>(
     "/projects/:projectId/assets",
     { schema: renameAssetSchema },
@@ -1443,52 +1404,34 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.get("/account/connection", async () => accountConnection.get());
-
-  app.put<{ Body: { accessToken: string } }>(
-    "/account/connection",
-    { schema: accountConnectionSchema },
-    async (request, reply) => {
-      const state = await accountConnection.connect(request.body.accessToken);
-      if (state.status === "error") return reply.code(502).send({ error: state.error });
-      return state;
-    },
-  );
-
-  app.delete("/account/connection", async (_request, reply) => {
-    await accountConnection.disconnect();
-    return reply.code(204).send();
-  });
-
   app.get("/settings/providers", async () => {
     const piProviders = await modelAuth.providers();
-    const accountState = accountConnection.get();
-    const accountStatus = accountState.status === "connected"
-      ? "connected"
-      : accountState.status === "connecting"
-        ? "connecting"
-        : accountState.status === "error" ? "error" : "not_configured";
-    return [
-      ...piProviders
-        .filter((provider) => provider.id !== "ohmygame")
-        .map((provider) => ({
-          ...provider,
-          kind: "pi" as const,
-          status: provider.configured ? "connected" as const : "not_configured" as const,
-          capabilities: provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
-        })),
-      {
-        id: "ohmygame",
-        name: "OhMyGame",
-        configured: accountStatus === "connected",
-        kind: "account" as const,
-        status: accountStatus,
-        capabilities: ["language", "image", "video", "3d"] as const,
-        methods: [],
-        ...(accountState.error ? { error: accountState.error } : {}),
-      },
-    ].sort((left, right) => left.name.localeCompare(right.name));
+    const providers = piProviders
+      .map((provider) => ({
+        ...provider,
+        status: provider.configured ? "connected" as const : "not_configured" as const,
+        capabilities: provider.id === "openrouter"
+          ? ["language", "image", "video"] as const
+          : provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    return [...providers, {
+      id: "meshy",
+      name: "Meshy",
+      configured: meshySettings.get().configured,
+      status: meshySettings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: "Meshy API key" }],
+      credentialType: "api_key" as const,
+      capabilities: ["3d"] as const,
+    }].sort((left, right) => left.name.localeCompare(right.name));
   });
+
+  app.get("/settings/models/providers/meshy", async () => meshySettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/meshy", { schema: meshySettingsSchema }, async (request, reply) => {
+    try { return await meshySettings.update(request.body.apiKey); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/meshy", async (_request, reply) => { await meshySettings.clear(); return reply.code(204).send(); });
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 
@@ -1556,26 +1499,8 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/settings/image-generation", async () => imageSettings.get());
-
   app.get("/image-models", async () => providerImages.models());
-
-  app.put<{ Body: UpdateImageGenerationSettings }>(
-    "/settings/image-generation",
-    { schema: imageSettingsSchema },
-    async (request, reply) => {
-      try {
-        const models = await providerImages.models();
-        const requested = request.body.model;
-        if (!models.some((model) => model.provider === requested.provider && model.id === requested.id)) {
-          return reply.code(400).send({ error: "Image model is not available" });
-        }
-        return await imageSettings.update(requested);
-      } catch (cause) {
-        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
-  );
+  app.get("/video-models", async () => providerVideos.models());
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
@@ -1767,7 +1692,13 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    const previewWorkspace = await previewWorkspaceStatus(project.workspacePath);
+    let startupDirectory: string;
+    try {
+      startupDirectory = (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    const previewWorkspace = await previewWorkspaceStatus(startupDirectory, project.startupScript ?? "dev");
     if (!previewWorkspace.runnable) {
       return reply.code(409).send({ error: previewWorkspace.error ?? "Workspace is not runnable yet" });
     }
@@ -2157,7 +2088,7 @@ export function createApp(options: AppOptions = {}) {
     reply.raw.write(": connected\n\n");
     const send = (event: RuntimeEvent) => {
       const images = agents.eventImages(event.projectId, event.conversationId, event.turnId);
-      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued")
+      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued" || event.type === "prompt.steered")
         ? { ...event, data: { ...event.data, images } }
         : event;
       reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(hydrated)}\n\n`);

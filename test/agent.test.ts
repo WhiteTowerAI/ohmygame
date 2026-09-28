@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { AgentManager, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession } from "../src/daemon/agent.js";
+import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -26,6 +26,24 @@ describe("skillInvocationPrompt", () => {
   it("maps the Composer syntax to Pi's native skill command", () => {
     expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
     expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+  });
+});
+
+describe("compatibleRuntimeModel", () => {
+  it("disables unsupported explicit prompt-cache mode while preserving other model settings", () => {
+    const model = {
+      api: "openai-responses",
+      provider: "openai",
+      id: "gpt-5.6",
+      compat: { supportsExplicitPromptCacheMode: true, supportsStrictMode: true },
+    } as RuntimeModel;
+
+    expect(compatibleRuntimeModel(model)).toMatchObject({
+      api: "openai-responses",
+      id: "gpt-5.6",
+      compat: { supportsExplicitPromptCacheMode: false, supportsStrictMode: true },
+    });
+    expect((model.compat as { supportsExplicitPromptCacheMode?: boolean }).supportsExplicitPromptCacheMode).toBe(true);
   });
 });
 
@@ -610,7 +628,8 @@ describe("AgentManager", () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
     session.prompt.mockImplementation(() => prompt.promise);
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
     const project = createProject();
     const conversation = createConversation(project);
 
@@ -665,7 +684,8 @@ describe("AgentManager", () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
     session.prompt.mockImplementation(() => prompt.promise);
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
     const project = createProject();
     const conversation = createConversation(project);
 
@@ -681,15 +701,22 @@ describe("AgentManager", () => {
     expect(session.clearQueue).toHaveBeenCalledOnce();
     expect(session.steer).toHaveBeenLastCalledWith("Third", undefined);
     expect(session.followUp).toHaveBeenCalledWith("Second", undefined);
-    expect(manager.pendingPrompts(project.id, conversation.summary.id).map(({ turnId }) => turnId)).toEqual([second.turnId]);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([
+      expect.objectContaining({ turnId: third.turnId, prompt: "Third", steering: true }),
+      expect.objectContaining({ turnId: second.turnId, prompt: "Second" }),
+    ]);
+    expect(events.since(project.id).at(-1)).toMatchObject({ type: "prompt.steered", turnId: third.turnId, data: { prompt: "Third" } });
 
     session.steer.mockClear();
     await manager.removePending(project.id, conversation.summary.id, second.turnId);
     expect(session.steer).toHaveBeenCalledWith("Third", undefined);
-    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([
+      expect.objectContaining({ turnId: third.turnId, steering: true }),
+    ]);
 
     prompt.resolve();
     await run;
+    expect(events.since(project.id).at(-1)).toMatchObject({ type: "prompt.removed", turnId: third.turnId });
     await manager.close();
   });
 
@@ -751,8 +778,8 @@ describe("AgentManager", () => {
     expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
     expect(manager.agentState(conversation)).toEqual({ status: "running" });
     expect(events.since(project.id).slice(-2)).toEqual([
-      expect.objectContaining({ type: "prompt.removed", turnId: queued.turnId }),
       expect.objectContaining({ type: "agent.started", turnId: queued.turnId, data: { prompt: "Second" } }),
+      expect.objectContaining({ type: "prompt.removed", turnId: queued.turnId }),
     ]);
 
     prompt.resolve();

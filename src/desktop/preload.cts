@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 
 function argument(name: string): string {
@@ -16,7 +17,11 @@ if (process.isMainFrame) {
       daemonUrl: argument("ohmygame-daemon-url"),
       token: argument("ohmygame-daemon-token"),
     }),
+    setAppearance: (appearance: "system" | "light" | "dark") =>
+      ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
+    openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>
+      ipcRenderer.invoke("ohmygame:open-project-file", projectId, filePath, mode) as Promise<void>,
     browsePluginDirectory: (pluginId: string) => ipcRenderer.invoke("ohmygame:browse-plugin-directory", pluginId) as Promise<void>,
     revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("ohmygame:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
     selectPluginDirectory: () => ipcRenderer.invoke("ohmygame:select-plugin-directory") as Promise<string | undefined>,
