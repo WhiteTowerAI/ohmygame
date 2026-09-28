@@ -1,0 +1,42 @@
+.playable-player {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  overflow: hidden;
+  background: #090a0c;
+  color: #f2f3f5;
+}
+.playable-player-stage {
+  position: relative;
+  width: min(100%, calc(100vh * var(--playable-aspect-ratio)));
+  max-height: 100%;
+  aspect-ratio: var(--playable-aspect-ratio);
+  overflow: hidden;
+  background: #111318;
+}
+.playable-player-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.playable-player-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #111318;
+  color: #aeb2ba;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+  text-align: center;
+}
+.playable-player-status.is-error {
+  color: #ffc7c7;
+}

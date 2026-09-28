@@ -46,6 +46,7 @@ import {
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
+import type { PlayableProjectRuntimeResponse } from "../shared/playable-player-protocol.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -343,6 +344,10 @@ export async function getProject(projectId: string): Promise<ProjectState> {
 
 export async function getStory(projectId: string): Promise<StoryDocument> {
   return request(`/projects/${projectId}/story`);
+}
+
+export async function getPlayableProjectRuntime(projectId: string): Promise<PlayableProjectRuntimeResponse> {
+  return request(`/projects/${projectId}/playable`);
 }
 
 export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {

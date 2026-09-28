@@ -10,7 +10,7 @@ import type {
 } from "./playable-runtime.js";
 
 export const PLAYABLE_SANDBOX_CSP =
-  "default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data: blob:; style-src 'unsafe-inline'; script-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data: blob:; style-src 'unsafe-inline'; script-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 export const PLAYABLE_IFRAME_SANDBOX = "allow-scripts";
 
 export interface PlayableSurfaceModule {

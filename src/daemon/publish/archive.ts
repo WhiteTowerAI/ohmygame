@@ -12,6 +12,9 @@ import type { AssetLibrary } from "../asset-library.js";
 import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { readStoryCodebase } from "../story-codebase.js";
+import { buildPlayableProject } from "../playable-project.js";
+import type { PlayablePlayerDefinition } from "../../shared/playable-player-protocol.js";
+import { getWorkspaceMedia } from "../workspace.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -77,6 +80,16 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   if (!library || !playerDirectory || !await exists(path.join(playerDirectory, "index.html"))) {
     throw new PublishError("Interactive Drama Player is not built. Run npm run build:player first.");
   }
+  let playable: PlayablePlayerDefinition | undefined;
+  try {
+    playable = await buildPlayableProject(project.workspacePath, "publish");
+  } catch (cause) {
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
+  }
+  if (playable) {
+    await assertPlayablePlayerBuilt(playerDirectory);
+    return preparePlayableProject(project, playable, library, playerDirectory);
+  }
   let story: StoryDocument;
   try {
     story = await readStoryCodebase(project.workspacePath);
@@ -110,6 +123,76 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   } catch (cause) {
     await rm(output, { recursive: true, force: true });
     throw cause;
+  }
+}
+
+async function preparePlayableProject(
+  project: ProjectState,
+  definition: PlayablePlayerDefinition,
+  library: AssetLibrary,
+  playerDirectory: string,
+): Promise<string> {
+  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-build-"));
+  try {
+    await cp(playerDirectory, output, { recursive: true });
+    await mkdir(path.join(output, "assets", "media"), { recursive: true });
+    const assetPaths: Record<string, string> = {};
+    for (const [id, assetDefinition] of Object.entries(definition.graph.assets).sort(([left], [right]) => left.localeCompare(right))) {
+      let absolutePath: string;
+      let mediaType: string;
+      let extension: string;
+      if (assetDefinition.source.kind === "library") {
+        const result = await library.content(assetDefinition.source.assetId);
+        absolutePath = result.absolutePath;
+        mediaType = result.asset.mediaType;
+        extension = path.extname(result.asset.name).toLowerCase();
+      } else {
+        const result = await getWorkspaceMedia(project.workspacePath, assetDefinition.source.path);
+        absolutePath = result.absolutePath;
+        mediaType = result.mediaType;
+        extension = path.extname(result.relativePath).toLowerCase();
+      }
+      if (mediaType !== assetDefinition.type) {
+        throw new PublishError(`Asset "${id}" is not a compatible ${assetDefinition.type} asset.`);
+      }
+      const relative = `assets/media/${safeAssetFileName(id)}${extension}`;
+      await copyFile(absolutePath, path.join(output, ...relative.split("/")));
+      assetPaths[id] = `./${relative}`;
+    }
+    await writeFile(path.join(output, "playable.json"), `${JSON.stringify(definition)}\n`);
+    await writeFile(path.join(output, "manifest.json"), `${JSON.stringify({
+      version: 1,
+      runtime: "playable-nodes",
+      playable: "playable.json",
+      scope: `published:${project.id}`,
+      assets: assetPaths,
+    }, null, 2)}\n`);
+    return output;
+  } catch (cause) {
+    await rm(output, { recursive: true, force: true });
+    throw cause;
+  }
+}
+
+function safeAssetFileName(id: string): string {
+  return id.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function assertPlayablePlayerBuilt(playerDirectory: string): Promise<void> {
+  const required = [
+    "index.html",
+    "playable-sandbox.html",
+    "assets/playable-sandbox.js",
+  ];
+  const missing = (
+    await Promise.all(required.map(async (file) =>
+      await exists(path.join(playerDirectory, ...file.split("/"))) ? undefined : file,
+    ))
+  ).filter((file): file is string => file !== undefined);
+  if (missing.length) {
+    throw new PublishError(
+      `Playable Player build is incomplete. Missing: ${missing.join(", ")}. Run npm run build:player first.`,
+    );
   }
 }
 

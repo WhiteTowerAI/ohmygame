@@ -2,7 +2,7 @@ import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfig, StoryScreenAction, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
-import { getStory, listLibraryAssets } from "./api.js";
+import { getLibraryAsset, getPlayableProjectRuntime, getStory, getWorkspaceAsset, listLibraryAssets } from "./api.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface, type StoryCompletionSource } from "./story-interaction-surface.js";
@@ -14,8 +14,64 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { SceneTimerClock } from "./scene-timer-clock.js";
 import { StoryMap } from "./story-map.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
+import { PlayablePlayer } from "./playable-player.js";
+import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
+  const [playable, setPlayable] = useState<
+    | { status: "loading" }
+    | { status: "legacy" }
+    | { status: "ready"; definition: PlayablePlayerDefinition; assets: Record<string, Blob> }
+    | { status: "error"; error: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let disposed = false;
+    setPlayable({ status: "loading" });
+    void getPlayableProjectRuntime(projectId).then(async (result) => {
+      if (!result.available) {
+        if (!disposed) setPlayable({ status: "legacy" });
+        return;
+      }
+      const assets = Object.fromEntries(await Promise.all(
+        Object.entries(result.definition.graph.assets).map(async ([id, asset]) => {
+          const blob = asset.source.kind === "library"
+            ? await getLibraryAsset(asset.source.assetId)
+            : await getWorkspaceAsset(projectId, asset.source.path);
+          return [id, blob] as const;
+        }),
+      ));
+      if (disposed) return;
+      document.title = `${result.definition.graph.title} - Playtest`;
+      setPlayable({ status: "ready", definition: result.definition, assets });
+    }).catch((cause) => {
+      if (!disposed) setPlayable({ status: "error", error: errorMessage(cause) });
+    });
+    return () => { disposed = true; };
+  }, [projectId]);
+
+  if (playable.status === "legacy") return <LegacyPlaytestPage projectId={projectId} chapterId={chapterId} />;
+  if (playable.status === "ready") return (
+    <>
+      <WindowDragRegion />
+      <PlayablePlayer
+        definition={playable.definition}
+        assets={playable.assets}
+        saveKey={`ohmygame:playable:project:${projectId}`}
+      />
+    </>
+  );
+  return (
+    <main className="story-playtest-page">
+      <WindowDragRegion />
+      <div className="story-playtest-state" role={playable.status === "error" ? "alert" : undefined}>
+        {playable.status === "error" ? playable.error : "Loading playtest..."}
+      </div>
+    </main>
+  );
+}
+
+function LegacyPlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
   const [variables, setVariables] = useState<StoryVariable[]>([]);
   const [config, setConfig] = useState<StoryPlayerConfig>(DEFAULT_STORY_PLAYER_CONFIG);

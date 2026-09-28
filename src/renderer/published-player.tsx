@@ -18,6 +18,8 @@ import {
 import { InteractiveDramaPlayer } from "./playtest.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import "./story-player.css";
+import { PlayablePlayer } from "./playable-player.js";
+import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
 
 interface PublishedStoryManifest {
   version: 1;
@@ -26,7 +28,78 @@ interface PublishedStoryManifest {
   assets: Record<string, string>;
 }
 
+interface PublishedPlayableManifest {
+  version: 1;
+  runtime: "playable-nodes";
+  playable: string;
+  scope: string;
+  assets: Record<string, string>;
+}
+
 function PublishedPlayer() {
+  const [manifest, setManifest] = useState<PublishedStoryManifest | PublishedPlayableManifest>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let disposed = false;
+    void fetch("./manifest.json").then(requireJson).then((value) => {
+      if (!disposed) setManifest(value as PublishedStoryManifest | PublishedPlayableManifest);
+    }).catch((cause) => {
+      if (!disposed) setError(errorMessage(cause));
+    });
+    return () => { disposed = true; };
+  }, []);
+
+  if (error) return <PublishedState error={error} />;
+  if (!manifest) return <PublishedState />;
+  return "runtime" in manifest && manifest.runtime === "playable-nodes"
+    ? <PublishedPlayablePlayer manifest={manifest} />
+    : <PublishedStoryPlayer />;
+}
+
+function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableManifest }) {
+  const [state, setState] = useState<
+    | { loading: true }
+    | { loading: false; definition: PlayablePlayerDefinition; assets: Record<string, Blob> }
+    | { loading: false; error: string }
+  >({ loading: true });
+
+  useEffect(() => {
+    let disposed = false;
+    void Promise.all([
+      fetch(`./${manifest.playable}`).then(requireJson),
+      Promise.all(Object.entries(manifest.assets).map(async ([id, url]) => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Asset "${id}" could not be loaded.`);
+        return [id, await response.blob()] as const;
+      })),
+    ]).then(([definition, assets]) => {
+      if (disposed) return;
+      const playable = definition as PlayablePlayerDefinition;
+      document.title = playable.graph.title;
+      setState({ loading: false, definition: playable, assets: Object.fromEntries(assets) });
+    }).catch((cause) => {
+      if (!disposed) setState({ loading: false, error: errorMessage(cause) });
+    });
+    return () => { disposed = true; };
+  }, [manifest]);
+
+  if (state.loading) return <PublishedState />;
+  if ("error" in state) return <PublishedState error={state.error} />;
+  return <PlayablePlayer
+    definition={state.definition}
+    assets={state.assets}
+    saveKey={`ohmygame:playable:${manifest.scope}`}
+  />;
+}
+
+function PublishedState({ error }: { error?: string }) {
+  return <main className="story-playtest-page">
+    <div className="story-playtest-state" role={error ? "alert" : undefined}>{error ?? "Loading game..."}</div>
+  </main>;
+}
+
+function PublishedStoryPlayer() {
   const [story, setStory] = useState<StoryDocument>();
   const [runtime, setRuntime] = useState<PlayerRuntimeState>();
   const [paused, setPaused] = useState(false);

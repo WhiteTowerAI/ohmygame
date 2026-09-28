@@ -1,4 +1,6 @@
 import type { PlayableGraph } from "../src/shared/playable-nodes.js";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 export const PLAYABLE_FIXTURE_FILES = new Set([
   "assets/background.webp",
@@ -95,4 +97,50 @@ export function createPlayableGraphFixture(): PlayableGraph {
       },
     ],
   };
+}
+
+export async function writePlayableFixtureWorkspace(
+  workspace: string,
+  graph = createPlayableGraphFixture(),
+): Promise<void> {
+  await Promise.all([
+    mkdir(path.join(workspace, "assets"), { recursive: true }),
+    mkdir(path.join(workspace, "shell"), { recursive: true }),
+    ...graph.nodes.map((node) =>
+      mkdir(path.join(workspace, "nodes", node.id), { recursive: true }),
+    ),
+  ]);
+  await Promise.all([
+    writeFile(
+      path.join(workspace, "graph.json"),
+      `${JSON.stringify(graph, null, 2)}\n`,
+    ),
+    writeFile(path.join(workspace, "assets", "background.webp"), "fixture"),
+    writeFile(
+      path.join(workspace, "shell", "index.html"),
+      "<nav>Shell</nav>\n",
+    ),
+    writeFile(
+      path.join(workspace, "shell", "style.css"),
+      "nav { pointer-events: auto; }\n",
+    ),
+    writeFile(
+      path.join(workspace, "shell", "shell.js"),
+      "export function mount() {}\n",
+    ),
+    ...graph.nodes.flatMap((node) => [
+      writeFile(
+        path.join(workspace, "nodes", node.id, "index.html"),
+        `<main>${node.title}</main>\n`,
+      ),
+      writeFile(
+        path.join(workspace, "nodes", node.id, "style.css"),
+        "main { display: grid; }\n",
+      ),
+      writeFile(
+        path.join(workspace, "nodes", node.id, "node.js"),
+        "export function mount() {}\n",
+      ),
+    ]),
+  ]);
 }
