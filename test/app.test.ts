@@ -5,10 +5,11 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { DEFAULT_VIDEO_MODEL, type StoryDocument } from "../src/shared/contracts.js";
+import { type StoryDocument } from "../src/shared/contracts.js";
 import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
@@ -500,7 +501,7 @@ describe("daemon", () => {
       position: { x: 0, y: 0 },
       data: {
         prompt: "Opening",
-        model: DEFAULT_VIDEO_MODEL,
+        model: TEST_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -647,7 +648,7 @@ describe("daemon", () => {
       position: { x: 100, y: 0 },
       data: {
         prompt: "Animate",
-        model: DEFAULT_VIDEO_MODEL,
+        model: TEST_VIDEO_MODEL,
         resolution: "720p",
         aspectRatio: "16:9",
         duration: 6,
@@ -1458,117 +1459,28 @@ describe("daemon", () => {
     expect(unregisterProvider).toHaveBeenCalledWith("openai");
   });
 
-  it("connects and disconnects the OhMyGame account provider", async () => {
-    const runtime = {
-      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
-      getModels: vi.fn(() => [{
-        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
-        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
-      }]),
-      registerProvider: vi.fn(),
-      unregisterProvider: vi.fn(),
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      removeRuntimeApiKey: vi.fn(async () => undefined),
-      listCredentials: vi.fn(async () => []),
-    } as unknown as ModelRuntime;
-    const accountServiceFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://account.ohmygame.ai/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }] }));
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-")),
-      createModelRuntime: async () => runtime,
-      accountServiceFetch,
-    });
+  it("does not expose the removed Cloud model connection", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-cloud-removed-")) });
     apps.push(app);
-
     const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-    const disconnected = await app.inject({ method: "DELETE", url: "/account/connection" });
-
-    expect(connected.json()).toEqual({ status: "connected", modelCount: 1 });
-    expect(disconnected.statusCode).toBe(204);
-    expect(runtime.setRuntimeApiKey).toHaveBeenCalledWith("ohmygame", "sk-account");
-    expect(runtime.removeRuntimeApiKey).toHaveBeenCalledWith("ohmygame");
+    expect(connected.statusCode).toBe(404);
   });
 
-  it("uses the connected Account credential for Meshy T2 generation", async () => {
-    const runtime = {
-      ...fakeModelRuntime([{ provider: "openai", id: "known-model", name: "Known Model" }]),
-      getModels: vi.fn(() => [{
-        provider: "openai", id: "known-model", name: "Known Model", reasoning: false,
-        input: ["text"], contextWindow: 100_000, maxTokens: 10_000,
-      }]),
-      registerProvider: vi.fn(),
-      unregisterProvider: vi.fn(),
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      removeRuntimeApiKey: vi.fn(async () => undefined),
-      listCredentials: vi.fn(async () => []),
-      getProviders: vi.fn(() => []),
-    } as unknown as ModelRuntime;
-    const accountServiceFetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ data: { base_url: "https://api.ohmygame.test/v1", api_key: "sk-account" } }))
-      .mockResolvedValueOnce(Response.json({ data: [{ id: "known-model" }, { id: "meshy-t2" }] }))
-      .mockResolvedValueOnce(Response.json({ id: "task_123", status: "queued", artifacts: [] }))
-      .mockResolvedValueOnce(Response.json({
-        id: "task_123",
-        status: "completed",
-        artifacts: [{ id: "artifact_123", kind: "model", variant: "primary", format: "glb", content_url: "/v1/3d/generations/task_123/content" }],
-      }))
-      .mockResolvedValueOnce(new Response(Buffer.from("glb"), { status: 200, headers: { "content-type": "model/gltf-binary" } }));
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-managed-3d-"));
-    const app = createApp({
-      dataDirectory,
-      createModelRuntime: async () => runtime,
-      accountServiceFetch,
-    });
+  it("stores and clears Meshy credentials", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-meshy-settings-")) });
     apps.push(app);
 
-    const connected = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-    expect(connected.statusCode).toBe(200);
-    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
-    expect(providers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "meshy" })]));
-    expect(providers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "ohmygame", capabilities: ["language", "image", "video", "3d"] }),
-    ]));
-    const generated = await app.inject({
-      method: "POST",
-      url: "/tools/image-to-3d/jobs",
-      payload: {
-        images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
-        texture: true,
-      },
-    });
-
-    expect(generated.statusCode, generated.body).toBe(202);
-    let job: { status: string; run?: { files: Array<{ assetId?: string }> } } | undefined;
-    await vi.waitFor(async () => {
-      job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json()
-        .find((candidate: { id: string }) => candidate.id === generated.json().id);
-      expect(job?.status).toBe("succeeded");
-    });
-    const content = await app.inject({ method: "GET", url: `/library/assets/${job?.run?.files[0]?.assetId}/content` });
-    expect(content.statusCode).toBe(200);
-    expect(content.rawPayload).toEqual(Buffer.from("glb"));
-    expect(accountServiceFetch).toHaveBeenNthCalledWith(3, "https://api.ohmygame.test/v1/3d/generations", expect.objectContaining({
-      method: "POST",
-      headers: { authorization: "Bearer sk-account", "content-type": "application/json" },
-    }));
-    expect(accountServiceFetch).toHaveBeenNthCalledWith(5, "https://api.ohmygame.test/v1/3d/generations/task_123/content", expect.objectContaining({
-      headers: { authorization: "Bearer sk-account" },
-    }));
-  });
-
-  it("reports Account connection failures as gateway errors", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-account-error-")),
-      createModelRuntime: async () => fakeModelRuntime([]),
-      accountServiceFetch: vi.fn(async () => Response.json({ error: "unavailable" }, { status: 503 })),
-    });
-    apps.push(app);
-
-    const response = await app.inject({ method: "PUT", url: "/account/connection", payload: { accessToken: "user-token" } });
-
-    expect(response.statusCode).toBe(502);
-    expect(response.json()).toEqual({ error: "Account service request failed (503)" });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/meshy" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/meshy",
+      payload: { apiKey: "meshy-key" },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/meshy" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/meshy" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
   });
 
   it("validates request bodies before they reach a manager", async () => {

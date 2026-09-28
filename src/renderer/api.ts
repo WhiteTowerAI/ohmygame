@@ -34,6 +34,7 @@ import {
   type ToolId,
   type ToolJob,
   type ToolJobContext,
+  type VideoModel,
   type PromptImage,
   type PromptAttachment,
   type PluginMention,
@@ -138,16 +139,6 @@ export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Pr
   });
 }
 
-export async function connectAccount(accessToken: string): Promise<void> {
-  await request("/account/connection", { method: "PUT", body: JSON.stringify({ accessToken }) });
-  notifyAgentModelsChanged();
-}
-
-export async function disconnectAccount(): Promise<void> {
-  await request("/account/connection", { method: "DELETE" });
-  notifyAgentModelsChanged();
-}
-
 export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
 
 export function notifyAgentModelsChanged(): void {
@@ -167,6 +158,13 @@ export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<Mod
     method: "PUT",
     body: JSON.stringify({ baseUrl }),
   });
+}
+
+export async function updateMeshyApiKey(apiKey: string): Promise<{ configured: boolean }> {
+  return request("/settings/models/providers/meshy", { method: "PUT", body: JSON.stringify({ apiKey }) });
+}
+export async function clearMeshyApiKey(): Promise<void> {
+  await request("/settings/models/providers/meshy", { method: "DELETE" });
 }
 
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
@@ -203,6 +201,10 @@ export function subscribeToModelAuth(
 
 export async function listImageModels(): Promise<ImageModel[]> {
   return request("/image-models");
+}
+
+export async function listVideoModels(): Promise<VideoModel[]> {
+  return request("/video-models");
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {

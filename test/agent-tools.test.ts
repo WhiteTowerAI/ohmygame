@@ -4,13 +4,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { DEFAULT_VIDEO_MODEL } from "../src/shared/contracts.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
-import type { VideoGenerator } from "../src/daemon/seedance-video.js";
+import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import type { PlaytestDriver } from "../src/shared/playtest.js";
+
+const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
 describe("agent tools", () => {
   it("maps enabled product tools to Pi tool names", () => {
@@ -228,7 +229,7 @@ describe("agent tools", () => {
     const videoGenerator: VideoGenerator = {
       generate: async (input) => {
         expect(input.prompt).toBe("Slow camera move");
-        expect(input.model).toBe(DEFAULT_VIDEO_MODEL);
+        expect(input.model).toEqual(TEST_VIDEO_MODEL);
         expect(input.duration).toBe(8);
         expect(input.references).toHaveLength(1);
         expect(input.references?.[0]?.type).toBe("image");
@@ -240,7 +241,7 @@ describe("agent tools", () => {
     const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_video");
     if (!tool) throw new Error("Expected video tool");
 
-    const result = await tool.execute("call-1", { prompt: "Slow camera move", imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-1", { prompt: "Slow camera move", model: TEST_VIDEO_MODEL, imagePath: "assets/generated/source.webp", duration: 8 }, undefined, undefined, {} as never);
     const text = result.content[0]?.type === "text" ? result.content[0].text : "";
     const relativePath = text.replace("Generated video saved to ", "");
 

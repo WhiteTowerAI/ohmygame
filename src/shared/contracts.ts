@@ -17,10 +17,12 @@ export interface AgentContextUsage {
   percent: number | null;
 }
 
-export interface AgentModelRef {
+export interface ModelRef {
   provider: string;
   id: string;
 }
+
+export type AgentModelRef = ModelRef;
 
 export interface AgentModel extends AgentModelRef {
   name: string;
@@ -48,12 +50,10 @@ export interface ModelProviderSummary {
   methods: Array<{ type: ModelAuthMethod; label: string }>;
 }
 
-export type ProviderKind = "pi" | "account";
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video";
 
 export interface ProviderSummary extends ModelProviderSummary {
-  kind: ProviderKind;
   status: ProviderStatus;
   capabilities: ProviderCapability[];
   error?: string;
@@ -84,10 +84,7 @@ export type ModelAuthEvent = {
   | { type: "error"; error: string }
 );
 
-export interface ImageModelRef {
-  provider: string;
-  id: string;
-}
+export type ImageModelRef = ModelRef;
 
 export interface ImageModel extends ImageModelRef {
   name: string;
@@ -95,11 +92,14 @@ export interface ImageModel extends ImageModelRef {
   sizes: readonly ImageSize[];
   generationOptions: readonly ImageGenerationOption[];
   supportsReferenceImage: boolean;
+  maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
   protocol: ImageProtocol;
+  supportsResolution?: boolean;
+  supportsAspectRatio?: boolean;
 }
 
-export type ImageProtocol = "openai-images" | "gemini-generate-content";
+export type ImageProtocol = "openai-images" | "gemini-generate-content" | "openrouter-images";
 
 export interface PublicationState {
   gameId: string;
@@ -301,7 +301,7 @@ export type StoryNode = (
   | { id: string; type: "video"; position: StoryPosition; data: {
     prompt: string;
     promptSource?: StoryTextReference;
-    model: VideoModelId;
+    model?: VideoModelRef;
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
@@ -730,15 +730,20 @@ export interface ImageGenerationOption {
   aspectRatio: ImageAspectRatio;
 }
 
-export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
-export const VIDEO_MODELS = [
-  { id: "doubao-seedance-2-0-260128", name: "Seedance 2.0" },
-  { id: "doubao-seedance-2-5-260628", name: "Seedance 2.5" },
-] as const;
-export type VideoModelId = (typeof VIDEO_MODELS)[number]["id"];
-export const DEFAULT_VIDEO_MODEL: VideoModelId = VIDEO_MODELS[0].id;
-export const VIDEO_RESOLUTIONS = ["480p", "720p", "1080p", "4k"] as const;
+export type VideoModelRef = ModelRef;
+export interface VideoModel extends VideoModelRef {
+  name: string;
+  provider: string;
+  providerName: string;
+  resolutions: readonly VideoResolution[];
+  aspectRatios: readonly VideoAspectRatio[];
+  durations: readonly number[];
+  maxImageReferences: number;
+  imageReferenceMode?: "frame" | "reference";
+}
+export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "4K"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 export interface Model3DGenerationConfig {
@@ -781,7 +786,7 @@ export interface Run3DToolRequest {
 
 export interface RunVideoToolRequest {
   prompt: string;
-  model?: VideoModelId;
+  model?: VideoModelRef;
   references?: VideoGenerationReference[];
   duration?: number;
   aspectRatio?: VideoAspectRatio;

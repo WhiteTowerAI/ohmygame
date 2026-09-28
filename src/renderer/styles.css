@@ -1303,11 +1303,6 @@ body {
   object-fit: contain;
 }
 
-.settings-provider-mark.is-ohmygame img {
-  width: 100%;
-  height: 100%;
-}
-
 .settings-provider-mark.is-monochrome img {
   filter: invert(1);
 }

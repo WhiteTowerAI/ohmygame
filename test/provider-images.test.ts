@@ -1,20 +1,42 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderImages } from "../src/daemon/provider-images.js";
-import type { AccountConnection } from "../src/daemon/account-connection.js";
 
 describe("ProviderImages", () => {
+  it("lists and generates with a configured OpenRouter image model", async () => {
+    const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/images/models")
+      ? Response.json({ data: [{
+          id: "openai/gpt-image-2.5-flare",
+          name: "OpenAI: GPT Image 2.5 Flare",
+          architecture: { input_modalities: ["text", "image"], output_modalities: ["image"] },
+          supported_parameters: {
+            resolution: { type: "enum", values: ["1K", "2K"] },
+            aspect_ratio: { type: "enum", values: ["1:1", "16:9"] },
+          },
+        }] })
+      : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64"), media_type: "image/png" }] }));
+    const images = new ProviderImages(async () => openRouterRuntime(), request);
+
+    await expect(images.models()).resolves.toEqual([
+      expect.objectContaining({ provider: "openrouter", id: "openai/gpt-image-2.5-flare", protocol: "openrouter-images" }),
+    ]);
+    await expect(images.generate({
+      prompt: "A game icon",
+      imageModel: { provider: "openrouter", id: "openai/gpt-image-2.5-flare" },
+      resolution: "2K",
+      aspectRatio: "16:9",
+    })).resolves.toMatchObject({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    expect(request.mock.calls.find(([input]) => String(input).endsWith("/images"))?.[0]).toBe("https://openrouter.ai/api/v1/images");
+  });
+
   it("lists supported image models for each connected provider", async () => {
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(),
       vi.fn(async () => Response.json({ data: [{ id: "gpt-image-2.5-flare" }, { id: "text-only" }] })),
     );
 
     const models = await images.models();
     expect(models).toEqual([
-      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gpt-image-2.5-flare", name: "GPT Image 2.5" }),
-      expect.objectContaining({ provider: "ohmygame", providerName: "OhMyGame account", id: "gemini-3.1-flash-image", name: "Nano Banana 2" }),
       expect.objectContaining({ provider: "openai", providerName: "OpenAI", id: "gpt-image-2.5-flare" }),
     ]);
     const gpt = models.find((model) => model.id === "gpt-image-2.5-flare");
@@ -28,7 +50,6 @@ describe("ProviderImages", () => {
     });
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(),
       request,
     );
 
@@ -41,42 +62,41 @@ describe("ProviderImages", () => {
   });
 
   it("prefers the model supplied by a generation request", async () => {
-    const request = vi.fn<typeof fetch>(async () => Response.json({
-      data: [{ b64_json: Buffer.from("image").toString("base64") }],
-    }));
-    const images = new ProviderImages(
-      async () => runtime(),
-      accountConnection(),
-      request,
-    );
-
-    await images.generate({
-      prompt: "A game icon",
-      imageModel: { provider: "ohmygame", id: "gpt-image-2.5-flare" },
-      resolution: "1K",
-      aspectRatio: "1:1",
-    });
-
-    expect(request.mock.calls[0]?.[0]).toBe("https://account.ohmygame.ai/v1/images/generations");
-    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-account" }));
-  });
-
-  it("uses the preferred Account model by default without querying OpenAI", async () => {
     const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
       ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] })
       : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(),
+      request,
+    );
+
+    await expect(images.generate({
+      prompt: "A game icon",
+      imageModel: { provider: "openai", id: "gpt-image-2.5-flare" },
+      resolution: "1K",
+      aspectRatio: "1:1",
+    })).resolves.toBeDefined();
+
+    const generation = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
+    expect(generation?.[0]).toBe("https://api.openai.com/v1/images/generations");
+    expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-openai" }));
+  });
+
+  it("uses a configured BYOK model before the legacy Account model", async () => {
+    const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
+      ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] })
+      : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    const images = new ProviderImages(
+      async () => runtime(),
       request,
     );
 
     await images.generate({ prompt: "A game icon", size: "1024x1024" });
 
     const generation = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
-    expect(generation?.[0]).toBe("https://account.ohmygame.ai/v1/images/generations");
-    expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-account" }));
-    expect(request.mock.calls.some(([input]) => String(input).endsWith("/models"))).toBe(false);
+    expect(generation?.[0]).toBe("https://api.openai.com/v1/images/generations");
+    expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-openai" }));
+    expect(request.mock.calls.some(([input]) => String(input).endsWith("/models"))).toBe(true);
   });
 
   it("queries OpenAI models once when selecting its default", async () => {
@@ -85,7 +105,6 @@ describe("ProviderImages", () => {
       : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(false),
       request,
     );
 
@@ -100,29 +119,25 @@ describe("ProviderImages", () => {
   it("validates the selected model's supported sizes", async () => {
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(),
-      vi.fn(),
+      vi.fn(async (input) => String(input).endsWith("/models") ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] }) : Response.json({ data: [] })),
     );
 
-    await expect(images.generate({ prompt: "A game icon", imageModel: { provider: "ohmygame", id: "gpt-image-2.5-flare" }, size: "invalid" as never }))
+    await expect(images.generate({ prompt: "A game icon", imageModel: { provider: "openai", id: "gpt-image-2.5-flare" }, size: "invalid" as never }))
       .rejects.toMatchObject({ message: "Image size is not supported by the selected model", statusCode: 400 });
   });
 
   it("validates configured resolution and aspect-ratio combinations", async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-      data: [{ b64_json: Buffer.from("image").toString("base64") }],
-    }));
+    const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
+      ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] })
+      : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
     const images = new ProviderImages(
       async () => runtime(),
-      accountConnection(),
       request,
     );
 
-    const imageModel = { provider: "ohmygame", id: "gpt-image-2.5-flare" };
+    const imageModel = { provider: "openai", id: "gpt-image-2.5-flare" };
     await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "512", aspectRatio: "1:1" }))
       .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
-    await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "4K", aspectRatio: "1:1" })).resolves.toMatchObject({ mediaType: "image/webp" });
-    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({ size: "2880x2880" });
   });
 });
 
@@ -136,12 +151,12 @@ function runtime(): ModelRuntime {
   } as unknown as ModelRuntime;
 }
 
-function accountConnection(connected = true): AccountConnection {
+function openRouterRuntime(): ModelRuntime {
   return {
-    imageSource: () => connected ? ({
-      baseUrl: "https://account.ohmygame.ai/v1",
-      apiKey: "sk-account",
-      modelIds: ["gemini-3.1-flash-image", "gpt-image-2.5-flare", "text-only"],
-    }) : undefined,
-  } as unknown as AccountConnection;
+    getProvider: (provider: string) => provider === "openrouter"
+      ? { id: provider, name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" }
+      : undefined,
+    hasConfiguredAuth: (provider: string) => provider === "openrouter",
+    getAuth: async () => ({ auth: { apiKey: "sk-openrouter" }, source: "test" }),
+  } as unknown as ModelRuntime;
 }

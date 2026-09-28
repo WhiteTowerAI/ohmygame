@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { VIDEO_MODELS, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
+import { type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -252,11 +252,14 @@ export function createAgentTools(
     description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
-      model: Type.Optional(Type.Union([Type.Literal(VIDEO_MODELS[0].id), Type.Literal(VIDEO_MODELS[1].id)], { description: "Video generation model" })),
+      model: Type.Object({
+        provider: Type.String({ description: "Model provider ID" }),
+        id: Type.String({ description: "Provider model ID" }),
+      }, { description: "Video model reference" }),
       imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG, JPEG, or WebP image in the current project workspace" })),
-      duration: Type.Optional(Type.Integer({ minimum: 4, maximum: 15, description: "Video duration in seconds" })),
-      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("1:1"), Type.Literal("3:4"), Type.Literal("9:16")], { description: "Video aspect ratio" })),
-      resolution: Type.Optional(Type.Union([Type.Literal("480p"), Type.Literal("720p"), Type.Literal("1080p"), Type.Literal("4k")], { description: "Video resolution" })),
+      duration: Type.Optional(Type.Integer({ minimum: 1, maximum: 30, description: "Video duration in seconds" })),
+      aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("3:2"), Type.Literal("1:1"), Type.Literal("2:3"), Type.Literal("3:4"), Type.Literal("9:16"), Type.Literal("9:21")], { description: "Video aspect ratio" })),
+      resolution: Type.Optional(Type.Union([Type.Literal("480p"), Type.Literal("720p"), Type.Literal("768p"), Type.Literal("1080p"), Type.Literal("1K"), Type.Literal("2K"), Type.Literal("4K")], { description: "Video resolution" })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
