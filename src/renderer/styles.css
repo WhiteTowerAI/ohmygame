@@ -14076,8 +14076,8 @@ button {
 
 :root[data-appearance="light"]
   .settings-provider-row
-  > button:hover:not(:disabled),
-:root[data-appearance="light"] .settings-provider-row > button:focus-visible {
+  > button:not(.is-primary):hover:not(:disabled),
+:root[data-appearance="light"] .settings-provider-row > button:not(.is-primary):focus-visible {
   background: var(--surface-hover);
 }
 
