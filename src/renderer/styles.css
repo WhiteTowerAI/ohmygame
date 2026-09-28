@@ -762,6 +762,59 @@ body {
   color: var(--theme-accent);
 }
 
+.settings-chat-layout-row {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 4px;
+}
+
+.settings-chat-layout-label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-chat-layout-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--settings-row-surface);
+}
+
+.settings-chat-layout-control button {
+  min-width: 52px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-chat-layout-control button:hover,
+.settings-chat-layout-control button:focus-visible {
+  color: var(--text);
+}
+
+.settings-chat-layout-control button:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.settings-chat-layout-control button.is-selected {
+  background: var(--surface-raised);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+  color: var(--text);
+}
+
 .settings-connection-list {
   display: grid;
   gap: 8px;
@@ -5498,9 +5551,31 @@ button {
   grid-template-columns:
     clamp(320px, var(--agent-width, 430px), 65vw)
     1px minmax(0, 1fr);
+  grid-template-areas: "agent resizer viewer";
   min-height: 100dvh;
   height: 100dvh;
   background: var(--canvas);
+}
+
+.workspace-shell-chat-right {
+  grid-template-columns: minmax(0, 1fr) 1px clamp(320px, var(--agent-width, 430px), 65vw);
+  grid-template-areas: "viewer resizer agent";
+}
+
+.workspace-shell-chat-right .agent-pane > .pane-header > .workspace-navigation-drag-exclusion {
+  display: none;
+}
+
+.agent-pane {
+  grid-area: agent;
+}
+
+.workspace-resizer {
+  grid-area: resizer;
+}
+
+.viewer-pane {
+  grid-area: viewer;
 }
 
 .desktop-macos .workspace-shell {
@@ -5509,11 +5584,23 @@ button {
 
 .workspace-shell-agent-collapsed {
   grid-template-columns: 0 0 minmax(0, 1fr);
+  grid-template-areas: "agent resizer viewer";
+}
+
+.workspace-shell-chat-right.workspace-shell-agent-collapsed {
+  grid-template-columns: minmax(0, 1fr) 0 0;
+  grid-template-areas: "viewer resizer agent";
 }
 
 .workspace-shell-viewer-collapsed {
   --agent-content-column-width: 720px;
   grid-template-columns: minmax(0, 1fr) 0 0;
+  grid-template-areas: "agent resizer viewer";
+}
+
+.workspace-shell-chat-right.workspace-shell-viewer-collapsed {
+  grid-template-columns: 0 0 minmax(0, 1fr);
+  grid-template-areas: "viewer resizer agent";
 }
 
 .workspace-shell-agent-collapsed .agent-pane {
@@ -6247,6 +6334,32 @@ button {
   border-color: var(--border-strong);
   color: var(--text);
 }
+
+.interactive-drama-home-button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.interactive-drama-home-button:hover,
+.interactive-drama-home-button:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.interactive-drama-home-button:focus-visible {
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
 .interactive-drama-project-tools > button > small {
   min-width: 15px;
   padding: 1px 4px;
@@ -9469,6 +9582,17 @@ button {
   padding-left: calc(var(--workspace-navigation-left) + 112px);
 }
 
+.workspace-shell-chat-right.workspace-shell-agent-collapsed .viewer-header,
+.workspace-shell-chat-right.workspace-shell-agent-collapsed .interactive-drama-header {
+  padding-left: 18px;
+}
+
+.workspace-shell-chat-right.workspace-shell-agent-collapsed
+  :is(.viewer-header, .interactive-drama-header)
+  > .workspace-navigation-drag-exclusion {
+  display: none;
+}
+
 .agent-body {
   display: flex;
   flex: 1;
@@ -12034,6 +12158,22 @@ button {
   padding-right: 12px;
 }
 
+.viewer-navigation {
+  display: contents;
+}
+
+.viewer-navigation.is-chat-right {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1;
+}
+
+.viewer-navigation.is-chat-right .workspace-tabs {
+  flex: 0 0 auto;
+}
+
 .viewer-controls-slot {
   min-width: 0;
   justify-self: center;
@@ -13782,17 +13922,27 @@ button {
     grid-template-rows: minmax(340px, 48dvh) minmax(380px, 52dvh);
     height: auto;
     min-height: 100dvh;
+    grid-template-areas: "agent" "viewer";
   }
 
   .workspace-shell-agent-collapsed {
     grid-template-columns: 1fr;
     grid-template-rows: 0 minmax(380px, 100dvh);
+    grid-template-areas: "agent" "viewer";
   }
 
   .workspace-shell-viewer-collapsed {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 100dvh) 0;
     height: 100dvh;
+    grid-template-areas: "agent" "viewer";
+  }
+
+  .workspace-shell-chat-right,
+  .workspace-shell-chat-right.workspace-shell-agent-collapsed,
+  .workspace-shell-chat-right.workspace-shell-viewer-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-areas: "agent" "viewer";
   }
 
   .workspace-resizer {

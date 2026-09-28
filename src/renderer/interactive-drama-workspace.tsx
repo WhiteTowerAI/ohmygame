@@ -17,6 +17,7 @@ import {
   GitBranch,
   GripVertical,
   Hand,
+  House,
   LoaderCircle,
   Layers3,
   Maximize,
@@ -364,7 +365,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish }: {
+export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
   project: ProjectState;
   assetCanvas?: boolean;
   initialNodeId?: string;
@@ -374,6 +375,10 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
   onPublish: (details: PublishDetails) => Promise<boolean>;
+  chatOnRight?: boolean;
+  chatCollapsed?: boolean;
+  onHome?: () => void;
+  onToggleChat?: () => void;
 }) {
   const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -1414,6 +1419,10 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
         <div className="interactive-drama-project-tools">
           {!assetCanvas ? <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button> : null}
           {!assetCanvas ? <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button> : null}
+          {chatOnRight && onHome ? (
+            <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+          ) : null}
+          <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
         </div>
         {!assetCanvas ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
           <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
@@ -1428,6 +1437,11 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button> : null}
+          {chatOnRight && chatCollapsed && onToggleChat ? (
+            <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+              <PanelToggle size={14} />
+            </button>
+          ) : null}
           {!assetCanvas ? <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
             <span>{building ? "Exporting" : "Export"}</span>
