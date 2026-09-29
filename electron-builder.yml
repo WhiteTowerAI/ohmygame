@@ -1,6 +1,9 @@
 appId: ai.ohmygame.desktop
 productName: OhMyGame
 asar: true
+asarUnpack:
+  - node_modules/esbuild/**/*
+  - node_modules/@esbuild/**/*
 
 directories:
   output: release

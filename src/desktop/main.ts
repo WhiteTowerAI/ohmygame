@@ -256,6 +256,8 @@ try {
 
 async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
+  // esbuild spawns a native binary, which cannot run from inside app.asar.
+  environment.ESBUILD_BINARY_PATH ??= packagedEsbuildBinary();
   try {
     await applySystemProxy(environment, (url) => session.defaultSession.resolveProxy(url));
   } catch (error) {
@@ -298,4 +300,9 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
 
 function validRouteId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 200 && !value.includes("/");
+}
+
+function packagedEsbuildBinary(): string {
+  const packageDirectory = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "@esbuild", `${process.platform}-${process.arch}`);
+  return path.join(packageDirectory, process.platform === "win32" ? "esbuild.exe" : path.join("bin", "esbuild"));
 }
