@@ -4,7 +4,7 @@ This document describes what creating a Playable Nodes project feels like. The
 Runtime contract is described separately; this document is about the editor.
 
 It uses the editor's words: a node is a **Scene**, a Signal with its edge is
-an **Exit**, the Entry Node is the **Start**, the Shell is the **Overlay**,
+an **Exit**, the Entry Node is the **Start**,
 Project State is **Variables**, and a Preset is a **Template**. The engine
 term follows in parentheses where it matters; code, schemas, and tools keep
 the engine terms ([vocabulary](README.md#vocabulary)).
@@ -43,7 +43,7 @@ The workspace keeps the current Interactive Drama layout:
 - The main area shows either the Flow canvas or the Workbench of one Scene,
   with a breadcrumb (`Canvas › Case archive`) to return, as the current
   editor does.
-- The **Project ▾** menu holds **Screen size**, **Variables**, **Overlay**,
+- The **Project ▾** menu holds **Screen size**, **Variables**,
   **Export**, and **Show technical details**. **Home** returns
   to the project list. **Playtest** opens the real Runtime; the chat toggle
   and **Publish** follow it.
@@ -71,12 +71,20 @@ Each Scene card shows:
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
   or has an Exit that goes nowhere.
 
-When the project has an Overlay, it appears as its own card with one output
-port per Overlay Exit and no input: nothing leads to the Overlay, and its
-Exits work from whichever Scene is showing.
+The canvas shows only Scenes. A top bar shown on several Scenes adds its
+Exits to each of those Scene cards; there is no separate card for it.
 
 A connection links an Exit port to a target Scene. Exits with **Allow Back**
 (`push` edges) are drawn differently from ordinary ones (`replace`).
+
+Connections always leave an Exit on the right of its Scene and enter the
+target on the left. An Exit marked **Navigation** is a way around the game
+rather than a step in the story, such as a **Home** Exit on many Scenes. It
+has no line; its Exit row names the target instead, such as `→ Platform`.
+Clicking that label selects the connection and opens the connection panel.
+The author turns **Navigation** on or off there or in the Workbench's Exits;
+the agent sets it for Exits that come from a shared component. It only
+changes how the canvas draws the connection, never where the Exit goes.
 
 The canvas keeps the current editor's mature interactions: Add Scene menu,
 context menu, selection, alignment guides, copy and paste, zoom controls,
@@ -165,7 +173,7 @@ describing the change.
 
 ### Talking to the Agent about a Scene
 
-When a Scene or the Overlay is open, the composer shows it as a chip, and the
+When a Scene is open, the composer shows it as a chip, and the
 next message carries it as context: its ID, source files, Signals and their
 targets, and declared assets. An element chosen with **Point at…** adds a
 second chip, and the message carries its description and a screenshot of the
@@ -211,18 +219,19 @@ from the Code view with technical details on.
 Project Style is how two different screens, such as the Ash Club menu and
 archive, stay recognizably part of one game.
 
-## Overlay
+## UI on many Scenes
 
-The Overlay (Shell) is optional UI that stays on screen while Scenes change,
-such as the Ash Club top bar. **Overlay** in the Project ▾ menu, or opening
-the Overlay card, shows its Workbench. It works like a Scene Workbench: live
-preview over a Scene chosen under **Shown over**, **Point at…**, Exits,
-declared assets, and chat context. Without an Overlay it explains that the
-Agent can add one.
+UI that appears on several Scenes, such as the Ash Club top bar or a **Home**
+button, is a shared component (`shared/components/`). The author asks for it
+in chat ("add a Home button to every chapter Scene"), and the Agent writes the
+component once and imports it into each Scene that should show it.
 
-The Overlay has its own Exits (Shell `signals`), such as **Home** or
-**Rules**. They are connected like a Scene's, from the Overlay card or its
-inspector, and are followed from whichever Scene is showing.
+Its buttons are that Scene's own Exits. They appear on the Scene's card and in
+its Workbench, and are connected like any other Exit, so **Home** can lead to
+the menu from one Scene and to the chapter list from another. A Scene that
+does not import the component does not show it. There is no layer over every
+Scene and nothing extra on the canvas; anything that must carry over between
+Scenes, such as a score, is a Variable.
 
 ## Variables
 
@@ -292,15 +301,15 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | Current editor part                                   | In Playable Nodes                                                     |
 | ----------------------------------------------------- | --------------------------------------------------------------------- |
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
-| Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card, the Overlay card, and Exit ports           |
-| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Keep as the single Workbench for every Scene and for the Overlay      |
+| Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
+| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Keep as the single Workbench for every Scene                          |
 | Library asset picker and upload                       | Keep in the Assets section of the inspector                           |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
 | Variables dialog                                      | Becomes the Variables (Project State) panel                           |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
 | Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and Scene content                    |
 | Condition and Update State nodes                      | Remove; Scenes read Variables and take distinct Exits                 |
-| Story Map and Settings system nodes                   | Remove; ordinary Scenes and the Overlay's Exits                       |
+| Story Map and Settings system nodes                   | Remove; ordinary Scenes and shared components                         |
 | Text, Image, Video, and 3D generation nodes           | Stay in Asset Canvas only                                             |
 
 The detailed inventory and PR order belong in `roadmap.md`.
@@ -395,7 +404,7 @@ review below comes after the MVP
 ([roadmap](roadmap.md#after-the-mvp)).
 
 - Before each Agent turn, the editor records a checkpoint of `graph.json`,
-  `editor/layout.json`, and the node, Shell, and `shared/` source files.
+  `editor/layout.json`, and the node and `shared/` source files.
 - After the turn, the canvas highlights the change set: new Scenes and
   connections marked **New**, changed Scenes marked **Edited**, removed ones
   listed in a

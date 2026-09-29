@@ -47,7 +47,7 @@ describe("Published Player", () => {
     const data = await temporary("ohmygame-playable-publish-data-");
     const graph = createNodeGraphFixture();
     delete graph.assets.theme;
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     await mkdir(path.join(player, "assets"));
     await Promise.all([
@@ -116,7 +116,7 @@ describe("Published Player", () => {
     delete graph.assets.theme;
     graph.assets.poster = structuredClone(graph.assets.background!);
     graph.nodes[0]!.assets.push("poster");
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
@@ -148,7 +148,7 @@ describe("Published Player", () => {
     const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     graph.assets.background!.type = "video";
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
@@ -163,7 +163,7 @@ describe("Published Player", () => {
     const data = await temporary("ohmygame-playable-publish-data-");
     const graph = createNodeGraphFixture();
     delete graph.assets.theme;
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
@@ -186,7 +186,7 @@ describe("Published Player", () => {
     const data = await temporary("ohmygame-playable-publish-data-");
     const graph = createNodeGraphFixture();
     delete graph.assets.theme;
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
@@ -221,7 +221,7 @@ describe("Published Player", () => {
     const data = await temporary("ohmygame-playable-publish-data-");
     const graph = createNodeGraphFixture();
     delete graph.assets.theme;
-    if (graph.shell) graph.shell.assets = [];
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
     await writePlayableFixtureWorkspace(workspace, graph);
     await writeFile(path.join(player, "index.html"), "Incomplete Player");
     const library = new AssetLibrary(data);

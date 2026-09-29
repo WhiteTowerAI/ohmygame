@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("Node compiler", () => {
-  it("compiles Nodes and Shell with Shared Modules and project dependencies", async () => {
+  it("compiles Nodes with Shared Modules and project dependencies", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
 
     const result = await compileNodeGraph(workspace, graph);
@@ -45,8 +45,19 @@ describe("Node compiler", () => {
         "shared/pixel.svg",
       ]),
     );
-    expect(result.shell?.javascript).toContain("from-shared");
-    expect(result.shell?.inputs).toContain("shared/action-bar.js");
+    expect(result).not.toHaveProperty("shell");
+  });
+
+  it("compiles a shared component into each Node that imports it", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+
+    const result = await compileNodeGraph(workspace, graph);
+
+    for (const nodeId of ["lobby", "archive"]) {
+      expect(result.nodes[nodeId]!.javascript).toContain("top-bar");
+      expect(result.nodes[nodeId]!.inputs).toContain("shared/components/top-bar.js");
+    }
+    expect(result.nodes.menu!.inputs).not.toContain("shared/components/top-bar.js");
   });
 
   it("supports production minification and inline source maps", async () => {
@@ -74,9 +85,6 @@ describe("Node compiler", () => {
     expect(plain.nodes.menu!.html).not.toContain("data-ohmygame-source");
     expect(annotated.nodes.menu!.html).toContain(
       'data-ohmygame-source="nodes/menu/index.html:1:1"',
-    );
-    expect(annotated.shell!.html).toContain(
-      'data-ohmygame-source="shell/index.html:1:1"',
     );
   });
 
@@ -157,7 +165,7 @@ describe("Node compiler", () => {
     );
   });
 
-  it("requires every Node and Shell module to export mount", async () => {
+  it("requires every Node module to export mount", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
     await writeFile(
       path.join(workspace, "nodes", "archive", "node.js"),
@@ -202,8 +210,7 @@ async function createCompilerWorkspace(
     mkdir(path.join(workspace, "nodes", "menu"), { recursive: true }),
     mkdir(path.join(workspace, "nodes", "lobby"), { recursive: true }),
     mkdir(path.join(workspace, "nodes", "archive"), { recursive: true }),
-    mkdir(path.join(workspace, "shell"), { recursive: true }),
-    mkdir(path.join(workspace, "shared"), { recursive: true }),
+    mkdir(path.join(workspace, "shared", "components"), { recursive: true }),
   ]);
 
   await Promise.all([
@@ -238,14 +245,9 @@ async function createCompilerWorkspace(
       path.join(workspace, "shared", "pixel.svg"),
       '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n',
     ),
-    writeFile(path.join(workspace, "shell", "index.html"), "<nav></nav>\n"),
     writeFile(
-      path.join(workspace, "shell", "style.css"),
-      "nav { position: fixed; }\n",
-    ),
-    writeFile(
-      path.join(workspace, "shell", "shell.js"),
-      'import { sharedLabel } from "../shared/action-bar.js"; export function mount() { return sharedLabel; }\n',
+      path.join(workspace, "shared", "components", "top-bar.js"),
+      'export function mountTopBar(context) { context.root.append("top-bar"); }\n',
     ),
   ]);
   for (const nodeId of ["lobby", "archive"]) {
@@ -260,7 +262,7 @@ async function createCompilerWorkspace(
       ),
       writeFile(
         path.join(workspace, "nodes", nodeId, "node.js"),
-        "export function mount() {}\n",
+        'import { mountTopBar } from "../../shared/components/top-bar.js";\nexport function mount(context) { mountTopBar(context); }\n',
       ),
     ]);
   }

@@ -92,27 +92,15 @@ export async function compileNodeGraph(
   }
 
   const workspaceRoot = await resolveWorkspaceRoot(workspacePath);
-  const [entriesResult, shellResult] = await Promise.allSettled([
-    mapConcurrent(
-      graph.nodes,
-      MAX_CONCURRENT_SURFACE_BUILDS,
-      async (node): Promise<[string, CompiledPlayableSurface]> => [
-        node.id,
-        await compileSurface(workspaceRoot, node.id, node.source, options),
-      ],
-    ),
-    graph.shell
-      ? compileSurface(workspaceRoot, "shell", graph.shell.source, options)
-      : undefined,
-  ]);
-  if (entriesResult.status === "rejected") throw entriesResult.reason;
-  if (shellResult.status === "rejected") throw shellResult.reason;
-
-  return {
-    version: 1,
-    nodes: Object.fromEntries(entriesResult.value),
-    ...(shellResult.value ? { shell: shellResult.value } : {}),
-  };
+  const entries = await mapConcurrent(
+    graph.nodes,
+    MAX_CONCURRENT_SURFACE_BUILDS,
+    async (node): Promise<[string, CompiledPlayableSurface]> => [
+      node.id,
+      await compileSurface(workspaceRoot, node.id, node.source, options),
+    ],
+  );
+  return { version: 1, nodes: Object.fromEntries(entries) };
 }
 
 async function compileSurface(

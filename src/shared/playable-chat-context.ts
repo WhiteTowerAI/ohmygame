@@ -1,56 +1,35 @@
 import type { PromptContext, PromptReference } from "./contracts.js";
-import { PLAYABLE_SHELL_ID, type NodeGraph, type NodeSource, type PlayableSignal } from "./playable-nodes.js";
+import type { NodeGraph, NodeSource } from "./playable-nodes.js";
 import type { PlayablePickResult } from "./playable-picker.js";
 
-/** The surface open in the Playable editor: a Node, or the Shell. */
-export type PlayableChatSurface = { kind: "node"; nodeId: string } | { kind: "shell" };
-
 /**
- * What the agent is told about the open surface: where its sources are, and
- * the parts of it graph.json owns, so "this" in a message needs no lookup.
+ * What the agent is told about the Node open in the Playable editor: where
+ * its sources are, and the parts of it graph.json owns, so "this" in a
+ * message needs no lookup.
  */
-export function playableSurfaceContext(graph: NodeGraph, surface: PlayableChatSurface): PromptContext | undefined {
-  if (surface.kind === "shell") {
-    if (!graph.shell) return undefined;
-    return {
-      kind: "playable-node",
-      label: "Overlay",
-      text: [
-        "The user has the Shell (the editor calls it the Overlay) open in the Playable editor.",
-        `Sources: ${sourceFiles(graph.shell.source).join(", ")}`,
-        signalList(graph, PLAYABLE_SHELL_ID, graph.shell.signals),
-        `Assets: ${assetList(graph, graph.shell.assets)}`,
-      ].join("\n"),
-    };
-  }
-  const node = graph.nodes.find((candidate) => candidate.id === surface.nodeId);
+export function playableNodeContext(graph: NodeGraph, nodeId: string): PromptContext | undefined {
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return undefined;
+  const signals = node.signals.map((signal) => {
+    const edge = graph.edges.find((candidate) => candidate.source.nodeId === node.id && candidate.source.signal === signal.id);
+    const target = edge ? `${edge.targetNodeId} (${edge.mode})` : "not connected";
+    return `- ${signal.id}${signal.label && signal.label !== signal.id ? ` "${signal.label}"` : ""} → ${target}`;
+  });
   return {
     kind: "playable-node",
     label: node.title,
     text: [
       `The user has Node "${node.id}" (${node.title}) open in the Playable editor.${graph.entryNodeId === node.id ? " It is the Entry Node." : ""}`,
       `Sources: ${sourceFiles(node.source).join(", ")}`,
-      signalList(graph, node.id, node.signals),
+      signals.length ? `Signals:\n${signals.join("\n")}` : "Signals: none",
       `Assets: ${assetList(graph, node.assets)}`,
     ].join("\n"),
   };
 }
 
-function signalList(graph: NodeGraph, surfaceId: string, signals: readonly PlayableSignal[]): string {
-  if (!signals.length) return "Signals: none";
-  return `Signals:\n${signals.map((signal) => {
-    const edge = graph.edges.find((candidate) => candidate.source.nodeId === surfaceId && candidate.source.signal === signal.id);
-    const target = edge ? `${edge.targetNodeId} (${edge.mode})` : "not connected";
-    return `- ${signal.id}${signal.label && signal.label !== signal.id ? ` "${signal.label}"` : ""} → ${target}`;
-  }).join("\n")}`;
-}
-
-/** The open surface's source files, which the agent receives as references. */
-export function playableSurfaceReferences(graph: NodeGraph, surface: PlayableChatSurface): PromptReference[] {
-  const source = surface.kind === "shell"
-    ? graph.shell?.source
-    : graph.nodes.find((node) => node.id === surface.nodeId)?.source;
+/** The open Node's source files, which the agent receives as references. */
+export function playableNodeReferences(graph: NodeGraph, nodeId: string): PromptReference[] {
+  const source = graph.nodes.find((node) => node.id === nodeId)?.source;
   return source ? sourceFiles(source).map((path) => ({ type: "workspace-file", path })) : [];
 }
 
@@ -62,7 +41,7 @@ export function playableElementContext(pick: PlayablePickResult): PromptContext 
     kind: "playable-element",
     label: `<${pick.tag}>${excerpt}`.slice(0, 200),
     text: [
-      `The user picked this element in the preview of ${pick.nodeId === PLAYABLE_SHELL_ID ? "the Shell" : `Node "${pick.nodeId}"`}:`,
+      `The user picked this element in the preview of Node "${pick.nodeId}":`,
       `Element: <${pick.tag}>${excerpt}`,
       ...(pick.source ? [`Source: ${pick.source}`] : ["Source: created by script; find it from the CSS path."]),
       `CSS path from the surface root: ${pick.cssPath}`,

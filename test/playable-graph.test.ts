@@ -3,7 +3,6 @@ import {
   playableEdgeForSignal,
   playableNodeById,
   playableOutgoingEdges,
-  playableSignalsOf,
 } from "../src/shared/playable-graph.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import {
@@ -60,10 +59,9 @@ describe("Node Graph contract", () => {
       targetNodeId: "missing",
       mode: "replace",
     });
-    graph.nodes.push({ ...structuredClone(graph.nodes[1]!), id: "shell" });
     graph.edges.push({
-      id: "shell-broken",
-      source: { nodeId: "shell", signal: "missing" },
+      id: "lobby-broken",
+      source: { nodeId: "lobby", signal: "missing" },
       targetNodeId: "menu",
       mode: "replace",
     });
@@ -73,12 +71,6 @@ describe("Node Graph contract", () => {
     expect(
       result.issues.filter((item) => item.code === "duplicate-id").length,
     ).toBeGreaterThanOrEqual(3);
-    expect(
-      result.issues.some(
-        (item) =>
-          item.path === `/nodes/${graph.nodes.length - 1}/id` && item.code === "reserved-id",
-      ),
-    ).toBe(true);
     expect(
       result.issues.some(
         (item) =>
@@ -102,7 +94,7 @@ describe("Node Graph contract", () => {
   it("validates signal routes, asset dependencies, and referenced files", () => {
     const graph = createNodeGraphFixture();
     graph.nodes[0]!.assets.push("missing-asset");
-    graph.shell!.assets.push("missing-shell-asset");
+    graph.nodes[1]!.assets.push("missing-lobby-asset");
     graph.edges[0]!.source.signal = "undeclared";
     graph.edges.push({
       id: "duplicate-route",
@@ -111,9 +103,6 @@ describe("Node Graph contract", () => {
       mode: "replace",
     });
     const files = new Set([
-      "shell/index.html",
-      "shell/style.css",
-      "shell/shell.js",
       "nodes/menu/index.html",
       "nodes/menu/style.css",
       "nodes/menu/node.js",
@@ -182,6 +171,27 @@ describe("Node Graph contract", () => {
     );
   });
 
+  it("accepts only navigation as a Signal role", () => {
+    const graph = createNodeGraphFixture();
+    expect(graph.nodes.some((node) => node.signals.some((signal) => signal.role === "navigation"))).toBe(true);
+    expect(validateNodeGraph(graph).ok).toBe(true);
+
+    graph.nodes[0]!.signals[0]!.role = "story" as "navigation";
+    const result = validateNodeGraph(graph);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((item) => item.code === "schema" && item.path.includes("/role"))).toBe(true);
+  });
+
+  it("has no layer over every Node: a graph with a shell is rejected", () => {
+    const graph = {
+      ...createNodeGraphFixture(),
+      shell: { source: { html: "shell/index.html" }, assets: [], signals: [] },
+    };
+
+    expect(isNodeGraph(graph)).toBe(false);
+    expect(validateNodeGraph(graph).issues).toContainEqual(expect.objectContaining({ code: "schema" }));
+  });
+
   it("rejects graphs above the runtime resource limits", () => {
     const graph = createNodeGraphFixture();
     graph.nodes = Array.from({ length: 501 }, (_, index) => ({
@@ -202,8 +212,5 @@ describe("Node Graph contract", () => {
     expect(playableNodeById(graph, "missing")).toBeUndefined();
     expect(playableEdgeForSignal(graph, "menu", "inspect")?.mode).toBe("push");
     expect(playableOutgoingEdges(graph, "menu")).toHaveLength(2);
-    expect(playableSignalsOf(graph, "shell")?.map((signal) => signal.id)).toEqual(["home", "archive"]);
-    expect(playableSignalsOf(graph, "menu")).toHaveLength(2);
-    expect(playableSignalsOf(graph, "missing")).toBeUndefined();
   });
 });

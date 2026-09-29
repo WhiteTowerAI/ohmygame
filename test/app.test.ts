@@ -1799,7 +1799,7 @@ describe("Playable Nodes development flag", () => {
     expect(project.name).toBe("Last Train Home");
     const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
     expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["platform", "carriage", "home"]);
-    expect(codebase.graph.shell).toBeDefined();
+    expect(codebase.graph.shell).toBeUndefined();
     const runtime = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json();
     expect(Object.keys(runtime.definition.compiled.nodes)).toEqual(["platform", "carriage", "home"]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);

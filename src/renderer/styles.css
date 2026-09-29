@@ -14718,35 +14718,6 @@ button {
   white-space: nowrap;
 }
 
-.playable-overlay-card {
-  display: grid;
-  width: 240px;
-  gap: 8px;
-  padding: 8px 0 10px 10px;
-  border: 1px dashed color-mix(in srgb, var(--border-strong) 80%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-}
-
-.playable-overlay-card.is-selected {
-  border-color: var(--accent);
-}
-
-.playable-overlay-card > .story-node-outputs {
-  position: static;
-  width: auto;
-  gap: 8px;
-}
-
-.playable-overlay-card > .playable-node-issue {
-  margin: 0 10px 0 0;
-}
-
-.playable-overlay-card .story-scene-node-label strong {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
 .playable-project-menu {
   width: 232px;
 }
@@ -14874,6 +14845,48 @@ button {
 
 .playable-edge-push .react-flow__edge-path {
   stroke-dasharray: 6 5;
+}
+
+/* A navigation Exit names its target just outside the card instead of drawing a line. */
+.playable-node-output-target {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 12px);
+  display: inline-flex;
+  max-width: 160px;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--story-edge-color) 55%, transparent);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+  gap: 4px;
+  transform: translateY(-50%);
+}
+
+.playable-node-output-target::before {
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 12px;
+  border-top: 1.5px solid var(--story-edge-color);
+  content: "";
+}
+
+.playable-node-output-target span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playable-node-output-target:hover,
+.playable-node-output-target.is-selected {
+  border-color: var(--story-edge-color);
+  color: var(--text);
 }
 
 .playable-edge-inspector {

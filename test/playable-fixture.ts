@@ -4,9 +4,7 @@ import path from "node:path";
 
 export const PLAYABLE_FIXTURE_FILES = new Set([
   "assets/background.webp",
-  "shell/index.html",
-  "shell/style.css",
-  "shell/shell.js",
+  "shared/components/top-bar.js",
   "nodes/menu/index.html",
   "nodes/menu/style.css",
   "nodes/menu/node.js",
@@ -35,18 +33,6 @@ export function createNodeGraphFixture(): NodeGraph {
         source: { kind: "library", assetId: "library-theme" },
       },
     },
-    shell: {
-      source: {
-        html: "shell/index.html",
-        css: "shell/style.css",
-        javascript: "shell/shell.js",
-      },
-      assets: ["theme"],
-      signals: [
-        { id: "home", label: "Home" },
-        { id: "archive", label: "Archive" },
-      ],
-    },
     nodes: [
       {
         id: "menu",
@@ -70,8 +56,11 @@ export function createNodeGraphFixture(): NodeGraph {
           css: "nodes/lobby/style.css",
           javascript: "nodes/lobby/node.js",
         },
-        assets: [],
-        signals: [],
+        assets: ["theme"],
+        signals: [
+          { id: "home", label: "Home", role: "navigation" },
+          { id: "archive", label: "Archive" },
+        ],
       },
       {
         id: "archive",
@@ -82,7 +71,7 @@ export function createNodeGraphFixture(): NodeGraph {
           javascript: "nodes/archive/node.js",
         },
         assets: [],
-        signals: [],
+        signals: [{ id: "home", label: "Home", role: "navigation" }],
       },
     ],
     edges: [
@@ -99,15 +88,21 @@ export function createNodeGraphFixture(): NodeGraph {
         mode: "push",
       },
       {
-        id: "shell-home",
-        source: { nodeId: "shell", signal: "home" },
+        id: "lobby-home",
+        source: { nodeId: "lobby", signal: "home" },
         targetNodeId: "menu",
         mode: "replace",
       },
       {
-        id: "shell-archive",
-        source: { nodeId: "shell", signal: "archive" },
+        id: "lobby-archive",
+        source: { nodeId: "lobby", signal: "archive" },
         targetNodeId: "archive",
+        mode: "replace",
+      },
+      {
+        id: "archive-home",
+        source: { nodeId: "archive", signal: "home" },
+        targetNodeId: "menu",
         mode: "replace",
       },
     ],
@@ -120,7 +115,7 @@ export async function writePlayableFixtureWorkspace(
 ): Promise<void> {
   await Promise.all([
     mkdir(path.join(workspace, "assets"), { recursive: true }),
-    mkdir(path.join(workspace, "shell"), { recursive: true }),
+    mkdir(path.join(workspace, "shared", "components"), { recursive: true }),
     ...graph.nodes.map((node) =>
       mkdir(path.join(workspace, "nodes", node.id), { recursive: true }),
     ),
@@ -132,16 +127,8 @@ export async function writePlayableFixtureWorkspace(
     ),
     writeFile(path.join(workspace, "assets", "background.webp"), "fixture"),
     writeFile(
-      path.join(workspace, "shell", "index.html"),
-      "<nav>Shell</nav>\n",
-    ),
-    writeFile(
-      path.join(workspace, "shell", "style.css"),
-      "nav { pointer-events: auto; }\n",
-    ),
-    writeFile(
-      path.join(workspace, "shell", "shell.js"),
-      "export function mount() {}\n",
+      path.join(workspace, "shared", "components", "top-bar.js"),
+      TOP_BAR_JAVASCRIPT,
     ),
     ...graph.nodes.flatMap((node) => [
       writeFile(
@@ -154,8 +141,24 @@ export async function writePlayableFixtureWorkspace(
       ),
       writeFile(
         path.join(workspace, "nodes", node.id, "node.js"),
-        "export function mount() {}\n",
+        node.signals.some((signal) => signal.id === "home")
+          ? `import { mountTopBar } from "../../shared/components/top-bar.js";\n\nexport function mount(context) {\n  return mountTopBar(context, ${JSON.stringify(node.signals.map((signal) => signal.id))});\n}\n`
+          : "export function mount() {}\n",
       ),
     ]),
   ]);
 }
+
+/** The top bar the Scenes share: one button per Signal the importing Scene declares. */
+const TOP_BAR_JAVASCRIPT = `export function mountTopBar(context, signals) {
+  const bar = document.createElement("nav");
+  for (const signal of signals) {
+    const button = document.createElement("button");
+    button.textContent = signal;
+    button.addEventListener("click", () => context.navigation.emit(signal));
+    bar.append(button);
+  }
+  context.root.append(bar);
+  return () => bar.remove();
+}
+`;

@@ -35,6 +35,7 @@ const signals = {
     properties: {
       id: identifier,
       label: { type: "string", minLength: 1, maxLength: 120 },
+      role: { enum: ["navigation"] },
     },
   },
 } as const;
@@ -125,12 +126,6 @@ export const PLAYABLE_GRAPH_SCHEMA = {
           },
         },
       },
-    },
-    shell: {
-      type: "object",
-      additionalProperties: false,
-      required: ["source", "assets", "signals"],
-      properties: { source, assets: assetIds, signals },
     },
     nodes: {
       type: "array",

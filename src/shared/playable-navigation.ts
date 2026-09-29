@@ -1,13 +1,5 @@
-import {
-  playableEdgeForSignal,
-  playableNodeById,
-  playableSignalsOf,
-} from "./playable-graph.js";
-import {
-  PLAYABLE_SHELL_ID,
-  type NodeGraph,
-  type PlayableNavigationMode,
-} from "./playable-nodes.js";
+import { playableEdgeForSignal, playableNodeById } from "./playable-graph.js";
+import type { NodeGraph, PlayableNavigationMode } from "./playable-nodes.js";
 
 export interface PlayableNavigationState {
   currentNodeId: string;
@@ -41,33 +33,28 @@ export function createPlayableNavigation(
   return { currentNodeId: graph.entryNodeId, backStack: [] };
 }
 
-/**
- * Follows the edge of a Signal. The current Node emits by default; the Shell
- * emits its own Signals with `source` set to `PLAYABLE_SHELL_ID`.
- */
 export function navigatePlayableSignal(
   graph: NodeGraph,
   state: PlayableNavigationState,
   signal: string,
-  source: string = state.currentNodeId,
 ): PlayableNavigationState {
-  if (!playableNodeById(graph, state.currentNodeId))
+  const node = playableNodeById(graph, state.currentNodeId);
+  if (!node)
     throw new PlayableNavigationError(
       "unknown-node",
       `Current Node "${state.currentNodeId}" does not exist.`,
     );
-  const owner = source === PLAYABLE_SHELL_ID ? "The Shell" : `Node "${source}"`;
-  if (!playableSignalsOf(graph, source)?.some((candidate) => candidate.id === signal)) {
+  if (!node.signals.some((candidate) => candidate.id === signal)) {
     throw new PlayableNavigationError(
       "unknown-signal",
-      `${owner} did not declare Signal "${signal}".`,
+      `Node "${node.id}" did not declare Signal "${signal}".`,
     );
   }
-  const edge = playableEdgeForSignal(graph, source, signal);
+  const edge = playableEdgeForSignal(graph, node.id, signal);
   if (!edge)
     throw new PlayableNavigationError(
       "unconnected-signal",
-      `Signal "${source}.${signal}" has no Edge.`,
+      `Signal "${node.id}.${signal}" has no Edge.`,
     );
   if (!playableNodeById(graph, edge.targetNodeId)) {
     throw new PlayableNavigationError(

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   addPlayableNodeAsset,
-  addPlayableShellAsset,
   deletePlayableSignal,
   parsePreviewStateInput,
   playableAssetId,
@@ -10,16 +9,30 @@ import {
   playableThumbnailHash,
   playableStateType,
   removePlayableNodeAsset,
-  removePlayableShellAsset,
   renamePlayableSignal,
   playableEdgeId,
   setPlayableSignalLabel,
+  setPlayableSignalRole,
   setPlayableSignalTarget,
 } from "../src/shared/playable-editor.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable editor graph changes", () => {
+  it("marks an Exit as navigation and back as part of the story", () => {
+    const graph = createNodeGraphFixture();
+    const marked = setPlayableSignalRole(graph, "menu", "start", true);
+    expect(marked.nodes.find((node) => node.id === "menu")?.signals)
+      .toContainEqual({ id: "start", label: "Start", role: "navigation" });
+    expect(marked.edges).toEqual(graph.edges);
+
+    const story = setPlayableSignalRole(marked, "menu", "start", false);
+    expect(story.nodes.find((node) => node.id === "menu")?.signals)
+      .toContainEqual({ id: "start", label: "Start" });
+    expect(graph.nodes.find((node) => node.id === "menu")?.signals)
+      .toContainEqual({ id: "start", label: "Start" });
+  });
+
   it("renames a Signal and preserves its connected Edge", () => {
     const graph = createNodeGraphFixture();
     const renamed = renamePlayableSignal(graph, "menu", "start", "begin");
@@ -93,7 +106,7 @@ describe("Playable editor graph changes", () => {
 
     expect(added.assetId).toBe("door");
     expect(added.graph.assets.door).toEqual({ type: "image", source: { kind: "library", assetId: "library-door" } });
-    expect(added.graph.nodes.find((node) => node.id === "lobby")?.assets).toEqual(["door"]);
+    expect(added.graph.nodes.find((node) => node.id === "lobby")?.assets).toEqual(["theme", "door"]);
 
     const reused = addPlayableNodeAsset(added.graph, "archive", {
       name: "theme.mp3",
@@ -102,7 +115,7 @@ describe("Playable editor graph changes", () => {
     });
     expect(reused.assetId).toBe("theme");
     expect(Object.keys(reused.graph.assets)).toEqual(["background", "theme", "door"]);
-    expect(graph.nodes.find((node) => node.id === "lobby")?.assets).toEqual([]);
+    expect(graph.nodes.find((node) => node.id === "lobby")?.assets).toEqual(["theme"]);
   });
 
   it("drops an Asset from the graph only when nothing declares it", () => {
@@ -111,9 +124,10 @@ describe("Playable editor graph changes", () => {
     expect(removed.nodes[0]!.assets).toEqual([]);
     expect(removed.assets.background).toBeUndefined();
 
-    const shared = addPlayableNodeAsset(graph, "lobby", { name: "theme", ...graph.assets.theme! }).graph;
+    const shared = addPlayableNodeAsset(graph, "archive", { name: "theme", ...graph.assets.theme! }).graph;
     const kept = removePlayableNodeAsset(shared, "lobby", "theme");
     expect(kept.assets.theme).toBeDefined();
+    expect(removePlayableNodeAsset(graph, "lobby", "theme").assets.theme).toBeUndefined();
   });
 
   it("keeps the preview running across title and label edits", () => {
@@ -141,7 +155,7 @@ describe("Playable editor graph changes", () => {
     const definition = {
       version: 1,
       graph,
-      compiled: { nodes: { menu: surface("menu"), lobby: surface("lobby") }, shell: surface("shell") },
+      compiled: { nodes: { menu: surface("menu"), lobby: surface("lobby") } },
       graphSignature: "a",
     } as unknown as NodePlayerDefinition;
     const hash = playableThumbnailHash(definition, "menu")!;
@@ -153,8 +167,8 @@ describe("Playable editor graph changes", () => {
     expect(playableThumbnailHash({ ...definition, graph: renamed, graphSignature: "b" }, "menu")).toBe(hash);
     const edited = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, menu: { ...surface("menu"), css: "main { color: red; }" } } } };
     expect(playableThumbnailHash(edited, "menu")).not.toBe(hash);
-    const shell = { ...definition, compiled: { ...definition.compiled, shell: { ...surface("shell"), html: "<nav>New</nav>" } } };
-    expect(playableThumbnailHash(shell, "menu")).not.toBe(hash);
+    const otherNode = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, lobby: { ...surface("lobby"), html: "<nav>New</nav>" } } } };
+    expect(playableThumbnailHash(otherNode, "menu")).toBe(hash);
     const background = { ...graph, assets: { ...graph.assets, background: { type: "image" as const, source: { kind: "workspace" as const, path: "assets/other.webp" } } } };
     expect(playableThumbnailHash({ ...definition, graph: background }, "menu")).not.toBe(hash);
     expect(playableThumbnailHash({ ...definition, graph: { ...graph, viewport: { width: 720, height: 1280 } } }, "menu")).not.toBe(hash);
@@ -173,26 +187,16 @@ describe("Playable project editing", () => {
     expect(connected.edges.some((edge) => edge.id.includes(":"))).toBe(false);
   });
 
-  it("edits the Shell's Signals like a Node's", () => {
+  it("edits the Signals a shared component emits on the Node that shows it", () => {
     const graph = createNodeGraphFixture();
-    const renamed = setPlayableSignalLabel(graph, "shell", "home", "Menu");
-    expect(renamed.shell?.signals.find((signal) => signal.id === "home")?.label).toBe("Menu");
-    const retargeted = setPlayableSignalTarget(graph, "shell", "home", "lobby", "push");
-    expect(retargeted.edges.find((edge) => edge.source.nodeId === "shell" && edge.source.signal === "home"))
-      .toMatchObject({ targetNodeId: "lobby", mode: "push" });
-    const disconnected = setPlayableSignalTarget(graph, "shell", "archive", undefined);
-    expect(disconnected.edges.some((edge) => edge.source.nodeId === "shell" && edge.source.signal === "archive")).toBe(false);
-    expect(graph.shell?.signals.find((signal) => signal.id === "home")?.label).toBe("Home");
-  });
-
-  it("adds and removes Shell assets", () => {
-    const graph = createNodeGraphFixture();
-    const added = addPlayableShellAsset(graph, { name: "Rain", type: "audio", source: { kind: "workspace", path: "assets/rain.mp3" } });
-
-    expect(added.graph.shell?.assets).toEqual(["theme", added.assetId]);
-    expect(added.graph.assets[added.assetId]).toMatchObject({ type: "audio" });
-    expect(graph.shell?.assets).toEqual(["theme"]);
-    expect(removePlayableShellAsset(added.graph, added.assetId).shell?.assets).toEqual(["theme"]);
+    const renamed = setPlayableSignalLabel(graph, "lobby", "home", "Menu");
+    expect(renamed.nodes.find((node) => node.id === "lobby")?.signals.find((signal) => signal.id === "home")?.label).toBe("Menu");
+    expect(renamed.nodes.find((node) => node.id === "archive")?.signals.find((signal) => signal.id === "home")?.label).toBe("Home");
+    const retargeted = setPlayableSignalTarget(graph, "lobby", "home", "archive", "push");
+    expect(retargeted.edges.find((edge) => edge.source.nodeId === "lobby" && edge.source.signal === "home"))
+      .toMatchObject({ targetNodeId: "archive", mode: "push" });
+    expect(retargeted.edges.find((edge) => edge.source.nodeId === "archive" && edge.source.signal === "home"))
+      .toMatchObject({ targetNodeId: "menu", mode: "replace" });
   });
 
   it("infers the State type shown for a key", () => {

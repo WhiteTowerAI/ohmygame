@@ -64,9 +64,8 @@ describe("Playable project build", () => {
     delete missingNode.nodes.menu;
     expect(isCompiledNodeGraph(missingNode, definition.graph)).toBe(false);
 
-    const missingShell = structuredClone(definition.compiled);
-    delete missingShell.shell;
-    expect(isCompiledNodeGraph(missingShell, definition.graph)).toBe(false);
+    const withShell = { ...structuredClone(definition.compiled), shell: definition.compiled.nodes.menu };
+    expect(isCompiledNodeGraph(withShell, definition.graph)).toBe(false);
 
     const extraField = { ...structuredClone(definition.compiled), debug: true };
     expect(isCompiledNodeGraph(extraField, definition.graph)).toBe(false);

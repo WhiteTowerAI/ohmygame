@@ -625,9 +625,6 @@ export class ProjectManager {
             ...node,
             assets: node.assets.filter((id) => !removedIds.has(id)),
           }));
-          if (codebase.graph.shell) {
-            codebase.graph.shell.assets = codebase.graph.shell.assets.filter((id) => !removedIds.has(id));
-          }
           await writeNodeCodebase(project.workspacePath, codebase);
           await this.touch(project.id);
         }

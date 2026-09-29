@@ -21,7 +21,6 @@ import {
   X,
 } from "./icons.js";
 import {
-  PLAYABLE_SHELL_ID,
   type JsonObject,
   type JsonValue,
   type NodeGraph,
@@ -30,7 +29,7 @@ import {
   type PlayableNode,
   type PlayableSignal,
 } from "../shared/playable-nodes.js";
-import { playableSignalsOf } from "../shared/playable-graph.js";
+import { playableNodeById } from "../shared/playable-graph.js";
 import type { NodePlayerDefinition, PlayablePreviewOptions } from "../shared/playable-player-protocol.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
@@ -57,11 +56,13 @@ export interface PlayableAssetRequest extends PlayableAssetDefinition {
   name: string;
 }
 
-/** Graph edits the Workbenches make to a Node's or the Shell's Signals. */
+/** Graph edits the Workbench makes to a Node's Signals. */
 export interface PlayableSignalEdits {
   onSignalLabel: (surfaceId: string, signalId: string, label: string) => void;
   /** `undefined` disconnects the Signal; `mode` defaults to the edge's current one. */
   onSignalTarget: (surfaceId: string, signalId: string, targetNodeId: string | undefined, mode?: PlayableNavigationMode) => void;
+  /** Marks an Exit as navigation, like Home, or back to part of the story. */
+  onSignalRole: (surfaceId: string, signalId: string, navigation: boolean) => void;
   /** Puts a request in the chat prompt, such as creating the Scene an Exit should open. */
   onAskAgent?: (text: string) => void;
 }
@@ -96,6 +97,7 @@ export function PlayableNodeWorkbench({
   onRename,
   onSignalLabel,
   onSignalTarget,
+  onSignalRole,
   onAskAgent,
   onAddAsset,
   onRemoveAsset,
@@ -150,7 +152,7 @@ export function PlayableNodeWorkbench({
 
   usePlayableChatReport({
     graph,
-    surface: { kind: "node", nodeId: node.id },
+    nodeId: node.id,
     picked,
     clearPicked: () => setPicked(undefined),
     stage: page,
@@ -238,6 +240,7 @@ export function PlayableNodeWorkbench({
         onOpenNode={onOpenNode}
         onSignalLabel={onSignalLabel}
         onSignalTarget={onSignalTarget}
+        onSignalRole={onSignalRole}
       />
       <PlayableAssetsSection projectId={projectId} assetIds={node.assets} graph={graph} issues={issues} emptyText="This Scene uses no assets yet." onAddAsset={onAddAsset} onRemoveAsset={onRemoveAsset} />
       <PlayableStateUsedSection nodeId={node.id} snapshot={snapshot} />
@@ -412,13 +415,11 @@ export function PreviewActivity({ graph, snapshot, diagnostics, buildError, onOp
   onSignalTarget?: PlayableSignalEdits["onSignalTarget"];
   onAskAgent?: (text: string) => void;
 }) {
-  const titleOf = (nodeId?: string) => nodeId === PLAYABLE_SHELL_ID
-    ? "Overlay"
-    : graph.nodes.find((candidate) => candidate.id === nodeId)?.title ?? nodeId;
+  const titleOf = (nodeId?: string) => graph.nodes.find((candidate) => candidate.id === nodeId)?.title ?? nodeId;
   const items: ActivityItem[] = [
     ...(snapshot?.reports ?? []).map((report): ActivityItem => {
       if (report.kind === "signal") {
-        const label = playableSignalsOf(graph, report.nodeId)?.find((signal) => signal.id === report.signal)?.label ?? report.signal;
+        const label = playableNodeById(graph, report.nodeId)?.signals.find((signal) => signal.id === report.signal)?.label ?? report.signal;
         if (!report.targetNodeId) {
           return { kind: "unconnected", at: report.at, surfaceId: report.nodeId, signal: report.signal, label, sourceTitle: titleOf(report.nodeId) ?? report.nodeId };
         }
@@ -508,16 +509,16 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
 }
 
 /**
- * The Exits of a Node or the Shell: what each is called, which Scene it
- * opens, and whether the player can come back.
+ * The Exits of a Node: what each is called, which Scene it opens, whether
+ * the player can come back, and whether it is navigation.
  */
-export function PlayableExitsSection({ surfaceId, signals, graph, emptyText, onOpenNode, onSignalLabel, onSignalTarget }: {
+export function PlayableExitsSection({ surfaceId, signals, graph, emptyText, onOpenNode, onSignalLabel, onSignalTarget, onSignalRole }: {
   surfaceId: string;
   signals: readonly PlayableSignal[];
   graph: NodeGraph;
   emptyText: string;
   onOpenNode: (nodeId: string) => void;
-} & Pick<PlayableSignalEdits, "onSignalLabel" | "onSignalTarget">) {
+} & Pick<PlayableSignalEdits, "onSignalLabel" | "onSignalTarget" | "onSignalRole">) {
   const technical = useTechnicalDetails();
   return <section className="story-open-ui-inspector-section playable-workbench-section">
     <h3>Exits</h3>
@@ -541,6 +542,10 @@ export function PlayableExitsSection({ surfaceId, signals, graph, emptyText, onO
             <input type="checkbox" checked={edge.mode === "push"} onChange={(event) => onSignalTarget(surfaceId, signal.id, edge.targetNodeId, event.target.checked ? "push" : "replace")} />
             <span>Allow Back</span>
           </label> : null}
+          <label className="playable-workbench-signal-back" title="A way around the game, like Home. The canvas names its Scene instead of drawing a line.">
+            <input type="checkbox" checked={signal.role === "navigation"} onChange={(event) => onSignalRole(surfaceId, signal.id, event.target.checked)} />
+            <span>Navigation</span>
+          </label>
         </div>;
       })}
     </div> : <p className="story-media-empty">{emptyText}</p>}

@@ -1,7 +1,7 @@
 import { Errors } from "typebox/schema";
 import { PLAYABLE_GRAPH_SCHEMA } from "./playable-graph-schema.js";
 import { isJsonObject } from "./playable-state.js";
-import { PLAYABLE_SHELL_ID, type NodeGraph, type NodeSource, type PlayableSignal } from "./playable-nodes.js";
+import type { NodeGraph, NodeSource, PlayableSignal } from "./playable-nodes.js";
 
 export type NodeGraphValidationMode = "draft" | "publish";
 
@@ -9,7 +9,6 @@ export interface NodeGraphValidationIssue {
   code:
     | "schema"
     | "duplicate-id"
-    | "reserved-id"
     | "missing-node"
     | "missing-signal"
     | "duplicate-route"
@@ -93,16 +92,9 @@ export function validateNodeGraph(
   }
 
   const signalKeys = new Set<string>();
-  /** Signal IDs by source: each Node's, and the Shell's under PLAYABLE_SHELL_ID. */
+  /** Signal IDs by Node. */
   const sources = new Map<string, Map<string, PlayableSignal>>();
   for (const [nodeIndex, node] of graph.nodes.entries()) {
-    if (node.id === PLAYABLE_SHELL_ID)
-      issue(
-        issues,
-        "reserved-id",
-        `/nodes/${nodeIndex}/id`,
-        `Node ID "${PLAYABLE_SHELL_ID}" is reserved for the Shell.`,
-      );
     const signals = uniqueIndex(
       node.signals,
       (signal) => signal.id,
@@ -127,30 +119,6 @@ export function validateNodeGraph(
     );
   }
 
-  if (graph.shell) {
-    const signals = uniqueIndex(
-      graph.shell.signals,
-      (signal) => signal.id,
-      "/shell/signals",
-      issues,
-    );
-    sources.set(PLAYABLE_SHELL_ID, signals);
-    for (const signal of signals.keys())
-      signalKeys.add(routeKey(PLAYABLE_SHELL_ID, signal));
-    validateAssetDependencies(
-      graph.shell.assets,
-      "/shell/assets",
-      "Shell",
-      graph,
-      issues,
-    );
-    validateSourceFiles(
-      graph.shell.source,
-      "/shell/source",
-      options.availableFiles,
-      issues,
-    );
-  }
   for (const [assetId, asset] of Object.entries(graph.assets)) {
     if (
       asset.source.kind === "workspace" &&
@@ -169,22 +137,19 @@ export function validateNodeGraph(
   const routedSignals = new Set<string>();
   for (const [edgeIndex, edge] of graph.edges.entries()) {
     const sourceSignals = sources.get(edge.source.nodeId);
-    const shellSource = edge.source.nodeId === PLAYABLE_SHELL_ID;
     if (!sourceSignals) {
       issue(
         issues,
         "missing-node",
         `/edges/${edgeIndex}/source/nodeId`,
-        shellSource
-          ? `Edge "${edge.id}" starts at the Shell, but the project has no Shell.`
-          : `Edge "${edge.id}" references missing source Node "${edge.source.nodeId}".`,
+        `Edge "${edge.id}" references missing source Node "${edge.source.nodeId}".`,
       );
     } else if (!sourceSignals.has(edge.source.signal)) {
       issue(
         issues,
         "missing-signal",
         `/edges/${edgeIndex}/source/signal`,
-        `Edge "${edge.id}" references undeclared Signal "${edge.source.signal}" on ${shellSource ? "the Shell" : `Node "${edge.source.nodeId}"`}.`,
+        `Edge "${edge.id}" references undeclared Signal "${edge.source.signal}" on Node "${edge.source.nodeId}".`,
       );
     }
     if (!nodes.has(edge.targetNodeId)) {
@@ -214,9 +179,7 @@ export function validateNodeGraph(
         issue(
           issues,
           "unconnected-signal",
-          nodeId === PLAYABLE_SHELL_ID
-            ? "/shell/signals"
-            : `/nodes/${graph.nodes.findIndex((node) => node.id === nodeId)}/signals`,
+          `/nodes/${graph.nodes.findIndex((node) => node.id === nodeId)}/signals`,
           `Signal "${nodeId}.${signal}" must be connected before publishing.`,
         );
       }

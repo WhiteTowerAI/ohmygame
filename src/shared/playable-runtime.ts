@@ -5,7 +5,6 @@ import type {
 import {
   playableEdgeForSignal,
   playableNodeById,
-  playableSignalsOf,
 } from "./playable-graph.js";
 import {
   createPlayableNavigation,
@@ -15,7 +14,6 @@ import {
   type PlayableNavigationState,
 } from "./playable-navigation.js";
 import {
-  PLAYABLE_SHELL_ID,
   type JsonObject,
   type JsonValue,
   type PlayableCleanup,
@@ -23,7 +21,6 @@ import {
   type PlayableNavigationMode,
   type PlayableNodeContext,
   type NodeRuntimeContext,
-  type PlayableShellContext,
   type PlayableStateService,
 } from "./playable-nodes.js";
 import {
@@ -59,10 +56,6 @@ export interface PlayableSurfaceHost {
   mountNode(
     surface: CompiledPlayableSurface,
     context: Omit<PlayableNodeContext, "root">,
-  ): Promise<PlayableMountedSurface>;
-  mountShell(
-    surface: CompiledPlayableSurface,
-    context: Omit<PlayableShellContext, "root">,
   ): Promise<PlayableMountedSurface>;
 }
 
@@ -122,7 +115,7 @@ export type NodeRuntimeNavigationReport =
   | { kind: "restart" | "continue"; targetNodeId: string; at: string };
 
 export interface NodeRuntimeErrorRecord {
-  /** Node ID, or `"shell"` for the Shell; absent for Runtime-level errors. */
+  /** Absent for Runtime-level errors. */
   nodeId?: string;
   code: string;
   message: string;
@@ -181,7 +174,7 @@ interface ActiveSurface {
 }
 
 interface SurfaceToken {
-  /** Node ID, or `"shell"`. */
+  /** Node ID. */
   surfaceId: string;
   active: boolean;
   navigationReady: boolean;
@@ -209,7 +202,6 @@ export class NodeRuntime {
   #errors: NodeRuntimeErrorRecord[] = [];
   #cachedSave?: PlayableSave;
   #activeNode?: ActiveSurface;
-  #activeShell?: ActiveSurface;
   #started = false;
   #starting = false;
   #disposed = false;
@@ -278,27 +270,14 @@ export class NodeRuntime {
       this.#cachedSave = this.#parseSave(await this.#saveStore.load());
       this.#assertNotDisposed();
       this.#started = true;
-      if (this.#graph.shell) {
-        const surface = this.#compiled.shell;
-        if (!surface)
-          throw new NodeRuntimeError(
-            "missing-compiled-surface",
-            "Compiled Shell is missing.",
-          );
-        this.#activeShell = await this.#mountShell(surface);
-        this.#assertNotDisposed();
-      }
       this.#activeNode = await this.#mountNode(this.#navigation.currentNodeId);
       this.#assertNotDisposed();
       this.#activeNode.token.navigationReady = true;
-      if (this.#activeShell) this.#activeShell.token.navigationReady = true;
     } catch (cause) {
       if (!this.#disposed) this.#failed = true;
       await this.#disposeActiveSurface(this.#activeNode);
-      await this.#disposeActiveSurface(this.#activeShell);
-      this.#activeNode = undefined;
-      this.#activeShell = undefined;
-      this.#started = false;
+        this.#activeNode = undefined;
+        this.#started = false;
       throw cause;
     }
   }
@@ -365,30 +344,26 @@ export class NodeRuntime {
       // The state or navigation caller receives the storage error.
     }
     await this.#disposeActiveSurface(this.#activeNode);
-    await this.#disposeActiveSurface(this.#activeShell);
     this.#activeNode = undefined;
-    this.#activeShell = undefined;
     this.#stateListeners.clear();
   }
 
-  /** The current Node or the Shell, whichever `token` belongs to, emits `signal`. */
   async #emit(token: SurfaceToken, signal: string): Promise<void> {
     this.#assertNavigationReady(token);
-    const source = token.surfaceId === PLAYABLE_SHELL_ID
-      ? PLAYABLE_SHELL_ID
-      : this.#navigation.currentNodeId;
-    if (!playableSignalsOf(this.#graph, source)?.some((candidate) => candidate.id === signal)) {
+    const nodeId = this.#navigation.currentNodeId;
+    const node = playableNodeById(this.#graph, nodeId);
+    if (!node?.signals.some((candidate) => candidate.id === signal)) {
       throw new PlayableNavigationError(
         "unknown-signal",
-        `${source === PLAYABLE_SHELL_ID ? "The Shell" : `Node "${source}"`} did not declare Signal "${signal}".`,
+        `Node "${nodeId}" did not declare Signal "${signal}".`,
       );
     }
-    const edge = playableEdgeForSignal(this.#graph, source, signal);
+    const edge = playableEdgeForSignal(this.#graph, nodeId, signal);
     const at = this.#now().toISOString();
     this.#recentSignals = [
       ...this.#recentSignals,
       {
-        nodeId: source,
+        nodeId,
         signal,
         ...(edge ? { edgeId: edge.id, targetNodeId: edge.targetNodeId } : {}),
         at,
@@ -397,7 +372,7 @@ export class NodeRuntime {
     if (this.#policy === "report") {
       this.#report({
         kind: "signal",
-        nodeId: source,
+        nodeId,
         signal,
         ...(edge
           ? { edgeId: edge.id, targetNodeId: edge.targetNodeId, mode: edge.mode }
@@ -408,7 +383,7 @@ export class NodeRuntime {
     }
     this.#changed();
     await this.#navigate(() =>
-      navigatePlayableSignal(this.#graph, this.#navigation, signal, source),
+      navigatePlayableSignal(this.#graph, this.#navigation, signal),
     );
   }
 
@@ -482,9 +457,7 @@ export class NodeRuntime {
     this.#failed = true;
     this.#started = false;
     await this.#disposeActiveSurface(this.#activeNode);
-    await this.#disposeActiveSurface(this.#activeShell);
     this.#activeNode = undefined;
-    this.#activeShell = undefined;
     this.#stateListeners.clear();
   }
 
@@ -518,37 +491,6 @@ export class NodeRuntime {
     };
     try {
       const mounted = await this.#surfaceHost.mountNode(surface, context);
-      await this.#validateMountedSurface(mounted);
-      return { token, abortController, mounted };
-    } catch (cause) {
-      token.active = false;
-      abortController.abort();
-      throw cause;
-    }
-  }
-
-  async #mountShell(surface: CompiledPlayableSurface): Promise<ActiveSurface> {
-    const token: SurfaceToken = {
-      surfaceId: PLAYABLE_SHELL_ID,
-      active: true,
-      navigationReady: false,
-    };
-    const abortController = new AbortController();
-    const context: Omit<PlayableShellContext, "root"> = {
-      ...this.#baseContext(
-        token,
-        abortController,
-        this.#graph.shell?.assets ?? [],
-      ),
-      navigation: {
-        emit: this.#guardAsync(token, (signal: string) =>
-          this.#emit(token, signal),
-        ),
-        back: this.#guardAsync(token, () => this.#back(token)),
-      },
-    };
-    try {
-      const mounted = await this.#surfaceHost.mountShell(surface, context);
       await this.#validateMountedSurface(mounted);
       return { token, abortController, mounted };
     } catch (cause) {

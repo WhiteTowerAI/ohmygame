@@ -3,10 +3,7 @@ import type {
   CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "../src/shared/playable-compiled.js";
-import type {
-  PlayableNodeContext,
-  PlayableShellContext,
-} from "../src/shared/playable-nodes.js";
+import type { PlayableNodeContext } from "../src/shared/playable-nodes.js";
 import {
   MemoryPlayableSaveStore,
   NodeRuntime,
@@ -19,23 +16,16 @@ import {
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 type NodeContext = Omit<PlayableNodeContext, "root">;
-type ShellContext = Omit<PlayableShellContext, "root">;
 
 class FakeSurfaceHost implements PlayableSurfaceHost {
   readonly events: string[] = [];
   readonly nodeContexts: Array<{ id: string; context: NodeContext }> = [];
-  readonly shellContexts: ShellContext[] = [];
   onMountNode?: (
     surface: CompiledPlayableSurface,
     context: NodeContext,
   ) => void | Promise<void>;
-  onMountShell?: (
-    surface: CompiledPlayableSurface,
-    context: ShellContext,
-  ) => void | Promise<void>;
   nodeCleanup?: (id: string, context: NodeContext) => void | Promise<void>;
   nodeDestroy?: (id: string) => void | Promise<void>;
-  shellCleanup?: (context: ShellContext) => void | Promise<void>;
 
   async mountNode(
     surface: CompiledPlayableSurface,
@@ -55,41 +45,21 @@ class FakeSurfaceHost implements PlayableSurfaceHost {
       },
     };
   }
-
-  async mountShell(
-    surface: CompiledPlayableSurface,
-    context: ShellContext,
-  ): Promise<PlayableMountedSurface> {
-    this.events.push(`mount:${surface.id}`);
-    this.shellContexts.push(context);
-    await this.onMountShell?.(surface, context);
-    return {
-      cleanup: () => {
-        this.events.push(`cleanup:${surface.id}`);
-        return this.shellCleanup?.(context);
-      },
-      destroy: () => {
-        this.events.push(`destroy:${surface.id}`);
-      },
-    };
-  }
 }
 
 describe("Node Runtime", () => {
-  it("mounts the persistent Shell once and replaces the current Node", async () => {
+  it("mounts the Entry Node and replaces the current Node", async () => {
     const { runtime, host } = createRuntime();
 
     await runtime.start();
     await nodeContext(host, "menu").navigation.emit("start");
 
     expect(host.events).toEqual([
-      "mount:shell",
       "mount:menu",
       "cleanup:menu",
       "destroy:menu",
       "mount:lobby",
     ]);
-    expect(host.shellContexts).toHaveLength(1);
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "lobby",
       backStack: [],
@@ -104,25 +74,37 @@ describe("Node Runtime", () => {
     });
   });
 
-  it("supports push, back, and Shell Signals without remounting the Shell", async () => {
+  it("supports push and back", async () => {
     const { runtime, host } = createRuntime();
     await runtime.start();
 
     await nodeContext(host, "menu").navigation.emit("inspect");
     expect(runtime.snapshot().backStack).toEqual(["menu"]);
     await nodeContext(host, "archive").navigation.back();
-    await shellContext(host).navigation.emit("archive");
 
-    expect(runtime.snapshot()).toMatchObject({
-      currentNodeId: "archive",
-      backStack: [],
+    expect(runtime.snapshot()).toMatchObject({ currentNodeId: "menu", backStack: [] });
+    expect(host.nodeContexts.map(({ id }) => id)).toEqual(["menu", "archive", "menu"]);
+  });
+
+  it("routes a shared component's Signal as the Signal of the Scene that shows it", async () => {
+    const { runtime, host } = createRuntime({ startNodeId: "lobby" });
+    await runtime.start();
+
+    // The shared top bar emits through the lobby's own context.
+    await nodeContext(host, "lobby").navigation.emit("archive");
+    await expect(nodeContext(host, "archive").navigation.emit("archive")).rejects.toMatchObject({
+      code: "unknown-signal",
     });
-    expect(host.shellContexts).toHaveLength(1);
-    expect(host.nodeContexts.map(({ id }) => id)).toEqual([
-      "menu",
-      "archive",
-      "menu",
-      "archive",
+    await nodeContext(host, "archive").navigation.emit("home");
+
+    const snapshot = runtime.snapshot();
+    expect(snapshot.currentNodeId).toBe("menu");
+    expect(snapshot.recentSignals).toEqual([
+      expect.objectContaining({ nodeId: "lobby", signal: "archive", targetNodeId: "archive" }),
+      expect.objectContaining({ nodeId: "archive", signal: "home", targetNodeId: "menu" }),
+    ]);
+    expect(snapshot.errors).toEqual([
+      expect.objectContaining({ nodeId: "archive", code: "unknown-signal" }),
     ]);
   });
 
@@ -146,12 +128,8 @@ describe("Node Runtime", () => {
   it("rejects navigation while a surface is mounting", async () => {
     const host = new FakeSurfaceHost();
     let nodeNavigation: Promise<void> | undefined;
-    let shellNavigation: Promise<void> | undefined;
     host.onMountNode = (_surface, context) => {
       nodeNavigation = context.navigation.emit("start");
-    };
-    host.onMountShell = (_surface, context) => {
-      shellNavigation = context.navigation.emit("archive");
     };
     const { runtime } = createRuntime({ host });
 
@@ -160,13 +138,10 @@ describe("Node Runtime", () => {
     await expect(nodeNavigation).rejects.toMatchObject({
       code: "navigation-in-progress",
     });
-    await expect(shellNavigation).rejects.toMatchObject({
-      code: "navigation-in-progress",
-    });
     expect(runtime.snapshot().currentNodeId).toBe("menu");
   });
 
-  it("rejects concurrent navigation from the persistent Shell", async () => {
+  it("rejects a second navigation from a Node that is already leaving", async () => {
     const host = new FakeSurfaceHost();
     let releaseArchive!: () => void;
     const archiveMounted = new Promise<void>((resolve) => {
@@ -178,10 +153,11 @@ describe("Node Runtime", () => {
     const { runtime } = createRuntime({ host });
     await runtime.start();
 
-    const first = shellContext(host).navigation.emit("archive");
+    const menu = nodeContext(host, "menu");
+    const first = menu.navigation.emit("inspect");
     await expect(
-      shellContext(host).navigation.emit("home"),
-    ).rejects.toMatchObject({ code: "navigation-in-progress" });
+      menu.navigation.emit("start"),
+    ).rejects.toMatchObject({ code: "stale-surface" });
     releaseArchive();
     await first;
   });
@@ -252,7 +228,7 @@ describe("Node Runtime", () => {
     const { runtime } = createRuntime({ host });
     await runtime.start();
 
-    const navigation = shellContext(host).navigation.emit("archive");
+    const navigation = nodeContext(host, "menu").navigation.emit("inspect");
     await mountingArchive;
     const disposal = runtime.dispose();
     releaseArchive();
@@ -260,15 +236,12 @@ describe("Node Runtime", () => {
     await expect(navigation).rejects.toMatchObject({ code: "disposed" });
     await disposal;
     expect(host.events).toEqual([
-      "mount:shell",
       "mount:menu",
       "cleanup:menu",
       "destroy:menu",
       "mount:archive",
       "cleanup:archive",
       "destroy:archive",
-      "cleanup:shell",
-      "destroy:shell",
     ]);
   });
 
@@ -279,9 +252,7 @@ describe("Node Runtime", () => {
     };
     const { runtime } = createRuntime({ host });
     await runtime.start();
-    const shell = shellContext(host);
-
-    await expect(shell.navigation.emit("archive")).rejects.toThrow(
+    await expect(nodeContext(host, "menu").navigation.emit("inspect")).rejects.toThrow(
       "archive mount failed",
     );
 
@@ -290,15 +261,12 @@ describe("Node Runtime", () => {
       status: "failed",
     });
     expect(host.events).toEqual([
-      "mount:shell",
       "mount:menu",
       "cleanup:menu",
       "destroy:menu",
       "mount:archive",
-      "cleanup:shell",
-      "destroy:shell",
     ]);
-    expect(() => shell.state.get()).toThrowError(
+    expect(() => nodeContext(host, "archive").state.get()).toThrowError(
       expect.objectContaining({ code: "runtime-failed" }),
     );
     await expect(runtime.start()).rejects.toMatchObject({
@@ -370,7 +338,8 @@ describe("Node Runtime", () => {
     expect(() => nodeContext(host, "menu").assets.url("theme")).toThrowError(
       expect.objectContaining({ code: "undeclared-asset" }),
     );
-    expect(shellContext(host).assets.url("theme")).toBe("asset://theme");
+    await nodeContext(host, "menu").navigation.emit("start");
+    expect(nodeContext(host, "lobby").assets.url("theme")).toBe("asset://theme");
 
     const missing = createRuntime({ assetUrls: {} });
     await missing.runtime.start();
@@ -525,9 +494,9 @@ describe("NodeRuntime preview tooling", () => {
 
     await nodeContext(host, "menu").navigation.emit("start");
     await nodeContext(host, "menu").navigation.back();
-    await shellContext(host).navigation.emit("archive");
+    await nodeContext(host, "menu").navigation.emit("inspect");
 
-    expect(host.events).toEqual(["mount:shell", "mount:menu"]);
+    expect(host.events).toEqual(["mount:menu"]);
     const snapshot = runtime.snapshot();
     expect(snapshot).toMatchObject({
       status: "running",
@@ -537,12 +506,12 @@ describe("NodeRuntime preview tooling", () => {
     });
     expect(snapshot.recentSignals).toEqual([
       expect.objectContaining({ nodeId: "menu", signal: "start", targetNodeId: "lobby" }),
-      expect.objectContaining({ nodeId: "shell", signal: "archive", targetNodeId: "archive" }),
+      expect.objectContaining({ nodeId: "menu", signal: "inspect", targetNodeId: "archive" }),
     ]);
     expect(snapshot.reports).toEqual([
       expect.objectContaining({ kind: "signal", signal: "start", targetNodeId: "lobby" }),
       { kind: "back", nodeId: "menu", at: "2026-09-28T00:00:00.000Z" },
-      expect.objectContaining({ kind: "signal", nodeId: "shell", signal: "archive", edgeId: "shell-archive", targetNodeId: "archive", mode: "replace" }),
+      expect.objectContaining({ kind: "signal", nodeId: "menu", signal: "inspect", edgeId: "inspect-archive", targetNodeId: "archive", mode: "push" }),
     ]);
   });
 
@@ -565,7 +534,7 @@ describe("NodeRuntime preview tooling", () => {
     });
     await runtime.start();
 
-    expect(host.events).toEqual(["mount:shell", "mount:archive"]);
+    expect(host.events).toEqual(["mount:archive"]);
     expect(runtime.snapshot().state).toEqual({
       hasKey: true,
       clues: [],
@@ -586,11 +555,9 @@ describe("NodeRuntime preview tooling", () => {
 
     menu.state.get("hasKey");
     await menu.state.patch({ clues: ["ledger"] });
-    shellContext(host).state.get();
 
     expect(runtime.snapshot().stateAccess).toEqual({
       menu: { read: ["hasKey"], wrote: ["clues"] },
-      shell: { read: ["*"], wrote: [] },
     });
     expect(() => menu.state.get("missing" as "hasKey")).toThrow();
     expect(runtime.snapshot().errors).toEqual([
@@ -651,7 +618,6 @@ function createCompiledGraph(): CompiledNodeGraph {
       lobby: surface("lobby"),
       archive: surface("archive"),
     },
-    shell: surface("shell"),
   };
 }
 
@@ -661,12 +627,6 @@ function nodeContext(host: FakeSurfaceHost, id: string): NodeContext {
     .find((candidate) => candidate.id === id);
   if (!entry) throw new Error(`Node "${id}" was not mounted.`);
   return entry.context;
-}
-
-function shellContext(host: FakeSurfaceHost): ShellContext {
-  const context = host.shellContexts.at(-1);
-  if (!context) throw new Error("Shell was not mounted.");
-  return context;
 }
 
 function createSave(overrides: Partial<PlayableSave> = {}): PlayableSave {

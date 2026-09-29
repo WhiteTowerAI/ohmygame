@@ -1,9 +1,5 @@
 import type { CompiledPlayableSurface } from "./playable-compiled.js";
-import type {
-  PlayableCleanup,
-  PlayableNodeContext,
-  PlayableShellContext,
-} from "./playable-nodes.js";
+import type { PlayableCleanup, PlayableNodeContext } from "./playable-nodes.js";
 import {
   describePlayablePick,
   type PlayablePickResult,
@@ -18,7 +14,7 @@ export const PLAYABLE_SANDBOX_CSP =
 export const PLAYABLE_IFRAME_SANDBOX = "allow-scripts";
 
 export interface PlayableSurfaceModule {
-  mount(context: PlayableNodeContext | PlayableShellContext): unknown;
+  mount(context: PlayableNodeContext): unknown;
 }
 
 export type PlayableModuleLoader = (javascript: string) => Promise<unknown>;
@@ -28,8 +24,6 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   readonly #loadModule: PlayableModuleLoader;
   readonly #projectRoot: HTMLElement;
   readonly #nodeLayer: HTMLElement;
-  readonly #shellLayer: HTMLElement;
-  #shellMounted = false;
   #picking?: { stop: () => void };
 
   constructor(
@@ -43,7 +37,6 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     const scaffold = createSandboxScaffold(document);
     this.#projectRoot = scaffold.projectRoot;
     this.#nodeLayer = scaffold.nodeLayer;
-    this.#shellLayer = scaffold.shellLayer;
   }
 
   mountNode(
@@ -51,31 +44,6 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface> {
     return this.#mount(this.#nodeLayer, surface, context);
-  }
-
-  async mountShell(
-    surface: CompiledPlayableSurface,
-    context: Omit<PlayableShellContext, "root">,
-  ): Promise<PlayableMountedSurface> {
-    if (this.#shellMounted)
-      throw new Error("Playable Shell is already mounted.");
-    this.#shellMounted = true;
-    try {
-      const mounted = await this.#mount(this.#shellLayer, surface, context);
-      return {
-        cleanup: mounted.cleanup,
-        destroy: async () => {
-          try {
-            await mounted.destroy();
-          } finally {
-            this.#shellMounted = false;
-          }
-        },
-      };
-    } catch (cause) {
-      this.#shellMounted = false;
-      throw cause;
-    }
   }
 
   destroy(): void {
@@ -170,8 +138,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   async #mount(
     layer: HTMLElement,
     surface: CompiledPlayableSurface,
-    context:
-      Omit<PlayableNodeContext, "root"> | Omit<PlayableShellContext, "root">,
+    context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface> {
     const host = this.#document.createElement("div");
     host.dataset.playableSurface = surface.id;
@@ -191,8 +158,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
         throw new Error(
           `Playable surface "${surface.id}" does not export a mount function.`,
         );
-      const cleanup = await module.mount({ ...context, root } as
-        PlayableNodeContext | PlayableShellContext);
+      const cleanup = await module.mount({ ...context, root });
       return {
         cleanup: cleanup as PlayableCleanup | undefined,
         destroy: () => host.remove(),
@@ -246,7 +212,6 @@ export async function loadPlayableModule(javascript: string): Promise<unknown> {
 function createSandboxScaffold(document: Document): {
   projectRoot: HTMLElement;
   nodeLayer: HTMLElement;
-  shellLayer: HTMLElement;
 } {
   document.documentElement.style.width = "100%";
   document.documentElement.style.height = "100%";
@@ -267,14 +232,9 @@ function createSandboxScaffold(document: Document): {
   nodeLayer.dataset.playableNodeLayer = "true";
   setLayerStyle(nodeLayer, 0);
 
-  const shellLayer = document.createElement("div");
-  shellLayer.dataset.playableShellLayer = "true";
-  setLayerStyle(shellLayer, 1);
-  shellLayer.style.pointerEvents = "none";
-
-  projectRoot.append(nodeLayer, shellLayer);
+  projectRoot.append(nodeLayer);
   document.body.append(projectRoot);
-  return { projectRoot, nodeLayer, shellLayer };
+  return { projectRoot, nodeLayer };
 }
 
 const BLOCKED_PICK_EVENTS = [

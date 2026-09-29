@@ -61,7 +61,7 @@ describe("Playable codebase", () => {
     await expect(buildPlayableProject(workspace, "publish")).resolves.toBeDefined();
   });
 
-  it("expresses the sample through ordinary Nodes, State, Signals, edges, and Shell", async () => {
+  it("expresses the sample through ordinary Nodes, State, Signals, edges, and a shared component", async () => {
     const workspace = await temporaryWorkspace();
     await createNodeCodebase(
       workspace,
@@ -79,17 +79,30 @@ describe("Playable codebase", () => {
       "home",
     ]);
     expect(codebase.graph.initialState).toEqual({ boarded: false });
-    expect(codebase.graph.shell).toBeDefined();
-    expect(codebase.graph.edges).toHaveLength(3);
-    expect(codebase.graph.nodes.flatMap((node) => node.signals)).toHaveLength(2);
-    expect(codebase.graph.shell?.signals.map((signal) => signal.id)).toEqual(["home"]);
+    expect(codebase.graph).not.toHaveProperty("shell");
+    expect(codebase.graph.edges).toHaveLength(4);
+    expect(Object.fromEntries(codebase.graph.nodes.map((node) => [node.id, node.signals.map((signal) => signal.id)]))).toEqual({
+      platform: ["board"],
+      carriage: ["continue", "home"],
+      home: ["home"],
+    });
+    expect(codebase.graph.edges.filter((edge) => edge.source.signal === "home").map((edge) => edge.targetNodeId))
+      .toEqual(["platform", "platform"]);
+    expect(Object.keys(codebase.editorLayout.nodes)).toEqual(["platform", "carriage", "home"]);
+    const files = await tree(workspace);
+    expect(files).toContain("shared/components/home-button.js");
+    expect(files).toContain("shared/components/home-button.css");
+    expect(files.some((file) => file.startsWith("shell/"))).toBe(false);
+    await expect(readFile(path.join(workspace, "nodes/carriage/node.js"), "utf8"))
+      .resolves.toContain('from "../../shared/components/home-button.js"');
     const runtime = await buildPlayableProject(workspace, "publish");
     expect(Object.keys(runtime!.compiled.nodes)).toEqual([
       "platform",
       "carriage",
       "home",
     ]);
-    expect(runtime!.compiled.shell).toBeDefined();
+    expect(runtime!.compiled).not.toHaveProperty("shell");
+    expect(runtime!.compiled.nodes.home!.inputs).toContain("shared/components/home-button.js");
   });
 
   it("preserves user documentation and refreshes generated schemas", async () => {
@@ -262,7 +275,7 @@ describe("Playable codebase", () => {
     await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sources: { "shared/undeclared.js": "export const value = true;\n" },
-    })).rejects.toThrow("is not declared by a Node or Shell");
+    })).rejects.toThrow("is not declared by a Node");
 
     expect(await readFile(path.join(workspace, "graph.json"), "utf8")).toBe(graphBefore);
     await expect(readFile(path.join(workspace, "shared/undeclared.js"), "utf8"))
@@ -328,26 +341,6 @@ describe("Playable codebase", () => {
       .rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("removes Shell source files when the Shell is disabled", async () => {
-    const workspace = await temporaryWorkspace();
-    await createNodeCodebase(
-      workspace,
-      createPlayableStarterCodebase("Story", { width: 1280, height: 720 }, "night-train"),
-    );
-    const codebase = await readNodeCodebase(workspace);
-    const shell = codebase.graph.shell!;
-    delete codebase.graph.shell;
-    codebase.graph.edges = codebase.graph.edges.filter((edge) => edge.source.nodeId !== "shell");
-    delete codebase.editorLayout.nodes.shell;
-    await writeNodeCodebase(workspace, {
-      ...codebase,
-      sourceDeletions: Object.values(shell.source),
-    });
-
-    await expect(readdir(path.join(workspace, "shell")))
-      .rejects.toMatchObject({ code: "ENOENT" });
-  });
-
   it("rejects undeclared and still-declared source deletions", async () => {
     const workspace = await temporaryWorkspace();
     await createNodeCodebase(
@@ -359,11 +352,11 @@ describe("Playable codebase", () => {
     await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: ["nodes/other/index.html"],
-    })).rejects.toThrow("not declared by the current Node or Shell graph");
+    })).rejects.toThrow("not declared by the current graph");
     await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: ["nodes/start/index.html"],
-    })).rejects.toThrow("still declared by a Node or Shell");
+    })).rejects.toThrow("still declared by a Node");
     expect(await readFile(path.join(workspace, "nodes/start/index.html"), "utf8"))
       .toContain("Edit this Node's source");
   });

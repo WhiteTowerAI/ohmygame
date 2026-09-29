@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   Box,
   ChevronDown,
   Clapperboard,
@@ -10,7 +11,6 @@ import {
   Hand,
   House,
   InfoCircle,
-  Layers3,
   LoaderCircle,
   Maximize,
   Minus,
@@ -70,7 +70,6 @@ import { snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
 import type { ProjectState } from "../shared/contracts.js";
 import type { NodeCodebase, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
-  PLAYABLE_SHELL_ID,
   type NodeGraph,
   type NodeSource,
   type PlayableEdge,
@@ -79,15 +78,14 @@ import {
   type PlayableNode,
   type PlayableSignal,
 } from "../shared/playable-nodes.js";
-import { playableSignalsOf } from "../shared/playable-graph.js";
+import { playableNodeById } from "../shared/playable-graph.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import {
   addPlayableNodeAsset,
-  addPlayableShellAsset,
   removePlayableNodeAsset,
   playableEdgeId,
-  removePlayableShellAsset,
   setPlayableSignalLabel,
+  setPlayableSignalRole,
   playableThumbnailHash,
   setPlayableSignalTarget,
   type PlayablePresetSummary,
@@ -113,7 +111,6 @@ import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
 import { requestPlaytestStart } from "./playable-playtest-drawer.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
-import { PlayableShellWorkbench } from "./playable-shell-workbench.js";
 import { PlayableStatePanel, type PlayableLiveState } from "./playable-project-panels.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { PlayableStateHistory } from "../shared/playable-debug.js";
@@ -134,8 +131,6 @@ const CARD_STYLE = {
 } as CSSProperties;
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const HISTORY_LIMIT = 50;
-/** Where the Overlay card sits on a canvas that never placed it. */
-const DEFAULT_OVERLAY_POSITION = { x: 80, y: -160 };
 /** Playtest routes still carry a chapter segment; a graph project has one player. */
 const PLAYTEST_CHAPTER_ID = "playable";
 
@@ -147,8 +142,8 @@ export type PlayableFlowData = {
   entry: boolean;
   /** Compiler and graph issues that belong to this Node. */
   issues: string[];
-  /** Signals that already have an outgoing edge. */
-  connected: string[];
+  /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
+  connected: Record<string, { edgeId: string; target: string; selected: boolean }>;
   /** The Node does not compile; its card keeps its last good thumbnail, dimmed. */
   failed: boolean;
   /** The cached screenshot of the Node, and whether its source changed since. */
@@ -157,16 +152,8 @@ export type PlayableFlowData = {
   coverAsset?: PlayableAssetDefinition;
 };
 export type PlayableFlowNode = Node<PlayableFlowData, "playable">;
-/** The Shell's card, which the editor calls the Overlay. Its ID is `PLAYABLE_SHELL_ID`. */
-export type OverlayFlowData = {
-  signals: PlayableSignal[];
-  connected: string[];
-  issues: string[];
-};
-export type OverlayFlowNode = Node<OverlayFlowData, "overlay">;
-type CanvasFlowNode = PlayableFlowNode | OverlayFlowNode;
 type CanvasContextMenuState = {
-  kind: "pane" | "node" | "overlay";
+  kind: "pane" | "node";
   nodeId?: string;
   screenPosition: { x: number; y: number };
   flowPosition: { x: number; y: number };
@@ -177,16 +164,20 @@ interface CopiedPlayableNode {
   sources: Record<string, string>;
 }
 
-const PlayableCanvasContext = createContext<
-  { projectId: string; technical: boolean; onRenameNode: (nodeId: string, title: string) => void } | undefined
->(undefined);
-const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard, overlay: PlayableOverlayCard };
+const PlayableCanvasContext = createContext<{
+  projectId: string;
+  technical: boolean;
+  onRenameNode: (nodeId: string, title: string) => void;
+  /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
+  onSelectEdge: (edgeId: string) => void;
+} | undefined>(undefined);
+const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 /**
  * The editor for a Playable Nodes project: one canvas of Nodes, one edge per
  * Signal. Opened instead of the story editor when the project has a graph.json.
- * It speaks the editor's words (Scene, Exit, Overlay, Variables); code and
- * graph.json keep the engine's (Node, Signal, Shell, State).
+ * It speaks the editor's words (Scene, Exit, Variables); code and
+ * graph.json keep the engine's (Node, Signal, State).
  */
 export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent }: {
   project: ProjectState;
@@ -211,8 +202,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
   const [nodes, setNodes] = useState<PlayableFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  /** The Overlay card: position, selection, and size as React Flow tracks them. */
-  const [overlayFlow, setOverlayFlow] = useState<Omit<OverlayFlowNode, "data">>();
   const [editorLayout, setEditorLayout] = useState<NodeEditorLayout>({
     version: 1,
     nodes: {},
@@ -225,7 +214,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
-  const [shellOpen, setShellOpen] = useState(false);
   const [projectPanel, setProjectPanel] = useState<"state">();
   const [liveState, setLiveState] = useState<PlayableLiveState>();
   const stateHistory = useRef(new PlayableStateHistory());
@@ -243,7 +231,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
   const canvas = useRef<HTMLDivElement>(null);
-  const reactFlow = useRef<ReactFlowInstance<CanvasFlowNode>>(null);
+  const reactFlow = useRef<ReactFlowInstance<PlayableFlowNode>>(null);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
@@ -259,8 +247,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const thumbnailAttempts = useRef(new Map<string, string>());
 
   const codebase = useMemo(
-    () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, workspaceView, overlayFlow?.position) : undefined,
-    [graphMeta, nodes, edges, editorLayout, workspaceView, overlayFlow?.position],
+    () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, workspaceView) : undefined,
+    [graphMeta, nodes, edges, editorLayout, workspaceView],
   );
   latestCodebase.current = codebase;
   const playerViewport = graphMeta?.viewport ?? { width: 1280, height: 720 };
@@ -273,10 +261,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const openedNode = workspaceView === "canvas" && phase === "ready"
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
-  const openedShell = workspaceView === "canvas" && phase === "ready" && shellOpen && codebase?.graph.shell
-    ? { ...codebase.graph, shell: codebase.graph.shell }
-    : undefined;
-  const liveSource = openedNode?.title ?? (openedShell ? "Overlay" : undefined);
+  const liveSource = openedNode?.title;
 
   /** Keeps the State panel's live values in step with the open Workbench preview. */
   const onPreviewSnapshot = useCallback((snapshot: NodeRuntimeSnapshot | undefined) => {
@@ -304,8 +289,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }, [phase, nodes, openedNodeId]);
 
   useEffect(() => {
-    if (!openedNode && !openedShell) setLiveState(undefined);
-  }, [Boolean(openedNode || openedShell)]);
+    if (!openedNode) setLiveState(undefined);
+  }, [Boolean(openedNode)]);
 
   useEffect(() => {
     if (openFileRequest) setFileRequest(openFileRequest);
@@ -315,7 +300,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (!openFileRequest) return;
     setSelectedId(undefined);
     setOpenedNodeId(undefined);
-    setShellOpen(false);
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
 
@@ -407,11 +391,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setGraphMeta(meta);
     setNodes(flowNodes);
     setEdges(flowEdges);
-    const overlayPosition = meta.shell ? loaded.editorLayout.nodes[PLAYABLE_SHELL_ID] ?? DEFAULT_OVERLAY_POSITION : undefined;
-    setOverlayFlow(overlayPosition ? toOverlayFlowNode(overlayPosition) : undefined);
     setEditorLayout(loaded.editorLayout);
     setWorkspaceView(view);
-    const applied = buildCodebase(meta, flowNodes, flowEdges, loaded.editorLayout, view, overlayPosition);
+    const applied = buildCodebase(meta, flowNodes, flowEdges, loaded.editorLayout, view);
     if (options.fromDisk) queuedCodebase.current = JSON.stringify(applied);
     observeHistory(applied);
     setSelectedEdgeId(undefined);
@@ -551,17 +533,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (pending) void save(pending).catch(() => {});
   }, [save]);
 
-  /** The Overlay card lives apart from the Nodes, so its changes are split off. */
-  const onNodesChange = useCallback((changes: NodeChange<CanvasFlowNode>[]) => {
-    const isOverlay = (change: NodeChange<CanvasFlowNode>) => "id" in change && change.id === PLAYABLE_SHELL_ID;
-    const overlayChanges = changes.filter(isOverlay);
-    const nodeChanges = changes.filter((change) => !isOverlay(change)) as NodeChange<PlayableFlowNode>[];
-    if (overlayChanges.length) {
-      setOverlayFlow((current) => current
-        ? applyNodeChanges(overlayChanges as NodeChange<OverlayFlowNode>[], [{ ...current, data: EMPTY_OVERLAY_DATA }])[0]
-        : current);
-    }
-    if (nodeChanges.length) setNodes((current) => applyNodeChanges(nodeChanges, current));
+  const onNodesChange = useCallback((changes: NodeChange<PlayableFlowNode>[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
   }, []);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
@@ -583,10 +556,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
   }
 
-  /** Edits an Exit of a Node or the Shell from a Workbench. */
+  /** Edits an Exit of a Node from its Workbench. */
   const signalEdits: PlayableSignalEdits = {
     onSignalLabel: (surfaceId, signalId, label) => { if (codebase) applyGraph(setPlayableSignalLabel(codebase.graph, surfaceId, signalId, label)); },
     onSignalTarget: (surfaceId, signalId, target, mode) => { if (codebase) applyGraph(setPlayableSignalTarget(codebase.graph, surfaceId, signalId, target, mode)); },
+    onSignalRole: (surfaceId, signalId, navigation) => { if (codebase) applyGraph(setPlayableSignalRole(codebase.graph, surfaceId, signalId, navigation)); },
     ...(onAskAgent ? { onAskAgent } : {}),
   };
 
@@ -594,6 +568,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setEdges((current) => current.map((edge) => edge.id === edgeId
       ? { ...toFlowEdge({ ...toPlayableEdge(edge)!, mode }), selected: edge.selected }
       : edge));
+  }
+
+  /** Selects a connection, as clicking its line does. */
+  function selectEdge(edgeId: string): void {
+    setCanvasContextMenu(undefined);
+    setSelectedId(undefined);
+    setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
+    setSelectedEdgeId(edgeId);
   }
 
   function renameNode(nodeId: string, title: string): void {
@@ -623,20 +605,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
     setSelectedId(nodeId);
-    setShellOpen(false);
     setOpenedNodeId(nodeId);
-  }
-
-  function openShell(): void {
-    setProjectPanel(undefined);
-    if (!graphMeta?.shell) {
-      setNotice("This project has no Overlay. Ask the AI to add one for UI that stays on screen across Scenes, such as a top bar.");
-      return;
-    }
-    setCanvasContextMenu(undefined);
-    setOpenedNodeId(undefined);
-    setWorkspaceView("canvas");
-    setShellOpen(true);
   }
 
   function setEntryNode(nodeId: string): void {
@@ -683,12 +652,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setSelectedId(undefined);
     setSelectedEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
-    setOverlayFlow((current) => current?.selected ? { ...current, selected: false } : current);
   }
 
   function openFile(path: string): void {
     setOpenedNodeId(undefined);
-    setShellOpen(false);
     setProjectPanel(undefined);
     setFileRequest({ path, id: Date.now() });
     setWorkspaceView("code");
@@ -747,7 +714,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         ...nodes.map((node) => node.selected ? { ...node, selected: false } : node),
         createFlowNode({ ...structuredClone(copy.node), id, source }, snapStoryCanvasPosition(position)),
       ];
-      const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, workspaceView, overlayFlow?.position);
+      const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, workspaceView);
       queuedCodebase.current = JSON.stringify(next);
       await updateNodeCodebase(projectId, {
         ...next,
@@ -825,22 +792,32 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return onPublish(details);
   }
 
+  // A navigation Exit's line is hidden; its Exit row names the target.
+  const renderedEdges = useMemo(() => {
+    const navigation = new Set(nodes.flatMap((node) => node.data.node.signals
+      .filter((signal) => signal.role === "navigation")
+      .map((signal) => `${node.id}\u0000${signal.id}`)));
+    return edges.map((edge) => navigation.has(`${edge.source}\u0000${edge.sourceHandle}`) ? { ...edge, hidden: true } : edge);
+  }, [nodes, edges]);
   const renderedNodes = useMemo(() => {
-    const connected = new Map<string, string[]>();
+    const titles = new Map(nodes.map((node) => [node.id, node.data.node.title]));
+    const connected = new Map<string, PlayableFlowData["connected"]>();
     for (const edge of edges) {
       if (!edge.sourceHandle) continue;
-      connected.set(edge.source, [...connected.get(edge.source) ?? [], edge.sourceHandle]);
+      connected.set(edge.source, {
+        ...connected.get(edge.source),
+        [edge.sourceHandle]: { edgeId: edge.id, target: titles.get(edge.target) ?? edge.target, selected: edge.id === selectedEdgeId },
+      });
     }
     const nodeIssues = new Map<string, string[]>();
     const failed = new Set<string>();
     for (const issue of issues) {
-      const owner = issue.surfaceId ?? nodeIdForIssuePath(issue.path, nodes)
-        ?? (issue.path.startsWith("shell/") || issue.path.startsWith("/shell/") ? PLAYABLE_SHELL_ID : undefined);
+      const owner = issue.surfaceId ?? nodeIdForIssuePath(issue.path, nodes);
       if (!owner) continue;
       nodeIssues.set(owner, [...nodeIssues.get(owner) ?? [], issue.message]);
       if (issue.phase === "compiler") failed.add(owner);
     }
-    const cards: CanvasFlowNode[] = nodes.map((node) => {
+    return nodes.map((node): PlayableFlowNode => {
       const cached = thumbnails?.[node.id];
       // Without a successful build the current hash is unknown, so a cached
       // thumbnail is not called stale; a failing Node is dimmed instead.
@@ -852,34 +829,24 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           node: node.data.node,
           entry: graphMeta?.entryNodeId === node.id,
           issues: nodeIssues.get(node.id) ?? [],
-          connected: connected.get(node.id) ?? [],
+          connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
           ...(cached ? { thumbnail: { capturedAt: cached.capturedAt, stale: Boolean(hash && hash !== cached.hash) } } : {}),
           ...(coverAssetId ? { coverAsset: graphMeta!.assets[coverAssetId] } : {}),
         },
       };
     });
-    if (overlayFlow && graphMeta?.shell) cards.push({
-      ...overlayFlow,
-      data: {
-        signals: graphMeta.shell.signals,
-        connected: connected.get(PLAYABLE_SHELL_ID) ?? [],
-        issues: nodeIssues.get(PLAYABLE_SHELL_ID) ?? [],
-      },
-    });
-    return cards;
-  }, [nodes, edges, issues, graphMeta, thumbnails, builtDefinition, overlayFlow]);
+  }, [nodes, edges, selectedEdgeId, issues, graphMeta, thumbnails, builtDefinition]);
   const workbenchTools = <>
     <button type="button" className={`playable-workbench-header-tool${projectPanel === "state" ? " is-active" : ""}`} title="Variables" aria-pressed={projectPanel === "state"} onClick={() => setProjectPanel((current) => current === "state" ? undefined : "state")}><Box size={13} /><span>Variables</span></button>
   </>;
-  const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode }), [projectId, technical]);
-  const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes)
-    && !issue.path.startsWith("shell/") && !issue.path.startsWith("/shell/"));
+  const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
+  const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
 
   return (
     <section
-      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode || openedShell ? " is-node-editor-open" : ""}`}
+      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -894,14 +861,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           <PlayableProjectMenu
             disabled={phase !== "ready"}
             screenSize={storyViewportRatio(playerViewport)}
-            panel={openedShell ? "overlay" : projectPanel}
-            hasOverlay={Boolean(graphMeta?.shell)}
+            panel={projectPanel}
             exporting={building}
             canExport={!agentBusy && !publishing && !building}
             technical={technical}
             onScreenSize={() => setCanvasSettingsOpen(true)}
             onPanel={(panel) => setProjectPanel((current) => current === panel ? undefined : panel)}
-            onOverlay={() => openedShell ? setShellOpen(false) : openShell()}
             onExport={() => void exportGame()}
             onTechnicalChange={(on) => {
               setTechnicalDetails(on);
@@ -938,10 +903,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
-              <ReactFlow<CanvasFlowNode>
+              <ReactFlow<PlayableFlowNode>
                 className={`story-canvas story-canvas-${interactionMode}`}
                 nodes={renderedNodes}
-                edges={edges}
+                edges={renderedEdges}
                 nodeTypes={PLAYABLE_NODE_TYPES}
                 onInit={(instance) => { reactFlow.current = instance; }}
                 defaultEdgeOptions={PLAYABLE_EDGE_OPTIONS}
@@ -972,19 +937,17 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
                 onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedId(undefined); }}
                 onNodeClick={(_event, node) => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); setSelectedId(node.id); }}
-                onNodeDoubleClick={(_event, node) => node.type === "overlay" ? openShell() : openNode(node.id)}
+                onNodeDoubleClick={(_event, node) => openNode(node.id)}
                 onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
                 onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
                 onNodeContextMenu={(event, node) => {
                   setSelectedEdgeId(undefined);
                   setSelectedId(node.id);
                   setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
-                  setOverlayFlow((current) => current ? { ...current, selected: node.type === "overlay" } : current);
-                  openCanvasContextMenu(event, node.type === "overlay" ? "overlay" : "node", node.id);
+                  openCanvasContextMenu(event, "node", node.id);
                 }}
-                onNodesDelete={(deleted) => removeNodes(new Set(deleted.flatMap((node) => node.type === "overlay" ? [] : [node.id])))}
-                isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle
-                  && connection.target !== PLAYABLE_SHELL_ID)}
+                onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
+                isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
                 proOptions={{ hideAttribution: true }}
                 defaultViewport={editorLayout.viewport}
               >
@@ -1006,6 +969,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             edge={selectedEdge}
             graph={codebase.graph}
             onChangeMode={(mode) => setEdgeMode(selectedEdge.id, mode)}
+            onChangeNavigation={(navigation) => { if (selectedEdge.sourceHandle) signalEdits.onSignalRole(selectedEdge.source, selectedEdge.sourceHandle, navigation); }}
             onDelete={() => { setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setSelectedEdgeId(undefined); }}
             onClose={() => setSelectedEdgeId(undefined)}
           /> : null}
@@ -1022,10 +986,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             onRedo={redoEditorChange}
             onPaste={() => { if (copiedNode) void insertNodeCopy(copiedNode, canvasContextMenu.flowPosition); }}
             onAdd={(presetId) => void addNodeFromPreset(presetId, canvasContextMenu.flowPosition)}
-            onOpen={() => {
-              if (canvasContextMenu.kind === "overlay") openShell();
-              else if (canvasContextMenu.nodeId) openNode(canvasContextMenu.nodeId);
-            }}
+            onOpen={() => { if (canvasContextMenu.nodeId) openNode(canvasContextMenu.nodeId); }}
             onCopy={() => { if (canvasContextMenu.nodeId) void copyNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) void duplicateNode(canvasContextMenu.nodeId); }}
             onSetEntry={() => { if (canvasContextMenu.nodeId) setEntryNode(canvasContextMenu.nodeId); }}
@@ -1055,21 +1016,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onAddAsset={(asset) => applyGraph(addPlayableNodeAsset(codebase.graph, openedNode.id, asset).graph)}
         onRemoveAsset={(assetId) => applyGraph(removePlayableNodeAsset(codebase.graph, openedNode.id, assetId))}
         onPlayFromHere={(start) => void startPlaytest(start)}
-        onSnapshot={onPreviewSnapshot}
-        onChatContextChange={onChatContextChange}
-        headerActions={workbenchTools}
-      /> : null}
-      {openedShell && !openedNode ? <PlayableShellWorkbench
-        projectId={projectId}
-        graph={openedShell}
-        issues={issues}
-        revision={workspaceRevision + codeRevision}
-        onClose={() => setShellOpen(false)}
-        onOpenNode={openNode}
-        onOpenSource={() => openFile(openedShell.shell.source.html)}
-        {...signalEdits}
-        onAddAsset={(asset) => applyGraph(addPlayableShellAsset(openedShell, asset).graph)}
-        onRemoveAsset={(assetId) => applyGraph(removePlayableShellAsset(openedShell, assetId))}
         onSnapshot={onPreviewSnapshot}
         onChatContextChange={onChatContextChange}
         headerActions={workbenchTools}
@@ -1108,23 +1054,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       {thumbnail?.stale && !failed ? <span className="playable-node-stale" title="The Scene changed since this picture was taken.">Stale</span> : null}
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
     </div>
-    <PlayableSignalOutputs signals={node.signals} connected={connected} technical={Boolean(canvas?.technical)} />
-  </div>;
-}
-
-/**
- * The Shell's card. It has Exits like a Scene but no input: nothing opens the
- * Overlay, it is always on screen.
- */
-function PlayableOverlayCard({ data, selected }: NodeProps<OverlayFlowNode>) {
-  const canvas = useContext(PlayableCanvasContext);
-  return <div className={`story-node playable-overlay-card${selected ? " is-selected" : ""}`}>
-    <div className="story-media-node-label story-scene-node-label">
-      <Layers3 size={14} />
-      <span><b>Overlay</b><strong>Stays on screen</strong></span>
-    </div>
-    {data.issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={data.issues.join("\n")}>{data.issues[0]}</span></p> : null}
-    <PlayableSignalOutputs signals={data.signals} connected={data.connected} technical={Boolean(canvas?.technical)} />
+    <PlayableSignalOutputs signals={node.signals} connected={connected} technical={Boolean(canvas?.technical)} onSelectEdge={canvas?.onSelectEdge} />
   </div>;
 }
 
@@ -1179,21 +1109,38 @@ function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, 
   return url;
 }
 
-function PlayableSignalOutputs({ signals, connected, technical }: {
+/**
+ * A Scene card's Exits, each with the port its connection leaves from. A
+ * navigation Exit's line is not drawn; the row names its target instead, and
+ * clicking the name selects the connection.
+ */
+function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: {
   signals: readonly PlayableSignal[];
-  connected: readonly string[];
+  connected: PlayableFlowData["connected"];
   technical: boolean;
+  onSelectEdge?: (edgeId: string) => void;
 }) {
   if (!signals.length) return <div className="story-node-outputs playable-node-outputs-empty"><span>No exits yet</span></div>;
-  return <div className="story-node-outputs">{signals.map((signal) => <div
-    className={`story-node-output${connected.includes(signal.id) ? "" : " is-unconnected"}`}
-    key={signal.id}
-  >
-    <span className="story-node-output-label" title={connected.includes(signal.id)
-      ? technical ? `${signal.label} (${signal.id})` : signal.label
-      : `"${signal.label || signal.id}" doesn't go anywhere yet. Drag from here to a Scene.`}>{signal.label || signal.id}</span>
-    <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />
-  </div>)}</div>;
+  return <div className="story-node-outputs">{signals.map((signal) => {
+    const route = connected[signal.id];
+    const name = signal.label || signal.id;
+    return <div className={`story-node-output${route ? "" : " is-unconnected"}`} key={signal.id}>
+      <span className="story-node-output-label" title={route
+        ? technical ? `${signal.label} (${signal.id})` : signal.label
+        : `"${name}" doesn't go anywhere yet. Drag from here to a Scene.`}>{name}</span>
+      <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />
+      {route && signal.role === "navigation" ? <button
+        type="button"
+        className={`playable-node-output-target nodrag nopan${route.selected ? " is-selected" : ""}`}
+        title={`"${name}" goes to ${route.target}`}
+        onClick={(event) => {
+          // The row is inside the card, so the click would also select the Scene.
+          event.stopPropagation();
+          onSelectEdge?.(route.edgeId);
+        }}
+      ><ArrowRight size={10} /><span>{route.target}</span></button> : null}
+    </div>;
+  })}</div>;
 }
 
 function InlinePlayableTitle({ nodeId, value, onRename }: {
@@ -1248,19 +1195,19 @@ function InlinePlayableTitle({ nodeId, value, onRename }: {
 
 /**
  * An Exit's connection carries one decision: whether the player can come back
- * (the engine's `push`) or the next Scene takes over (`replace`).
+ * (the engine's `push`) or the next Scene takes over (`replace`). It also
+ * shows whether the Exit is navigation, whose line the canvas does not draw.
  */
-function PlayableEdgeInspector({ edge, graph, onChangeMode, onDelete, onClose }: {
+function PlayableEdgeInspector({ edge, graph, onChangeMode, onChangeNavigation, onDelete, onClose }: {
   edge: Edge;
   graph: NodeGraph;
   onChangeMode: (mode: PlayableNavigationMode) => void;
+  onChangeNavigation: (navigation: boolean) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
-  const titleOf = (nodeId: string) => nodeId === PLAYABLE_SHELL_ID
-    ? "Overlay"
-    : graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
-  const signal = playableSignalsOf(graph, edge.source)?.find((candidate) => candidate.id === edge.sourceHandle);
+  const titleOf = (nodeId: string) => graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
+  const signal = playableNodeById(graph, edge.source)?.signals.find((candidate) => candidate.id === edge.sourceHandle);
   const mode: PlayableNavigationMode = edge.data?.mode === "push" ? "push" : "replace";
   return <aside className="playable-edge-inspector" aria-label="Exit">
     <header>
@@ -1274,24 +1221,26 @@ function PlayableEdgeInspector({ edge, graph, onChangeMode, onDelete, onClose }:
       <input type="checkbox" checked={mode === "push"} onChange={(event) => onChangeMode(event.target.checked ? "push" : "replace")} />
       <span><strong>Allow Back</strong><small>The player can return to {titleOf(edge.source)} from {titleOf(edge.target)}.</small></span>
     </label>
+    <label className="playable-edge-back">
+      <input type="checkbox" checked={signal?.role === "navigation"} onChange={(event) => onChangeNavigation(event.target.checked)} />
+      <span><strong>Navigation</strong><small>A way around the game, like Home. The canvas names {titleOf(edge.target)} on the Exit instead of drawing a line.</small></span>
+    </label>
     <button className="playable-edge-delete" type="button" onClick={onDelete}><Trash2 size={13} /><span>Remove connection</span></button>
   </aside>;
 }
 
 /**
- * Project-wide things that are not on the canvas: screen size, Variables, the Overlay, Export, and whether engine details show.
+ * Project-wide things that are not on the canvas: screen size, Variables, Export, and whether engine details show.
  */
-function PlayableProjectMenu({ disabled, screenSize, panel, hasOverlay, exporting, canExport, technical, onScreenSize, onPanel, onOverlay, onExport, onTechnicalChange }: {
+function PlayableProjectMenu({ disabled, screenSize, panel, exporting, canExport, technical, onScreenSize, onPanel, onExport, onTechnicalChange }: {
   disabled: boolean;
   screenSize: string;
-  panel?: "state" | "overlay";
-  hasOverlay: boolean;
+  panel?: "state";
   exporting: boolean;
   canExport: boolean;
   technical: boolean;
   onScreenSize: () => void;
   onPanel: (panel: "state") => void;
-  onOverlay: () => void;
   onExport: () => void;
   onTechnicalChange: (on: boolean) => void;
 }) {
@@ -1348,7 +1297,6 @@ function PlayableProjectMenu({ disabled, screenSize, panel, hasOverlay, exportin
     >
       <button type="button" role="menuitem" onClick={() => run(onScreenSize)}><Monitor size={15} /><span>Screen size</span><small>{screenSize}</small></button>
       <button type="button" role="menuitemcheckbox" aria-checked={panel === "state"} onClick={() => run(() => onPanel("state"))}><Box size={15} /><span>Variables</span></button>
-      <button type="button" role="menuitemcheckbox" aria-checked={panel === "overlay"} title={hasOverlay ? "UI that stays on screen across Scenes" : "This project has no Overlay yet"} onClick={() => run(onOverlay)}><Layers3 size={15} /><span>Overlay</span>{hasOverlay ? null : <small>None</small>}</button>
       <div className="playable-project-menu-separator" role="separator" />
       <button type="button" role="menuitem" disabled={!canExport} onClick={() => run(onExport)}>
         {exporting ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}<span>{exporting ? "Exporting" : "Export"}</span>
@@ -1494,7 +1442,7 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
       ref={root}
       className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
       role="menu"
-      aria-label={menu.kind === "pane" ? "Canvas actions" : menu.kind === "overlay" ? "Overlay actions" : "Scene actions"}
+      aria-label={menu.kind === "pane" ? "Canvas actions" : "Scene actions"}
       tabIndex={-1}
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}
@@ -1518,8 +1466,6 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
             </div>
           </div> : null}
         </div>
-      </> : menu.kind === "overlay" ? <>
-        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>Open</span></button>
       </> : <>
         <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>Open</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy Scene</span></button>
@@ -1605,10 +1551,7 @@ export function buildCodebase(
   edges: readonly Edge[],
   layout: NodeEditorLayout,
   view: "canvas" | "code",
-  /** Where the Overlay card is; kept under the reserved key `shell` while the graph has a Shell. */
-  overlayPosition?: { x: number; y: number },
 ): NodeCodebase {
-  const overlay = meta.shell ? overlayPosition ?? layout.nodes[PLAYABLE_SHELL_ID] ?? DEFAULT_OVERLAY_POSITION : undefined;
   return {
     graph: {
       ...meta,
@@ -1618,13 +1561,10 @@ export function buildCodebase(
     editorLayout: {
       ...layout,
       view,
-      nodes: {
-        ...Object.fromEntries(nodes.map((node) => [node.id, {
-          x: Math.round(node.position.x),
-          y: Math.round(node.position.y),
-        }])),
-        ...(overlay ? { [PLAYABLE_SHELL_ID]: { x: Math.round(overlay.x), y: Math.round(overlay.y) } } : {}),
-      },
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, {
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+      }])),
     },
   };
 }
@@ -1639,14 +1579,8 @@ function createFlowNode(node: PlayableNode, position: { x: number; y: number }):
     type: "playable",
     position,
     deletable: true,
-    data: { node, entry: false, issues: [], connected: [], failed: false },
+    data: { node, entry: false, issues: [], connected: {}, failed: false },
   };
-}
-
-const EMPTY_OVERLAY_DATA: OverlayFlowData = { signals: [], connected: [], issues: [] };
-
-function toOverlayFlowNode(position: { x: number; y: number }): Omit<OverlayFlowNode, "data"> {
-  return { id: PLAYABLE_SHELL_ID, type: "overlay", position, deletable: false };
 }
 
 export function toFlowEdge(edge: PlayableEdge): Edge {

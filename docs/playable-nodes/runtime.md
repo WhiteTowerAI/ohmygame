@@ -12,7 +12,7 @@ The Runtime owns everything that must survive a node:
 - navigation and the back stack;
 - asset resolution;
 - the save slot;
-- node and Shell lifecycle;
+- node lifecycle;
 - the sandbox that hosts node code.
 
 Nodes own presentation and input. The Runtime never renders node content, and
@@ -28,8 +28,8 @@ code sees.
 ```text
 graph.json              runtime graph and dependency manifest
 nodes/<id>/             index.html, style.css, node.js for each node
-shell/                  optional persistent UI (index.html, style.css, shell.js)
-shared/                 ordinary modules imported by nodes and the Shell
+shared/                 ordinary modules imported by more than one node
+shared/components/      UI shown on more than one node, such as a top bar
 shared/style/           Project Style: theme and components
 editor/layout.json      editor-only positions and canvas viewport
 schemas/                JSON Schemas for graph.json and editor/layout.json
@@ -61,14 +61,6 @@ valid, plus the default Project Style.
       "source": { "kind": "workspace", "path": "assets/archive-desk.webp" }
     }
   },
-  "shell": {
-    "source": { "html": "shell/index.html", "css": "shell/style.css", "javascript": "shell/shell.js" },
-    "assets": [],
-    "signals": [
-      { "id": "home", "label": "首页" },
-      { "id": "rules", "label": "规则" }
-    ]
-  },
   "nodes": [
     {
       "id": "main-menu",
@@ -79,29 +71,42 @@ valid, plus the default Project Style.
         { "id": "enter-club", "label": "进入俱乐部" },
         { "id": "open-archive", "label": "查看旧案" }
       ]
+    },
+    {
+      "id": "archive",
+      "title": "Archive",
+      "source": { "html": "nodes/archive/index.html", "css": "nodes/archive/style.css", "javascript": "nodes/archive/node.js" },
+      "assets": ["archive-desk"],
+      "signals": [
+        { "id": "home", "label": "首页", "role": "navigation" },
+        { "id": "rules", "label": "规则" }
+      ]
     }
   ],
   "edges": [
     { "id": "e1", "source": { "nodeId": "main-menu", "signal": "enter-club" }, "targetNodeId": "game-lobby", "mode": "replace" },
     { "id": "e2", "source": { "nodeId": "main-menu", "signal": "open-archive" }, "targetNodeId": "archive", "mode": "push" },
-    { "id": "e3", "source": { "nodeId": "shell", "signal": "home" }, "targetNodeId": "main-menu", "mode": "replace" },
-    { "id": "e4", "source": { "nodeId": "shell", "signal": "rules" }, "targetNodeId": "game-rules", "mode": "push" }
+    { "id": "e3", "source": { "nodeId": "archive", "signal": "home" }, "targetNodeId": "main-menu", "mode": "replace" },
+    { "id": "e4", "source": { "nodeId": "archive", "signal": "rules" }, "targetNodeId": "game-rules", "mode": "push" }
   ]
 }
 ```
 
-`viewport` is the fixed stage every node and the Shell are laid out in, in
+A Signal may have `"role": "navigation"` when it is a way around the game,
+such as Home, rather than a step in the story. The editor names its target
+instead of drawing a line. The Runtime, routing, and compiler ignore it.
+
+`viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
 looks the same in the Workbench preview, its thumbnail, a Playtest window of
 any size, and the published game.
 
-Editor data (positions, zoom, open panels) lives in `editor/layout.json`;
-the Shell's card position is stored under `nodes.shell`. Preset names are
-never stored.
+Editor data (positions, zoom, open panels) lives in `editor/layout.json`.
+Preset names are never stored.
 
 ## Node protocol
 
-Every node and the Shell export one function:
+Every node exports one function:
 
 ```js
 export function mount(context) {
@@ -140,17 +145,14 @@ interface RuntimeContext {
 interface NodeContext extends RuntimeContext {
   navigation: { emit(signal: string): Promise<void>; back(): Promise<void> };
 }
-
-type ShellContext = NodeContext;
 ```
 
 Every request is validated. An undeclared asset, unknown state key, or
 undeclared Signal produces a visible runtime error instead of silently doing
 nothing.
 
-Nodes and the Shell each emit only their own declared Signals or go back; the
-Shell cannot emit a node's Signal and a node cannot emit the Shell's. Story
-flow therefore stays visible in the graph.
+A node emits only its own declared Signals or goes back, so story flow stays
+visible in the graph.
 
 ## Project State
 
@@ -162,16 +164,13 @@ flow therefore stays visible in the graph.
 - `get()` returns a read-only copy. `set` replaces one top-level key; `patch`
   replaces several atomically. There is no dot-path language; nested updates
   write back a new top-level value.
-- Changes are visible immediately to the active node and the Shell through
-  `subscribe`.
+- Changes are visible immediately to the active node through `subscribe`.
 
 ## Signals and edges
 
 A Signal says what happened; an edge says where it leads.
 
-- A node and Signal pair has at most one edge. The Shell's Signals are
-  routed the same way, with the reserved source `nodeId` `"shell"`
-  (`PLAYABLE_SHELL_ID`); no node may use that ID.
+- A node and Signal pair has at most one edge.
 - Edges carry no conditions or state effects in v1. A node reads State and
   emits the Signal that fits.
 - A declared Signal may be unconnected while editing. Emitting it during
@@ -187,22 +186,28 @@ A Signal says what happened; an edge says where it leads.
 The back stack stores node IDs, not live instances. Anything that must survive
 leaving a node belongs in Project State.
 
-## The Shell
+## UI on many nodes
 
-The Shell is optional project-wide UI mounted above the current node. It stays
-alive while nodes change, so it never flashes or loses temporary UI state. Its
-layer ignores pointer events by default; interactive Shell elements opt in
-with `pointer-events: auto`.
+There is one kind of surface. UI that appears on more than one node, such as a
+top bar or a **Home** button, is a shared component under `shared/components/`.
+Each node that shows it imports it and passes its own `context`; the component
+emits through that context, so the node declares the component's Signals and
+routes them with its own edges, like any other Signal.
 
-The Shell declares its own `signals` (the same `{ id, label }` shape as a
-node's) and calls `navigation.emit(signal)` like a node. Its edges start at
-`"shell"` and are followed from whichever node is current, so a top-bar
-**Home** is one edge rather than one per node. `playableSignalsOf(graph,
-surfaceId)` returns the Signals of a node or, for `"shell"`, of the Shell.
+```js
+// nodes/archive/node.js
+import { mountTopBar } from "../../shared/components/top-bar.js";
 
-Shared modules and the Shell solve different problems: shared modules reuse
-source and are mounted with each node; the Shell is one live instance across
-nodes.
+export function mount(context) {
+  return mountTopBar(context, ["home", "rules"]);
+}
+```
+
+A node that does not import the component does not show it, and each node can
+route the same Signal somewhere different. There is no layer drawn over every
+node: the component mounts fresh with each node, and whatever must continue
+across nodes (a score, a timer's start time, an open chapter) lives in Project
+State.
 
 ## Assets
 
@@ -211,7 +216,7 @@ nodes.
   file (`kind: "workspace"`).
 - Replacing an asset re-points the project Asset ID at another source. Every
   node using the ID follows; node code does not change.
-- Nodes and the Shell list the Asset IDs they use. `assets.url(id)` accepts
+- Nodes list the Asset IDs they use. `assets.url(id)` accepts
   only those IDs.
 - An asset reference is a dependency, not a layout instruction. Node code
   decides whether it is an `<img>`, a CSS background, a video, a texture, or
@@ -226,7 +231,6 @@ Player host (editor, Playtest, or Published Player)
 └── iframe sandbox="allow-scripts"   (opaque origin, strict CSP)
     └── sandbox document
         ├── Node Runtime
-        ├── Shell layer   → ShadowRoot → Shell surface
         └── Node layer    → ShadowRoot → current node surface
 ```
 
@@ -240,7 +244,7 @@ Player host (editor, Playtest, or Published Player)
 - Each surface gets its own `ShadowRoot`, so markup and CSS are scoped.
 - Each mount imports the node's compiled module from a fresh blob URL, so
   module-level variables start fresh on every mount.
-- Nodes and the Shell share one JavaScript realm. `window`, `document`
+- Successive nodes share one JavaScript realm. `window`, `document`
   listeners, and globals are not isolated between surfaces. Node code must use
   `context.root`, cleanup, and `lifecycle.signal`, and must not rely on
   globals surviving or being absent. This is a documented limitation, not a
@@ -256,7 +260,7 @@ On a node transition the Runtime:
 6. creates a new ShadowRoot, injects compiled CSS and HTML;
 7. calls `mount(context)` and reveals the node when it settles.
 
-A startup or mount failure unmounts the node and the Shell and puts the
+A startup or mount failure unmounts the node and puts the
 Runtime in an explicit failed state.
 
 ## Save and session
@@ -333,7 +337,7 @@ page capture of the preview frame.
 ## Compiler
 
 The compiler turns the validated graph and workspace into one self-contained
-JavaScript module and stylesheet per node and for the Shell.
+JavaScript module and stylesheet per node.
 
 - HTML stays authored markup.
 - JavaScript and CSS are bundled, so `shared/` modules and the project's own
@@ -354,21 +358,18 @@ Validation runs in `draft` mode for editing and Playtest and `publish` mode
 for publishing. Each issue has a stable `code`, a JSON Pointer `path`, and an
 actionable `message`. It checks that:
 
-- IDs are non-empty and unique in their scope, and no node uses the
-  reserved ID `shell` (`reserved-id`);
+- IDs are non-empty and unique in their scope;
 - `entryNodeId` and edge targets exist;
-- every edge starts at a declared Signal of a node or, from `shell`, of the
-  Shell, with at most one edge per pair;
-- every node and Shell asset dependency exists in `assets`;
+- every edge starts at a declared Signal of a node, with at most one edge per
+  pair;
+- every node asset dependency exists in `assets`;
 - source and asset paths are relative and stay inside the workspace;
 - referenced files exist;
 - `initialState` is a JSON object;
 - modes are only `replace` and `push`;
-- in `publish` mode, every declared Signal, the Shell's included, has an
-  edge.
+- in `publish` mode, every declared Signal has an edge.
 
-Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node or
-Shell, 500 asset dependencies per surface, 5 MiB per source file, and
+Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node, 500 asset dependencies per surface, 5 MiB per source file, and
 16 MiB per compiled surface.
 
 ## Publishing

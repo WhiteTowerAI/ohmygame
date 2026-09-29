@@ -24,20 +24,17 @@ export interface PlayableAssetDefinition {
 export interface PlayableSignal {
   id: string;
   label: string;
+  /**
+   * What the Exit is for. Absent, it moves the story on. `navigation` marks a
+   * way around the game, such as a Home button shown on many Scenes; the
+   * canvas names its target instead of drawing a line. Routing ignores it.
+   */
+  role?: "navigation";
 }
 
 export interface PlayableNode {
   id: string;
   title: string;
-  source: NodeSource;
-  assets: string[];
-  signals: PlayableSignal[];
-}
-
-/** Edges from the Shell's Signals name this reserved ID as their source Node. */
-export const PLAYABLE_SHELL_ID = "shell";
-
-export interface PlayableShell {
   source: NodeSource;
   assets: string[];
   signals: PlayableSignal[];
@@ -63,7 +60,6 @@ export interface NodeGraph {
   entryNodeId: string;
   initialState: JsonObject;
   assets: Record<string, PlayableAssetDefinition>;
-  shell?: PlayableShell;
   nodes: PlayableNode[];
   edges: PlayableEdge[];
 }
@@ -97,13 +93,7 @@ export interface PlayableNodeContext extends NodeRuntimeContext {
   };
 }
 
-/** The Shell navigates like a Node: it emits its own Signals, which edges route. */
-export type PlayableShellContext = PlayableNodeContext;
-
 export type PlayableCleanup = () => void | Promise<void>;
 export type PlayableMount = (
   context: PlayableNodeContext,
-) => void | PlayableCleanup | Promise<void | PlayableCleanup>;
-export type PlayableShellMount = (
-  context: PlayableShellContext,
 ) => void | PlayableCleanup | Promise<void | PlayableCleanup>;

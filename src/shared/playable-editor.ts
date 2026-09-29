@@ -1,12 +1,10 @@
 import type { NodeGraphValidationIssue } from "./playable-graph-validation.js";
-import {
-  PLAYABLE_SHELL_ID,
-  type JsonValue,
-  type NodeGraph,
-  type PlayableAssetDefinition,
-  type PlayableAssetType,
-  type PlayableNavigationMode,
-  type PlayableSignal,
+import type {
+  JsonValue,
+  NodeGraph,
+  PlayableAssetDefinition,
+  PlayableAssetType,
+  PlayableNavigationMode,
 } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
 
@@ -15,7 +13,7 @@ export interface PlayableProjectValidationIssue {
   code: NodeGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | string;
   path: string;
   message: string;
-  /** Node ID, or `"shell"`, when the issue belongs to one surface. */
+  /** Node ID, when the issue belongs to one Node. */
   surfaceId?: string;
 }
 
@@ -43,24 +41,19 @@ export interface PlayableAddedNode {
   brief: string;
 }
 
-/** The Node, or the Shell for `PLAYABLE_SHELL_ID`, that declares Signals. */
-function signalOwner(graph: NodeGraph, surfaceId: string): { signals: PlayableSignal[] } | undefined {
-  return surfaceId === PLAYABLE_SHELL_ID ? graph.shell : graph.nodes.find((candidate) => candidate.id === surfaceId);
-}
-
 export function renamePlayableSignal(
   graph: NodeGraph,
-  surfaceId: string,
+  nodeId: string,
   oldId: string,
   newId: string,
 ): NodeGraph {
   const next = structuredClone(graph);
-  const owner = signalOwner(next, surfaceId);
-  if (!owner || !newId || owner.signals.some((signal) => signal.id === newId && signal.id !== oldId)) {
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node || !newId || node.signals.some((signal) => signal.id === newId && signal.id !== oldId)) {
     return graph;
   }
-  owner.signals = owner.signals.map((signal) => signal.id === oldId ? { ...signal, id: newId } : signal);
-  next.edges = next.edges.map((edge) => edge.source.nodeId === surfaceId && edge.source.signal === oldId
+  node.signals = node.signals.map((signal) => signal.id === oldId ? { ...signal, id: newId } : signal);
+  next.edges = next.edges.map((edge) => edge.source.nodeId === nodeId && edge.source.signal === oldId
     ? { ...edge, source: { ...edge.source, signal: newId } }
     : edge);
   return next;
@@ -68,28 +61,46 @@ export function renamePlayableSignal(
 
 export function deletePlayableSignal(
   graph: NodeGraph,
-  surfaceId: string,
+  nodeId: string,
   signalId: string,
 ): NodeGraph {
   const next = structuredClone(graph);
-  const owner = signalOwner(next, surfaceId);
-  if (!owner) return graph;
-  owner.signals = owner.signals.filter((signal) => signal.id !== signalId);
-  next.edges = next.edges.filter((edge) => edge.source.nodeId !== surfaceId || edge.source.signal !== signalId);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return graph;
+  node.signals = node.signals.filter((signal) => signal.id !== signalId);
+  next.edges = next.edges.filter((edge) => edge.source.nodeId !== nodeId || edge.source.signal !== signalId);
   return next;
 }
 
 export function setPlayableSignalLabel(
   graph: NodeGraph,
-  surfaceId: string,
+  nodeId: string,
   signalId: string,
   label: string,
 ): NodeGraph {
   const next = structuredClone(graph);
-  const owner = signalOwner(next, surfaceId);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
   const trimmed = label.trim();
-  if (!owner || !trimmed) return graph;
-  owner.signals = owner.signals.map((signal) => signal.id === signalId ? { ...signal, label: trimmed.slice(0, 120) } : signal);
+  if (!node || !trimmed) return graph;
+  node.signals = node.signals.map((signal) => signal.id === signalId ? { ...signal, label: trimmed.slice(0, 120) } : signal);
+  return next;
+}
+
+/** Marks an Exit as a way around the game (`navigation`) or part of the story. */
+export function setPlayableSignalRole(
+  graph: NodeGraph,
+  nodeId: string,
+  signalId: string,
+  navigation: boolean,
+): NodeGraph {
+  const next = structuredClone(graph);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return graph;
+  node.signals = node.signals.map((signal) => {
+    if (signal.id !== signalId) return signal;
+    const { role: _role, ...story } = signal;
+    return navigation ? { ...story, role: "navigation" as const } : story;
+  });
   return next;
 }
 
@@ -97,8 +108,8 @@ export function setPlayableSignalLabel(
  * A new edge's ID: `<source>-<signal>`, which graph.json's ID pattern allows,
  * numbered when another edge already has it.
  */
-export function playableEdgeId(edges: readonly { id: string }[], surfaceId: string, signalId: string): string {
-  const base = `${surfaceId}-${signalId}`;
+export function playableEdgeId(edges: readonly { id: string }[], nodeId: string, signalId: string): string {
+  const base = `${nodeId}-${signalId}`;
   const taken = new Set(edges.map((edge) => edge.id));
   let id = base;
   for (let index = 2; taken.has(id); index += 1) id = `${base}-${index}`;
@@ -111,18 +122,18 @@ export function playableEdgeId(edges: readonly { id: string }[], surfaceId: stri
  */
 export function setPlayableSignalTarget(
   graph: NodeGraph,
-  surfaceId: string,
+  nodeId: string,
   signalId: string,
   targetNodeId: string | undefined,
   mode?: PlayableNavigationMode,
 ): NodeGraph {
   const next = structuredClone(graph);
-  const current = next.edges.find((edge) => edge.source.nodeId === surfaceId && edge.source.signal === signalId);
+  const current = next.edges.find((edge) => edge.source.nodeId === nodeId && edge.source.signal === signalId);
   next.edges = next.edges.filter((edge) => edge !== current);
   if (targetNodeId && next.nodes.some((node) => node.id === targetNodeId)) {
     next.edges.push({
-      id: current?.id ?? playableEdgeId(next.edges, surfaceId, signalId),
-      source: { nodeId: surfaceId, signal: signalId },
+      id: current?.id ?? playableEdgeId(next.edges, nodeId, signalId),
+      source: { nodeId, signal: signalId },
       targetNodeId,
       mode: mode ?? current?.mode ?? "replace",
     });
@@ -159,24 +170,8 @@ export function addPlayableNodeAsset(
   nodeId: string,
   asset: { name: string } & PlayableAssetDefinition,
 ): { graph: NodeGraph; assetId: string } {
-  return addSurfaceAsset(graph, (next) => next.nodes.find((candidate) => candidate.id === nodeId), asset);
-}
-
-/** Declares the Asset for the Shell, like addPlayableNodeAsset does for a Node. */
-export function addPlayableShellAsset(
-  graph: NodeGraph,
-  asset: { name: string } & PlayableAssetDefinition,
-): { graph: NodeGraph; assetId: string } {
-  return addSurfaceAsset(graph, (next) => next.shell, asset);
-}
-
-function addSurfaceAsset(
-  graph: NodeGraph,
-  surfaceOf: (graph: NodeGraph) => { assets: string[] } | undefined,
-  asset: { name: string } & PlayableAssetDefinition,
-): { graph: NodeGraph; assetId: string } {
   const next = structuredClone(graph);
-  const node = surfaceOf(next);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
   const sameSource = (definition: PlayableAssetDefinition) => JSON.stringify(definition.source) === JSON.stringify(asset.source);
   const existing = Object.entries(next.assets).find(([, definition]) => sameSource(definition))?.[0];
   const assetId = existing ?? playableAssetId(asset.name, new Set(Object.keys(next.assets)));
@@ -188,24 +183,11 @@ function addSurfaceAsset(
 
 /** Removes the Asset from the Node, and from the graph once nothing declares it. */
 export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetId: string): NodeGraph {
-  return removeSurfaceAsset(graph, (next) => next.nodes.find((candidate) => candidate.id === nodeId), assetId);
-}
-
-export function removePlayableShellAsset(graph: NodeGraph, assetId: string): NodeGraph {
-  return removeSurfaceAsset(graph, (next) => next.shell, assetId);
-}
-
-function removeSurfaceAsset(
-  graph: NodeGraph,
-  surfaceOf: (graph: NodeGraph) => { assets: string[] } | undefined,
-  assetId: string,
-): NodeGraph {
   const next = structuredClone(graph);
-  const node = surfaceOf(next);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return graph;
   node.assets = node.assets.filter((id) => id !== assetId);
-  const used = next.nodes.some((candidate) => candidate.assets.includes(assetId)) || next.shell?.assets.includes(assetId);
-  if (!used) delete next.assets[assetId];
+  if (!next.nodes.some((candidate) => candidate.assets.includes(assetId))) delete next.assets[assetId];
   return next;
 }
 
@@ -222,19 +204,14 @@ export function playableStateType(value: JsonValue): PlayableStateType {
 }
 
 /**
- * Identifies what a preview session runs. Node titles, Signal labels (the
- * Shell's too), and the graph title are editor text the Runtime never reads,
- * so renaming them keeps the running preview.
+ * Identifies what a preview session runs. Node titles, Signal labels, and the
+ * graph title are editor text the Runtime never reads, so renaming them keeps
+ * the running preview.
  */
 export function playableRuntimeKey(definition: NodePlayerDefinition): string {
-  const { title: _title, nodes, shell, ...graph } = definition.graph;
-  const signalIds = (signals: readonly PlayableSignal[]) => signals.map((signal) => signal.id);
+  const { title: _title, nodes, ...graph } = definition.graph;
   return JSON.stringify({
-    graph: {
-      ...graph,
-      ...(shell ? { shell: { ...shell, signals: signalIds(shell.signals) } } : {}),
-      nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signalIds(signals) })),
-    },
+    graph: { ...graph, nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signals.map((signal) => signal.id) })) },
     compiled: definition.compiled,
   });
 }
@@ -266,19 +243,17 @@ export type PlayableThumbnailManifest = Record<string, { hash: string; capturedA
 
 /**
  * Identifies what a Node thumbnail shows: the Node's compiled output, the
- * Shell drawn over it, the Assets both declare, and the viewport. A cached
- * thumbnail with another hash is stale.
+ * Assets it declares, and the viewport. A cached thumbnail with another hash
+ * is stale.
  */
 export function playableThumbnailHash(definition: NodePlayerDefinition, nodeId: string): string | undefined {
   const { graph, compiled } = definition;
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   const surface = compiled.nodes[nodeId];
   if (!node || !surface) return undefined;
-  const shell = compiled.shell;
-  const assetIds = [...new Set([...node.assets, ...graph.shell?.assets ?? []])].sort();
+  const assetIds = [...node.assets].sort();
   return hashText(JSON.stringify({
     node: [surface.html, surface.css, surface.javascript],
-    shell: shell ? [shell.html, shell.css, shell.javascript] : null,
     assets: assetIds.map((id) => [id, graph.assets[id] ?? null]),
     viewport: graph.viewport,
   }));

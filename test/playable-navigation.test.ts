@@ -28,21 +28,15 @@ describe("Playable navigation", () => {
     expect(archive).toEqual({ currentNodeId: "archive", backStack: ["menu"] });
   });
 
-  it("follows Shell Signals from whichever Node is current", () => {
+  it("routes a shared component's Signal by the Scene that shows it", () => {
     const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
     const lobby = navigatePlayableSignal(graph, initial, "start");
+    const archive = navigatePlayableSignal(graph, lobby, "archive");
 
-    expect(navigatePlayableSignal(graph, lobby, "archive", "shell")).toEqual({
-      currentNodeId: "archive",
-      backStack: [],
-    });
-    graph.edges = graph.edges.map((edge) => edge.id === "shell-archive" ? { ...edge, mode: "push" } : edge);
-    expect(navigatePlayableSignal(graph, lobby, "archive", "shell")).toEqual({
-      currentNodeId: "archive",
-      backStack: ["lobby"],
-    });
-    expect(() => navigatePlayableSignal(graph, lobby, "home"))
+    expect(archive).toEqual({ currentNodeId: "archive", backStack: [] });
+    expect(navigatePlayableSignal(graph, archive, "home")).toEqual({ currentNodeId: "menu", backStack: [] });
+    expect(() => navigatePlayableSignal(graph, archive, "archive"))
       .toThrowError(expect.objectContaining({ code: "unknown-signal" }));
   });
 
@@ -59,9 +53,9 @@ describe("Playable navigation", () => {
     expect(() =>
       navigatePlayableSignal(graph, initial, "inspect"),
     ).toThrowError(expect.objectContaining({ code: "unconnected-signal" }));
-    graph.edges = graph.edges.map((edge) => edge.id === "shell-home" ? { ...edge, mode: "overlay" as "replace" } : edge);
+    graph.edges = graph.edges.map((edge) => edge.id === "start-game" ? { ...edge, mode: "overlay" as "replace" } : edge);
     expect(() =>
-      navigatePlayableSignal(graph, initial, "home", "shell"),
+      navigatePlayableSignal(graph, initial, "start"),
     ).toThrowError(expect.objectContaining({ code: "invalid-mode" }));
     expect(() => navigatePlayableBack(initial)).toThrowError(
       PlayableNavigationError,

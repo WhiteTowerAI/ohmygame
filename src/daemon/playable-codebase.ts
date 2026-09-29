@@ -11,7 +11,7 @@ import {
   type NodeCodebaseUpdate,
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
-import type { NodeGraph } from "../shared/playable-nodes.js";
+import type { NodeGraph, PlayableSignal } from "../shared/playable-nodes.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
@@ -29,7 +29,7 @@ const AGENT_INSTRUCTIONS = `# Playable Nodes Project
 
 This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
-- \`graph.json\` declares the viewport, initial State, Assets, optional Shell, Nodes, Signals, and navigation edges.
+- \`graph.json\` declares the viewport, initial State, Assets, Nodes, Signals, and navigation edges.
 - Every Node follows the same protocol. Its HTML, CSS, and JavaScript are ordinary source files referenced by \`node.source\`.
 - Node JavaScript exports \`mount(context)\`. Render into \`context.root\` and optionally return a cleanup function.
 - Emit only Signals declared by the current Node: \`context.navigation.emit(signalId)\`. Signals describe outcomes; they do not name target Nodes.
@@ -38,7 +38,8 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - \`shared/style/components.js\` exports \`playCinematic(context, { assetId, signal })\`, which plays a declared video, offers skip, and emits the Signal when it ends or is skipped. Cinematic behaviour is Node content, so change it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
-- The optional Shell is persistent project UI. Use it only for controls or presentation that truly continue across Node changes. The Shell declares its own \`signals\` and emits them like a Node; edges from the Shell use \`"shell"\` as their source \`nodeId\`, so no Node may use that ID.
+- UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
+- A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
 - Keep IDs and source paths stable when editing existing objects. Keep \`editor/layout.json\` synchronized with the exact Node IDs in \`graph.json\`.
 - Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
@@ -52,7 +53,6 @@ The user sees the editor, not this contract. Talk to them in its words:
 | Scene | Node |
 | Exit | Signal and the edge that routes it |
 | Start | \`entryNodeId\` |
-| Overlay | Shell |
 | Variables | \`initialState\` and the live State |
 | Allow Back | edge \`mode: "push"\` |
 | Template | Preset |
@@ -66,8 +66,8 @@ This project is made of one graph plus ordinary browser source files. Every Node
 
 - \`graph.json\` is the runtime graph and dependency manifest.
 - \`nodes/<id>/\` contains a Node's HTML, CSS, and JavaScript.
-- \`shell/\` contains optional persistent UI.
-- \`shared/\` contains ordinary modules imported by more than one surface.
+- \`shared/\` contains ordinary modules imported by more than one Node.
+- \`shared/components/\` contains UI shown on more than one Node, such as a Home button.
 - \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playCinematic()\`.
 - \`editor/layout.json\` contains editor-only positions and viewport state.
 - \`schemas/\` contains the exact persisted JSON contracts.
@@ -84,7 +84,7 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
-The optional Shell exports the same \`mount(context)\` function and receives the same context. It emits the Signals declared in \`graph.shell.signals\`; edges route them from the source \`nodeId\` \`"shell"\`. Shell CSS should enable pointer events only on interactive Shell elements.
+A shared component receives the Node's context from the Node that mounts it, so it emits that Node's Signals: every Node that shows it declares them in \`graph.json\`.
 
 The mount function may return a synchronous or asynchronous cleanup function. Source may import local Shared Modules and dependencies declared by this project. Network access is unavailable at runtime.
 `;
@@ -288,23 +288,17 @@ function nightTrainCodebase(
       entryNodeId: "platform",
       initialState: { boarded: false },
       assets: {},
-      shell: {
-        source: {
-          html: "shell/index.html",
-          css: "shell/style.css",
-          javascript: "shell/shell.js",
-        },
-        assets: [],
-        signals: [{ id: "home", label: "Home" }],
-      },
       nodes: [
         node("platform", "Platform", [
           { id: "board", label: "Board the train" },
         ]),
         node("carriage", "Carriage", [
           { id: "continue", label: "Continue" },
+          { id: "home", label: "Home", role: "navigation" },
         ]),
-        node("home", "Last train home", []),
+        node("home", "Last train home", [
+          { id: "home", label: "Home", role: "navigation" },
+        ]),
       ],
       edges: [
         {
@@ -320,18 +314,23 @@ function nightTrainCodebase(
           mode: "replace",
         },
         {
-          id: "shell-home",
-          source: { nodeId: "shell", signal: "home" },
+          id: "carriage-home",
+          source: { nodeId: "carriage", signal: "home" },
+          targetNodeId: "platform",
+          mode: "replace",
+        },
+        {
+          id: "home-home",
+          source: { nodeId: "home", signal: "home" },
           targetNodeId: "platform",
           mode: "replace",
         },
       ],
     },
     editorLayout: layout({
-      shell: { x: 80, y: -160 },
       platform: { x: 80, y: 180 },
-      carriage: { x: 420, y: 180 },
-      home: { x: 760, y: 180 },
+      carriage: { x: 600, y: 180 },
+      home: { x: 1120, y: 180 },
     }),
   };
 }
@@ -339,7 +338,7 @@ function nightTrainCodebase(
 function node(
   id: string,
   title: string,
-  signals: Array<{ id: string; label: string }>,
+  signals: PlayableSignal[],
 ) {
   return {
     id,
@@ -369,13 +368,12 @@ function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };
   for (const item of graph.nodes) {
     sources[item.source.html] = nodeHtml(item.id, item.title);
-    sources[item.source.css] = NODE_CSS;
+    sources[item.source.css] = nodeCss(item.id);
     sources[item.source.javascript] = nodeJavascript(item.id);
   }
-  if (graph.shell) {
-    sources[graph.shell.source.html] = '<nav><button type="button" data-home>Home</button></nav>\n';
-    sources[graph.shell.source.css] = SHELL_CSS;
-    sources[graph.shell.source.javascript] = SHELL_JAVASCRIPT;
+  if (graph.nodes.some((item) => item.id === "carriage")) {
+    sources[HOME_BUTTON_CSS_FILE] = HOME_BUTTON_CSS;
+    sources[HOME_BUTTON_JAVASCRIPT_FILE] = HOME_BUTTON_JAVASCRIPT;
   }
   return sources;
 }
@@ -417,17 +415,36 @@ function nodeJavascript(id: string): string {
 }
 `;
   }
-  const signal = id === "carriage" ? "continue" : undefined;
-  if (signal) {
-    return `export function mount(context) {
-  const button = context.root.querySelector('[data-signal="${signal}"]');
-  const proceed = () => context.navigation.emit("${signal}");
+  if (id === "carriage") {
+    return `import { mountHomeButton } from "../../shared/components/home-button.js";
+
+export function mount(context) {
+  const button = context.root.querySelector('[data-signal="continue"]');
+  const proceed = () => context.navigation.emit("continue");
   button.addEventListener("click", proceed);
-  return () => button.removeEventListener("click", proceed);
+  const removeHomeButton = mountHomeButton(context);
+  return () => {
+    button.removeEventListener("click", proceed);
+    removeHomeButton();
+  };
+}
+`;
+  }
+  if (id === "home") {
+    return `import { mountHomeButton } from "../../shared/components/home-button.js";
+
+export function mount(context) {
+  return mountHomeButton(context);
 }
 `;
   }
   return "export function mount() {}\n";
+}
+
+function nodeCss(id: string): string {
+  return id === "carriage" || id === "home"
+    ? `@import "../../shared/components/home-button.css";\n${NODE_CSS}`
+    : NODE_CSS;
 }
 
 const NODE_CSS = `@import "../../shared/style/components.css";
@@ -441,16 +458,31 @@ p { max-width: 560px; color: #c7c8c9; font-size: 18px; line-height: 1.6; }
 button { border: 1px solid #d9b36c; padding: 12px 18px; color: #171a1f; background: #d9b36c; font: inherit; cursor: pointer; }
 `;
 
-const SHELL_CSS = `:host { display: block; width: 100%; height: 100%; pointer-events: none; }
-nav { position: absolute; top: 20px; left: 20px; pointer-events: auto; }
-button { border: 1px solid #ffffff40; padding: 8px 12px; color: white; background: #111827cc; font: 14px system-ui, sans-serif; cursor: pointer; }
+const HOME_BUTTON_CSS_FILE = "shared/components/home-button.css";
+const HOME_BUTTON_JAVASCRIPT_FILE = "shared/components/home-button.js";
+
+const HOME_BUTTON_CSS = `/* A Home button in the top-left corner. Import this file from the CSS of
+   every Node that mounts the button. */
+.home-button { position: absolute; top: 20px; left: 20px; border: 1px solid #ffffff40; padding: 8px 12px; color: white; background: #111827cc; font: 14px system-ui, sans-serif; cursor: pointer; }
 `;
 
-const SHELL_JAVASCRIPT = `export function mount(context) {
-  const button = context.root.querySelector("[data-home]");
-  const home = () => context.navigation.emit("home");
+const HOME_BUTTON_JAVASCRIPT = `/**
+ * Adds a Home button to a Node. The button emits the Node's own Signal, so
+ * every Node that mounts it declares that Signal and routes it in graph.json.
+ * Returns a function that removes the button.
+ */
+export function mountHomeButton(context, { signal = "home", label = "Home" } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "home-button";
+  button.textContent = label;
+  const home = () => context.navigation.emit(signal);
   button.addEventListener("click", home);
-  return () => button.removeEventListener("click", home);
+  context.root.append(button);
+  return () => {
+    button.removeEventListener("click", home);
+    button.remove();
+  };
 }
 `;
 
@@ -551,14 +583,9 @@ function validateSourceUpdates(
     declared.add(node.source.css);
     declared.add(node.source.javascript);
   }
-  if (graph.shell) {
-    declared.add(graph.shell.source.html);
-    declared.add(graph.shell.source.css);
-    declared.add(graph.shell.source.javascript);
-  }
   for (const [relative, content] of Object.entries(value)) {
     if (!declared.has(relative)) {
-      throw new Error(`Source update "${relative}" is not declared by a Node or Shell.`);
+      throw new Error(`Source update "${relative}" is not declared by a Node.`);
     }
     if (typeof content !== "string") {
       throw new Error(`Source update "${relative}" must be text.`);
@@ -591,10 +618,10 @@ async function validateSourceDeletions(
   const updates = new Set(updatedSources);
   for (const relative of deletions) {
     if (!currentSources.has(relative)) {
-      throw new Error(`Source deletion "${relative}" is not declared by the current Node or Shell graph.`);
+      throw new Error(`Source deletion "${relative}" is not declared by the current graph.`);
     }
     if (nextSources.has(relative)) {
-      throw new Error(`Source deletion "${relative}" is still declared by a Node or Shell.`);
+      throw new Error(`Source deletion "${relative}" is still declared by a Node.`);
     }
     if (updates.has(relative)) {
       throw new Error(`Source "${relative}" cannot be updated and deleted together.`);
@@ -607,9 +634,6 @@ function declaredSourcePaths(graph: NodeGraph): Set<string> {
   const declared = new Set<string>();
   for (const node of graph.nodes) {
     for (const kind of ["html", "css", "javascript"] as const) declared.add(node.source[kind]);
-  }
-  if (graph.shell) {
-    for (const kind of ["html", "css", "javascript"] as const) declared.add(graph.shell.source[kind]);
   }
   return declared;
 }

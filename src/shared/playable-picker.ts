@@ -1,7 +1,6 @@
 import { PLAYABLE_SOURCE_ATTRIBUTE } from "./playable-source-locations.js";
 
 export interface PlayablePickResult {
-  /** Node ID, or `"shell"` when the element belongs to the Shell. */
   nodeId: string;
   /** `<file>:<line>:<column>` from a preview build, when the element came from surface HTML. */
   source?: string;

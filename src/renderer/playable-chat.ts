@@ -2,12 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { PromptContext, PromptImage, PromptReference } from "../shared/contracts.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
-import {
-  playableElementContext,
-  playableSurfaceContext,
-  playableSurfaceReferences,
-  type PlayableChatSurface,
-} from "../shared/playable-chat-context.js";
+import { playableElementContext, playableNodeContext, playableNodeReferences } from "../shared/playable-chat-context.js";
 import type { ChatContextChip } from "./chat-reference.js";
 import { captureElementImage } from "./page-capture.js";
 
@@ -15,12 +10,12 @@ import { captureElementImage } from "./page-capture.js";
 const ELEMENT_SCREENSHOT_WIDTH = 960;
 
 /**
- * What the Playable editor contributes to the next chat message: the Node or
- * Shell (the Scene or Overlay) open in its Workbench, and an element picked in that preview.
+ * What the Playable editor contributes to the next chat message: the Node
+ * (Scene) open in its Workbench, and an element picked in that preview.
  */
 export interface PlayableChatState {
   surface?: {
-    /** Identifies the surface, so a removed chip comes back for another one. */
+    /** Identifies the Node, so a removed chip comes back for another one. */
     key: string;
     chip: ChatContextChip;
     context: PromptContext;
@@ -39,9 +34,9 @@ export interface PlayableChatState {
  * Reports what an open Workbench adds to the next chat message, and nothing
  * once it closes. `stage` holds the preview whose frame is captured.
  */
-export function usePlayableChatReport({ graph, surface, picked, clearPicked, stage, onChange }: {
+export function usePlayableChatReport({ graph, nodeId, picked, clearPicked, stage, onChange }: {
   graph: NodeGraph;
-  surface: PlayableChatSurface;
+  nodeId: string;
   picked?: PlayablePickResult;
   clearPicked: () => void;
   stage: RefObject<HTMLElement | null>;
@@ -49,19 +44,18 @@ export function usePlayableChatReport({ graph, surface, picked, clearPicked, sta
 }): void {
   const clear = useRef(clearPicked);
   clear.current = clearPicked;
-  const surfaceKey = surface.kind === "node" ? `node:${surface.nodeId}` : "shell";
 
   useEffect(() => {
     if (!onChange) return;
-    const context = playableSurfaceContext(graph, surface);
+    const context = playableNodeContext(graph, nodeId);
     const elementContext = picked ? playableElementContext(picked) : undefined;
     onChange({
       ...(context ? {
         surface: {
-          key: surfaceKey,
-          chip: { kind: "playable-node", label: context.label, detail: surface.kind === "node" ? "Scene" : "Stays on screen" },
+          key: `node:${nodeId}`,
+          chip: { kind: "playable-node", label: context.label, detail: "Scene" },
           context,
-          references: playableSurfaceReferences(graph, surface),
+          references: playableNodeReferences(graph, nodeId),
         },
       } : {}),
       ...(picked && elementContext ? {
@@ -76,7 +70,7 @@ export function usePlayableChatReport({ graph, surface, picked, clearPicked, sta
       } : {}),
       clearElement: () => clear.current(),
     });
-  }, [graph, surfaceKey, picked, onChange]);
+  }, [graph, nodeId, picked, onChange]);
 
   useEffect(() => () => onChange?.(undefined), [onChange]);
 }

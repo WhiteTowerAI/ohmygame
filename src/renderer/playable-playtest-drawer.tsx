@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ChevronDown, ChevronRight, InfoCircle, Play, RotateCcw, X } from "./icons.js";
 import type { JsonObject, NodeGraph } from "../shared/playable-nodes.js";
 import { formatStateValue, type PlayableDebugRecord } from "../shared/playable-debug.js";
-import { PLAYABLE_SHELL_ID } from "../shared/playable-nodes.js";
-import { playableSignalsOf } from "../shared/playable-graph.js";
+import { playableNodeById } from "../shared/playable-graph.js";
 import { PreviewStateEditor, type PlaytestStart } from "./playable-node-workbench.js";
 import { useTechnicalDetails } from "./playable-details.js";
 
@@ -79,11 +78,9 @@ export function PlaytestDebugDrawer({ graph, record, diagnostics, start, open, o
   const technical = useTechnicalDetails();
   const [startOpen, setStartOpen] = useState(false);
   const errorCount = (record?.errors.length ?? 0) + diagnostics.length;
-  const titleOf = (nodeId?: string) => nodeId === PLAYABLE_SHELL_ID
-    ? "Overlay"
-    : graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId ?? "";
+  const titleOf = (nodeId?: string) => graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId ?? "";
   const signalLabel = (nodeId: string, signal: string) =>
-    playableSignalsOf(graph, nodeId)?.find((candidate) => candidate.id === signal)?.label ?? signal;
+    playableNodeById(graph, nodeId)?.signals.find((candidate) => candidate.id === signal)?.label ?? signal;
 
   if (!open) return <button type="button" className={`playable-playtest-drawer-toggle${errorCount ? " has-errors" : ""}`} title="Show what is happening in the game" aria-label="Show Playtest details" onClick={() => onOpenChange(true)}>
     <ChevronRight size={12} />

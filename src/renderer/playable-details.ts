@@ -24,7 +24,7 @@ function subscribe(listener: () => void): () => void {
 /**
  * Whether the Playable editor shows engine details: IDs, file paths, types,
  * the navigation History and the Code view. Off by default; the editor's
- * words (Scene, Exit, Overlay) need none of them. Shared by every window.
+ * words (Scene, Exit, Variables) need none of them. Shared by every window.
  */
 export function useTechnicalDetails(): boolean {
   return useSyncExternalStore(subscribe, read, () => false);

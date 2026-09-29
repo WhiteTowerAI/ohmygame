@@ -12,7 +12,6 @@ export interface CompiledPlayableSurface {
 export interface CompiledNodeGraph {
   version: 1;
   nodes: Record<string, CompiledPlayableSurface>;
-  shell?: CompiledPlayableSurface;
 }
 
 export function isCompiledNodeGraph(
@@ -22,7 +21,7 @@ export function isCompiledNodeGraph(
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.nodes))
     return false;
   const nodes = value.nodes;
-  if (!hasOnlyKeys(value, graph.shell ? ["version", "nodes", "shell"] : ["version", "nodes"]))
+  if (!hasOnlyKeys(value, ["version", "nodes"]))
     return false;
 
   const expectedNodeIds = graph.nodes.map((node) => node.id).sort();
@@ -32,14 +31,7 @@ export function isCompiledNodeGraph(
     expectedNodeIds.some((id, index) => id !== compiledNodeIds[index])
   )
     return false;
-  if (
-    compiledNodeIds.some((id) => !isCompiledPlayableSurface(nodes[id], id))
-  )
-    return false;
-
-  return graph.shell
-    ? isCompiledPlayableSurface(value.shell, "shell")
-    : value.shell === undefined;
+  return compiledNodeIds.every((id) => isCompiledPlayableSurface(nodes[id], id));
 }
 
 function isCompiledPlayableSurface(

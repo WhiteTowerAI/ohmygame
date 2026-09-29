@@ -97,9 +97,9 @@ canvas the node shows four output ports, each connected to a target.
 **Case archive.** One node. Paging between cases is internal behavior of the
 node, so it needs no extra nodes. The record text reads Project State, such
 as completed rounds. "打开博弈笔记" emits a Signal that the graph connects to the
-notes node. The top bar is the project **Shell**: it stays mounted across
-nodes, declares its own Signals (`home`, `lobby`, `rules`) that the graph
-connects like any node's, and can go back.
+notes node. The top bar is a shared component the archive imports, the same
+one other screens import: the archive declares its Signals (`home`, `lobby`,
+`rules`) as its own and the graph connects them like any others.
 
 Nothing in either case requires a special node type.
 
@@ -148,7 +148,7 @@ can build and publish the following with one node type and no special cases:
 - a cinematic scene that advances when its video ends;
 - a branching choice whose options depend on Project State;
 - a puzzle that records its result in Project State;
-- a persistent toolbar implemented once in the Shell;
+- a toolbar on many screens, implemented once as a shared component;
 - push and back navigation;
 - a new game and a restored save;
 - two nodes that share the same style and components.

@@ -7,7 +7,7 @@ and the tools it uses to verify results.
 
 ## Principles
 
-- **Files are the interface.** The Agent edits `graph.json`, node and Shell
+- **Files are the interface.** The Agent edits `graph.json`, node
   source, `shared/`, and `editor/layout.json` directly. There is no
   Agent-only representation or hidden editing API.
 - **The public contract is enough.** [runtime.md](runtime.md), the project
@@ -35,10 +35,15 @@ Every project contains an `AGENTS.md` with the stable rules:
 - Use only assets declared by the node, through `context.assets.url(id)`.
 - Build every screen with the Project Style in `shared/style/`. Add a new
   shared component there when two nodes need the same piece of UI.
-- Use the Shell only for UI that must stay alive across nodes. The Shell
-  declares its own Signals in `graph.shell.signals` and emits them like a
-  node; their edges use the reserved source `nodeId` `"shell"`, which no
-  node may use.
+- UI that appears on more than one node, such as a top bar or a Home
+  button, is a shared component under `shared/components/`. Each node that
+  shows it imports it, and declares and routes the Signals it emits like its
+  own. There is no layer drawn over every node; State carries whatever must
+  continue across nodes.
+- Give a Signal `"role": "navigation"` when it is a way around the game
+  rather than a step in the story, such as Home, Menu, or Settings on many
+  nodes. The editor then names its target instead of drawing a line;
+  routing is the same.
 - Use `replace` for forward progress and `push` only when the player should
   return with `back()`.
 - Keep IDs and source paths stable. Do not rely on `window` globals.
@@ -50,15 +55,15 @@ Every project contains an `AGENTS.md` with the stable rules:
 The author sees the editor's words, not the engine's. The Agent uses the
 editor's words when talking to the author and the engine terms in code: a
 node is a Scene, a Signal with its edge is an Exit, the Entry Node is the
-Start, the Shell is the Overlay, State is Variables, a `push` edge is an Exit
+Start, State is Variables, a `push` edge is an Exit
 with **Allow Back**, and a Preset is a Template
 ([vocabulary](README.md#vocabulary)).
 
 ## Request context
 
-When the author sends a message with a node or the Shell open, the message
+When the author sends a message with a node open, the message
 ends with an `<editor-context>` block the Agent reads and the conversation
-does not show; the timeline shows only the chip labels. The open surface's
+does not show; the timeline shows only the chip labels. The open node's
 source files also arrive as workspace file references.
 
 ```text
@@ -72,8 +77,7 @@ source files also arrive as workspace file references.
 ```
 
 A picked element also attaches a screenshot of the preview with the element
-outlined. With the Shell open, the context item is labeled Overlay and lists
-the Shell's sources, Signals with their targets, and assets. On the canvas,
+outlined. On the canvas,
 with no Workbench open, a message carries no editor context.
 
 ## Common tasks
@@ -98,9 +102,11 @@ find a Library asset, or generate one with `generate_image` or
 `generate_video`, add a project Asset ID for it, and declare it on the node.
 Tell the author what was generated.
 
-**Persistent UI.** Build it in `shell/`, declare its Signals on
-`graph.shell`, connect them with edges from `"shell"`, and remove any
-duplicated per-node copies.
+**UI on many Scenes.** Build it once in `shared/components/` and import it
+into each node that should show it. Declare the Signals it emits on each of
+those nodes and connect them with that node's edges, marking navigation
+Signals such as Home with `"role": "navigation"`; replace any duplicated
+per-node copies with the import.
 
 **Restyle the game.** Change `shared/style/` first; touch individual nodes
 only where they override the style.
@@ -125,7 +131,7 @@ the Preset brief. Blank is available as `"blank"`.
 
 ### `playable_check`
 
-Validates the graph and compiles every node and the Shell.
+Validates the graph and compiles every node and the shared modules it imports.
 
 ```json
 { "mode": "draft" }
@@ -144,7 +150,7 @@ current sources into a draft of the Published Player, served on loopback
 under an unguessable path, and opens it in the Playtest window.
 
 Snapshots read text and interactive elements inside the Player's frames and
-node and Shell ShadowRoots, so the snapshot's text is what the screen shows.
+node ShadowRoots, so the snapshot's text is what the screen shows.
 Its `gameState` is the debug record the Playtest drawer shows: current node,
 back stack, recent Signals and whether an edge followed them, State, State
 changes, errors, and save status. The bridge `reset` action starts a new game
