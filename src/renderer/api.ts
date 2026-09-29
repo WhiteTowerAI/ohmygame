@@ -51,6 +51,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
 import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
+import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -356,6 +357,31 @@ export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResp
 
 export async function getNodeCodebase(projectId: string): Promise<NodeCodebase> {
   return request(`/projects/${projectId}/playable/codebase`);
+}
+
+export async function getPlayableFormat(projectId: string): Promise<{ format: "playable" | "story" }> {
+  return request(`/projects/${projectId}/playable/format`);
+}
+
+export async function getPlayableValidation(
+  projectId: string,
+  mode: "draft" | "publish" = "draft",
+): Promise<PlayableProjectValidation> {
+  return request(`/projects/${projectId}/playable/validation?mode=${mode}`);
+}
+
+export async function listPlayablePresets(): Promise<{ presets: PlayablePresetSummary[] }> {
+  return request("/playable/presets");
+}
+
+export async function addPlayableNode(
+  projectId: string,
+  body: { preset: string; id: string; title?: string; position?: { x: number; y: number } },
+): Promise<PlayableAddedNode> {
+  return request(`/projects/${projectId}/playable/nodes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function updateNodeCodebase(

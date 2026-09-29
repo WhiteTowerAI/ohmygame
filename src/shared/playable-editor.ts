@@ -1,4 +1,39 @@
+import type { NodeGraphValidationIssue } from "./playable-graph-validation.js";
 import type { NodeGraph } from "./playable-nodes.js";
+import type { NodePlayerDefinition } from "./playable-player-protocol.js";
+
+export interface PlayableProjectValidationIssue {
+  phase: "graph" | "compiler";
+  code: NodeGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | string;
+  path: string;
+  message: string;
+  /** Node ID, or `"shell"`, when the issue belongs to one surface. */
+  surfaceId?: string;
+}
+
+export interface PlayableProjectValidationResult {
+  ok: boolean;
+  missing?: boolean;
+  issues: PlayableProjectValidationIssue[];
+  definition?: NodePlayerDefinition;
+}
+
+/** A Preset as offered to the editor's add-node menu. */
+export interface PlayablePresetSummary {
+  id: string;
+  label: string;
+  brief: string;
+  signals: string[];
+}
+
+export interface PlayableAddedNode {
+  id: string;
+  title: string;
+  preset: string;
+  files: string[];
+  signals: string[];
+  brief: string;
+}
 
 export function renamePlayableSignal(
   graph: NodeGraph,

@@ -9,6 +9,10 @@ import {
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import { compileNodeGraph, NodeCompilerError } from "./playable-compiler.js";
+import type {
+  PlayableProjectValidationIssue,
+  PlayableProjectValidationResult,
+} from "../shared/playable-editor.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
 export async function buildPlayableProject(
@@ -22,21 +26,6 @@ export async function buildPlayableProject(
     throw new Error(`${issue.path}: ${issue.message}`);
   }
   return validation.definition;
-}
-
-export interface PlayableProjectValidationIssue {
-  phase: "graph" | "compiler";
-  code: NodeGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | NodeCompilerError["code"];
-  path: string;
-  message: string;
-  surfaceId?: string;
-}
-
-export interface PlayableProjectValidationResult {
-  ok: boolean;
-  missing?: boolean;
-  issues: PlayableProjectValidationIssue[];
-  definition?: NodePlayerDefinition;
 }
 
 export async function validatePlayableProject(

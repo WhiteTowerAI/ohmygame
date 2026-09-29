@@ -1774,6 +1774,20 @@ describe("Playable Nodes development flag", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
   });
 
+  it("reports which editor an Interactive Drama project opens in", async () => {
+    const app = await createPlayableApp("ohmygame-playable-format-");
+    const playable = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const web = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+
+    expect((await app.inject({ method: "GET", url: `/projects/${playable.id}/playable/format` })).json())
+      .toEqual({ format: "playable" });
+    await rm(path.join(playable.workspacePath, "graph.json"));
+    expect((await app.inject({ method: "GET", url: `/projects/${playable.id}/playable/format` })).json())
+      .toEqual({ format: "story" });
+    expect((await app.inject({ method: "GET", url: `/projects/${web.id}/playable/format` })).statusCode).toBe(409);
+    expect((await app.inject({ method: "GET", url: "/projects/missing/playable/format" })).statusCode).toBe(404);
+  });
+
   it("keeps the Story editor out of Playable Nodes projects", async () => {
     const app = await createPlayableApp("ohmygame-playable-story-guard-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();

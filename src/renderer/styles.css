@@ -14611,3 +14611,197 @@ button {
 ) {
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
+
+/* Playable Nodes editor: the canvas chrome is shared with the story canvas,
+   so only the Node card extras and the edge inspector are defined here. */
+.playable-node-badges {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin-left: auto;
+  gap: 4px;
+}
+
+.playable-node-badge {
+  display: inline-flex;
+  max-width: 96px;
+  align-items: center;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  gap: 3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playable-node-badge.is-entry {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+.playable-node-card > .playable-node-stage {
+  padding: 16px;
+}
+
+.playable-node-summary {
+  display: flex;
+  min-width: 0;
+  max-width: 58%;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.playable-node-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playable-node-summary small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.playable-node-issue {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 22%, var(--surface-raised));
+  color: var(--text);
+  font-size: 10px;
+  gap: 5px;
+}
+
+.playable-node-issue span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playable-node-outputs-empty {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding-right: 12px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.playable-node-card .story-node-output.is-unconnected .story-node-output-label {
+  opacity: 0.55;
+}
+
+.playable-edge-push .react-flow__edge-path {
+  stroke-dasharray: 6 5;
+}
+
+.playable-edge-inspector {
+  position: absolute;
+  z-index: 6;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  width: 264px;
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: var(--menu-shadow);
+  gap: 10px;
+}
+
+.playable-edge-inspector > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.playable-edge-inspector > header div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.playable-edge-inspector > header strong {
+  font-size: 12px;
+}
+
+.playable-edge-inspector > header small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playable-edge-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.playable-edge-modes button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  gap: 2px;
+  text-align: left;
+}
+
+.playable-edge-modes button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.playable-edge-modes button strong {
+  font-size: 11px;
+}
+
+.playable-edge-modes button small {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.playable-edge-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.playable-edge-delete:hover {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}

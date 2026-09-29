@@ -1051,6 +1051,23 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
+  /**
+   * Which editor an Interactive Drama project opens in. Cheaper than building
+   * the project, which is what the Runtime endpoint does. Removed with
+   * `story.json` support.
+   */
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/format", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "A project format requires an Interactive Drama project" });
+    try {
+      await readFile(path.join(project.workspacePath, "graph.json"));
+      return { format: "playable" as const };
+    } catch {
+      return { format: "story" as const };
+    }
+  });
+
   app.get("/playable/presets", async () => ({
     presets: PLAYABLE_PRESETS.map((preset) => ({
       id: preset.id,
