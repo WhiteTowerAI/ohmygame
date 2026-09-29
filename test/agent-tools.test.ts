@@ -10,6 +10,7 @@ import { ToolRunner } from "../src/daemon/tools.js";
 import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
+import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -250,5 +251,35 @@ describe("agent tools", () => {
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+  });
+  it("registers playable_add_node only for Interactive Drama and creates the Node", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const webGame = await projects.create("Browser Game");
+    const drama = await projects.create("Ash Club", "interactive-drama");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    await createNodeCodebase(
+      drama.workspacePath,
+      createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
+    );
+
+    expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_add_node")).toBe(false);
+    const tool = createAgentTools(drama, runner, projects).find(({ name }) => name === "playable_add_node");
+    if (!tool) throw new Error("Expected the add Node tool");
+
+    const result = await tool.execute("call-node", { preset: "cinematic", id: "opening" }, undefined, undefined, {} as never);
+
+    expect(result.details).toEqual({ playableNode: {
+      id: "opening",
+      preset: "cinematic",
+      files: ["nodes/opening/index.html", "nodes/opening/style.css", "nodes/opening/node.js"],
+      signals: ["next"],
+    } });
+    const graph = JSON.parse(await readFile(path.join(drama.workspacePath, "graph.json"), "utf8"));
+    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "opening"]);
+    await expect(tool.execute("call-dup", { preset: "blank", id: "opening" }, undefined, undefined, {} as never))
+      .rejects.toThrow(/already exists/);
   });
 });

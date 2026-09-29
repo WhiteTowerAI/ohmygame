@@ -39,6 +39,9 @@ describe("Playable codebase", () => {
       "nodes/start/style.css",
       "schemas/editor-layout.schema.json",
       "schemas/graph.schema.json",
+      "shared/style/components.css",
+      "shared/style/components.js",
+      "shared/style/theme.css",
     ]);
     const codebase = await readNodeCodebase(workspace);
     expect(codebase.graph).toMatchObject({

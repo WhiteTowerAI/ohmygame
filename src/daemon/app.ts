@@ -60,6 +60,8 @@ import {
   writeNodeCodebase,
 } from "./playable-codebase.js";
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
+import { addPlayableNode, type AddPlayableNodeRequest } from "./playable-add-node.js";
+import { PLAYABLE_PRESETS } from "./playable-presets.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -1047,6 +1049,52 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
     }
     return reply.code(204).send();
+  });
+
+  app.get("/playable/presets", async () => ({
+    presets: PLAYABLE_PRESETS.map((preset) => ({
+      id: preset.id,
+      label: preset.label,
+      brief: preset.brief,
+      signals: preset.signals.map((signal) => signal.id),
+    })),
+  }));
+
+  app.post<{ Params: { projectId: string }; Body: AddPlayableNodeRequest }>("/projects/:projectId/playable/nodes", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["preset", "id"],
+        properties: {
+          preset: { type: "string", maxLength: 60 },
+          id: { type: "string", minLength: 1, maxLength: 60 },
+          title: { type: "string", maxLength: 120 },
+          position: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x", "y"],
+            properties: { x: { type: "number" }, y: { type: "number" } },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable Nodes require an Interactive Drama project" });
+    let result;
+    try {
+      result = await addPlayableNode(project.workspacePath, request.body);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    try {
+      await projects.touch(project.id);
+    } catch {
+      return reply.code(500).send({ error: "The Node was created, but project metadata could not be updated" });
+    }
+    return result;
   });
 
   app.put<{ Params: { projectId: string }; Body: StoryDocument }>("/projects/:projectId/story", {

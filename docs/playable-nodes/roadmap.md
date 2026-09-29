@@ -162,6 +162,6 @@ projects.
 | 0. Design                   | Done        |
 | 1. Runtime foundation       | Done        |
 | 2. Separate Asset Canvas    | Done        |
-| 3. Runtime for authoring    | Not started |
+| 3. Runtime for authoring    | Done        |
 | 4. Editor on the new format | Not started |
 | 5. Switch and remove        | Not started |

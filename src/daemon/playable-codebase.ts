@@ -12,6 +12,7 @@ import {
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
+import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
 const GRAPH_FILE = "graph.json";
@@ -34,6 +35,8 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Emit only Signals declared by the current Node: \`context.navigation.emit(signalId)\`. Signals describe outcomes; they do not name target Nodes.
 - Read and update authoritative project State through \`context.state\`. Do not keep navigation-critical state only in the DOM.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
+- Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
+- \`shared/style/components.js\` exports \`playCinematic(context, { assetId, signal })\`, which plays a declared video, offers skip, and emits the Signal when it ends or is skipped. Cinematic behaviour is Node content, so change it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - The optional Shell is persistent project UI. Use it only for controls or presentation that truly continue across Node changes. Shell navigation uses named Destinations.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
@@ -51,6 +54,7 @@ This project is made of one graph plus ordinary browser source files. Every Node
 - \`nodes/<id>/\` contains a Node's HTML, CSS, and JavaScript.
 - \`shell/\` contains optional persistent UI.
 - \`shared/\` contains ordinary modules imported by more than one surface.
+- \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playCinematic()\`.
 - \`editor/layout.json\` contains editor-only positions and viewport state.
 - \`schemas/\` contains the exact persisted JSON contracts.
 
@@ -341,7 +345,7 @@ function layout(
 }
 
 function starterSources(graph: NodeGraph): Record<string, string> {
-  const sources: Record<string, string> = {};
+  const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };
   for (const item of graph.nodes) {
     sources[item.source.html] = nodeHtml(item.id, item.title);
     sources[item.source.css] = NODE_CSS;
@@ -405,7 +409,9 @@ function nodeJavascript(id: string): string {
   return "export function mount() {}\n";
 }
 
-const NODE_CSS = `:host { display: block; width: 100%; height: 100%; }
+const NODE_CSS = `@import "../../shared/style/components.css";
+
+:host { display: block; width: 100%; height: 100%; }
 main { box-sizing: border-box; display: grid; width: 100%; height: 100%; place-content: center; justify-items: start; gap: 16px; padding: 8%; color: #f7f3e8; background: #171a1f; font-family: system-ui, sans-serif; }
 h1, p { margin: 0; }
 h1 { font-size: 48px; font-weight: 600; }

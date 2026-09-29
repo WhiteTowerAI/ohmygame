@@ -1787,6 +1787,55 @@ describe("Playable Nodes development flag", () => {
     expect(await readFile(path.join(project.workspacePath, "editor/layout.json"), "utf8")).toBe(layout);
   });
 
+  it("lists Presets and adds a Node from one", async () => {
+    const app = await createPlayableApp("ohmygame-playable-presets-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const presets = await app.inject({ method: "GET", url: "/playable/presets" });
+    expect(presets.statusCode).toBe(200);
+    expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
+      "blank", "main-menu", "cinematic", "dialogue-choice", "archive", "investigation", "ending",
+    ]);
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/playable/nodes`,
+      payload: { preset: "main-menu", id: "menu", title: "Ash Club" },
+    });
+
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start"] });
+    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "menu"]);
+    expect(await readFile(path.join(project.workspacePath, "nodes/menu/index.html"), "utf8")).toContain("Ash Club");
+  });
+
+  it("rejects a duplicate Node and an unknown Preset", async () => {
+    const app = await createPlayableApp("ohmygame-playable-node-errors-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/playable/nodes`,
+      payload: { preset: "blank", id: "start" },
+    });
+    const unknown = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/playable/nodes`,
+      payload: { preset: "epilogue", id: "later" },
+    });
+    const missing = await app.inject({
+      method: "POST",
+      url: "/projects/nope/playable/nodes",
+      payload: { preset: "blank", id: "later" },
+    });
+
+    expect(duplicate.statusCode).toBe(400);
+    expect(duplicate.json().error).toContain("already exists");
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.json().error).toContain("Unknown Preset");
+    expect(missing.statusCode).toBe(404);
+  });
   it("loads and atomically updates a Playable codebase", async () => {
     const app = await createPlayableApp("ohmygame-codebase-api-");
     const project = (await app.inject({
