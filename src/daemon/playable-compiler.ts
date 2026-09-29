@@ -16,6 +16,7 @@ import type {
   NodeGraph,
   NodeSource,
 } from "../shared/playable-nodes.js";
+import { annotatePlayableSourceLocations } from "../shared/playable-source-locations.js";
 
 export type NodeCompilerErrorCode =
   | "invalid-graph"
@@ -39,6 +40,8 @@ export class NodeCompilerError extends Error {
 export interface NodeCompilerOptions {
   minify?: boolean;
   sourcemap?: boolean;
+  /** Annotates surface HTML elements with their source location for element picking. */
+  sourceLocations?: boolean;
 }
 
 export type {
@@ -153,7 +156,9 @@ async function compileSurface(
 
     const compiled = {
       id: surfaceId,
-      html,
+      html: options.sourceLocations
+        ? annotatePlayableSourceLocations(html, source.html)
+        : html,
       css: [explicitCss, importedCss].filter(Boolean).join("\n"),
       javascript,
       inputs: [...inputs].sort(),

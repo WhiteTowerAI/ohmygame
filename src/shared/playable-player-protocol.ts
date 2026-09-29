@@ -1,5 +1,6 @@
 import type { CompiledNodeGraph } from "./playable-compiled.js";
 import type { JsonObject, NodeGraph } from "./playable-nodes.js";
+import type { PlayablePickResult } from "./playable-picker.js";
 import type {
   NodeRuntimePolicy,
   NodeRuntimeSnapshot,
@@ -19,7 +20,10 @@ export type NodeRuntimeResponse =
   | { available: true; definition: NodePlayerDefinition }
   | { available: false };
 
-/** Authoring options for a preview session; the Published Player never sends them. */
+/**
+ * Authoring options for a preview session. The Published Player never sends
+ * them, and element picking is only available in sessions that have them.
+ */
 export interface PlayablePreviewOptions {
   policy?: NodeRuntimePolicy;
   startNodeId?: string;
@@ -45,7 +49,9 @@ export type PlayableHostMessage =
       instanceId: string;
       requestId: string;
       error?: string;
-    };
+    }
+  | { kind: "ohmygame:playable:pick-start"; instanceId: string }
+  | { kind: "ohmygame:playable:pick-cancel"; instanceId: string };
 
 export type PlayableFrameMessage =
   | {
@@ -68,7 +74,13 @@ export type PlayableFrameMessage =
       kind: "ohmygame:playable:diagnostic";
       instanceId: string;
       error: string;
-    };
+    }
+  | {
+      kind: "ohmygame:playable:picked";
+      instanceId: string;
+      pick: PlayablePickResult;
+    }
+  | { kind: "ohmygame:playable:pick-cancelled"; instanceId: string };
 
 export function isPlayableHostMessage(
   value: unknown,
@@ -86,6 +98,11 @@ export function isPlayableHostMessage(
       (value.preview === undefined || isRecord(value.preview))
     );
   }
+  if (
+    value.kind === "ohmygame:playable:pick-start" ||
+    value.kind === "ohmygame:playable:pick-cancel"
+  )
+    return true;
   return (
     value.kind === "ohmygame:playable:save-result" &&
     typeof value.requestId === "string" &&
@@ -106,6 +123,8 @@ export function isPlayableFrameMessage(
     return typeof value.requestId === "string" && isRecord(value.save);
   if (value.kind === "ohmygame:playable:snapshot")
     return isRecord(value.snapshot);
+  if (value.kind === "ohmygame:playable:picked") return isRecord(value.pick);
+  if (value.kind === "ohmygame:playable:pick-cancelled") return true;
   return (
     (value.kind === "ohmygame:playable:error" ||
       value.kind === "ohmygame:playable:diagnostic") &&

@@ -12,6 +12,7 @@ import type {
   NodePlayerDefinition,
 } from "../shared/playable-player-protocol.js";
 import { isPlayableFrameMessage } from "../shared/playable-player-protocol.js";
+import type { PlayablePickResult } from "../shared/playable-picker.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { PLAYABLE_IFRAME_SANDBOX } from "../shared/playable-sandbox.js";
 import "./playable-player.css";
@@ -25,6 +26,11 @@ export interface NodePlayerProps {
   storage?: Storage;
   /** Authoring preview options; omit in the Published Player. */
   preview?: PlayablePreviewOptions;
+  /** Enables element picking; requires `preview`. */
+  picking?: boolean;
+  onPick?: (pick: PlayablePickResult) => void;
+  /** Called when picking ends without a pick (Escape in the frame). */
+  onPickCancel?: () => void;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
 }
@@ -37,6 +43,9 @@ export function NodePlayer({
   frameUrl = "./playable-sandbox.html",
   storage = window.localStorage,
   preview,
+  picking = false,
+  onPick,
+  onPickCancel,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
 }: NodePlayerProps) {
@@ -67,13 +76,31 @@ export function NodePlayer({
         onSnapshot?.(message.snapshot);
       } else if (message.kind === "ohmygame:playable:error") {
         setError(message.error);
+      } else if (message.kind === "ohmygame:playable:picked") {
+        onPick?.(message.pick);
+      } else if (message.kind === "ohmygame:playable:pick-cancelled") {
+        onPickCancel?.();
       } else {
         onDiagnostic(message.error);
       }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onSnapshot, saveKey, storage]);
+  }, [instanceId, onDiagnostic, onPick, onPickCancel, onSnapshot, saveKey, storage]);
+
+  const pickingEnabled = picking && preview !== undefined;
+  useEffect(() => {
+    if (!ready) return;
+    iframe.current?.contentWindow?.postMessage(
+      {
+        kind: pickingEnabled
+          ? "ohmygame:playable:pick-start"
+          : "ohmygame:playable:pick-cancel",
+        instanceId,
+      },
+      "*",
+    );
+  }, [instanceId, pickingEnabled, ready]);
 
   const initialize = async () => {
     const target = iframe.current?.contentWindow;

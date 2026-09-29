@@ -4,6 +4,10 @@ import type {
   PlayableNodeContext,
   PlayableShellContext,
 } from "./playable-nodes.js";
+import {
+  describePlayablePick,
+  type PlayablePickResult,
+} from "./playable-picker.js";
 import type {
   PlayableMountedSurface,
   PlayableSurfaceHost,
@@ -26,6 +30,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   readonly #nodeLayer: HTMLElement;
   readonly #shellLayer: HTMLElement;
   #shellMounted = false;
+  #picking?: { stop: () => void };
 
   constructor(
     document: Document,
@@ -74,7 +79,92 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   }
 
   destroy(): void {
+    this.stopPicking();
     this.#projectRoot.remove();
+  }
+
+  /**
+   * Enters pick mode: outlines the element under the pointer and blocks all
+   * pointer and keyboard input to surfaces. A click reports the element and
+   * leaves pick mode; Escape cancels.
+   */
+  startPicking(
+    onPick: (result: PlayablePickResult) => void,
+    onCancel: () => void,
+  ): void {
+    this.stopPicking();
+    const view = this.#document.defaultView!;
+    const outline = this.#document.createElement("div");
+    outline.dataset.playablePickOutline = "true";
+    Object.assign(outline.style, {
+      position: "absolute",
+      zIndex: "2",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+      border: "2px solid #4f8cff",
+      background: "rgba(79, 140, 255, 0.12)",
+      display: "none",
+    });
+    this.#projectRoot.append(outline);
+    const previousCursor = this.#projectRoot.style.cursor;
+    this.#projectRoot.style.cursor = "crosshair";
+
+    const block = (event: Event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const hover = (event: Event) => {
+      block(event);
+      const pick = describePlayablePick(event.composedPath());
+      if (!pick) {
+        outline.style.display = "none";
+        return;
+      }
+      const root = this.#projectRoot.getBoundingClientRect();
+      Object.assign(outline.style, {
+        display: "block",
+        left: `${pick.box.x - root.x}px`,
+        top: `${pick.box.y - root.y}px`,
+        width: `${pick.box.width}px`,
+        height: `${pick.box.height}px`,
+      });
+    };
+    const click = (event: Event) => {
+      block(event);
+      const pick = describePlayablePick(event.composedPath());
+      if (!pick) return;
+      this.stopPicking();
+      onPick(pick);
+    };
+    const key = (event: Event) => {
+      block(event);
+      if ((event as KeyboardEvent).key !== "Escape") return;
+      this.stopPicking();
+      onCancel();
+    };
+    const listeners: Array<[string, (event: Event) => void]> = [
+      ["pointermove", hover],
+      ["pointerover", hover],
+      ["click", click],
+      ["keydown", key],
+      ...BLOCKED_PICK_EVENTS.map((type) => [type, block] as [string, (event: Event) => void]),
+    ];
+    for (const [type, listener] of listeners)
+      view.addEventListener(type, listener, { capture: true });
+    this.#picking = {
+      stop: () => {
+        for (const [type, listener] of listeners)
+          view.removeEventListener(type, listener, { capture: true });
+        outline.remove();
+        this.#projectRoot.style.cursor = previousCursor;
+      },
+    };
+  }
+
+  stopPicking(): void {
+    const picking = this.#picking;
+    this.#picking = undefined;
+    picking?.stop();
   }
 
   async #mount(
@@ -186,6 +276,23 @@ function createSandboxScaffold(document: Document): {
   document.body.append(projectRoot);
   return { projectRoot, nodeLayer, shellLayer };
 }
+
+const BLOCKED_PICK_EVENTS = [
+  "pointerdown",
+  "pointerup",
+  "pointercancel",
+  "mousedown",
+  "mouseup",
+  "dblclick",
+  "auxclick",
+  "contextmenu",
+  "touchstart",
+  "touchmove",
+  "touchend",
+  "wheel",
+  "keyup",
+  "keypress",
+];
 
 function setLayerStyle(layer: HTMLElement, zIndex: number): void {
   layer.style.position = "absolute";

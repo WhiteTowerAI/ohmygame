@@ -19,6 +19,15 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     session?.saveStore.resolve(event.data);
     return;
   }
+  if (event.data.kind === "ohmygame:playable:pick-start") {
+    startPicking(event.data.instanceId);
+    return;
+  }
+  if (event.data.kind === "ohmygame:playable:pick-cancel") {
+    if (session?.instanceId === event.data.instanceId)
+      session.host.stopPicking();
+    return;
+  }
   void startSession(event.data);
 });
 
@@ -66,6 +75,7 @@ async function startSession(
     });
     session = {
       instanceId: message.instanceId,
+      preview: message.preview !== undefined,
       runtime,
       host,
       saveStore,
@@ -83,6 +93,16 @@ async function startSession(
       error: errorMessage(cause),
     });
   }
+}
+
+function startPicking(instanceId: string): void {
+  const current = session;
+  // Picking is an authoring tool; published sessions never enable it.
+  if (current?.instanceId !== instanceId || !current.preview) return;
+  current.host.startPicking(
+    (pick) => post({ kind: "ohmygame:playable:picked", instanceId, pick }),
+    () => post({ kind: "ohmygame:playable:pick-cancelled", instanceId }),
+  );
 }
 
 async function disposeSession(): Promise<void> {
@@ -150,6 +170,7 @@ class ParentSaveStore implements PlayableSaveStore {
 
 interface SandboxSession {
   instanceId: string;
+  preview: boolean;
   runtime: NodeRuntime;
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;

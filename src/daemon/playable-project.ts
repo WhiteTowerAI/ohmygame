@@ -82,6 +82,7 @@ export async function validatePlayableProject(
     compiled = await compileNodeGraph(workspacePath, graph, {
       minify: mode === "publish",
       sourcemap: mode === "draft",
+      sourceLocations: mode === "draft",
     });
   } catch (cause) {
     if (!(cause instanceof NodeCompilerError)) throw cause;

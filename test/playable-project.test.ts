@@ -88,6 +88,19 @@ describe("Playable project build", () => {
     ).resolves.toBeDefined();
   });
 
+  it("annotates source locations for drafts but not for publishing", async () => {
+    const workspace = await temporaryWorkspace();
+    await writePlayableFixtureWorkspace(workspace);
+
+    const draft = await buildPlayableProject(workspace, "draft");
+    const published = await buildPlayableProject(workspace, "publish");
+
+    expect(draft?.compiled.nodes.menu?.html).toContain("data-ohmygame-source");
+    expect(published?.compiled.nodes.menu?.html).not.toContain(
+      "data-ohmygame-source",
+    );
+  });
+
   it("reports that the new Runtime is unavailable without graph.json", async () => {
     const workspace = await temporaryWorkspace();
     await writeFile(path.join(workspace, "README.md"), "legacy project\n");

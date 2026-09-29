@@ -63,6 +63,23 @@ describe("Node compiler", () => {
     expect(result.nodes.menu!.javascript.length).toBeLessThan(2_000);
   });
 
+  it("annotates surface HTML with source locations for preview builds", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+
+    const plain = await compileNodeGraph(workspace, graph);
+    const annotated = await compileNodeGraph(workspace, graph, {
+      sourceLocations: true,
+    });
+
+    expect(plain.nodes.menu!.html).not.toContain("data-ohmygame-source");
+    expect(annotated.nodes.menu!.html).toContain(
+      'data-ohmygame-source="nodes/menu/index.html:1:1"',
+    );
+    expect(annotated.shell!.html).toContain(
+      'data-ohmygame-source="shell/index.html:1:1"',
+    );
+  });
+
   it("uses import and require package export conditions according to the import kind", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
     await writeConditionalPackage(
