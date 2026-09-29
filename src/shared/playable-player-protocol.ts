@@ -1,6 +1,7 @@
 import type { CompiledNodeGraph } from "./playable-compiled.js";
-import type { NodeGraph } from "./playable-nodes.js";
+import type { JsonObject, NodeGraph } from "./playable-nodes.js";
 import type {
+  NodeRuntimePolicy,
   NodeRuntimeSnapshot,
   PlayableSave,
 } from "./playable-runtime.js";
@@ -18,6 +19,13 @@ export type NodeRuntimeResponse =
   | { available: true; definition: NodePlayerDefinition }
   | { available: false };
 
+/** Authoring options for a preview session; the Published Player never sends them. */
+export interface PlayablePreviewOptions {
+  policy?: NodeRuntimePolicy;
+  startNodeId?: string;
+  previewState?: JsonObject;
+}
+
 export interface PlayableAssetTransfer {
   contentType: string;
   bytes: ArrayBuffer;
@@ -30,6 +38,7 @@ export type PlayableHostMessage =
       definition: NodePlayerDefinition;
       assets: Record<string, PlayableAssetTransfer>;
       save?: unknown;
+      preview?: PlayablePreviewOptions;
     }
   | {
       kind: "ohmygame:playable:save-result";
@@ -71,7 +80,11 @@ export function isPlayableHostMessage(
   )
     return false;
   if (value.kind === "ohmygame:playable:init") {
-    return isRecord(value.definition) && isRecord(value.assets);
+    return (
+      isRecord(value.definition) &&
+      isRecord(value.assets) &&
+      (value.preview === undefined || isRecord(value.preview))
+    );
   }
   return (
     value.kind === "ohmygame:playable:save-result" &&

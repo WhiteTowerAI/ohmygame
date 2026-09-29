@@ -80,12 +80,13 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
         onDiagnostic={(message) => setDiagnostics((current) => [...current.slice(-19), message])}
       />
       <aside className="playable-playtest-diagnostics" aria-label="Runtime diagnostics">
-        <header><strong>Runtime</strong><span>{snapshot?.failed ? "Failed" : snapshot?.transitioning ? "Transitioning" : "Running"}</span></header>
+        <header><strong>Runtime</strong><span>{snapshot ? RUNTIME_STATUS_LABELS[snapshot.status] : "Starting"}</span></header>
         <dl>
           <dt>Node</dt><dd>{snapshot?.currentNodeId ?? "Starting..."}</dd>
           <dt>Back stack</dt><dd>{snapshot?.backStack.join(" -> ") || "Empty"}</dd>
           <dt>Recent signals</dt><dd>{snapshot?.recentSignals.map((entry) => `${entry.nodeId}.${entry.signal}`).join(", ") || "None"}</dd>
-          <dt>Save</dt><dd>{snapshot?.hasSave ? "Available" : "None"}</dd>
+          <dt>State access</dt><dd>{Object.entries(snapshot?.stateAccess ?? {}).map(([id, access]) => `${id}: read ${access.read.join(", ") || "none"}; wrote ${access.wrote.join(", ") || "none"}`).join(" / ") || "None"}</dd>
+          <dt>Save</dt><dd>{snapshot?.save.present ? "Available" : "None"}</dd>
         </dl>
         <details open><summary>State</summary><pre>{JSON.stringify(snapshot?.state ?? {}, null, 2)}</pre></details>
         {diagnostics.length ? <details open><summary>Diagnostics ({diagnostics.length})</summary><ol>{diagnostics.map((message, index) => <li key={`${index}:${message}`} role="alert">{message}</li>)}</ol></details> : null}
@@ -590,6 +591,15 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   if (node?.type === "ending") return <StoryEnding chapter={chapter} node={node} variables={variables} runtime={runtime} fit={config.videoFit} assetUrls={assetUrls} onReady={onReady} onRestart={active ? onRestartGame : NOOP} onMenu={active ? onMenu : NOOP} />;
   return <><ReadyEffect onReady={onReady} /><div className="story-playtest-state" role="alert">The current story node is missing.</div></>;
 }
+
+const RUNTIME_STATUS_LABELS: Record<NodeRuntimeSnapshot["status"], string> = {
+  idle: "Idle",
+  starting: "Starting",
+  running: "Running",
+  transitioning: "Transitioning",
+  failed: "Failed",
+  disposed: "Stopped",
+};
 
 const NOOP = () => {};
 const NOOP_SCENE_TIME = (_mediaId: string, _timeMs: number) => {};

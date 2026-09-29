@@ -2,12 +2,16 @@ import type {
   CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "./playable-compiled.js";
-import { playableNodeById } from "./playable-graph.js";
+import {
+  playableEdgeForSignal,
+  playableNodeById,
+} from "./playable-graph.js";
 import {
   createPlayableNavigation,
   navigatePlayableBack,
   navigatePlayableSignal,
   openPlayableDestination,
+  PlayableNavigationError,
   type PlayableNavigationState,
 } from "./playable-navigation.js";
 import type {
@@ -61,6 +65,13 @@ export interface PlayableSurfaceHost {
   ): Promise<PlayableMountedSurface>;
 }
 
+/**
+ * `follow` navigates on Signals (Playtest and Published Player). `report`
+ * validates navigation requests and reports where they would lead while the
+ * current Node stays mounted (Workbench preview).
+ */
+export type NodeRuntimePolicy = "follow" | "report";
+
 export interface NodeRuntimeOptions {
   graph: NodeGraph;
   compiled: CompiledNodeGraph;
@@ -68,20 +79,82 @@ export interface NodeRuntimeOptions {
   surfaceHost: PlayableSurfaceHost;
   saveStore: PlayableSaveStore;
   assetUrls: Readonly<Record<string, string>>;
+  policy?: NodeRuntimePolicy;
+  /** Node to enter instead of `entryNodeId`. */
+  startNodeId?: string;
+  /** Overrides applied to `initialState` for this session; keys must be declared. */
+  previewState?: JsonObject;
   now?: () => Date;
   onError?: (error: unknown) => void;
+  /** Called whenever the diagnostics snapshot may have changed. */
+  onChange?: () => void;
+}
+
+export type NodeRuntimeStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "transitioning"
+  | "failed"
+  | "disposed";
+
+export interface NodeRuntimeSignalRecord {
+  nodeId: string;
+  signal: string;
+  edgeId?: string;
+  targetNodeId?: string;
+  at: string;
+}
+
+/** A navigation request that the `report` policy validated but did not follow. */
+export type NodeRuntimeNavigationReport =
+  | {
+      kind: "signal";
+      nodeId: string;
+      signal: string;
+      edgeId?: string;
+      targetNodeId?: string;
+      mode?: PlayableNavigationMode;
+      at: string;
+    }
+  | { kind: "back"; nodeId: string; targetNodeId?: string; at: string }
+  | {
+      kind: "destination";
+      destination: string;
+      targetNodeId: string;
+      mode: PlayableNavigationMode;
+      at: string;
+    }
+  | { kind: "restart" | "continue"; targetNodeId: string; at: string };
+
+export interface NodeRuntimeErrorRecord {
+  /** Node ID, or `"shell"` for the Shell; absent for Runtime-level errors. */
+  nodeId?: string;
+  code: string;
+  message: string;
+  at: string;
+}
+
+export interface NodeRuntimeStateAccess {
+  /** Keys read; `"*"` when the whole State was read or subscribed to. */
+  read: string[];
+  wrote: string[];
 }
 
 export interface NodeRuntimeSnapshot {
+  status: NodeRuntimeStatus;
+  policy: NodeRuntimePolicy;
   currentNodeId: string;
   backStack: string[];
-  recentSignals: Array<{ nodeId: string; signal: string }>;
   state: JsonObject;
-  hasSave: boolean;
-  started: boolean;
-  transitioning: boolean;
-  failed: boolean;
+  recentSignals: NodeRuntimeSignalRecord[];
+  reports: NodeRuntimeNavigationReport[];
+  stateAccess: Record<string, NodeRuntimeStateAccess>;
+  errors: NodeRuntimeErrorRecord[];
+  save: { present: boolean; savedAt?: string };
 }
+
+const HISTORY_LIMIT = 20;
 
 export type NodeRuntimeErrorCode =
   | "not-started"
@@ -114,6 +187,8 @@ interface ActiveSurface {
 }
 
 interface SurfaceToken {
+  /** Node ID, or `"shell"`. */
+  surfaceId: string;
   active: boolean;
   navigationReady: boolean;
 }
@@ -127,11 +202,17 @@ export class NodeRuntime {
   readonly #assetUrls: Readonly<Record<string, string>>;
   readonly #now: () => Date;
   readonly #onError: (error: unknown) => void;
+  readonly #onChange: () => void;
+  readonly #policy: NodeRuntimePolicy;
   readonly #stateListeners = new Set<(state: Readonly<JsonObject>) => void>();
+  readonly #stateAccess = new Map<string, { read: Set<string>; wrote: Set<string> }>();
+  readonly #recordedErrors = new WeakSet<object>();
 
   #navigation: PlayableNavigationState;
   #state: JsonObject;
-  #recentSignals: Array<{ nodeId: string; signal: string }> = [];
+  #recentSignals: NodeRuntimeSignalRecord[] = [];
+  #reports: NodeRuntimeNavigationReport[] = [];
+  #errors: NodeRuntimeErrorRecord[] = [];
   #cachedSave?: PlayableSave;
   #activeNode?: ActiveSurface;
   #activeShell?: ActiveSurface;
@@ -153,8 +234,24 @@ export class NodeRuntime {
     this.#assetUrls = options.assetUrls;
     this.#now = options.now ?? (() => new Date());
     this.#onError = options.onError ?? (() => undefined);
+    this.#onChange = options.onChange ?? (() => undefined);
+    this.#policy = options.policy ?? "follow";
     this.#navigation = createPlayableNavigation(options.graph);
-    this.#state = createPlayableState(options.graph.initialState);
+    if (options.startNodeId !== undefined) {
+      if (!playableNodeById(options.graph, options.startNodeId))
+        throw new PlayableNavigationError(
+          "unknown-node",
+          `Start Node "${options.startNodeId}" does not exist.`,
+        );
+      this.#navigation = { currentNodeId: options.startNodeId, backStack: [] };
+    }
+    this.#state = options.previewState
+      ? patchPlayableState(
+          options.graph.initialState,
+          options.graph.initialState,
+          options.previewState,
+        )
+      : createPlayableState(options.graph.initialState);
   }
 
   async start(): Promise<void> {
@@ -166,14 +263,19 @@ export class NodeRuntime {
         "Node Runtime has already started.",
       );
     this.#starting = true;
+    this.#changed();
     const operation = this.#performStart();
     this.#activeOperation = operation;
     try {
       await operation;
+    } catch (cause) {
+      this.#recordError(cause, this.#navigation.currentNodeId);
+      throw cause;
     } finally {
       this.#starting = false;
       if (this.#activeOperation === operation)
         this.#activeOperation = undefined;
+      this.#changed();
     }
   }
 
@@ -209,21 +311,47 @@ export class NodeRuntime {
 
   snapshot(): NodeRuntimeSnapshot {
     return {
+      status: this.#status(),
+      policy: this.#policy,
       currentNodeId: this.#navigation.currentNodeId,
       backStack: [...this.#navigation.backStack],
-      recentSignals: this.#recentSignals.map((entry) => ({ ...entry })),
       state: cloneJsonObject(this.#state),
-      hasSave: this.#cachedSave !== undefined,
-      started: this.#started,
-      transitioning: this.#transitioning,
-      failed: this.#failed,
+      recentSignals: this.#recentSignals.map((entry) => ({ ...entry })),
+      reports: this.#reports.map((entry) => ({ ...entry })),
+      stateAccess: Object.fromEntries(
+        [...this.#stateAccess].map(([surfaceId, access]) => [
+          surfaceId,
+          { read: [...access.read].sort(), wrote: [...access.wrote].sort() },
+        ]),
+      ),
+      errors: this.#errors.map((entry) => ({ ...entry })),
+      save: this.#cachedSave
+        ? { present: true, savedAt: this.#cachedSave.savedAt }
+        : { present: false },
     };
+  }
+
+  /**
+   * Records an error raised by surface code outside a Runtime call, such as
+   * an exception in an event handler. Errors already recorded are ignored.
+   */
+  recordError(error: unknown, nodeId = this.#navigation.currentNodeId): void {
+    this.#recordError(error, nodeId);
+  }
+
+  #status(): NodeRuntimeStatus {
+    if (this.#disposed) return "disposed";
+    if (this.#failed) return "failed";
+    if (this.#starting) return "starting";
+    if (this.#transitioning) return "transitioning";
+    return this.#started ? "running" : "idle";
   }
 
   async dispose(): Promise<void> {
     if (this.#disposePromise) return this.#disposePromise;
     this.#disposed = true;
     this.#started = false;
+    this.#changed();
     const activeOperation = this.#activeOperation;
     this.#disposePromise = this.#performDispose(activeOperation);
     return this.#disposePromise;
@@ -251,10 +379,38 @@ export class NodeRuntime {
 
   async #emit(token: SurfaceToken, signal: string): Promise<void> {
     this.#assertNavigationReady(token);
+    const nodeId = this.#navigation.currentNodeId;
+    const node = playableNodeById(this.#graph, nodeId);
+    if (!node?.signals.some((candidate) => candidate.id === signal)) {
+      throw new PlayableNavigationError(
+        "unknown-signal",
+        `Node "${nodeId}" did not declare Signal "${signal}".`,
+      );
+    }
+    const edge = playableEdgeForSignal(this.#graph, nodeId, signal);
+    const at = this.#now().toISOString();
     this.#recentSignals = [
       ...this.#recentSignals,
-      { nodeId: this.#navigation.currentNodeId, signal },
-    ].slice(-10);
+      {
+        nodeId,
+        signal,
+        ...(edge ? { edgeId: edge.id, targetNodeId: edge.targetNodeId } : {}),
+        at,
+      },
+    ].slice(-HISTORY_LIMIT);
+    if (this.#policy === "report") {
+      this.#report({
+        kind: "signal",
+        nodeId,
+        signal,
+        ...(edge
+          ? { edgeId: edge.id, targetNodeId: edge.targetNodeId, mode: edge.mode }
+          : {}),
+        at,
+      });
+      return;
+    }
+    this.#changed();
     await this.#navigate(() =>
       navigatePlayableSignal(this.#graph, this.#navigation, signal),
     );
@@ -266,6 +422,22 @@ export class NodeRuntime {
     mode: PlayableNavigationMode = "replace",
   ): Promise<void> {
     this.#assertNavigationReady(token);
+    if (this.#policy === "report") {
+      const next = openPlayableDestination(
+        this.#graph,
+        this.#navigation,
+        destination,
+        mode,
+      );
+      this.#report({
+        kind: "destination",
+        destination,
+        targetNodeId: next.currentNodeId,
+        mode,
+        at: this.#now().toISOString(),
+      });
+      return;
+    }
     await this.#navigate(() =>
       openPlayableDestination(this.#graph, this.#navigation, destination, mode),
     );
@@ -273,7 +445,22 @@ export class NodeRuntime {
 
   async #back(token: SurfaceToken): Promise<void> {
     this.#assertNavigationReady(token);
+    if (this.#policy === "report") {
+      const targetNodeId = this.#navigation.backStack.at(-1);
+      this.#report({
+        kind: "back",
+        nodeId: this.#navigation.currentNodeId,
+        ...(targetNodeId ? { targetNodeId } : {}),
+        at: this.#now().toISOString(),
+      });
+      return;
+    }
     await this.#navigate(() => navigatePlayableBack(this.#navigation));
+  }
+
+  #report(report: NodeRuntimeNavigationReport): void {
+    this.#reports = [...this.#reports, report].slice(-HISTORY_LIMIT);
+    this.#changed();
   }
 
   async #navigate(
@@ -288,6 +475,7 @@ export class NodeRuntime {
       );
     const next = resolve();
     this.#transitioning = true;
+    this.#changed();
     const operation = this.#performNavigation(next, prepare);
     this.#activeOperation = operation;
     try {
@@ -296,6 +484,7 @@ export class NodeRuntime {
       this.#transitioning = false;
       if (this.#activeOperation === operation)
         this.#activeOperation = undefined;
+      this.#changed();
     }
   }
 
@@ -313,6 +502,7 @@ export class NodeRuntime {
       this.#assertNotDisposed();
       this.#activeNode.token.navigationReady = true;
     } catch (cause) {
+      this.#recordError(cause, next.currentNodeId);
       if (!this.#disposed) await this.#failRuntime();
       throw cause;
     }
@@ -342,13 +532,19 @@ export class NodeRuntime {
         "missing-compiled-surface",
         `Compiled Playable Node "${nodeId}" is missing.`,
       );
-    const token: SurfaceToken = { active: true, navigationReady: false };
+    const token: SurfaceToken = {
+      surfaceId: nodeId,
+      active: true,
+      navigationReady: false,
+    };
     const abortController = new AbortController();
     const context: Omit<PlayableNodeContext, "root"> = {
       ...this.#baseContext(token, abortController, node.assets),
       navigation: {
-        emit: (signal) => this.#emit(token, signal),
-        back: () => this.#back(token),
+        emit: this.#guardAsync(token, (signal: string) =>
+          this.#emit(token, signal),
+        ),
+        back: this.#guardAsync(token, () => this.#back(token)),
       },
     };
     try {
@@ -363,7 +559,11 @@ export class NodeRuntime {
   }
 
   async #mountShell(surface: CompiledPlayableSurface): Promise<ActiveSurface> {
-    const token: SurfaceToken = { active: true, navigationReady: false };
+    const token: SurfaceToken = {
+      surfaceId: "shell",
+      active: true,
+      navigationReady: false,
+    };
     const abortController = new AbortController();
     const context: Omit<PlayableShellContext, "root"> = {
       ...this.#baseContext(
@@ -372,8 +572,12 @@ export class NodeRuntime {
         this.#graph.shell?.assets ?? [],
       ),
       navigation: {
-        back: () => this.#back(token),
-        open: (destination, mode) => this.#open(token, destination, mode),
+        back: this.#guardAsync(token, () => this.#back(token)),
+        open: this.#guardAsync(
+          token,
+          (destination: string, mode?: PlayableNavigationMode) =>
+            this.#open(token, destination, mode),
+        ),
       },
     };
     try {
@@ -412,17 +616,95 @@ export class NodeRuntime {
     declaredAssets: readonly string[],
   ): Omit<NodeRuntimeContext, "root"> {
     return {
-      assets: { url: (id) => this.#assetUrl(token, declaredAssets, id) },
+      assets: {
+        url: this.#guard(token, (id: string) =>
+          this.#assetUrl(token, declaredAssets, id),
+        ),
+      },
       state: this.#stateService(token, abortController.signal),
       session: {
         hasSave: () => this.#cachedSave !== undefined,
-        reset: () => this.#reset(token),
-        continue: () => this.#continue(token),
-        save: () => this.#save(token),
-        restart: () => this.#restart(token),
+        reset: this.#guardAsync(token, () => this.#reset(token)),
+        continue: this.#guardAsync(token, () => this.#continue(token)),
+        save: this.#guardAsync(token, () => this.#save(token)),
+        restart: this.#guardAsync(token, () => this.#restart(token)),
       },
       lifecycle: { signal: abortController.signal },
     };
+  }
+
+  /** Records errors thrown by a context method against the calling surface. */
+  #guard<A extends unknown[], R>(
+    token: SurfaceToken,
+    operation: (...args: A) => R,
+  ): (...args: A) => R {
+    return (...args) => {
+      try {
+        return operation(...args);
+      } catch (cause) {
+        this.#recordError(cause, token.surfaceId);
+        throw cause;
+      }
+    };
+  }
+
+  #guardAsync<A extends unknown[]>(
+    token: SurfaceToken,
+    operation: (...args: A) => Promise<void>,
+  ): (...args: A) => Promise<void> {
+    return async (...args) => {
+      try {
+        await operation(...args);
+      } catch (cause) {
+        this.#recordError(cause, token.surfaceId);
+        throw cause;
+      }
+    };
+  }
+
+  #recordError(error: unknown, nodeId?: string): void {
+    if (typeof error === "object" && error !== null) {
+      if (this.#recordedErrors.has(error)) return;
+      this.#recordedErrors.add(error);
+    }
+    const code =
+      error instanceof Error && typeof Reflect.get(error, "code") === "string"
+        ? (Reflect.get(error, "code") as string)
+        : "surface-error";
+    this.#errors = [
+      ...this.#errors,
+      {
+        ...(nodeId ? { nodeId } : {}),
+        code,
+        message: error instanceof Error ? error.message : String(error),
+        at: this.#now().toISOString(),
+      },
+    ].slice(-HISTORY_LIMIT);
+    this.#changed();
+  }
+
+  #recordStateAccess(
+    token: SurfaceToken,
+    kind: "read" | "wrote",
+    keys: readonly string[],
+  ): void {
+    let access = this.#stateAccess.get(token.surfaceId);
+    if (!access) {
+      access = { read: new Set(), wrote: new Set() };
+      this.#stateAccess.set(token.surfaceId, access);
+    }
+    const target = access[kind];
+    const size = target.size;
+    for (const key of keys) target.add(key);
+    if (target.size !== size) this.#changed();
+  }
+
+  #changed(): void {
+    try {
+      this.#onChange();
+    } catch {
+      // Change notification must not interrupt Runtime operations.
+    }
   }
 
   #stateService(
@@ -430,18 +712,22 @@ export class NodeRuntime {
     lifecycle: AbortSignal,
   ): PlayableStateService {
     return {
-      get: ((key?: string) => {
+      get: this.#guard(token, (key?: string) => {
         this.#assertSurfaceActive(token);
-        if (key === undefined) return cloneJsonObject(this.#state);
+        if (key === undefined) {
+          this.#recordStateAccess(token, "read", ["*"]);
+          return cloneJsonObject(this.#state);
+        }
         if (!Object.hasOwn(this.#graph.initialState, key)) {
           throw new PlayableStateError(
             "unknown-state-key",
             `Project State key "${key}" is not declared in initialState.`,
           );
         }
+        this.#recordStateAccess(token, "read", [key]);
         return structuredClone(this.#state[key]);
       }) as PlayableStateService["get"],
-      set: async (key, value) => {
+      set: this.#guardAsync(token, async (key: string, value: JsonValue) => {
         this.#assertSurfaceActive(token);
         this.#state = setPlayableState(
           this.#graph.initialState,
@@ -449,26 +735,29 @@ export class NodeRuntime {
           key,
           value,
         );
+        this.#recordStateAccess(token, "wrote", [key]);
         this.#notifyState();
         await this.#checkpoint();
-      },
-      patch: async (values) => {
+      }),
+      patch: this.#guardAsync(token, async (values: JsonObject) => {
         this.#assertSurfaceActive(token);
         this.#state = patchPlayableState(
           this.#graph.initialState,
           this.#state,
           values,
         );
+        this.#recordStateAccess(token, "wrote", Object.keys(values));
         this.#notifyState();
         await this.#checkpoint();
-      },
-      subscribe: (listener) => {
+      }),
+      subscribe: this.#guard(token, (listener: (state: Readonly<JsonObject>) => void) => {
         this.#assertSurfaceActive(token);
+        this.#recordStateAccess(token, "read", ["*"]);
         this.#stateListeners.add(listener);
         const unsubscribe = () => this.#stateListeners.delete(listener);
         lifecycle.addEventListener("abort", unsubscribe, { once: true });
         return unsubscribe;
-      },
+      }),
     };
   }
 
@@ -504,6 +793,14 @@ export class NodeRuntime {
 
   async #restart(token: SurfaceToken): Promise<void> {
     this.#assertNavigationReady(token);
+    if (this.#policy === "report") {
+      this.#report({
+        kind: "restart",
+        targetNodeId: this.#graph.entryNodeId,
+        at: this.#now().toISOString(),
+      });
+      return;
+    }
     await this.#navigate(
       () => createPlayableNavigation(this.#graph),
       () => {
@@ -521,6 +818,14 @@ export class NodeRuntime {
         "no-save",
         "There is no compatible Playable save to continue.",
       );
+    if (this.#policy === "report") {
+      this.#report({
+        kind: "continue",
+        targetNodeId: save.currentNodeId,
+        at: this.#now().toISOString(),
+      });
+      return;
+    }
     await this.#navigate(
       () => ({
         currentNodeId: save.currentNodeId,
@@ -555,6 +860,7 @@ export class NodeRuntime {
     const write = async () => {
       await this.#saveStore.save(save);
       this.#cachedSave = save;
+      this.#changed();
     };
     this.#saveQueue = this.#saveQueue.then(write, write);
     await this.#saveQueue;
@@ -607,6 +913,7 @@ export class NodeRuntime {
         this.#reportError(error);
       }
     }
+    this.#changed();
   }
 
   async #disposeActiveSurface(
@@ -646,7 +953,8 @@ export class NodeRuntime {
     }
   }
 
-  #reportError(error: unknown): void {
+  #reportError(error: unknown, nodeId?: string): void {
+    this.#recordError(error, nodeId);
     try {
       this.#onError(error);
     } catch {

@@ -8,6 +8,7 @@ import {
 import type {
   PlayableAssetTransfer,
   PlayableFrameMessage,
+  PlayablePreviewOptions,
   NodePlayerDefinition,
 } from "../shared/playable-player-protocol.js";
 import { isPlayableFrameMessage } from "../shared/playable-player-protocol.js";
@@ -22,6 +23,8 @@ export interface NodePlayerProps {
   title?: string;
   frameUrl?: string;
   storage?: Storage;
+  /** Authoring preview options; omit in the Published Player. */
+  preview?: PlayablePreviewOptions;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
 }
@@ -33,13 +36,17 @@ export function NodePlayer({
   title = definition.graph.title,
   frameUrl = "./playable-sandbox.html",
   storage = window.localStorage,
+  preview,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
 }: NodePlayerProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
+  const frameLoaded = useRef(false);
+  // Keyed on content so callers need not memoize the preview object.
+  const previewKey = JSON.stringify(preview ?? null);
   const instanceId = useMemo(
     () => `playable-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    [definition],
+    [definition, previewKey],
   );
   const [error, setError] = useState<string>();
   const [ready, setReady] = useState(false);
@@ -100,6 +107,7 @@ export function NodePlayer({
           definition,
           assets: transferredAssets,
           save,
+          ...(preview ? { preview } : {}),
         },
         "*",
         transfer,
@@ -108,6 +116,12 @@ export function NodePlayer({
       setError(errorMessage(cause));
     }
   };
+
+  // A new instance (changed definition or preview options) restarts the
+  // session in the already-loaded frame.
+  useEffect(() => {
+    if (frameLoaded.current) void initialize();
+  }, [instanceId]);
 
   const ratio =
     definition.graph.viewport.width / definition.graph.viewport.height;
@@ -121,7 +135,10 @@ export function NodePlayer({
           src={frameUrl}
           sandbox={PLAYABLE_IFRAME_SANDBOX}
           title={title}
-          onLoad={() => void initialize()}
+          onLoad={() => {
+            frameLoaded.current = true;
+            void initialize();
+          }}
         />
         {!ready && !error ? (
           <div className="playable-player-status">Loading...</div>

@@ -10,6 +10,7 @@ import type {
 import {
   MemoryPlayableSaveStore,
   NodeRuntime,
+  type NodeRuntimeOptions,
   type PlayableMountedSurface,
   type PlayableSave,
   type PlayableSaveStore,
@@ -92,8 +93,14 @@ describe("Node Runtime", () => {
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "lobby",
       backStack: [],
-      recentSignals: [{ nodeId: "menu", signal: "start" }],
-      hasSave: true,
+      recentSignals: [
+        expect.objectContaining({
+          nodeId: "menu",
+          signal: "start",
+          targetNodeId: "lobby",
+        }),
+      ],
+      save: { present: true, savedAt: expect.any(String) },
     });
   });
 
@@ -224,7 +231,7 @@ describe("Node Runtime", () => {
     await expect(start).rejects.toMatchObject({ code: "disposed" });
     await disposal;
     expect(host.events).toEqual([]);
-    expect(runtime.snapshot()).toMatchObject({ started: false, failed: false });
+    expect(runtime.snapshot()).toMatchObject({ status: "disposed" });
   });
 
   it("disposes a Node that finishes mounting after disposal begins", async () => {
@@ -280,9 +287,7 @@ describe("Node Runtime", () => {
 
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "archive",
-      started: false,
-      transitioning: false,
-      failed: true,
+      status: "failed",
     });
     expect(host.events).toEqual([
       "mount:shell",
@@ -323,8 +328,7 @@ describe("Node Runtime", () => {
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "archive",
       state: saved.state,
-      started: false,
-      failed: true,
+      status: "failed",
     });
   });
 
@@ -415,7 +419,7 @@ describe("Node Runtime", () => {
       saveStore: new MemoryPlayableSaveStore(saved),
     });
     await restored.runtime.start();
-    expect(restored.runtime.snapshot().hasSave).toBe(true);
+    expect(restored.runtime.snapshot().save.present).toBe(true);
 
     await nodeContext(restored.host, "menu").session.continue();
     expect(restored.runtime.snapshot()).toMatchObject({
@@ -431,7 +435,7 @@ describe("Node Runtime", () => {
       }),
     });
     await incompatible.runtime.start();
-    expect(incompatible.runtime.snapshot().hasSave).toBe(false);
+    expect(incompatible.runtime.snapshot().save.present).toBe(false);
     await expect(
       nodeContext(incompatible.host, "menu").session.continue(),
     ).rejects.toMatchObject({ code: "no-save" });
@@ -509,7 +513,94 @@ describe("Node Runtime", () => {
       ),
     });
     await invalidSave.runtime.start();
-    expect(invalidSave.runtime.snapshot().hasSave).toBe(false);
+    expect(invalidSave.runtime.snapshot().save.present).toBe(false);
+  });
+});
+
+
+describe("NodeRuntime preview tooling", () => {
+  it("reports Signals under the report policy without leaving the Node", async () => {
+    const { runtime, host } = createRuntime({ policy: "report" });
+    await runtime.start();
+
+    await nodeContext(host, "menu").navigation.emit("start");
+    await nodeContext(host, "menu").navigation.back();
+    await shellContext(host).navigation.open("archive", "push");
+
+    expect(host.events).toEqual(["mount:shell", "mount:menu"]);
+    const snapshot = runtime.snapshot();
+    expect(snapshot).toMatchObject({
+      status: "running",
+      policy: "report",
+      currentNodeId: "menu",
+      backStack: [],
+    });
+    expect(snapshot.recentSignals).toEqual([
+      expect.objectContaining({ nodeId: "menu", signal: "start", targetNodeId: "lobby" }),
+    ]);
+    expect(snapshot.reports).toEqual([
+      expect.objectContaining({ kind: "signal", signal: "start", targetNodeId: "lobby" }),
+      { kind: "back", nodeId: "menu", at: "2026-09-28T00:00:00.000Z" },
+      {
+        kind: "destination",
+        destination: "archive",
+        targetNodeId: "archive",
+        mode: "push",
+        at: "2026-09-28T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("still rejects undeclared Signals under the report policy and records the error", async () => {
+    const { runtime, host } = createRuntime({ policy: "report" });
+    await runtime.start();
+
+    await expect(
+      nodeContext(host, "menu").navigation.emit("missing"),
+    ).rejects.toMatchObject({ code: "unknown-signal" });
+    expect(runtime.snapshot().errors).toEqual([
+      expect.objectContaining({ nodeId: "menu", code: "unknown-signal" }),
+    ]);
+  });
+
+  it("starts at a chosen Node with validated preview State", async () => {
+    const { runtime, host } = createRuntime({
+      startNodeId: "archive",
+      previewState: { hasKey: true },
+    });
+    await runtime.start();
+
+    expect(host.events).toEqual(["mount:shell", "mount:archive"]);
+    expect(runtime.snapshot().state).toEqual({
+      hasKey: true,
+      clues: [],
+      profile: { name: "" },
+    });
+    expect(() => createRuntime({ previewState: { unknown: 1 } })).toThrowError(
+      expect.objectContaining({ code: "unknown-state-key" }),
+    );
+    expect(() => createRuntime({ startNodeId: "nowhere" })).toThrowError(
+      expect.objectContaining({ code: "unknown-node" }),
+    );
+  });
+
+  it("records State reads and writes per surface", async () => {
+    const { runtime, host } = createRuntime();
+    await runtime.start();
+    const menu = nodeContext(host, "menu");
+
+    menu.state.get("hasKey");
+    await menu.state.patch({ clues: ["ledger"] });
+    shellContext(host).state.get();
+
+    expect(runtime.snapshot().stateAccess).toEqual({
+      menu: { read: ["hasKey"], wrote: ["clues"] },
+      shell: { read: ["*"], wrote: [] },
+    });
+    expect(() => menu.state.get("missing" as "hasKey")).toThrow();
+    expect(runtime.snapshot().errors).toEqual([
+      expect.objectContaining({ nodeId: "menu", code: "unknown-state-key" }),
+    ]);
   });
 });
 
@@ -519,6 +610,9 @@ function createRuntime(
     saveStore?: PlayableSaveStore;
     assetUrls?: Record<string, string>;
     onError?: (error: unknown) => void;
+    policy?: NodeRuntimeOptions["policy"];
+    startNodeId?: string;
+    previewState?: NodeRuntimeOptions["previewState"];
   } = {},
 ): {
   runtime: NodeRuntime;
@@ -540,6 +634,9 @@ function createRuntime(
       },
       now: () => new Date("2026-09-28T00:00:00.000Z"),
       onError: options.onError,
+      policy: options.policy,
+      startNodeId: options.startNodeId,
+      previewState: options.previewState,
     }),
   };
 }

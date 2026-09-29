@@ -26,6 +26,15 @@ window.addEventListener("pagehide", () => {
   void disposeSession();
 });
 
+// Exceptions thrown from surface event handlers never pass through a Runtime
+// call, so they are recorded here against the current Node.
+window.addEventListener("error", (event) => {
+  session?.runtime.recordError(event.error ?? event.message);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  session?.runtime.recordError(event.reason);
+});
+
 async function startSession(
   message: Extract<PlayableHostMessage, { kind: "ohmygame:playable:init" }>,
 ): Promise<void> {
@@ -46,6 +55,8 @@ async function startSession(
       surfaceHost: host,
       saveStore,
       assetUrls,
+      ...message.preview,
+      onChange: () => scheduleSnapshot(message.instanceId),
       onError: (error) =>
         post({
           kind: "ohmygame:playable:diagnostic",
@@ -61,11 +72,7 @@ async function startSession(
       assetUrls,
     };
     await runtime.start();
-    post({
-      kind: "ohmygame:playable:snapshot",
-      instanceId: message.instanceId,
-      snapshot: runtime.snapshot(),
-    });
+    postSnapshot(message.instanceId);
   } catch (cause) {
     if (!session) {
       for (const url of Object.values(assetUrls)) URL.revokeObjectURL(url);
@@ -129,17 +136,7 @@ class ParentSaveStore implements PlayableSaveStore {
     if (!pending) return;
     this.#pending.delete(message.requestId);
     if (message.error) pending.reject(new Error(message.error));
-    else {
-      pending.resolve();
-      window.setTimeout(() => {
-        if (session?.instanceId !== this.instanceId) return;
-        post({
-          kind: "ohmygame:playable:snapshot",
-          instanceId: this.instanceId,
-          snapshot: session.runtime.snapshot(),
-        });
-      }, 0);
-    }
+    else pending.resolve();
   }
 
   dispose(): void {
@@ -157,6 +154,27 @@ interface SandboxSession {
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;
   assetUrls: Record<string, string>;
+}
+
+let snapshotScheduled = false;
+
+/** Coalesces Runtime changes into one snapshot per task. */
+function scheduleSnapshot(instanceId: string): void {
+  if (snapshotScheduled) return;
+  snapshotScheduled = true;
+  window.setTimeout(() => {
+    snapshotScheduled = false;
+    postSnapshot(instanceId);
+  }, 0);
+}
+
+function postSnapshot(instanceId: string): void {
+  if (session?.instanceId !== instanceId) return;
+  post({
+    kind: "ohmygame:playable:snapshot",
+    instanceId,
+    snapshot: session.runtime.snapshot(),
+  });
 }
 
 function post(message: PlayableFrameMessage): void {
