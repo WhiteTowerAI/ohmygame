@@ -51,6 +51,7 @@ import type { GameRuntimeAdapter } from "../shared/playtest.js";
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
+import { buildPlayableProject } from "./playable-project.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -937,6 +938,18 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
+    }
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node Runtime requires an Interactive Drama project" });
+    try {
+      const definition = await buildPlayableProject(project.workspacePath);
+      return definition ? { available: true, definition } : { available: false };
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
 

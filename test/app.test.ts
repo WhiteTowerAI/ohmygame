@@ -7,6 +7,7 @@ import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { type StoryDocument } from "../src/shared/contracts.js";
 import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
+import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
@@ -38,6 +39,30 @@ describe("daemon", () => {
     expect(response.json()).toMatchObject({ name: "Story", type: "interactive-drama" });
     const story = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/story` })).json();
     expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
+  });
+
+  it("serves the Node Runtime only for projects with graph.json", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
+    apps.push(app);
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Nodes", type: "interactive-drama" },
+    })).json();
+
+    const story = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
+    expect(story.statusCode).toBe(200);
+    expect(story.json()).toEqual({ available: false });
+
+    await writePlayableFixtureWorkspace(project.workspacePath);
+    const playable = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
+    expect(playable.statusCode).toBe(200);
+    expect(playable.json()).toMatchObject({ available: true, definition: { version: 1, graph: { title: "Ash Club" } } });
+
+    await writeFile(path.join(project.workspacePath, "graph.json"), "{");
+    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable` });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toContain("graph.json is not valid JSON");
   });
 
   it("accepts a custom story viewport only for blank Interactive Drama projects", async () => {

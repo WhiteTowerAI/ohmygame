@@ -2,7 +2,8 @@ import { Play, RotateCcw } from "./icons.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfig, StoryScreenAction, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
-import { getStory, listLibraryAssets } from "./api.js";
+import { getLibraryAsset, getNodeRuntime, getStory, getWorkspaceAsset, listLibraryAssets } from "./api.js";
+import { NodePlayer } from "./playable-player.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface, type StoryCompletionSource } from "./story-interaction-surface.js";
@@ -14,8 +15,110 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { SceneTimerClock } from "./scene-timer-clock.js";
 import { StoryMap } from "./story-map.js";
 import { StoryPlayerViewport } from "./story-player-viewport.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 
 export function PlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
+  const [format, setFormat] = useState<"playable" | "story">("playable");
+  const showStory = useCallback(() => setFormat("story"), []);
+  useEffect(() => setFormat("playable"), [projectId]);
+  return format === "story"
+    ? <StoryPlaytestPage projectId={projectId} chapterId={chapterId} />
+    : <NodePlaytestPage projectId={projectId} onStory={showStory} />;
+}
+
+function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: () => void }) {
+  const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const [playable, setPlayable] = useState<
+    | { status: "loading" }
+    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob> }
+    | { status: "error"; error: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let disposed = false;
+    setPlayable({ status: "loading" });
+    setSnapshot(undefined);
+    setDiagnostics([]);
+    void getNodeRuntime(projectId).then(async (result) => {
+      if (!result.available) {
+        if (!disposed) onStory();
+        return;
+      }
+      const assets = await mapConcurrent(
+        Object.entries(result.definition.graph.assets),
+        4,
+        async ([id, asset]) => {
+          try {
+            const blob = asset.source.kind === "library"
+              ? await getLibraryAsset(asset.source.assetId)
+              : await getWorkspaceAsset(projectId, asset.source.path);
+            return [id, blob] as const;
+          } catch (cause) {
+            throw new Error(`Could not load Asset "${id}": ${errorMessage(cause)}`);
+          }
+        },
+      );
+      if (disposed) return;
+      document.title = `${result.definition.graph.title} - Playtest`;
+      setPlayable({ status: "ready", definition: result.definition, assets: Object.fromEntries(assets) });
+    }).catch((cause) => {
+      if (!disposed) setPlayable({ status: "error", error: errorMessage(cause) });
+    });
+    return () => { disposed = true; };
+  }, [projectId, onStory]);
+
+  if (playable.status === "ready") return (
+    <>
+      <WindowDragRegion />
+      <NodePlayer
+        definition={playable.definition}
+        assets={playable.assets}
+        saveKey={`ohmygame:playable:project:${projectId}`}
+        onSnapshot={setSnapshot}
+        onDiagnostic={(message) => setDiagnostics((current) => [...current.slice(-19), message])}
+      />
+      <aside className="playable-playtest-diagnostics" aria-label="Runtime diagnostics">
+        <header><strong>Runtime</strong><span>{snapshot?.failed ? "Failed" : snapshot?.transitioning ? "Transitioning" : "Running"}</span></header>
+        <dl>
+          <dt>Node</dt><dd>{snapshot?.currentNodeId ?? "Starting..."}</dd>
+          <dt>Back stack</dt><dd>{snapshot?.backStack.join(" -> ") || "Empty"}</dd>
+          <dt>Recent signals</dt><dd>{snapshot?.recentSignals.map((entry) => `${entry.nodeId}.${entry.signal}`).join(", ") || "None"}</dd>
+          <dt>Save</dt><dd>{snapshot?.hasSave ? "Available" : "None"}</dd>
+        </dl>
+        <details open><summary>State</summary><pre>{JSON.stringify(snapshot?.state ?? {}, null, 2)}</pre></details>
+        {diagnostics.length ? <details open><summary>Diagnostics ({diagnostics.length})</summary><ol>{diagnostics.map((message, index) => <li key={`${index}:${message}`} role="alert">{message}</li>)}</ol></details> : null}
+      </aside>
+    </>
+  );
+  return (
+    <main className="playable-player-page">
+      <WindowDragRegion />
+      <div className="playable-player-page-state" role={playable.status === "error" ? "alert" : undefined}>
+        {playable.status === "error" ? playable.error : "Loading playtest..."}
+      </div>
+    </main>
+  );
+}
+
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await operation(values[index]!);
+    }
+  }));
+  return results;
+}
+
+function StoryPlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
   const [chapter, setChapter] = useState<StoryChapter>();
   const [variables, setVariables] = useState<StoryVariable[]>([]);
   const [config, setConfig] = useState<StoryPlayerConfig>(DEFAULT_STORY_PLAYER_CONFIG);

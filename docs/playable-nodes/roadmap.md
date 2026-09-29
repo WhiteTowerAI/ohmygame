@@ -86,11 +86,13 @@ branch is opened as one pull request when the whole sequence is complete.
 3. `feat(runtime): add playable node compiler` — compiler and compiled
    definition types.
 4. `feat(runtime): add node runtime and sandbox` — Runtime, sandbox host,
-   Player component, sandbox build, Playtest and Published Player support for
-   `graph.json` projects, all with the Story path kept as fallback.
+   Player component, sandbox build, and Playtest support for `graph.json`
+   projects, with the Story path kept as fallback.
 5. `feat(playable): add project codebase and publishing` — codebase
-   endpoints, validation endpoint, source writes, playable publishing. New
-   projects still use `story.json`.
+   endpoints, validation endpoint, source writes, playable publishing, and
+   Published Player support. New projects still use `story.json`; the
+   `OHMYGAME_DEV_PLAYABLE_NODES=1` development flag creates `graph.json`
+   projects for testing.
 
 Check for each: `npm test`, `npm run typecheck`, and `npm run build` pass, an existing Interactive
 Drama project still opens, plays, and publishes exactly as before.
@@ -158,7 +160,7 @@ projects.
 | Phase                       | Status      |
 | --------------------------- | ----------- |
 | 0. Design                   | Done        |
-| 1. Runtime foundation       | Not started |
+| 1. Runtime foundation       | In progress |
 | 2. Separate Asset Canvas    | Not started |
 | 3. Runtime for authoring    | Not started |
 | 4. Editor on the new format | Not started |
