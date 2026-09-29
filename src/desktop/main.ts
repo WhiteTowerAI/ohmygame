@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
@@ -303,6 +304,11 @@ function validRouteId(value: unknown): value is string {
 }
 
 function packagedEsbuildBinary(): string {
-  const packageDirectory = path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "@esbuild", `${process.platform}-${process.arch}`);
+  // Resolve the platform package from esbuild's own directory, as esbuild does, because packaging
+  // may nest it when another dependency brings a different esbuild version.
+  const esbuildPackage = createRequire(import.meta.url).resolve("esbuild/package.json");
+  const platformPackage = createRequire(esbuildPackage).resolve(`@esbuild/${process.platform}-${process.arch}/package.json`);
+  const packageDirectory = path.dirname(platformPackage)
+    .replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
   return path.join(packageDirectory, process.platform === "win32" ? "esbuild.exe" : path.join("bin", "esbuild"));
 }
