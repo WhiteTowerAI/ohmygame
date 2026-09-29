@@ -3770,7 +3770,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       text: node.data.text ?? "",
       instruction: node.data.instruction ?? "",
-      ...(node.data.textModel ? { model: node.data.textModel } : {}),
+      ...(node.data.textModel ? { model: modelRef(node.data.textModel) } : {}),
     },
   };
   if (node.type === "image") return {
@@ -3780,7 +3780,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      ...(node.data.model ? { model: node.data.model } : {}),
+      ...(node.data.model ? { model: modelRef(node.data.model) } : {}),
       resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,
       aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
       images: node.data.images ?? [],
@@ -3794,7 +3794,7 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
     data: {
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
-      ...(node.data.videoModel ? { model: node.data.videoModel } : {}),
+      ...(node.data.videoModel ? { model: modelRef(node.data.videoModel) } : {}),
       resolution: node.data.videoResolution ?? DEFAULT_VIDEO_NODE_CONFIG.resolution,
       aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
       duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
@@ -3828,6 +3828,11 @@ function toStoryNode(node: StoryFlowNode): StoryNode {
 function inspectorTitle(node: StoryFlowNode): string {
   if (node.type === "start") return "Chapter entry";
   return node.data.title || (node.type === "choice" ? "Make a choice" : `Untitled ${node.type}`);
+}
+
+/** Keeps only the reference fields; catalog entries also carry display fields that story.json rejects. */
+function modelRef<T extends { provider: string; id: string }>(model: T): { provider: string; id: string } {
+  return { provider: model.provider, id: model.id };
 }
 
 function imageModelKey(model: ImageModelRef): string {
