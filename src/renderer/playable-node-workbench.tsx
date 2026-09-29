@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
@@ -6,6 +6,7 @@ import {
   Clipboard,
   FileCode2,
   Film,
+  Flag,
   Folder,
   Image as ImageIcon,
   InfoCircle,
@@ -35,6 +36,7 @@ import { LibraryAssetPicker, NodeWorkbenchLayout, uploadLibraryFile, WorkbenchBr
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { usePlayableChatReport, type PlayableChatState } from "./playable-chat.js";
 
 const ASSET_UPLOAD_ACCEPT = ".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mp3,.wav";
 const ACTIVITY_LIMIT = 6;
@@ -43,7 +45,7 @@ export interface PlayableAssetRequest extends PlayableAssetDefinition {
   name: string;
 }
 
-interface PreviewRuntime {
+export interface PreviewRuntime {
   definition?: NodePlayerDefinition;
   assets?: Record<string, Blob>;
   error?: string;
@@ -69,6 +71,10 @@ export function PlayableNodeWorkbench({
   onSignalTarget,
   onAddAsset,
   onRemoveAsset,
+  onSetDestination,
+  onSnapshot,
+  onChatContextChange,
+  headerActions,
 }: {
   projectId: string;
   node: PlayableNode;
@@ -84,8 +90,14 @@ export function PlayableNodeWorkbench({
   onSignalTarget: (signalId: string, targetNodeId: string | undefined) => void;
   onAddAsset: (asset: PlayableAssetRequest) => void;
   onRemoveAsset: (assetId: string) => void;
+  onSetDestination: (key: string, nodeId: string | undefined) => void;
+  /** Receives the preview's Runtime snapshots; undefined when a new session starts. */
+  onSnapshot?: (snapshot: NodeRuntimeSnapshot | undefined) => void;
+  onChatContextChange?: (state: PlayableChatState | undefined) => void;
+  /** Project tools shown in the header, such as the State panel toggle. */
+  headerActions?: ReactNode;
 }) {
-  const [runtime, setRuntime] = useState<PreviewRuntime>({});
+  const runtime = usePlayablePreviewRuntime(projectId, revision);
   const [session, setSession] = useState(0);
   const [previewState, setPreviewState] = useState<JsonObject>({});
   const [stateOpen, setStateOpen] = useState(false);
@@ -94,32 +106,13 @@ export function PlayableNodeWorkbench({
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<PlayablePickResult>();
   const [storage] = useState(createMemoryStorage);
-  const runtimeKey = useRef<string | undefined>(undefined);
-  const assetCache = useRef(new Map<string, Blob>());
-
-  useEffect(() => {
-    let disposed = false;
-    void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error("This project has no graph.json.");
-      const key = playableRuntimeKey(result.definition);
-      if (key === runtimeKey.current) {
-        if (!disposed) setRuntime((current) => ({ ...current, error: undefined }));
-        return;
-      }
-      const assets = await loadPlayableAssets(projectId, result.definition.graph, assetCache.current);
-      if (disposed) return;
-      runtimeKey.current = key;
-      setRuntime({ definition: result.definition, assets });
-    }).catch((cause) => {
-      if (!disposed) setRuntime((current) => ({ ...current, error: errorMessage(cause) }));
-    });
-    return () => { disposed = true; };
-  }, [projectId, revision]);
+  const page = useRef<HTMLElement>(null);
 
   // Any new session starts with a clean activity log.
   useEffect(() => {
     setSnapshot(undefined);
     setDiagnostics([]);
+    onSnapshot?.(undefined);
   }, [runtime.definition, node.id, session, previewState]);
 
   useEffect(() => {
@@ -127,6 +120,19 @@ export function PlayableNodeWorkbench({
     setPicked(undefined);
   }, [node.id]);
 
+  usePlayableChatReport({
+    graph,
+    surface: { kind: "node", nodeId: node.id },
+    picked,
+    clearPicked: () => setPicked(undefined),
+    stage: page,
+    onChange: onChatContextChange,
+  });
+
+  const reportSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
+    setSnapshot(next);
+    onSnapshot?.(next);
+  }, [onSnapshot]);
   const onDiagnostic = useCallback((message: string) => {
     setDiagnostics((current) => [...current.slice(-19), { message, at: new Date().toISOString() }]);
   }, []);
@@ -175,7 +181,7 @@ export function PlayableNodeWorkbench({
       picking={picking}
       onPick={onPick}
       onPickCancel={onPickCancel}
-      onSnapshot={setSnapshot}
+      onSnapshot={reportSnapshot}
       onDiagnostic={onDiagnostic}
     /> : <div className={`playable-workbench-stage-state${runtime.error ? " is-error" : ""}`} role={runtime.error ? "alert" : undefined}>
       {runtime.error ?? "Loading preview..."}
@@ -193,21 +199,25 @@ export function PlayableNodeWorkbench({
         {nodeIssues.map((issue, index) => <li key={`${index}:${issue.message}`}><InfoCircle size={12} /><span>{issue.message}</span></li>)}
       </ul> : null}
       <PlayableSignalsSection node={node} graph={graph} onOpenNode={onOpenNode} onSignalLabel={onSignalLabel} onSignalTarget={onSignalTarget} />
-      <PlayableAssetsSection projectId={projectId} node={node} graph={graph} issues={issues} onAddAsset={onAddAsset} onRemoveAsset={onRemoveAsset} />
+      <PlayableNodeDestinationsSection nodeId={node.id} graph={graph} onSetDestination={onSetDestination} />
+      <PlayableAssetsSection projectId={projectId} assetIds={node.assets} graph={graph} issues={issues} emptyText="No assets declared for this Node." onAddAsset={onAddAsset} onRemoveAsset={onRemoveAsset} />
       <PlayableStateUsedSection nodeId={node.id} snapshot={snapshot} />
     </div>
   </aside>;
 
-  return <section className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
+  return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
     <header className="story-node-editor-header window-drag-handle">
       <WorkbenchBreadcrumb label={node.title} onClose={onClose} />
-      <WorkbenchOverflowMenu onOpenSource={onOpenSource} />
+      <div className="playable-workbench-header-actions">
+        {headerActions}
+        <WorkbenchOverflowMenu onOpenSource={onOpenSource} />
+      </div>
     </header>
     <NodeWorkbenchLayout className="playable-node-workbench" preview={previewPane} inspector={inspector} timeline={null} />
   </section>;
 }
 
-function WorkbenchOverflowMenu({ onOpenSource }: { onOpenSource: () => void }) {
+export function WorkbenchOverflowMenu({ onOpenSource }: { onOpenSource: () => void }) {
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; right: number }>();
@@ -262,7 +272,7 @@ function WorkbenchOverflowMenu({ onOpenSource }: { onOpenSource: () => void }) {
   </>;
 }
 
-function PreviewStateEditor({ initialState, previewState, onChange }: {
+export function PreviewStateEditor({ initialState, previewState, onChange }: {
   initialState: JsonObject;
   previewState: JsonObject;
   onChange: (state: JsonObject) => void;
@@ -292,7 +302,7 @@ function PreviewStateEditor({ initialState, previewState, onChange }: {
   </div>;
 }
 
-function PreviewStateRow({ name, initial, value, overridden, onChange }: {
+export function PreviewStateRow({ name, initial, value, overridden, onChange }: {
   name: string;
   initial: JsonValue;
   value: JsonValue;
@@ -328,7 +338,7 @@ function PreviewStateRow({ name, initial, value, overridden, onChange }: {
   </label>;
 }
 
-function PickedElement({ pick, onClear }: { pick: PlayablePickResult; onClear: () => void }) {
+export function PickedElement({ pick, onClear }: { pick: PlayablePickResult; onClear: () => void }) {
   const reference = `${pick.nodeId} ${pick.source ?? pick.cssPath}`;
   return <div className="playable-workbench-pick">
     <MousePointer2 size={12} />
@@ -343,7 +353,7 @@ type ActivityItem =
   | { kind: "report"; at: string; text: string; targetNodeId?: string }
   | { kind: "error"; at: string; text: string };
 
-function PreviewActivity({ graph, snapshot, diagnostics, buildError, onOpenNode }: {
+export function PreviewActivity({ graph, snapshot, diagnostics, buildError, onOpenNode }: {
   graph: NodeGraph;
   snapshot?: NodeRuntimeSnapshot;
   diagnostics: readonly { message: string; at: string }[];
@@ -386,6 +396,96 @@ function PreviewActivity({ graph, snapshot, diagnostics, buildError, onOpenNode 
   </div>;
 }
 
+/**
+ * Builds the project's current sources for a Workbench preview. A rebuild
+ * with identical output keeps the running preview.
+ */
+export function usePlayablePreviewRuntime(projectId: string, revision: number): PreviewRuntime {
+  const [runtime, setRuntime] = useState<PreviewRuntime>({});
+  const runtimeKey = useRef<string | undefined>(undefined);
+  const assetCache = useRef(new Map<string, Blob>());
+
+  useEffect(() => {
+    let disposed = false;
+    void getNodeRuntime(projectId).then(async (result) => {
+      if (!result.available) throw new Error("This project has no graph.json.");
+      const key = playableRuntimeKey(result.definition);
+      if (key === runtimeKey.current) {
+        if (!disposed) setRuntime((current) => ({ ...current, error: undefined }));
+        return;
+      }
+      const assets = await loadPlayableAssets(projectId, result.definition.graph, assetCache.current);
+      if (disposed) return;
+      runtimeKey.current = key;
+      setRuntime({ definition: result.definition, assets });
+    }).catch((cause) => {
+      if (!disposed) setRuntime((current) => ({ ...current, error: errorMessage(cause) }));
+    });
+    return () => { disposed = true; };
+  }, [projectId, revision]);
+
+  return runtime;
+}
+
+/** The Destinations that open this Node, and a way to add one. */
+function PlayableNodeDestinationsSection({ nodeId, graph, onSetDestination }: {
+  nodeId: string;
+  graph: NodeGraph;
+  onSetDestination: (key: string, nodeId: string | undefined) => void;
+}) {
+  const keys = Object.entries(graph.destinations).filter(([, target]) => target === nodeId).map(([key]) => key);
+  const others = Object.entries(graph.destinations).filter(([, target]) => target !== nodeId).map(([key]) => key);
+  return <section className="story-open-ui-inspector-section playable-workbench-section">
+    <h3>Destinations</h3>
+    {keys.length ? <div className="playable-workbench-destinations">
+      {keys.map((key) => <span className="playable-destination-chip" key={key}>
+        <Flag size={11} /><code>{key}</code>
+        <button type="button" title="Remove Destination" aria-label={`Remove Destination ${key}`} onClick={() => onSetDestination(key, undefined)}><X size={11} /></button>
+      </span>)}
+    </div> : <p className="story-media-empty">The Shell cannot open this Node by name yet.</p>}
+    <DestinationKeyInput
+      suggestions={others}
+      taken={keys}
+      onSubmit={(key) => onSetDestination(key, nodeId)}
+    />
+  </section>;
+}
+
+export const DESTINATION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Adds a Destination by name; an existing name moves to this Node. */
+export function DestinationKeyInput({ suggestions, taken, onSubmit }: {
+  suggestions: readonly string[];
+  taken: readonly string[];
+  onSubmit: (key: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const key = draft.trim();
+  const invalid = Boolean(key) && !DESTINATION_KEY_PATTERN.test(key);
+  const submit = () => {
+    if (!key || invalid || taken.includes(key)) return;
+    onSubmit(key);
+    setDraft("");
+  };
+  const listId = useId();
+  return <div className={`playable-destination-add${invalid ? " is-invalid" : ""}`}>
+    <input
+      value={draft}
+      list={listId}
+      placeholder="Add Destination, e.g. home"
+      aria-label="New Destination"
+      aria-invalid={invalid}
+      title={invalid ? "Use letters, digits, dots, dashes, and underscores." : undefined}
+      maxLength={64}
+      spellCheck={false}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => { if (event.key === "Enter") submit(); }}
+    />
+    <datalist id={listId}>{suggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}</datalist>
+    <button type="button" disabled={!key || invalid || taken.includes(key)} onClick={submit}>Add</button>
+  </div>;
+}
+
 function PlayableSignalsSection({ node, graph, onOpenNode, onSignalLabel, onSignalTarget }: {
   node: PlayableNode;
   graph: NodeGraph;
@@ -417,11 +517,12 @@ function PlayableSignalsSection({ node, graph, onOpenNode, onSignalLabel, onSign
   </section>;
 }
 
-function PlayableAssetsSection({ projectId, node, graph, issues, onAddAsset, onRemoveAsset }: {
+export function PlayableAssetsSection({ projectId, assetIds, graph, issues, emptyText, onAddAsset, onRemoveAsset }: {
   projectId: string;
-  node: PlayableNode;
+  assetIds: readonly string[];
   graph: NodeGraph;
   issues: readonly PlayableProjectValidationIssue[];
+  emptyText: string;
   onAddAsset: (asset: PlayableAssetRequest) => void;
   onRemoveAsset: (assetId: string) => void;
 }) {
@@ -460,8 +561,8 @@ function PlayableAssetsSection({ projectId, node, graph, issues, onAddAsset, onR
 
   return <section className="story-open-ui-inspector-section playable-workbench-section">
     <h3>Assets</h3>
-    {node.assets.length ? <div className="story-media-list">
-      {node.assets.map((assetId) => {
+    {assetIds.length ? <div className="story-media-list">
+      {assetIds.map((assetId) => {
         const definition = graph.assets[assetId];
         const missing = !definition
           ? "Not declared in graph.json"
@@ -470,7 +571,7 @@ function PlayableAssetsSection({ projectId, node, graph, issues, onAddAsset, onR
             : issues.find((issue) => issue.path.startsWith(`/assets/${escapePointer(assetId)}/`))?.message;
         return <PlayableAssetRow key={assetId} projectId={projectId} assetId={assetId} definition={definition} missing={missing} onRemove={() => onRemoveAsset(assetId)} />;
       })}
-    </div> : <p className="story-media-empty">No assets declared for this Node.</p>}
+    </div> : <p className="story-media-empty">{emptyText}</p>}
     <div className="story-media-actions">
       <button className="story-field-add" type="button" disabled={!library} onClick={() => setPickerOpen(true)}><Folder size={13} /><span>From Library</span></button>
       <button className="story-field-add" type="button" disabled={uploading} onClick={() => fileInput.current?.click()}>
@@ -514,7 +615,7 @@ function PlayableAssetRow({ projectId, assetId, definition, missing, onRemove }:
       <strong title={assetId}>{assetId}</strong>
       <small title={missing}>{missing ?? (source?.kind === "workspace" ? source.path : `${definition?.type ?? "asset"} · Library`)}</small>
     </div>
-    <button type="button" title="Remove from Node" aria-label={`Remove ${assetId}`} onClick={onRemove}><Trash2 size={13} /></button>
+    <button type="button" title="Remove" aria-label={`Remove ${assetId}`} onClick={onRemove}><Trash2 size={13} /></button>
   </div>;
 }
 
@@ -539,7 +640,7 @@ function PlayableStateUsedSection({ nodeId, snapshot }: { nodeId: string; snapsh
   </section>;
 }
 
-function CommitInput({ value, ariaLabel, maxLength, onCommit }: {
+export function CommitInput({ value, ariaLabel, maxLength, onCommit }: {
   value: string;
   ariaLabel: string;
   maxLength: number;

@@ -25,4 +25,14 @@ describe("OhMyGame system prompt", () => {
       expect(prompt).not.toContain("smallest reliable change");
     }
   });
+
+  it("tells the Interactive Drama agent how to build and check Playable Nodes", () => {
+    const prompt = appendSystemPromptForProject("interactive-drama").join("\n\n");
+
+    expect(prompt).toContain("playable_add_node");
+    expect(prompt).toContain("playable_check");
+    expect(prompt).toContain("game_use");
+    expect(prompt).toContain("<editor-context>");
+    expect(appendSystemPromptForProject("web-game").join("\n\n")).not.toContain("playable_check");
+  });
 });

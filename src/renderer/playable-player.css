@@ -66,23 +66,6 @@ html, body, #root { width: 100%; height: 100%; margin: 0; }
   text-align: center;
 }
 
-.playable-playtest-diagnostics {
-  position: fixed;
-  z-index: 10;
-  right: 12px;
-  bottom: 12px;
-  max-width: min(440px, calc(100vw - 24px));
-  max-height: min(50vh, 420px);
-  overflow: auto;
-  padding: 10px 12px;
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: 6px;
-  background: rgb(9 10 12 / 90%);
-  color: #d8dae0;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: pre-wrap;
-}
-
 .playable-thumbnail-page {
   width: 100vw;
   height: 100vh;

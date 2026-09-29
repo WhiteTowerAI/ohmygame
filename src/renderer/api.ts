@@ -42,6 +42,7 @@ import {
   type PromptAttachment,
   type PluginMention,
   type PromptMode,
+  type PromptContext,
   type PromptReference,
   type PromptResponse,
   type WorkspaceFile,
@@ -81,6 +82,10 @@ declare global {
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
       finishNodeThumbnail?: (captured: boolean) => Promise<void>;
       openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
+      /** Called from a Playtest window: shows the Node in the main window's editor. */
+      openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
+      /** Called in the main window when a Playtest asks to open a Node. */
+      onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
@@ -594,10 +599,11 @@ export async function sendPrompt(
   mode: PromptMode = "normal",
   mentions: PluginMention[] = [],
   attachments: PromptAttachment[] = [],
+  contexts: PromptContext[] = [],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}) }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}), ...(contexts.length ? { contexts } : {}) }),
   });
 }
 

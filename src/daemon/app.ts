@@ -19,6 +19,8 @@ import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { PlayableDraftServer } from "./playable-draft-server.js";
+import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
@@ -272,6 +274,20 @@ const promptSchema = {
           },
         },
       },
+      contexts: {
+        type: "array",
+        maxItems: 4,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "label", "text"],
+          properties: {
+            kind: { enum: ["playable-node", "playable-element"] },
+            label: { type: "string", minLength: 1, maxLength: 200 },
+            text: { type: "string", minLength: 1, maxLength: 16_000 },
+          },
+        },
+      },
       images: {
         type: "array",
         items: {
@@ -484,6 +500,7 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
+  const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
@@ -593,9 +610,11 @@ export function createApp(options: AppOptions = {}) {
             driver: options.playtestDriver,
             resolveOpenTarget: async () => ({
               runtime: "web",
-              url: project.preview.status === "ready" && project.preview.url
-                ? project.preview.url
-                : await previews.start(project),
+              url: project.type === "interactive-drama"
+                ? await playableDrafts.open(project)
+                : project.preview.status === "ready" && project.preview.url
+                  ? project.preview.url
+                  : await previews.start(project),
             }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
@@ -2040,7 +2059,7 @@ export function createApp(options: AppOptions = {}) {
           request.body.mode ?? "normal",
           mentions,
           undefined,
-          attachments.promptContext(project, resolvedAttachments),
+          `${attachments.promptContext(project, resolvedAttachments)}${promptContextBlock(request.body.contexts ?? [])}`,
           attachments.conversationAttachments(resolvedAttachments),
         );
       } catch (cause) {
@@ -2378,6 +2397,7 @@ export function createApp(options: AppOptions = {}) {
     await agents.close();
     await previews.stopAll();
     await artifacts.close();
+    await playableDrafts.close();
   });
   return app;
 }

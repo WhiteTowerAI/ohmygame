@@ -47,24 +47,24 @@ Every project contains an `AGENTS.md` with the stable rules:
 
 ## Request context
 
-When the author sends a message from the editor, the message carries the
-current editor context as a structured block the Agent can read:
+When the author sends a message with a node or the Shell open, the message
+ends with an `<editor-context>` block the Agent reads and the conversation
+does not show; the timeline shows only the chip labels. The open surface's
+source files also arrive as workspace file references.
 
 ```text
-[Playable Nodes context]
-view: node-workbench
-node: archive ("Case archive")
-files: nodes/archive/index.html, nodes/archive/style.css, nodes/archive/node.js
-signals: open-notes → notes (push), leave → (unconnected)
-assets: archive-desk (image), old-book (image)
-state used: roundsCompleted (read)
-preview state: { "roundsCompleted": 8 }
-screenshot: attached
-picked element: nodes/archive/index.html:24:7 <a> "打开博弈笔记" (crop attached)
+<editor-context>
+{"instruction":"The user sent this message from the editor with the context below. …",
+ "items":[
+  {"kind":"playable-node","label":"Case archive","text":"The user has Node \"archive\" (Case archive) open in the Playable editor.\nSources: nodes/archive/index.html, nodes/archive/style.css, nodes/archive/node.js\nSignals:\n- open-notes \"打开博弈笔记\" → notes (push)\n- leave → not connected\nAssets: archive-desk (image)"},
+  {"kind":"playable-element","label":"<a> \"打开博弈笔记\"","text":"The user picked this element in the preview of Node \"archive\":\nElement: <a> \"打开博弈笔记\"\nSource: nodes/archive/index.html:24:7\nCSS path from the surface root: …\nBox in project viewport pixels: …"}
+ ]}
+</editor-context>
 ```
 
-On the canvas the context lists the selected nodes and edges instead. With
-nothing selected it contains only the project summary.
+A picked element also attaches a screenshot of the preview with the element
+outlined. On the canvas, with no Workbench open, a message carries no editor
+context.
 
 ## Common tasks
 
@@ -96,7 +96,8 @@ only where they override the style.
 
 ## Tools
 
-The Agent has three Playable Nodes tools in addition to its normal file,
+The Agent has two Playable Nodes tools, and `game_use` when a Playtest
+driver is available, in addition to its normal file,
 shell, and media generation tools.
 
 ### `playable_add_node`
@@ -119,37 +120,35 @@ Validates the graph and compiles every node and the Shell.
 { "mode": "draft" }
 ```
 
-It returns the same issues as the validation endpoint, each with `code`,
-`path`, and `message`, followed by compiler errors with file and line. The
-Agent fixes every issue before finishing. `publish` mode additionally reports
-unconnected Signals.
+It returns the same issues as the validation endpoint, each with `phase`,
+`code`, `path`, `message`, and the surface when known, including compiler
+errors. The Agent fixes every issue before finishing. `publish` mode
+additionally requires every Signal to be connected and every source file to
+exist.
 
 ### `game_use` for Playable Nodes
 
-The existing `game_use` tool opens the real Player for Playable Nodes
-projects. `open` accepts an optional starting node and state:
+The existing `game_use` tool plays Playable Nodes projects. `open` builds the
+current sources into a draft of the Published Player, served on loopback
+under an unguessable path, and opens it in the Playtest window.
 
-```json
-{ "operation": "open", "path": "?node=archive&state=%7B%22roundsCompleted%22%3A8%7D" }
-```
+Snapshots read text and interactive elements inside the Player's frames and
+node and Shell ShadowRoots, so the snapshot's text is what the screen shows.
+Its `gameState` is the debug record the Playtest drawer shows: current node,
+back stack, recent Signals and whether an edge followed them, State, State
+changes, errors, and save status. The bridge `reset` action starts a new game
+without the save. `act` drives real input; `capture` returns a screenshot.
 
-Snapshots include interactive elements inside node and Shell ShadowRoots and
-the Runtime diagnostics snapshot defined in [runtime.md](runtime.md#diagnostics-snapshot):
-current node, back stack, recent Signals, State, State access, errors, and
-save status. `act` drives real input; `capture` returns a screenshot.
-
-A typical verification: open at the changed node with a relevant state,
-perform the interaction, confirm the expected Signal and target in the
-snapshot, and capture a screenshot for visual changes.
+A typical verification: open the draft, reset, play to the changed node,
+perform the interaction, confirm the expected Signal and target in
+`gameState`, and capture a screenshot for visual changes.
 
 ## Turn review
 
-The editor checkpoints project files before each Agent turn and shows the
-change set afterwards with **Keep** and **Undo turn**
-([authoring.md](authoring.md#multi-node-agent-changes)). The Agent therefore
-makes the complete change in one turn and summarizes it at the end: nodes
-created or changed, Signals and edges added, State keys added, assets
-generated or declared, and what was verified.
+Turn review comes after the MVP ([roadmap](roadmap.md#after-the-mvp)). Until
+then the Agent makes the complete change in one turn and summarizes it at the
+end: nodes created or changed, Signals and edges added, State keys added,
+assets generated or declared, and what was verified.
 
 ## Measuring success
 

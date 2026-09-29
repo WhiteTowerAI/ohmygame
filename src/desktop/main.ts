@@ -209,6 +209,15 @@ ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapt
     throw error;
   }
 });
+ipcMain.handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: unknown) => {
+  if (!validRouteId(projectId) || !validRouteId(nodeId)) throw new Error("Invalid Node target");
+  const playtest = await playtestWindows.get(projectId);
+  if (!playtest || playtest.isDestroyed() || event.sender !== playtest.webContents) throw new Error("Invalid Node source");
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("ohmygame:open-playable-node", projectId, nodeId);
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
 ipcMain.handle("ohmygame:update-state", () => updater?.state() ?? null);
 ipcMain.handle("ohmygame:check-for-update", () => updater?.check());
 ipcMain.handle("ohmygame:download-update", () => updater?.download());

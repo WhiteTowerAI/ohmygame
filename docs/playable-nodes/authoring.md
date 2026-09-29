@@ -140,11 +140,15 @@ describing the change.
 
 ### Talking to the Agent about a node
 
-When a node is open, chat messages carry that node as context: its ID,
-source files, Signals, declared assets, a current preview screenshot, and
-any picked element. The Agent edits the node's files; the preview reloads
-when the change is saved; new or removed Signals appear on the inspector and
-canvas immediately.
+When a node or the Shell is open, the composer shows it as a chip, and the
+next message carries it as context: its ID, source files, Signals and their
+targets, declared assets, and Destinations. A picked element adds a second
+chip, and the message carries its description and a screenshot of the
+preview with the element outlined. Removing a chip leaves it out of the
+message. The conversation shows only the chip labels; the Agent receives the
+full context. The Agent edits the node's files; the preview reloads when the
+change is saved; new or removed Signals appear on the inspector and canvas
+immediately.
 
 Typical requests:
 
@@ -165,9 +169,11 @@ the default view.
 
 ## Project Style
 
-**Style** in the header opens the project's shared visual language: colors,
-typefaces, spacing, and shared components such as a button or a page frame.
-It is stored as ordinary shared source files that every node can import.
+**Style** in the header, and in every Workbench header, opens a panel with
+the project's shared visual language: color swatches and the other tokens of
+`shared/style/theme.css`, and buttons that open `theme.css`,
+`components.css`, and `components.js`. It is stored as ordinary shared
+source files that every node imports.
 
 - The Agent reads and uses the Project Style whenever it builds a node.
 - Authors can change the style through conversation ("make the whole game
@@ -181,33 +187,43 @@ archive, stay recognizably part of one game.
 
 **Shell** in the header opens a Workbench for the optional persistent UI,
 such as the Ash Club top bar. It works like a node Workbench: live preview
-over a sample node, a Destinations list, declared assets, and chat context.
+over a sample node chosen in the preview bar, element picking, a
+Destinations list, declared assets, and chat context. Without a Shell the
+button explains that the Agent can add one.
 
 Destinations (`home`, `lobby`, `rules`, …) are listed with the node each one
-opens. Authors assign a Destination from the node inspector or the canvas
-context menu, and the node card shows its badge.
+opens; each can be retargeted, opened, or removed, and a new one opens the
+sample node. Authors also assign a Destination from the node inspector or the
+canvas context menu's **Destination** submenu, and the node card shows its
+badge.
 
 ## Project State
 
-**State** in the header shows the project's shared data as a readable table
-of keys, initial values, and types inferred from those values. Authors rarely
-add keys by hand; the Agent adds a key when a node needs one and explains it
-in chat.
+**State** in the header, and in every Workbench header, shows the
+project's shared data as a table of keys, initial values, and types inferred
+from those values. Initial values are editable, and keys can be added or
+removed. Authors rarely add keys by hand; the Agent adds a key when a node
+needs one and explains it in chat.
 
-During preview and Playtest the same panel shows live values and highlights
-recent changes.
+While a Workbench preview runs, the panel adds its live values, highlights
+keys that changed recently, and lists the recent changes. Playtest shows the
+same changes in its debug drawer.
 
 ## Playtest
 
-Playtest runs the real Runtime from the entry node, or from a chosen node
-with a chosen state. It keeps the current Playtest entry point and adds a
-compact debug drawer:
+Playtest runs the real Runtime from the saved game or the entry node, or
+from a chosen node with a chosen state. A chosen start runs without saving,
+so the saved game is untouched. It keeps the current Playtest entry point
+and adds a compact debug drawer, which collapses to a pill showing the
+current node and the error count:
 
-- current node, with a link to open it in the editor;
+- current node, with **Open in editor**, which focuses the editor window and
+  opens that node's Workbench;
 - back stack;
 - recent Signals and the edges they followed;
 - State changes;
-- Runtime and build errors.
+- Runtime and build errors;
+- **Start from a Node**, with a node and preview State.
 
 The same information is available to the Agent in serializable form, so it
 can verify a flow it just built.
@@ -322,13 +338,15 @@ node code, and it is disabled in the Published Player.
    hover outline inside the node's surface and blocks node input.
 2. Clicking returns a **picked element** description: node ID, source
    location when known, CSS path within the node root, tag, visible text
-   excerpt, bounding box, and a cropped screenshot.
+   excerpt, and bounding box.
 3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
    attribute to every element written in the node's HTML. Elements created by
    JavaScript have no such attribute; the description then relies on text,
    path, and screenshot, and the Agent finds the element in source.
 4. The picked element appears as a chip in the chat composer, like the
-   current selected-text reference, and is sent with the next message.
+   current selected-text reference, and is sent with the next message
+   together with a screenshot of the preview with the element outlined. The
+   chip clears once sent.
 
 ### Cinematic scenes
 
@@ -344,7 +362,9 @@ most common interactive-film case needs no code.
 
 ### Multi-node Agent changes
 
-The Agent may create several nodes, Signals, and edges in one turn.
+The Agent may create several nodes, Signals, and edges in one turn. Turn
+review below comes after the MVP
+([roadmap](roadmap.md#after-the-mvp)).
 
 - Before each Agent turn, the editor records a checkpoint of `graph.json`,
   `editor/layout.json`, and the node, Shell, and `shared/` source files.

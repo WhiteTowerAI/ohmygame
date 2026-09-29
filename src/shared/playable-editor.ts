@@ -130,8 +130,24 @@ export function addPlayableNodeAsset(
   nodeId: string,
   asset: { name: string } & PlayableAssetDefinition,
 ): { graph: NodeGraph; assetId: string } {
+  return addSurfaceAsset(graph, (next) => next.nodes.find((candidate) => candidate.id === nodeId), asset);
+}
+
+/** Declares the Asset for the Shell, like addPlayableNodeAsset does for a Node. */
+export function addPlayableShellAsset(
+  graph: NodeGraph,
+  asset: { name: string } & PlayableAssetDefinition,
+): { graph: NodeGraph; assetId: string } {
+  return addSurfaceAsset(graph, (next) => next.shell, asset);
+}
+
+function addSurfaceAsset(
+  graph: NodeGraph,
+  surfaceOf: (graph: NodeGraph) => { assets: string[] } | undefined,
+  asset: { name: string } & PlayableAssetDefinition,
+): { graph: NodeGraph; assetId: string } {
   const next = structuredClone(graph);
-  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  const node = surfaceOf(next);
   const sameSource = (definition: PlayableAssetDefinition) => JSON.stringify(definition.source) === JSON.stringify(asset.source);
   const existing = Object.entries(next.assets).find(([, definition]) => sameSource(definition))?.[0];
   const assetId = existing ?? playableAssetId(asset.name, new Set(Object.keys(next.assets)));
@@ -143,13 +159,50 @@ export function addPlayableNodeAsset(
 
 /** Removes the Asset from the Node, and from the graph once nothing declares it. */
 export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetId: string): NodeGraph {
+  return removeSurfaceAsset(graph, (next) => next.nodes.find((candidate) => candidate.id === nodeId), assetId);
+}
+
+export function removePlayableShellAsset(graph: NodeGraph, assetId: string): NodeGraph {
+  return removeSurfaceAsset(graph, (next) => next.shell, assetId);
+}
+
+function removeSurfaceAsset(
+  graph: NodeGraph,
+  surfaceOf: (graph: NodeGraph) => { assets: string[] } | undefined,
+  assetId: string,
+): NodeGraph {
   const next = structuredClone(graph);
-  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  const node = surfaceOf(next);
   if (!node) return graph;
   node.assets = node.assets.filter((id) => id !== assetId);
   const used = next.nodes.some((candidate) => candidate.assets.includes(assetId)) || next.shell?.assets.includes(assetId);
   if (!used) delete next.assets[assetId];
   return next;
+}
+
+/**
+ * Points a Destination at a Node, or removes it when `nodeId` is undefined.
+ * Destinations keep their order; a new one is added last.
+ */
+export function setPlayableDestination(
+  destinations: Readonly<Record<string, string>>,
+  key: string,
+  nodeId: string | undefined,
+): Record<string, string> {
+  if (nodeId === undefined) return Object.fromEntries(Object.entries(destinations).filter(([candidate]) => candidate !== key));
+  return { ...destinations, [key]: nodeId };
+}
+
+export type PlayableStateType = "text" | "number" | "boolean" | "list" | "object" | "null";
+
+/** The type the State panel shows for a key, inferred from its initial value. */
+export function playableStateType(value: JsonValue): PlayableStateType {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "list";
+  if (typeof value === "string") return "text";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  return "object";
 }
 
 /**

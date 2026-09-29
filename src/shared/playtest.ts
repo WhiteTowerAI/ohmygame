@@ -22,7 +22,7 @@ export interface GameUseCapabilities {
 
 export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
   runtime: "web",
-  projectTypes: ["web-game"],
+  projectTypes: ["web-game", "interactive-drama"],
   input: ["pointer", "keyboard", "text", "touch", "resize"],
   observation: ["screenshot", "dom", "canvas", "console", "network"],
   deterministic: [],
@@ -98,6 +98,8 @@ export interface PlaytestSnapshot extends GameUseSnapshot {
   readyState: string;
   elements: PlaytestElement[];
   canvases: PlaytestCanvas[];
+  /** Visible text of the page and its frames, truncated. */
+  text?: string;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
 }

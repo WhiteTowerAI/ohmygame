@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { BrowserWindow, type NativeImage } from "electron";
+import { BrowserWindow, type NativeImage, type WebFrameMain } from "electron";
 import {
   WEB_GAME_USE_CAPABILITIES,
   type GameRuntimeAdapter,
   type GameUseOpenTarget,
   type PlaytestAction,
   type PlaytestCapture,
+  type PlaytestElement,
   type PlaytestFailedRequest,
   type PlaytestLog,
   type PlaytestRequest,
@@ -25,9 +26,22 @@ interface PlaytestSession {
   failedRequests: PlaytestFailedRequest[];
 }
 
+/** A frame of the page and how its coordinates map to the window's. */
+interface PlaytestFrame {
+  frame: WebFrameMain;
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+type FrameElements = Pick<PlaytestSnapshot, "elements"> & { text: string };
+
 const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
 const MAX_SESSIONS = 4;
+const MAX_ELEMENTS = 100;
+const MAX_TEXT = 4_000;
 
 export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   readonly available = true;
@@ -175,9 +189,25 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     signal?.throwIfAborted();
     this.#assertLive(state);
     const page = await state.window.webContents.executeJavaScript(PAGE_INSPECTION_SCRIPT, true) as Omit<PlaytestSnapshot, "sessionId" | "logs" | "failedRequests">;
+    // Content in child frames, such as the sandbox that runs Playable Nodes,
+    // is listed in window coordinates after the page's own.
+    const elements = [...page.elements];
+    const text = page.text ? [page.text] : [];
+    for (const child of (await this.#frames(state)).slice(1)) {
+      const found = await child.frame.executeJavaScript(FRAME_INSPECTION_SCRIPT, true).catch(() => undefined) as FrameElements | undefined;
+      if (!found) continue;
+      for (const element of found.elements) {
+        if (elements.length >= MAX_ELEMENTS) break;
+        elements.push({ ...element, index: elements.length, box: frameBox(child, element.box) });
+      }
+      if (found.text) text.push(found.text);
+    }
     signal?.throwIfAborted();
+    const visibleText = text.join("\n").slice(0, MAX_TEXT);
     return {
       ...page,
+      elements,
+      ...(visibleText ? { text: visibleText } : {}),
       sessionId: state.id,
       runtime: this.capabilities.runtime,
       capabilities: this.capabilities,
@@ -209,7 +239,11 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       }
       case "type": {
         const target = JSON.stringify(action.target);
-        const focused = await state.window.webContents.executeJavaScript(`(${FOCUS_TARGET_SCRIPT})(${target})`, true);
+        let focused = false;
+        for (const frame of await this.#frames(state)) {
+          focused = await frame.frame.executeJavaScript(`(${FOCUS_TARGET_SCRIPT})(${target})`, true).catch(() => false) === true;
+          if (focused) break;
+        }
         if (!focused) throw new Error("Playtest target was not found or is not editable");
         await debuggerApi.sendCommand("Input.insertText", { text: action.text });
         await abortableDelay(50, signal);
@@ -257,9 +291,35 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
   async #targetPoint(state: PlaytestSession, target: PlaytestTarget): Promise<{ x: number; y: number }> {
     if ("x" in target) return checkedPoint(target);
-    const point = await state.window.webContents.executeJavaScript(`(${TARGET_POINT_SCRIPT})(${JSON.stringify(target)})`, true) as unknown;
-    if (!point || typeof point !== "object") throw new Error("Playtest target was not found or is not visible");
-    return checkedPoint(point as { x: number; y: number });
+    for (const frame of await this.#frames(state)) {
+      const point = await frame.frame.executeJavaScript(`(${TARGET_POINT_SCRIPT})(${JSON.stringify(target)})`, true).catch(() => undefined) as unknown;
+      if (point && typeof point === "object") {
+        const { x, y } = point as { x: number; y: number };
+        return checkedPoint({ x: frame.x + x * frame.scaleX, y: frame.y + y * frame.scaleY });
+      }
+    }
+    throw new Error("Playtest target was not found or is not visible");
+  }
+
+  /**
+   * The main frame and its direct child frames. Each child is matched to its
+   * iframe element to find where, and at what scale, it is drawn.
+   */
+  async #frames(state: PlaytestSession): Promise<PlaytestFrame[]> {
+    const main = state.window.webContents.mainFrame;
+    const frames: PlaytestFrame[] = [{ frame: main, x: 0, y: 0, scaleX: 1, scaleY: 1 }];
+    const children = main.frames;
+    if (!children.length) return frames;
+    const boxes = await main.executeJavaScript(IFRAME_BOXES_SCRIPT, true) as { url: string; x: number; y: number; scaleX: number; scaleY: number }[];
+    const unmatched = new Set(boxes.keys());
+    for (const frame of children) {
+      const index = [...unmatched].find((candidate) => boxes[candidate]!.url === frame.url) ?? [...unmatched][0];
+      if (index === undefined) break;
+      unmatched.delete(index);
+      const { x, y, scaleX, scaleY } = boxes[index]!;
+      frames.push({ frame, x, y, scaleX, scaleY });
+    }
+    return frames;
   }
 
   async #capture(state: PlaytestSession, signal?: AbortSignal): Promise<PlaytestCapture> {
@@ -367,6 +427,15 @@ function sameOrigin(value: string, origin: string): boolean {
   try { return new URL(value).origin === origin; } catch { return false; }
 }
 
+function frameBox(frame: PlaytestFrame, box: PlaytestElement["box"]): PlaytestElement["box"] {
+  return {
+    x: Math.round(frame.x + box.x * frame.scaleX),
+    y: Math.round(frame.y + box.y * frame.scaleY),
+    width: Math.round(box.width * frame.scaleX),
+    height: Math.round(box.height * frame.scaleY),
+  };
+}
+
 function checkedPoint(value: { x: number; y: number }): { x: number; y: number } {
   if (!Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > 8192 || value.y > 8192) {
     throw new Error("Playtest coordinates must be between 0 and 8192");
@@ -404,21 +473,73 @@ function rounded(value: number): number {
 }
 
 const TARGET_HELPERS = String.raw`
+const INTERACTIVE = "button, a, input, textarea, select, [role], [data-testid], [onclick], [tabindex]:not([tabindex=\"-1\"])";
+const deepQueryAll = (selector) => {
+  const found = [];
+  const visit = (root) => {
+    found.push(...root.querySelectorAll(selector));
+    for (const element of root.querySelectorAll("*")) if (element.shadowRoot) visit(element.shadowRoot);
+  };
+  visit(document);
+  return found;
+};
 const roleFor = (element) => element.getAttribute("role") || ({
   A: "link", BUTTON: "button", INPUT: element.type === "checkbox" ? "checkbox" : element.type === "radio" ? "radio" : "textbox",
   SELECT: "combobox", TEXTAREA: "textbox",
 }[element.tagName] || "");
 const nameFor = (element) => element.getAttribute("aria-label") || element.getAttribute("alt") || element.getAttribute("title") || element.innerText || element.value || "";
+const isVisible = (element) => {
+  const box = element.getBoundingClientRect();
+  return box.width > 0 && box.height > 0 && (!element.checkVisibility || element.checkVisibility({ opacityProperty: true, visibilityProperty: true }));
+};
 const matches = (element, target) => {
-  if (target.selector) return element.matches(target.selector);
   if (target.testId) return element.getAttribute("data-testid") === target.testId;
   if (target.text) return (element.innerText || element.textContent || "").trim().includes(target.text);
   if (target.role) return roleFor(element) === target.role && (!target.name || nameFor(element).trim().includes(target.name));
   return false;
 };
 const findTarget = (target) => {
-  if (target.selector) { try { return document.querySelector(target.selector); } catch { return null; } }
-  return Array.from(document.querySelectorAll("button, a, input, textarea, select, [role], [data-testid], canvas")).find((element) => matches(element, target)) || null;
+  if (target.selector) { try { return deepQueryAll(target.selector).find(isVisible) || deepQueryAll(target.selector)[0] || null; } catch { return null; } }
+  const candidates = deepQueryAll(INTERACTIVE + ", canvas").filter((element) => matches(element, target));
+  return candidates.find(isVisible) || candidates[0] || null;
+};
+const clean = (value, limit = 300) => String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+const listElements = () => deepQueryAll(INTERACTIVE)
+  .filter(isVisible)
+  .slice(0, 100)
+  .map((element, index) => {
+    const box = element.getBoundingClientRect();
+    const role = roleFor(element);
+    const name = clean(nameFor(element));
+    const text = clean(element.innerText || element.textContent);
+    const testId = element.getAttribute("data-testid") || "";
+    return {
+      index,
+      tag: element.tagName.toLowerCase(),
+      ...(role ? { role } : {}),
+      ...(name ? { name } : {}),
+      ...(text ? { text } : {}),
+      ...(testId ? { testId } : {}),
+      disabled: Boolean(element.disabled || element.getAttribute("aria-disabled") === "true"),
+      box: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
+    };
+  });
+const visibleText = () => {
+  const parts = [];
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.shadowRoot) visit(node.shadowRoot);
+        continue;
+      }
+      const parent = node.parentElement;
+      const value = clean(node.textContent, 1000);
+      if (value && parent && !["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(parent.tagName) && isVisible(parent)) parts.push(value);
+    }
+  };
+  if (document.body) visit(document.body);
+  return clean(parts.join(" "), 4000);
 };`;
 
 const TARGET_POINT_SCRIPT = `(target) => { ${TARGET_HELPERS}
@@ -444,28 +565,22 @@ const BRIDGE_ACTION_SCRIPT = `async (method, value) => {
   return true;
 }`;
 
+/** Where each iframe's content is drawn, including any CSS scale. */
+const IFRAME_BOXES_SCRIPT = `(() => { ${TARGET_HELPERS}
+  return deepQueryAll("iframe").map((frame) => {
+    const box = frame.getBoundingClientRect();
+    const scaleX = frame.offsetWidth ? box.width / frame.offsetWidth : 1;
+    const scaleY = frame.offsetHeight ? box.height / frame.offsetHeight : 1;
+    return { url: frame.src, x: box.x + frame.clientLeft * scaleX, y: box.y + frame.clientTop * scaleY, scaleX, scaleY };
+  });
+})()`;
+
+const FRAME_INSPECTION_SCRIPT = `(() => { ${TARGET_HELPERS}
+  return { elements: listElements(), text: visibleText() };
+})()`;
+
 const PAGE_INSPECTION_SCRIPT = `(async () => { ${TARGET_HELPERS}
-  const clean = (value, limit = 300) => String(value || "").replace(/\\s+/g, " ").trim().slice(0, limit);
-  const elements = Array.from(document.querySelectorAll("button, a, input, textarea, select, [role], [data-testid]"))
-    .filter((element) => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0; })
-    .slice(0, 100)
-    .map((element, index) => {
-      const box = element.getBoundingClientRect();
-      const role = roleFor(element);
-      const name = clean(nameFor(element));
-      const text = clean(element.innerText || element.textContent);
-      const testId = element.getAttribute("data-testid") || "";
-      return {
-        index,
-        tag: element.tagName.toLowerCase(),
-        ...(role ? { role } : {}),
-        ...(name ? { name } : {}),
-        ...(text ? { text } : {}),
-        ...(testId ? { testId } : {}),
-        disabled: Boolean(element.disabled || element.getAttribute("aria-disabled") === "true"),
-        box: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
-      };
-    });
+  const elements = listElements();
   const canvases = Array.from(document.querySelectorAll("canvas")).map((canvas, index) => {
     const box = canvas.getBoundingClientRect();
     const style = getComputedStyle(canvas);
@@ -486,6 +601,7 @@ const PAGE_INSPECTION_SCRIPT = `(async () => { ${TARGET_HELPERS}
     try { gameState = JSON.parse(JSON.stringify(await bridge.snapshot())); }
     catch (error) { gameState = { playtestBridgeError: error instanceof Error ? error.message : String(error) }; }
   }
+  const text = visibleText();
   return {
     url: location.href,
     title: document.title,
@@ -493,6 +609,7 @@ const PAGE_INSPECTION_SCRIPT = `(async () => { ${TARGET_HELPERS}
     viewport: { width: innerWidth, height: innerHeight },
     elements,
     canvases,
+    ...(text ? { text } : {}),
     ...(gameState !== undefined ? { gameState } : {}),
     ...(capabilities.length ? { bridgeCapabilities: capabilities } : {}),
   };

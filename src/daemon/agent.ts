@@ -11,6 +11,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
+import { promptContextLabels, splitPromptContext } from "./prompt-context.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
@@ -144,8 +145,9 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const text = details?.prompt ?? parsed.text;
       const mentions = details?.mentions ?? parsed.mentions;
       const attachments = details?.attachments ?? parsed.attachments;
+      const contexts = promptContextLabels(details?.attachmentContext ?? parsed.attachmentContext);
       if (text || images.length > 0 || attachments.length > 0) {
-        items.push({ id: entry.id, turnId, type: "userMessage", text, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), timestamp });
+        items.push({ id: entry.id, turnId, type: "userMessage", text, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(contexts.length ? { contexts } : {}), timestamp });
         if (images.length) items.push({ id: `${entry.id}:images`, turnId, type: "imageRead", count: images.length, status: "completed", timestamp });
       }
       continue;
@@ -676,10 +678,11 @@ export class AgentManager {
     };
     this.#activeTurns.set(conversationKey(project.id, active.conversationId), active);
     this.#setState(project.id, active.conversationId, { status: "running" });
+    const contexts = promptContextLabels(attachmentContext);
     const started = this.events.publish(
       project.id,
       "agent.started",
-      { prompt, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(revision ? { revision } : {}) },
+      { prompt, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(contexts.length ? { contexts } : {}), ...(revision ? { revision } : {}) },
       eventScope(active),
       images.length ? { prompt, ...(revision ? { revision } : {}) } : undefined,
     );
@@ -973,6 +976,7 @@ export class AgentManager {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return [];
     const timestamp = active.startedAt === undefined ? {} : { timestamp: active.startedAt };
+    const contexts = promptContextLabels(active.attachmentContext);
     return [{
       id: `${active.turnId}:user`,
       turnId: active.turnId,
@@ -981,6 +985,7 @@ export class AgentManager {
       ...(active.mentions.length ? { mentions: active.mentions } : {}),
       ...(active.images.length ? { images: active.images } : {}),
       ...(active.attachments.length ? { attachments: active.attachments } : {}),
+      ...(contexts.length ? { contexts } : {}),
       ...timestamp,
     }, ...(active.images.length ? [{
       id: `${active.turnId}:images`,
@@ -1567,8 +1572,10 @@ export function skillInvocationPrompt(prompt: string): string {
 }
 
 function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
-  const localAttachments = parseLocalAttachments(value);
-  const source = localAttachments ? localAttachments.visible : value;
+  const editorContext = splitPromptContext(value);
+  const localAttachments = parseLocalAttachments(editorContext.rest);
+  const source = localAttachments ? localAttachments.visible : editorContext.rest;
+  const attachmentContext = `${localAttachments?.context ?? ""}${editorContext.block}`;
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = source.lastIndexOf(marker);
   const visible = index < 0 ? source : source.slice(0, index);
@@ -1577,7 +1584,7 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
   const parsed = parsePluginMentions(restored);
   const text = parsed.text;
   const attachments = localAttachments?.attachments ?? [];
-  if (index < 0) return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext: localAttachments?.context ?? "" };
+  if (index < 0) return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext };
   const closing = "\n</workspace-file-references>";
   const encoded = source.slice(index + marker.length, source.endsWith(closing) ? -closing.length : undefined);
   try {
@@ -1589,10 +1596,10 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
         ? paths.filter((item): item is string => typeof item === "string").map((path) => ({ type: "workspace-file", path }))
         : [],
       attachments,
-      attachmentContext: localAttachments?.context ?? "",
+      attachmentContext,
     };
   } catch {
-    return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext: localAttachments?.context ?? "" };
+    return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext };
   }
 }
 

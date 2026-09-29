@@ -20,7 +20,9 @@ import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature 
 import "./story-player.css";
 import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
+import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { isPublishedNodeManifest, type PublishedNodeManifest } from "../shared/playable-publish.js";
 import { NodePlayer } from "./playable-player.js";
 import "./playable-player.css";
@@ -91,13 +93,65 @@ function PublishedNodePlayer({ manifest }: { manifest: PublishedNodeManifest }) 
     return () => { disposed = true; };
   }, [manifest]);
 
+  const saveKey = `ohmygame:playable:${manifest.scope}`;
+  const [session, setSession] = useState(0);
+  const onSnapshot = usePlaytestBridge(state.loading || "error" in state ? undefined : state.definition, () => {
+    window.localStorage.removeItem(saveKey);
+    setSession((value) => value + 1);
+  });
+
   if (state.loading) return <PublishedState />;
   if ("error" in state) return <PublishedState error={state.error} />;
   return <NodePlayer
+    key={session}
     definition={state.definition}
     assets={state.assets}
-    saveKey={`ohmygame:playable:${manifest.scope}`}
+    saveKey={saveKey}
+    onSnapshot={onSnapshot}
   />;
+}
+
+/**
+ * When an agent plays the project through game_use, the page exposes the
+ * Runtime's debug record as the playtest bridge: the current Node, back
+ * stack, followed Signals, State changes, and errors. `reset()` starts a new
+ * game without the save.
+ */
+function usePlaytestBridge(
+  definition: NodePlayerDefinition | undefined,
+  reset: () => void,
+): ((snapshot: NodeRuntimeSnapshot) => void) | undefined {
+  const enabled = useMemo(() => new URLSearchParams(window.location.search).get("ohmygamePlaytest") === "1", []);
+  const latest = useRef<NodeRuntimeSnapshot | undefined>(undefined);
+  const history = useRef(new PlayableStateHistory());
+  const resetRef = useRef(reset);
+  resetRef.current = reset;
+
+  useEffect(() => {
+    if (!enabled || !definition) return;
+    const bridge = {
+      snapshot: () => latest.current
+        ? playableDebugRecord(latest.current, definition.graph, history.current.changes)
+        : { status: "loading" },
+      reset: () => {
+        latest.current = undefined;
+        history.current.reset();
+        resetRef.current();
+      },
+    };
+    Object.assign(globalThis, { __OHMYGAME_PLAYTEST__: bridge });
+    return () => {
+      if ((globalThis as { __OHMYGAME_PLAYTEST__?: unknown }).__OHMYGAME_PLAYTEST__ === bridge) {
+        delete (globalThis as { __OHMYGAME_PLAYTEST__?: unknown }).__OHMYGAME_PLAYTEST__;
+      }
+    };
+  }, [enabled, definition]);
+
+  const onSnapshot = useCallback((snapshot: NodeRuntimeSnapshot) => {
+    latest.current = snapshot;
+    history.current.record(snapshot);
+  }, []);
+  return enabled ? onSnapshot : undefined;
 }
 
 function isPublishedNodeDefinition(

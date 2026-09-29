@@ -129,31 +129,42 @@ path (a development flag) creates `graph.json` projects.
 12. `feat(editor): add node thumbnails` — background captures of every Node
     cached in `.ohmygame/thumbnails/`, stale and failed markers, Asset and
     title fallbacks.
-13. `feat(editor): add project state, style, and shell panels`.
-14. `feat(editor): add playtest debug drawer`.
-15. `feat(agent): add playable nodes context and tools` — request context,
-    `playable_check`, `game_use` for Playable Nodes, updated project
+13. `feat(editor): add project state, style, and shell panels` — State
+    and Style panels over the canvas and inside Workbenches, the Shell
+    Workbench, and Destinations assigned from the inspector and canvas menu.
+14. `feat(editor): add playtest debug drawer` — current node with Open in
+    editor, back stack, Signals, State changes, errors, and start from a
+    chosen node and State.
+15. `feat(agent): add playable nodes context and tools` — editor context in
+    chat, `playable_check`, `game_use` on the current draft, updated project
     instructions.
-16. `feat(editor): add agent turn review` — checkpoints, change highlights,
-    Keep and Undo turn.
-17. `feat(editor): add element picking to chat`.
+16. `feat(editor): add element picking to chat` — a picked element and a
+    marked screenshot sent with the next message.
 
-Check for each: exercised in the desktop app. After step 17, build the
+Check for each: exercised in the desktop app. After step 16, build the
 [vision success list](vision.md#what-success-looks-like) through conversation
 and confirm every *Keep* and *Adapt* row of the inventory.
 
 ### Phase 5: Switch and remove
 
-18. `feat(interactive-drama): create new projects as playable nodes` — new
+17. `feat(interactive-drama): create new projects as playable nodes` — new
     projects and the starter use `graph.json`; the development flag is
     removed.
-19. `chore(interactive-drama): remove story runtime and editor` — remove the
+18. `chore(interactive-drama): remove story runtime and editor` — remove the
     rows marked *Remove*, the Story runtime, and `story.json` support.
+
+### After the MVP
+
+- `feat(editor): add agent turn review` — checkpoints before each Agent
+  turn, New and Edited highlights on the canvas, and Keep and Undo turn
+  ([authoring.md](authoring.md#multi-node-agent-changes)). Until then, a
+  multi-node change is reviewed in chat and on the canvas, and undone
+  through conversation or version control.
 
 ## Existing Story projects
 
 The product has not launched, so existing `story.json` projects need no
-conversion or compatibility. Keeping the old editor until step 18 exists only
+conversion or compatibility. Keeping the old editor until step 17 exists only
 to keep the app usable while the new editor is built, not to preserve
 projects.
 

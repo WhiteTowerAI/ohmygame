@@ -492,6 +492,19 @@ export interface PromptReference {
   path: string;
 }
 
+/**
+ * Editor context sent with a prompt, such as the Node open in the Playable
+ * editor or an element picked in its preview. The agent reads `text`; the
+ * conversation shows only the label.
+ */
+export interface PromptContext {
+  kind: "playable-node" | "playable-element";
+  label: string;
+  text: string;
+}
+
+export type PromptContextLabel = Pick<PromptContext, "kind" | "label">;
+
 export interface PluginMention {
   name: string;
   displayName: string;
@@ -560,7 +573,7 @@ export interface PlanState {
 }
 
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[] }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[] }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -732,6 +745,7 @@ export interface PromptRequest {
   references?: PromptReference[];
   images?: PromptImage[];
   attachments?: Array<Pick<PromptAttachment, "id" | "batchId">>;
+  contexts?: PromptContext[];
   mode?: PromptMode;
 }
 
@@ -931,7 +945,7 @@ export interface RuntimeEventData {
   "preview.ready": { url: string };
   "preview.error": { error: string };
   "preview.stopped": Record<string, never>;
-  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; revision?: "last-turn" };
+  "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };

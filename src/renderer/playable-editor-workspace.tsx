@@ -79,7 +79,10 @@ import type {
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import {
   addPlayableNodeAsset,
+  addPlayableShellAsset,
   removePlayableNodeAsset,
+  removePlayableShellAsset,
+  setPlayableDestination,
   setPlayableSignalLabel,
   playableThumbnailHash,
   setPlayableSignalTarget,
@@ -103,7 +106,12 @@ import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
-import { PlayableNodeWorkbench } from "./playable-node-workbench.js";
+import { DestinationKeyInput, PlayableNodeWorkbench } from "./playable-node-workbench.js";
+import { PlayableShellWorkbench } from "./playable-shell-workbench.js";
+import { PlayableStatePanel, PlayableStylePanel, type PlayableLiveState } from "./playable-project-panels.js";
+import type { PlayableChatState } from "./playable-chat.js";
+import { PlayableStateHistory } from "../shared/playable-debug.js";
+import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 const MIN_ZOOM = 0.25;
@@ -122,9 +130,6 @@ const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const HISTORY_LIMIT = 50;
 /** Playtest routes still carry a chapter segment; a graph project has one player. */
 const PLAYTEST_CHAPTER_ID = "playable";
-const PROJECT_STYLE_PATH = "shared/style/components.css";
-const SHELL_PATH = "shell/index.html";
-const GRAPH_PATH = "graph.json";
 
 type InteractionMode = "pointer" | "pan";
 export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
@@ -167,7 +172,7 @@ const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
  * The editor for a Playable Nodes project: one canvas of Nodes, one edge per
  * Signal. Opened instead of the story editor when the project has a graph.json.
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
@@ -178,6 +183,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   chatCollapsed?: boolean;
   onHome?: () => void;
   onToggleChat?: () => void;
+  /** Receives what the open Workbench adds to the next chat message. */
+  onChatContextChange?: (state: PlayableChatState | undefined) => void;
 }) {
   const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -197,6 +204,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
+  const [shellOpen, setShellOpen] = useState(false);
+  const [projectPanel, setProjectPanel] = useState<"state" | "style">();
+  const [liveState, setLiveState] = useState<PlayableLiveState>();
+  const stateHistory = useRef(new PlayableStateHistory());
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
@@ -241,11 +252,39 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const openedNode = workspaceView === "canvas" && phase === "ready"
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
+  const openedShell = workspaceView === "canvas" && phase === "ready" && shellOpen && codebase?.graph.shell
+    ? { ...codebase.graph, shell: codebase.graph.shell }
+    : undefined;
+  const liveSource = openedNode?.title ?? (openedShell ? "Shell" : undefined);
+
+  /** Keeps the State panel's live values in step with the open Workbench preview. */
+  const onPreviewSnapshot = useCallback((snapshot: NodeRuntimeSnapshot | undefined) => {
+    if (!snapshot) {
+      stateHistory.current.reset();
+      setLiveState(undefined);
+      return;
+    }
+    stateHistory.current.record(snapshot);
+    setLiveState((current) => current?.state === snapshot.state && current.changes === stateHistory.current.changes
+      ? current
+      : { state: snapshot.state, changes: stateHistory.current.changes, source: "" });
+  }, []);
+
+  // A Playtest window asks the editor to open the Node it is showing.
+  useEffect(() => window.ohMyGameDesktop?.onOpenPlayableNode?.((targetProjectId, nodeId) => {
+    if (targetProjectId !== projectId) return;
+    setWorkspaceView("canvas");
+    openNode(nodeId);
+  }), [projectId]);
 
   // An undo or an Agent edit can remove the open Node; go back to the canvas.
   useEffect(() => {
     if (phase === "ready" && openedNodeId && !nodes.some((node) => node.id === openedNodeId)) setOpenedNodeId(undefined);
   }, [phase, nodes, openedNodeId]);
+
+  useEffect(() => {
+    if (!openedNode && !openedShell) setLiveState(undefined);
+  }, [Boolean(openedNode || openedShell)]);
 
   useEffect(() => {
     if (openFileRequest) setFileRequest(openFileRequest);
@@ -255,6 +294,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (!openFileRequest) return;
     setSelectedId(undefined);
     setOpenedNodeId(undefined);
+    setShellOpen(false);
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
 
@@ -544,7 +584,24 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
     setSelectedId(nodeId);
+    setShellOpen(false);
     setOpenedNodeId(nodeId);
+  }
+
+  function openShell(): void {
+    setProjectPanel(undefined);
+    if (!graphMeta?.shell) {
+      setNotice("This project has no Shell. Ask the Agent to add one for UI that stays on screen across Nodes, such as a top bar.");
+      return;
+    }
+    setCanvasContextMenu(undefined);
+    setOpenedNodeId(undefined);
+    setWorkspaceView("canvas");
+    setShellOpen(true);
+  }
+
+  function setDestination(key: string, nodeId: string | undefined): void {
+    setGraphMeta((current) => current ? { ...current, destinations: setPlayableDestination(current.destinations, key, nodeId) } : current);
   }
 
   function setEntryNode(nodeId: string): void {
@@ -598,6 +655,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   function openFile(path: string): void {
     setOpenedNodeId(undefined);
+    setShellOpen(false);
+    setProjectPanel(undefined);
     setFileRequest({ path, id: Date.now() });
     setWorkspaceView("code");
   }
@@ -770,12 +829,16 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       };
     });
   }, [nodes, edges, issues, graphMeta, thumbnails, builtDefinition]);
+  const workbenchTools = <>
+    <button type="button" className={`playable-workbench-header-tool${projectPanel === "style" ? " is-active" : ""}`} title="Project Style" aria-pressed={projectPanel === "style"} onClick={() => setProjectPanel((current) => current === "style" ? undefined : "style")}><Palette size={13} /><span>Style</span></button>
+    <button type="button" className={`playable-workbench-header-tool${projectPanel === "state" ? " is-active" : ""}`} title="Project State" aria-pressed={projectPanel === "state"} onClick={() => setProjectPanel((current) => current === "state" ? undefined : "state")}><Box size={13} /><span>State</span></button>
+  </>;
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
 
   return (
     <section
-      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
+      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode || openedShell ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -788,9 +851,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
           <button type="button" title="Canvas format" onClick={() => setCanvasSettingsOpen(true)}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
-          <button type="button" title="Project Style" onClick={() => openFile(PROJECT_STYLE_PATH)}><Palette size={14} /><span>Style</span></button>
-          <button type="button" title="Shell" onClick={() => openFile(SHELL_PATH)}><Layers3 size={14} /><span>Shell</span></button>
-          <button type="button" title="Initial State" onClick={() => openFile(GRAPH_PATH)}><Box size={14} /><span>State</span></button>
+          <button type="button" className={projectPanel === "style" ? "is-active" : undefined} title="Project Style" aria-pressed={projectPanel === "style"} disabled={phase !== "ready"} onClick={() => setProjectPanel((current) => current === "style" ? undefined : "style")}><Palette size={14} /><span>Style</span></button>
+          <button type="button" className={openedShell ? "is-active" : undefined} title="Shell" aria-pressed={Boolean(openedShell)} disabled={phase !== "ready"} onClick={() => openedShell ? setShellOpen(false) : openShell()}><Layers3 size={14} /><span>Shell</span></button>
+          <button type="button" className={projectPanel === "state" ? "is-active" : undefined} title="Project State" aria-pressed={projectPanel === "state"} disabled={phase !== "ready"} onClick={() => setProjectPanel((current) => current === "state" ? undefined : "state")}><Box size={14} /><span>State</span></button>
           {chatOnRight && onHome ? (
             <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
@@ -902,6 +965,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             canPaste={Boolean(copiedNode) && !writing}
             busy={writing}
             isEntry={canvasContextMenu.nodeId === graphMeta?.entryNodeId}
+            destinations={graphMeta?.destinations ?? {}}
+            onSetDestination={(key, nodeId) => setDestination(key, nodeId)}
             onClose={() => setCanvasContextMenu(undefined)}
             onUndo={undoEditorChange}
             onRedo={redoEditorChange}
@@ -937,6 +1002,37 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onSignalTarget={(signalId, target) => applyGraph(setPlayableSignalTarget(codebase.graph, openedNode.id, signalId, target))}
         onAddAsset={(asset) => applyGraph(addPlayableNodeAsset(codebase.graph, openedNode.id, asset).graph)}
         onRemoveAsset={(assetId) => applyGraph(removePlayableNodeAsset(codebase.graph, openedNode.id, assetId))}
+        onSetDestination={setDestination}
+        onSnapshot={onPreviewSnapshot}
+        onChatContextChange={onChatContextChange}
+        headerActions={workbenchTools}
+      /> : null}
+      {openedShell && !openedNode ? <PlayableShellWorkbench
+        projectId={projectId}
+        graph={openedShell}
+        issues={issues}
+        revision={workspaceRevision + codeRevision}
+        onClose={() => setShellOpen(false)}
+        onOpenNode={openNode}
+        onOpenSource={() => openFile(openedShell.shell.source.html)}
+        onSetDestination={setDestination}
+        onAddAsset={(asset) => applyGraph(addPlayableShellAsset(openedShell, asset).graph)}
+        onRemoveAsset={(assetId) => applyGraph(removePlayableShellAsset(openedShell, assetId))}
+        onSnapshot={onPreviewSnapshot}
+        onChatContextChange={onChatContextChange}
+        headerActions={workbenchTools}
+      /> : null}
+      {projectPanel === "state" && graphMeta ? <PlayableStatePanel
+        initialState={graphMeta.initialState}
+        live={liveState && liveSource ? { ...liveState, source: liveSource } : undefined}
+        onChange={(initialState) => setGraphMeta((current) => current ? { ...current, initialState } : current)}
+        onClose={() => setProjectPanel(undefined)}
+      /> : null}
+      {projectPanel === "style" ? <PlayableStylePanel
+        projectId={projectId}
+        revision={workspaceRevision + codeRevision}
+        onOpenFile={openFile}
+        onClose={() => setProjectPanel(undefined)}
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog
         viewport={playerViewport}
@@ -1201,7 +1297,7 @@ function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChang
   );
 }
 
-function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
+function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, destinations, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onSetDestination, onDelete }: {
   menu: CanvasContextMenuState;
   presets: readonly PlayablePresetSummary[];
   canUndo: boolean;
@@ -1209,6 +1305,8 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
   canPaste: boolean;
   busy: boolean;
   isEntry: boolean;
+  destinations: Readonly<Record<string, string>>;
+  onSetDestination: (key: string, nodeId: string | undefined) => void;
   onClose: () => void;
   onUndo: () => unknown;
   onRedo: () => unknown;
@@ -1222,6 +1320,8 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [destinationOpen, setDestinationOpen] = useState(false);
+  const nodeDestinations = Object.entries(destinations).filter(([, nodeId]) => nodeId === menu.nodeId).map(([key]) => key);
   const [position, setPosition] = useState(menu.screenPosition);
   const opensLeft = menu.screenPosition.x > window.innerWidth - 600;
   const opensUp = menu.screenPosition.y > window.innerHeight / 2;
@@ -1287,6 +1387,26 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Entry Node" : "Set as Entry"}</span></button>
+        <div className="story-canvas-context-submenu-root" onPointerEnter={() => setDestinationOpen(true)}>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={destinationOpen} onClick={() => setDestinationOpen(true)}><Share2 size={15} /><span>Destination{nodeDestinations.length ? `: ${nodeDestinations.join(", ")}` : ""}</span></button>
+          {destinationOpen && menu.nodeId ? <div className="story-canvas-context-add-menu">
+            <div className="story-canvas-context-submenu playable-destination-menu" role="menu" aria-label="Destination">
+              {Object.entries(destinations).map(([key, nodeId]) => <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={nodeId === menu.nodeId}
+                key={key}
+                title={nodeId === menu.nodeId ? `Remove ${key} from this Node` : `Point ${key} at this Node`}
+                onClick={() => run(() => onSetDestination(key, nodeId === menu.nodeId ? undefined : menu.nodeId))}
+              ><Flag size={15} /><span>{key}</span>{nodeId === menu.nodeId ? <small>✓</small> : null}</button>)}
+              <DestinationKeyInput
+                suggestions={[]}
+                taken={Object.keys(destinations)}
+                onSubmit={(key) => run(() => onSetDestination(key, menu.nodeId))}
+              />
+            </div>
+          </div> : null}
+        </div>
         <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
       </>}
     </div>,

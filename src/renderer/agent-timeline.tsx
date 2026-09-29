@@ -1,4 +1,5 @@
 import {
+  Box,
   Check,
   ChevronRight,
   Copy,
@@ -8,6 +9,7 @@ import {
   Image,
   Layers3,
   LoaderCircle,
+  MousePointer2,
   Pencil,
   Plug,
   Search,
@@ -19,7 +21,7 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { createContext, useContext, useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { imageSource } from "./image-attachments.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -248,6 +250,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         </div>
       ) : null}
       {attachments.length ? <UserAttachments attachments={attachments} /> : null}
+      {item.contexts?.length ? <UserContexts contexts={item.contexts} /> : null}
       {controls.editing ? (
         <div className="user-message-editor">
           <textarea
@@ -284,6 +287,15 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
       ) : null}
     </div>
   );
+}
+
+function UserContexts({ contexts }: { contexts: PromptContextLabel[] }) {
+  return <div className="user-message-contexts" aria-label="Editor context">
+    {contexts.map((context, index) => <div className="user-message-context" key={`${context.kind}:${index}`} title={context.label}>
+      {context.kind === "playable-element" ? <MousePointer2 size={12} /> : <Box size={12} />}
+      <span>{context.label}</span>
+    </div>)}
+  </div>;
 }
 
 function UserAttachments({ attachments }: { attachments: ConversationAttachment[] }) {

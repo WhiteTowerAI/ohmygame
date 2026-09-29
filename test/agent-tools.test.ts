@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, realpath, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -282,4 +282,35 @@ describe("agent tools", () => {
     await expect(tool.execute("call-dup", { preset: "blank", id: "opening" }, undefined, undefined, {} as never))
       .rejects.toThrow(/already exists/);
   });
+
+  it("reports playable_check issues for Interactive Drama projects", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-check-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const webGame = await projects.create("Browser Game");
+    const drama = await projects.create("Ash Club", "interactive-drama");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    await createNodeCodebase(
+      drama.workspacePath,
+      createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
+    );
+
+    expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_check")).toBe(false);
+    const tool = createAgentTools(drama, runner, projects).find(({ name }) => name === "playable_check");
+    if (!tool) throw new Error("Expected the check tool");
+
+    const passing = await tool.execute("call-check", {}, undefined, undefined, {} as never);
+    expect(passing.details).toEqual({ playableCheck: { mode: "draft", ok: true, issues: [] } });
+
+    const graphPath = path.join(drama.workspacePath, "graph.json");
+    const graph = JSON.parse(await readFile(graphPath, "utf8"));
+    await writeFile(graphPath, JSON.stringify({ ...graph, entryNodeId: "missing" }));
+    const failing = await tool.execute("call-check-again", { mode: "publish" }, undefined, undefined, {} as never);
+    const text = failing.content[0]?.type === "text" ? failing.content[0].text : "";
+    expect(failing.details).toMatchObject({ playableCheck: { mode: "publish", ok: false } });
+    expect(text).toMatch(/publish validation issue/);
+    expect(text).toContain("missing");
+  });
 });
+

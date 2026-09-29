@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   addPlayableNodeAsset,
+  addPlayableShellAsset,
   deletePlayableSignal,
   parsePreviewStateInput,
   playableAssetId,
   playableAssetType,
   playableRuntimeKey,
   playableThumbnailHash,
+  playableStateType,
   removePlayableNodeAsset,
+  removePlayableShellAsset,
   renamePlayableSignal,
   setPlayableSignalLabel,
+  setPlayableDestination,
   setPlayableSignalTarget,
 } from "../src/shared/playable-editor.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
@@ -154,5 +158,29 @@ describe("Playable editor graph changes", () => {
     const background = { ...graph, assets: { ...graph.assets, background: { type: "image" as const, source: { kind: "workspace" as const, path: "assets/other.webp" } } } };
     expect(playableThumbnailHash({ ...definition, graph: background }, "menu")).not.toBe(hash);
     expect(playableThumbnailHash({ ...definition, graph: { ...graph, viewport: { width: 720, height: 1280 } } }, "menu")).not.toBe(hash);
+  });
+});
+
+describe("Playable project editing", () => {
+  it("sets, retargets, and removes a Destination", () => {
+    const destinations = { home: "menu" };
+    expect(setPlayableDestination(destinations, "archive", "archive")).toEqual({ home: "menu", archive: "archive" });
+    expect(setPlayableDestination(destinations, "home", "lobby")).toEqual({ home: "lobby" });
+    expect(setPlayableDestination(destinations, "home", undefined)).toEqual({});
+    expect(destinations).toEqual({ home: "menu" });
+  });
+
+  it("adds and removes Shell assets", () => {
+    const graph = createNodeGraphFixture();
+    const added = addPlayableShellAsset(graph, { name: "Rain", type: "audio", source: { kind: "workspace", path: "assets/rain.mp3" } });
+
+    expect(added.graph.shell?.assets).toEqual(["theme", added.assetId]);
+    expect(added.graph.assets[added.assetId]).toMatchObject({ type: "audio" });
+    expect(graph.shell?.assets).toEqual(["theme"]);
+    expect(removePlayableShellAsset(added.graph, added.assetId).shell?.assets).toEqual(["theme"]);
+  });
+
+  it("infers the State type shown for a key", () => {
+    expect(["", 0, false, [], {}, null].map((value) => playableStateType(value))).toEqual(["text", "number", "boolean", "list", "object", "null"]);
   });
 });

@@ -66,6 +66,25 @@ export class ArtifactBuilder {
     }
   }
 
+  /**
+   * A Published Player directory that runs the project's current draft, for
+   * agent playtests. The draft need not pass publish validation, and its save
+   * is kept apart from the published game's. The caller removes the directory.
+   */
+  async preparePlayableDraft(project: ProjectState): Promise<string> {
+    if (project.type !== "interactive-drama") throw new PublishError("Playable drafts require an Interactive Drama project");
+    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run npm run build:player first.");
+    await assertNodePlayerBuilt(this.playerDirectory);
+    let definition: NodePlayerDefinition | undefined;
+    try {
+      definition = await buildPlayableProject(project.workspacePath, "draft");
+    } catch (cause) {
+      throw new PublishError(`The project does not build: ${cause instanceof Error ? cause.message : String(cause)}. Run playable_check for every issue.`);
+    }
+    if (!definition) throw new PublishError("This project has no graph.json.");
+    return preparePlayableProject(project, definition, this.library, this.playerDirectory, `playtest:${project.id}`);
+  }
+
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
@@ -164,6 +183,7 @@ async function preparePlayableProject(
   definition: NodePlayerDefinition,
   library: AssetLibrary,
   playerDirectory: string,
+  scope = `published:${project.id}`,
 ): Promise<string> {
   const output = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-build-"));
   try {
@@ -212,7 +232,7 @@ async function preparePlayableProject(
     const manifest: PublishedNodeManifest = {
       version: 1,
       runtime: "playable-nodes",
-      scope: `published:${project.id}`,
+      scope,
       graphSignature: definition.graphSignature,
       definition: {
         path: "./playable.json",

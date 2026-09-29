@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfig, StoryScreenAction, StorySurfaceLayoutOffset, StoryVariable } from "../shared/contracts.js";
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getLibraryAsset, getNodeRuntime, getStory, getWorkspaceAsset, listLibraryAssets } from "./api.js";
-import { NodePlayer } from "./playable-player.js";
+import { createMemoryStorage, NodePlayer } from "./playable-player.js";
+import { PlaytestDebugDrawer, type PlaytestStart } from "./playable-playtest-drawer.js";
+import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -28,20 +30,30 @@ export function PlaytestPage({ projectId, chapterId }: { projectId: string; chap
     : <NodePlaytestPage projectId={projectId} onStory={showStory} />;
 }
 
+const DRAWER_OPEN_KEY = "ohmygame:playtest:drawer-open";
+
 function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: () => void }) {
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const [session, setSession] = useState(0);
+  const [start, setStart] = useState<PlaytestStart>();
+  const [drawerOpen, setDrawerOpen] = useState(() => window.localStorage.getItem(DRAWER_OPEN_KEY) !== "false");
+  const [storage, setStorage] = useState(createMemoryStorage);
+  const history = useRef(new PlayableStateHistory());
   const [playable, setPlayable] = useState<
     | { status: "loading" }
     | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob> }
     | { status: "error"; error: string }
   >({ status: "loading" });
+  const saveKey = `ohmygame:playable:project:${projectId}`;
 
   useEffect(() => {
     let disposed = false;
     setPlayable({ status: "loading" });
     setSnapshot(undefined);
     setDiagnostics([]);
+    setStart(undefined);
+    history.current.reset();
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) {
         if (!disposed) onStory();
@@ -57,30 +69,59 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
     return () => { disposed = true; };
   }, [projectId, onStory]);
 
-  if (playable.status === "ready") return (
-    <>
-      <WindowDragRegion />
-      <NodePlayer
-        definition={playable.definition}
-        assets={playable.assets}
-        saveKey={`ohmygame:playable:project:${projectId}`}
-        onSnapshot={setSnapshot}
-        onDiagnostic={(message) => setDiagnostics((current) => [...current.slice(-19), message])}
-      />
-      <aside className="playable-playtest-diagnostics" aria-label="Runtime diagnostics">
-        <header><strong>Runtime</strong><span>{snapshot ? RUNTIME_STATUS_LABELS[snapshot.status] : "Starting"}</span></header>
-        <dl>
-          <dt>Node</dt><dd>{snapshot?.currentNodeId ?? "Starting..."}</dd>
-          <dt>Back stack</dt><dd>{snapshot?.backStack.join(" -> ") || "Empty"}</dd>
-          <dt>Recent signals</dt><dd>{snapshot?.recentSignals.map((entry) => `${entry.nodeId}.${entry.signal}`).join(", ") || "None"}</dd>
-          <dt>State access</dt><dd>{Object.entries(snapshot?.stateAccess ?? {}).map(([id, access]) => `${id}: read ${access.read.join(", ") || "none"}; wrote ${access.wrote.join(", ") || "none"}`).join(" / ") || "None"}</dd>
-          <dt>Save</dt><dd>{snapshot?.save.present ? "Available" : "None"}</dd>
-        </dl>
-        <details open><summary>State</summary><pre>{JSON.stringify(snapshot?.state ?? {}, null, 2)}</pre></details>
-        {diagnostics.length ? <details open><summary>Diagnostics ({diagnostics.length})</summary><ol>{diagnostics.map((message, index) => <li key={`${index}:${message}`} role="alert">{message}</li>)}</ol></details> : null}
-      </aside>
-    </>
-  );
+  const onSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
+    history.current.record(next);
+    setSnapshot(next);
+  }, []);
+  const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
+
+  /** Starts another Runtime session; a chosen start never touches the saved game. */
+  function restart(nextStart: PlaytestStart | undefined, clearSave: boolean): void {
+    if (clearSave) window.localStorage.removeItem(saveKey);
+    history.current.reset();
+    setSnapshot(undefined);
+    setDiagnostics([]);
+    setStart(nextStart);
+    setStorage(createMemoryStorage());
+    setSession((current) => current + 1);
+  }
+
+  if (playable.status === "ready") {
+    const graph = playable.definition.graph;
+    const record = snapshot ? playableDebugRecord(snapshot, graph, history.current.changes) : undefined;
+    const openNode = window.ohMyGameDesktop?.openPlayableNode;
+    return (
+      <>
+        <WindowDragRegion />
+        <NodePlayer
+          key={session}
+          definition={playable.definition}
+          assets={playable.assets}
+          saveKey={saveKey}
+          {...(start ? {
+            storage,
+            preview: { policy: "follow" as const, startNodeId: start.nodeId, ...(Object.keys(start.state).length ? { previewState: start.state } : {}) },
+          } : {})}
+          onSnapshot={onSnapshot}
+          onDiagnostic={onDiagnostic}
+        />
+        <PlaytestDebugDrawer
+          graph={graph}
+          record={record}
+          diagnostics={diagnostics}
+          start={start}
+          open={drawerOpen}
+          onOpenChange={(open) => {
+            setDrawerOpen(open);
+            window.localStorage.setItem(DRAWER_OPEN_KEY, String(open));
+          }}
+          onRestart={() => restart(undefined, !start)}
+          onStart={(next) => restart(next, false)}
+          onOpenNode={openNode ? (nodeId) => void openNode(projectId, nodeId).catch(() => {}) : undefined}
+        />
+      </>
+    );
+  }
   return (
     <main className="playable-player-page">
       <WindowDragRegion />
@@ -564,14 +605,6 @@ function StoryPlayerFrame({ frame, active, paused, onReady, onAdvanceOpenUi, onC
   return <><ReadyEffect onReady={onReady} /><div className="story-playtest-state" role="alert">The current story node is missing.</div></>;
 }
 
-const RUNTIME_STATUS_LABELS: Record<NodeRuntimeSnapshot["status"], string> = {
-  idle: "Idle",
-  starting: "Starting",
-  running: "Running",
-  transitioning: "Transitioning",
-  failed: "Failed",
-  disposed: "Stopped",
-};
 
 const NOOP = () => {};
 const NOOP_SCENE_TIME = (_mediaId: string, _timeMs: number) => {};

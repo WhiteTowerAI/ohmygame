@@ -1,4 +1,4 @@
-import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
+import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PromptContextLabel, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
 import { finalizeTurnItems } from "../shared/turns.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
@@ -202,6 +202,7 @@ function promptTurn(
     mentions?: PendingPrompt["mentions"];
     images?: PendingPrompt["images"];
     attachments?: PendingPrompt["attachments"];
+    contexts?: PromptContextLabel[];
   },
   status: TurnStatus,
   timestamp?: number,
@@ -210,6 +211,7 @@ function promptTurn(
   const mentions = prompt.mentions ?? [];
   const images = prompt.images ?? [];
   const attachments = prompt.attachments ?? [];
+  const contexts = "contexts" in prompt ? prompt.contexts ?? [] : [];
   return {
     id: turnId,
     conversationId,
@@ -223,6 +225,7 @@ function promptTurn(
       ...(mentions.length ? { mentions } : {}),
       ...(images.length ? { images } : {}),
       ...(attachments.length ? { attachments } : {}),
+      ...(contexts.length ? { contexts } : {}),
       ...(timestamp === undefined ? {} : { timestamp }),
     }, ...(images.length ? [{
       id: `${turnId}:images`,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PlaytestSnapshot } from "../src/shared/playtest.js";
 
 const electron = vi.hoisted(() => {
   class FakeImage {
@@ -46,6 +47,9 @@ const electron = vi.hoisted(() => {
     readonly showInactive = vi.fn();
     readonly hide = vi.fn();
     readonly loadURL = vi.fn(async (url: string) => { this.loadedUrl = url; });
+    /** Child frames of the page, such as a Playable Nodes sandbox. */
+    readonly childFrames: { url: string; executeJavaScript: (script: string) => Promise<unknown> }[] = [];
+    frameBoxes: { url: string; x: number; y: number; scaleX: number; scaleY: number }[] = [];
     readonly webContents = {
       id: windows.length + 1,
       debugger: this.debugger,
@@ -56,8 +60,9 @@ const electron = vi.hoisted(() => {
         if (event === "will-redirect") this.redirectHandler = handler;
         if (event === "console-message") this.consoleHandler = handler;
       }),
-      executeJavaScript: vi.fn(async (script: string) => {
-        if (script.includes("box.x + box.width / 2")) return { x: 20, y: 30 };
+      executeJavaScript: vi.fn(async (script: string): Promise<unknown> => {
+        if (script.includes('deepQueryAll("iframe")')) return this.frameBoxes;
+        if (script.includes("box.x + box.width / 2")) return this.childFrames.length ? null : { x: 20, y: 30 };
         if (script.includes("isContentEditable")) return true;
         if (script.includes("bridge[method]")) return true;
         return {
@@ -71,6 +76,10 @@ const electron = vi.hoisted(() => {
       }),
       capturePage: vi.fn(async () => new FakeImage()),
       isDestroyed: vi.fn(() => this.destroyed),
+      mainFrame: {
+        frames: this.childFrames,
+        executeJavaScript: (script: string) => this.webContents.executeJavaScript(script),
+      },
     };
 
     constructor(options: Record<string, unknown>) {
@@ -249,6 +258,34 @@ describe("electron playtest driver", () => {
       "Input.dispatchTouchEvent", "Input.dispatchTouchEvent",
     ]);
     expect(electron.windows[0]?.setContentSize).toHaveBeenCalledWith(390, 844);
+    driver.close();
+  });
+
+  it("reads and clicks content inside scaled child frames", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opening = driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    const window = electron.windows[0]!;
+    window.frameBoxes = [{ url: "about:srcdoc", x: 100, y: 50, scaleX: 0.5, scaleY: 0.5 }];
+    window.childFrames.push({
+      url: "about:srcdoc",
+      executeJavaScript: async (script: string) => script.includes("box.x + box.width / 2")
+        ? { x: 30, y: 30 }
+        : {
+            elements: [{ index: 0, tag: "button", role: "button", name: "Take the train", text: "Take the train", enabled: true, box: { x: 10, y: 20, width: 40, height: 20 } }],
+            text: "Platform 9 Take the train",
+          },
+    });
+    const opened = await opening;
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const snapshot = opened.snapshot as PlaytestSnapshot;
+
+    expect(snapshot.elements).toEqual([
+      expect.objectContaining({ index: 0, name: "Take the train", box: { x: 105, y: 60, width: 20, height: 10 } }),
+    ]);
+    expect(snapshot.text).toBe("Platform 9 Take the train");
+
+    await driver.request({ operation: "act", sessionId: opened.snapshot.sessionId, actions: [{ type: "click", target: { text: "Take the train" } }] });
+    expect(window.debugger.commands[0]).toMatchObject({ method: "Input.dispatchMouseEvent", parameters: { type: "mouseMoved", x: 115, y: 65 } });
     driver.close();
   });
 
