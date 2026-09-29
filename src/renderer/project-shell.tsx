@@ -48,6 +48,7 @@ import { AgentTimeline } from "./agent-timeline.js";
 import type { ChatReference } from "./chat-reference.js";
 import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
+import { AssetCanvasWorkspace } from "./asset-canvas-workspace.js";
 import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
@@ -802,9 +803,17 @@ export function ProjectShell({
           onHome={requestHome}
           onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
         />
-      ) : <InteractiveDramaWorkspace
+      ) : project.type === "asset-canvas" ? <AssetCanvasWorkspace
         project={project}
-        assetCanvas={project.type === "asset-canvas"}
+        initialNodeId={initialCanvasNodeId}
+        onInitialNodeHandled={onInitialCanvasNodeHandled}
+        workspaceRevision={workspaceRevision}
+        chatOnRight={chatLayout === "right"}
+        chatCollapsed={agentIsCollapsed}
+        onHome={requestHome}
+        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
+      /> : <InteractiveDramaWorkspace
+        project={project}
         initialNodeId={initialCanvasNodeId}
         onInitialNodeHandled={onInitialCanvasNodeHandled}
         agentBusy={agentBusy}

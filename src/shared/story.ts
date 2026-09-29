@@ -318,14 +318,6 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
   };
 }
 
-export function createAssetCanvasStarterStory(type: AssetCanvasStarter, imageModel?: ImageModelRef): { story: StoryDocument; nodeId: string } {
-  const story = createStoryDocument();
-  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, { imageModel });
-  story.chapter.nodes = [node];
-  story.editorLayout.nodes = { [node.id]: node.position };
-  return { story, nodeId: node.id };
-}
-
 export function isStoryDocument(value: unknown): value is StoryDocument {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.chapter)) return false;
   if (!hasOnlyKeys(value, ["version", "editorLayout", "player", "variables", "chapter"])) return false;

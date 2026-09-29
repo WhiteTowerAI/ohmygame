@@ -125,7 +125,7 @@ import { playtestHash } from "./routes.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { createStoryInteractionTemplate, type StoryInteractionTemplate } from "../shared/story-interaction-code.js";
-import { findAssetCanvasCoverSource, findStoryCoverSource, type StoryCoverSource } from "../shared/story-cover.js";
+import { findStoryCoverSource, type StoryCoverSource } from "../shared/story-cover.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { ModelPreview } from "./model-preview.js";
@@ -233,8 +233,7 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(assetCanvas: boolean): CanvasNodeCreationGroup[] {
-  if (assetCanvas) return CANVAS_NODE_CREATION_GROUPS.filter((group) => group.label === "Assets");
+function canvasCreationGroups(): CanvasNodeCreationGroup[] {
   return CANVAS_NODE_CREATION_GROUPS.map((group) => group.label === "Assets"
     ? { ...group, items: group.items.filter((item) => !isCanvasNodeCreationLeaf(item) || item.action.kind !== "node" || item.action.type !== "model-3d") }
     : group);
@@ -365,9 +364,8 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function InteractiveDramaWorkspace({ project, assetCanvas = false, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
+export function InteractiveDramaWorkspace({ project, initialNodeId, onInitialNodeHandled, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat }: {
   project: ProjectState;
-  assetCanvas?: boolean;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
   agentBusy: boolean;
@@ -467,14 +465,9 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       const loadedNodes = loadedChapter.nodes.map((node) => toFlowNode(node, models, loadedVideoModels));
       const request = initialNodeRequest.current;
       initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
-      const initialNode = assetCanvas && request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
-      setNodes(loadedNodes.map((node) => ({ ...node, selected: node.id === initialNode?.id })));
+      setNodes(loadedNodes);
       if (request.nodeId) {
         request.onHandled?.();
-      }
-      if (initialNode) {
-        setSelectedId(initialNode.id);
-        setOpenedNodeId(hasNodeEditor(initialNode) ? initialNode.id : undefined);
       }
       const loadedLayout = story.editorLayout ?? { version: 1 as const, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" as const };
       const normalizedLayout = loadedLayout;
@@ -492,7 +485,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
       setPhase("error");
     });
     return () => { disposed = true; };
-  }, [assetCanvas, projectId, workspaceRevision]);
+  }, [projectId, workspaceRevision]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -509,7 +502,6 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
         }
         setCanvasJobs(Object.fromEntries(latestJobs));
         const completedAssetIds: string[] = [];
-        let completedCover: StoryCoverSource | undefined;
         for (const job of jobs) {
           const nodeId = job.context?.nodeId;
           const file = job.run?.files[0];
@@ -517,19 +509,9 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
           hydratedJobRuns.current.add(job.id);
           setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, assetId: file.assetId } } : node));
           completedAssetIds.push(file.assetId);
-          if (assetCanvas && !completedCover) {
-            const mediaType = file.mediaType.startsWith("image/") ? "image" : file.mediaType.startsWith("video/") ? "video" : undefined;
-            if (mediaType) completedCover = { assetId: file.assetId, mediaType };
-          }
         }
         if (completedAssetIds.length) {
           const assets = await loadLibraryAssets();
-          if (completedCover && !stopped) {
-            try {
-              const cover = await projectCoverBlob(completedCover, assets);
-              if (!stopped && cover) await setProjectCover(projectId, cover);
-            } catch { /* Cover generation is best-effort. */ }
-          }
           if (!stopped) setLibraryAssets(assets);
         }
       } catch { /* Job polling is best-effort; the node keeps its last state. */ }
@@ -537,7 +519,7 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     };
     void poll();
     return () => { stopped = true; window.clearTimeout(timer); };
-  }, [assetCanvas, phase, projectId]);
+  }, [phase, projectId]);
 
   const document = useMemo(
     () => chapter ? storyDocument(player, variables, chapter, nodes, edges, {
@@ -555,13 +537,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     if (phase !== "ready" || !document || libraryAssets.length === 0) return;
     let disposed = false;
     void (async () => {
-      const source = assetCanvas ? findAssetCanvasCoverSource(document) : findStoryCoverSource(document);
+      const source = findStoryCoverSource(document);
       if (!source || await getProjectCover(projectId)) return;
       const cover = await projectCoverBlob(source, libraryAssets);
       if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover);
     })().catch(() => {});
     return () => { disposed = true; };
-  }, [assetCanvas, document, libraryAssets, phase, projectId]);
+  }, [document, libraryAssets, phase, projectId]);
 
   function updateHistoryControls(): void {
     setHistoryRevision((revision) => revision + 1);
@@ -837,16 +819,15 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }): void {
-    if (assetCanvas && type !== "text" && type !== "image" && type !== "video" && type !== "model-3d") return;
     if (isSingletonStoryNode({ type }) && nodes.some((node) => node.type === type)) return;
-    const node = { ...createFlowNode(type, position, imageModels, videoModels, player.viewport, assetCanvas, defaultTextModel), selected: true };
+    const node = { ...createFlowNode(type, position, imageModels, videoModels, player.viewport, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
     setSelectedId(node.id);
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration">, position: { x: number; y: number }): void {
     if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio" && asset.mediaType !== "model") return;
-    if (!assetCanvas && asset.mediaType === "model") return;
+    if (asset.mediaType === "model") return;
     const node: StoryFlowNode = {
       id: crypto.randomUUID(),
       type: "asset",
@@ -1406,46 +1387,46 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
     setEdges(nextChapter.edges);
     if (next.editorLayout) {
       setEditorLayout(next.editorLayout);
-      setWorkspaceView(!assetCanvas && next.editorLayout.view === "code" ? "code" : "canvas");
+      setWorkspaceView(next.editorLayout.view === "code" ? "code" : "canvas");
     }
     setSelectedId((current) => current && nextChapter.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
-  const creationGroups = canvasCreationGroups(assetCanvas);
+  const creationGroups = canvasCreationGroups();
   return (
-    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label={assetCanvas ? "Asset Canvas workspace" : "Interactive Drama workspace"} style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
+    <section className={`viewer-pane interactive-drama-workspace${openedNodeId ? " is-node-editor-open" : ""}`} aria-label="Interactive Drama workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px`, "--story-player-accent": player.theme.accentColor, "--story-player-text": player.theme.textColor, "--story-player-font": player.theme.font === "serif" ? "Georgia, 'Times New Roman', serif" : "Inter, system-ui, sans-serif" } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
-          {!assetCanvas ? <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button> : null}
-          {!assetCanvas ? <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button> : null}
+          <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
+          <button type="button" title="Variables" onClick={() => { setCanvasSettingsOpen(false); setVariablesOpen(true); }}><Layers3 size={14} /><span>Variables</span><small>{variables.length}</small></button>
           {chatOnRight && onHome ? (
             <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
           <button type="button" title="Canvas format" onClick={() => { setVariablesOpen(false); setCanvasSettingsOpen(true); }}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
         </div>
-        {!assetCanvas ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+        <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
           <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
           <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setOpenedNodeId(undefined); setEditorPreviewSession(undefined); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
-        </nav> : null}
+        </nav>
         <div className="interactive-drama-header-actions">
-          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
+          <button className="interactive-drama-action" type="button" title="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
-          </button> : null}
-          {!assetCanvas ? <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          </button>
+          <button className="interactive-drama-action" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
-          </button> : null}
+          </button>
           {chatOnRight && chatCollapsed && onToggleChat ? (
             <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
-          {!assetCanvas ? <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
+          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Export" disabled={agentBusy || publishing || building} onClick={() => void buildGame()}>
             {building ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
             <span>{building ? "Exporting" : "Export"}</span>
-          </button> : null}
+          </button>
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
@@ -1535,14 +1516,13 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
               <StoryCanvasAlignmentGuides guides={alignmentGuides} />
               <ZoomControls />
               <CanvasToolbar
-                assetCanvas={assetCanvas}
                 mode={interactionMode}
                 canvas={canvas}
                 hasStart={nodes.some((node) => node.type === "start")}
                 hasOpenUi={nodes.some((node) => node.type === "open-ui")}
                 hasStoryMap={nodes.some((node) => node.type === "story-map")}
                 hasSettings={nodes.some((node) => node.type === "settings")}
-                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || (assetCanvas && asset.mediaType === "model"))}
+                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio")}
                 importing={importingAssets}
                 reserveInspector={false}
                 onAdd={addNode}
@@ -1555,7 +1535,6 @@ export function InteractiveDramaWorkspace({ project, assetCanvas = false, initia
             </StoryCanvasPlayerContext.Provider>
           ) : null}
           {canvasContextMenu ? <StoryCanvasContextMenu
-            assetCanvas={assetCanvas}
             menu={canvasContextMenu}
             canUndo={canUndo}
             canRedo={canRedo}
@@ -3238,7 +3217,6 @@ function InspectorField({ label, children }: { label: string; children: React.Re
 }
 
 function CanvasToolbar({
-  assetCanvas,
   mode,
   canvas,
   hasStart,
@@ -3254,7 +3232,6 @@ function CanvasToolbar({
   onUpload,
   onModeChange,
 }: {
-  assetCanvas: boolean;
   mode: InteractionMode;
   canvas: React.RefObject<HTMLDivElement | null>;
   hasStart: boolean;
@@ -3270,7 +3247,7 @@ function CanvasToolbar({
   onUpload: (file: File, position: { x: number; y: number }) => void;
   onModeChange: (mode: InteractionMode) => void;
 }) {
-  const creationGroups = canvasCreationGroups(assetCanvas);
+  const creationGroups = canvasCreationGroups();
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -3385,7 +3362,6 @@ function CanvasToolbar({
 }
 
 function StoryCanvasContextMenu({
-  assetCanvas,
   menu,
   canUndo,
   canRedo,
@@ -3407,7 +3383,6 @@ function StoryCanvasContextMenu({
   onDuplicate,
   onDelete,
 }: {
-  assetCanvas: boolean;
   menu: CanvasContextMenuState;
   canUndo: boolean;
   canRedo: boolean;
@@ -3429,7 +3404,7 @@ function StoryCanvasContextMenu({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const creationGroups = canvasCreationGroups(assetCanvas);
+  const creationGroups = canvasCreationGroups();
   const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -3664,10 +3639,10 @@ function toFlowNode(node: StoryNode, imageModels: ImageModel[], videoModels: Vid
   };
 }
 
-function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], videoModels: VideoModel[], viewport: StoryPlayerConfig["viewport"], assetCanvas: boolean, defaultTextModel?: AgentModelRef): StoryFlowNode {
+function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: number; y: number }, imageModels: ImageModel[], videoModels: VideoModel[], viewport: StoryPlayerConfig["viewport"], defaultTextModel?: AgentModelRef): StoryFlowNode {
   if (type === "image") {
     const model = imageModels[0];
-    const option = preferredImageOption(model, assetCanvas ? undefined : storyViewportRatio(viewport));
+    const option = preferredImageOption(model, storyViewportRatio(viewport));
     return toFlowNode(createAssetGenerationNode(type, position, {
       ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
       ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
@@ -3676,9 +3651,7 @@ function createFlowNode(type: Exclude<StoryNodeType, "asset">, position: { x: nu
   if (type === "video") {
     const model = videoModels[0];
     const projectRatio = storyViewportRatio(viewport);
-    const aspectRatio = assetCanvas
-      ? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio
-      : model?.aspectRatios.find((ratio) => ratio === projectRatio) ?? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
+    const aspectRatio = model?.aspectRatios.find((ratio) => ratio === projectRatio) ?? model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
     return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id } } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
   }
   if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);

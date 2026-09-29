@@ -4,8 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -965,6 +965,28 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/asset-canvas", async (request, reply) => {
+    try {
+      return await projects.assetCanvas(request.params.projectId);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
+    }
+  });
+
+  app.put<{ Params: { projectId: string }; Body: AssetCanvasDocument }>("/projects/:projectId/asset-canvas", {
+    schema: { body: { type: "object" } },
+    bodyLimit: 1_000_000,
+  }, async (request, reply) => {
+    try {
+      await projects.setAssetCanvas(request.params.projectId, request.body);
+      return reply.code(204).send();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
+    }
+  });
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -1040,49 +1062,59 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>(
-    "/projects/:projectId/story/text/generate",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["instruction"],
-          properties: {
-            instruction: { type: "string", minLength: 1, maxLength: 12_000 },
-            model: {
-              type: "object",
-              additionalProperties: false,
-              required: ["provider", "id"],
-              properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } },
-            },
+  const textGenerationOptions = {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["instruction"],
+        properties: {
+          instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          model: {
+            type: "object",
+            additionalProperties: false,
+            required: ["provider", "id"],
+            properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } },
           },
         },
       },
-      bodyLimit: 32_000,
     },
-    async (request, reply) => {
-      const project = projects.get(request.params.projectId);
-      if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "Story documents require an Interactive Drama project" });
-      }
-      const runtime = await getModelRuntime();
-      const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
-      const provider = settings.getDefaultProvider();
-      const id = settings.getDefaultModel();
-      const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
-      if (!selected) return reply.code(409).send({ error: "No language model is configured" });
-      const model = runtime.getModel(selected.provider, selected.id);
-      if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
-      try {
-        const text = await generateCreativeText(runtime, selected, request.body.instruction);
-        if (!text) return reply.code(502).send({ error: "The language model returned no text" });
-        return { text, model: selected };
-      } catch (cause) {
-        return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
-    },
+    bodyLimit: 32_000,
+  };
+
+  const generateText = (projectType: ProjectType, error: string) => async (request: FastifyRequest<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>, reply: FastifyReply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== projectType) {
+      return reply.code(400).send({ error });
+    }
+    const runtime = await getModelRuntime();
+    const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
+    const provider = settings.getDefaultProvider();
+    const id = settings.getDefaultModel();
+    const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
+    if (!selected) return reply.code(409).send({ error: "No language model is configured" });
+    const model = runtime.getModel(selected.provider, selected.id);
+    if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
+    try {
+      const text = await generateCreativeText(runtime, selected, request.body.instruction);
+      if (!text) return reply.code(502).send({ error: "The language model returned no text" });
+      return { text, model: selected };
+    } catch (cause) {
+      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  };
+
+  app.post<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>(
+    "/projects/:projectId/story/text/generate",
+    textGenerationOptions,
+    generateText("interactive-drama", "Story documents require an Interactive Drama project"),
+  );
+
+  app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
+    "/projects/:projectId/asset-canvas/text/generate",
+    textGenerationOptions,
+    generateText("asset-canvas", "Text generation requires an Asset Canvas project"),
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(

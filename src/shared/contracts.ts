@@ -136,6 +136,93 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "asset";
+
+export interface AssetCanvasPosition {
+  x: number;
+  y: number;
+}
+
+export interface AssetCanvasEditorLayout {
+  version: 1;
+  nodes: Record<string, AssetCanvasPosition>;
+  viewport: { x: number; y: number; zoom: number };
+  view: "canvas";
+}
+
+export type AssetCanvasReference =
+  | { type: "library"; assetId: string }
+  | { type: "node"; nodeId: string };
+
+export interface AssetCanvasTextReference {
+  type: "node";
+  nodeId: string;
+}
+
+export interface AssetCanvasTextGenerationRequest {
+  instruction: string;
+  model?: AgentModelRef;
+}
+
+export interface AssetCanvasTextGenerationResponse {
+  text: string;
+  model: AgentModelRef;
+}
+
+export type AssetCanvasNode = (
+  | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
+    assetId: string;
+    mediaType: "image" | "video" | "audio" | "model";
+  } }
+  | { id: string; type: "text"; position: AssetCanvasPosition; data: {
+    text: string;
+    instruction: string;
+    model?: AgentModelRef;
+  } }
+  | { id: string; type: "image"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ImageModelRef;
+    resolution: ImageResolution;
+    aspectRatio: ImageAspectRatio;
+    images: AssetCanvasReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "video"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: VideoModelRef;
+    resolution: VideoResolution;
+    aspectRatio: VideoAspectRatio;
+    duration: number;
+    references: AssetCanvasReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
+    targetPolycount: number;
+    texture: boolean;
+    pbr: boolean;
+    images: AssetCanvasReference[];
+    assetId?: string;
+  } }
+);
+
+export interface AssetCanvasEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+}
+
+export interface AssetCanvasDocument {
+  version: 1;
+  /** Hydrated editor-only state. Persisted in editor/layout.json, not canvas.json. */
+  editorLayout: AssetCanvasEditorLayout;
+  viewport: { width: number; height: number };
+  nodes: AssetCanvasNode[];
+  edges: AssetCanvasEdge[];
+}
+
 export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "model-3d" | "asset";
 
 export interface StoryPosition {

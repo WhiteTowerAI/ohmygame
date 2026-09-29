@@ -23,6 +23,9 @@ import {
   type ProjectPackageManager,
   type ProjectFileOpenMode,
   type ProjectState,
+  type AssetCanvasDocument,
+  type AssetCanvasTextGenerationRequest,
+  type AssetCanvasTextGenerationResponse,
   type StoryDocument,
   type StoryTextGenerationRequest,
   type StoryTextGenerationResponse,
@@ -367,6 +370,18 @@ export async function updateNodeCodebase(
 
 export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
   await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
+}
+
+export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocument> {
+  return request(`/projects/${projectId}/asset-canvas`);
+}
+
+export async function updateAssetCanvas(projectId: string, document: AssetCanvasDocument): Promise<void> {
+  await request(`/projects/${projectId}/asset-canvas`, { method: "PUT", body: JSON.stringify(document) });
+}
+
+export async function generateAssetCanvasText(projectId: string, input: AssetCanvasTextGenerationRequest): Promise<AssetCanvasTextGenerationResponse> {
+  return request(`/projects/${projectId}/asset-canvas/text/generate`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function generateStoryText(projectId: string, input: StoryTextGenerationRequest): Promise<StoryTextGenerationResponse> {

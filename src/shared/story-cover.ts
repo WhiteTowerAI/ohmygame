@@ -5,20 +5,6 @@ export interface StoryCoverSource {
   mediaType: "image" | "video";
 }
 
-/** Finds the last available image/video in an Asset Canvas document. */
-export function findAssetCanvasCoverSource(story: StoryDocument): StoryCoverSource | undefined {
-  for (let index = story.chapter.nodes.length - 1; index >= 0; index -= 1) {
-    const node = story.chapter.nodes[index];
-    if (!node) continue;
-    if (node.type === "asset" && (node.data.mediaType === "image" || node.data.mediaType === "video")) {
-      return { assetId: node.data.assetId, mediaType: node.data.mediaType };
-    }
-    if (node.type === "image" && node.data.assetId) return { assetId: node.data.assetId, mediaType: "image" };
-    if (node.type === "video" && node.data.assetId) return { assetId: node.data.assetId, mediaType: "video" };
-  }
-  return undefined;
-}
-
 /** Finds the first authored image/video reachable from the story entry point. */
 export function findStoryCoverSource(story: StoryDocument): StoryCoverSource | undefined {
   const nodes = new Map(story.chapter.nodes.map((node) => [node.id, node] as const));

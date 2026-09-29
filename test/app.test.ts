@@ -1916,3 +1916,76 @@ describe("Playable Nodes development flag", () => {
     expect(updated.graph.nodes[0].assets).not.toContain("portrait");
   });
 });
+
+describe("Asset Canvas projects", () => {
+  async function createCanvasApp(prefix: string) {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)) });
+    apps.push(app);
+    return app;
+  }
+
+  it("stores Asset Canvas documents in canvas.json, not story.json", async () => {
+    const app = await createCanvasApp("ohmygame-asset-canvas-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+
+    const created = await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` });
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({ version: 1, nodes: [], edges: [] });
+
+    const document = created.json();
+    document.nodes = [{ id: "image", type: "image", position: { x: 96, y: 96 }, data: { prompt: "A lantern", resolution: "1K", aspectRatio: "1:1", images: [] } }];
+    document.editorLayout.nodes = { image: { x: 96, y: 96 } };
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+
+    const files = await readdir(project.workspacePath);
+    expect(files).toContain("canvas.json");
+    expect(files).not.toContain("story.json");
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json().nodes).toEqual([
+      expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
+    ]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).statusCode).toBe(400);
+  });
+
+  it("rejects canvas documents with Story nodes", async () => {
+    const app = await createCanvasApp("ohmygame-asset-canvas-invalid-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    document.nodes = [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: {} }];
+    document.editorLayout.nodes = { start: { x: 0, y: 0 } };
+
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(400);
+  });
+
+  it("keeps Interactive Drama projects off the canvas endpoints", async () => {
+    const app = await createCanvasApp("ohmygame-asset-canvas-drama-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/asset-canvas/text/generate`, payload: { instruction: "Write" } })).statusCode).toBe(400);
+  });
+
+  it("protects and removes Library assets used by a canvas", async () => {
+    const app = await createCanvasApp("ohmygame-asset-canvas-library-");
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
+    await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    document.nodes = [
+      { id: "asset", type: "asset", position: { x: 0, y: 0 }, data: { assetId: asset.id, mediaType: "image" } },
+      { id: "image", type: "image", position: { x: 320, y: 0 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: "asset" }, { type: "library", assetId: asset.id }] } },
+    ];
+    document.edges = [{ id: "asset-image", source: "asset", target: "image" }];
+    document.editorLayout.nodes = { asset: { x: 0, y: 0 }, image: { x: 320, y: 0 } };
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
+
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updated.nodes).toEqual([expect.objectContaining({ id: "image", data: expect.objectContaining({ images: [] }) })]);
+    expect(updated.edges).toEqual([]);
+    expect(Object.keys(updated.editorLayout.nodes)).toEqual(["image"]);
+  });
+});
