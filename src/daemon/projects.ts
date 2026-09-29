@@ -9,6 +9,9 @@ import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspa
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
+import { validateNodeGraph } from "../shared/playable-graph-validation.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
+import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -56,6 +59,7 @@ export interface ProjectRunSettings {
 
 const PROJECT_COVER_FILE = "cover.webp";
 const STORY_FILE = "story.json";
+const PLAYABLE_GRAPH_FILE = "graph.json";
 const WEB_GAME_AGENT_INSTRUCTIONS = `# Web Game Project
 
 This workspace is the source of truth for an OhMyGame browser game.
@@ -478,6 +482,7 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
+    await assertStoryProject(project.workspacePath);
     const destination = path.join(project.workspacePath, STORY_FILE);
     try {
       const story = await readStoryCodebase(project.workspacePath);
@@ -498,6 +503,7 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
+    await assertStoryProject(project.workspacePath);
     if (!isStoryDocument(story)) throw new Error("Invalid story document");
     await writeStoryCodebase(project.workspacePath, story, { preserveExistingSources: true });
     await this.touch(id);
@@ -508,7 +514,18 @@ export class ProjectManager {
     for (const project of this.#projects.values()) {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
-      if (Object.values(metadata.libraryAssets).includes(assetId)) {
+      let referenced = Object.values(metadata.libraryAssets).includes(assetId);
+      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        try {
+          const graph = await readNodeGraphForReferences(project.workspacePath);
+          referenced ||= Object.values(graph.assets).some((asset) => (
+            asset.source.kind === "library" && asset.source.assetId === assetId
+          ));
+        } catch (cause) {
+          throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      if (referenced) {
         references.push(project);
         continue;
       }
@@ -543,6 +560,26 @@ export class ProjectManager {
         }
       }
       if (project.type !== "interactive-drama") continue;
+      if (await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        const graph = await readNodeGraphForReferences(project.workspacePath);
+        const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
+          asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
+        )));
+        if (removedIds.size > 0) {
+          const codebase = await readNodeCodebase(project.workspacePath);
+          for (const id of removedIds) delete codebase.graph.assets[id];
+          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
+            ...node,
+            assets: node.assets.filter((id) => !removedIds.has(id)),
+          }));
+          if (codebase.graph.shell) {
+            codebase.graph.shell.assets = codebase.graph.shell.assets.filter((id) => !removedIds.has(id));
+          }
+          await writeNodeCodebase(project.workspacePath, codebase);
+          await this.touch(project.id);
+        }
+        continue;
+      }
       const current = await readStoryCodebase(project.workspacePath);
       const chapter = current.chapter;
       const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
@@ -903,6 +940,31 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function assertStoryProject(workspacePath: string): Promise<void> {
+  // Story and Playable Nodes both own editor/layout.json, so the Story editor must
+  // never write into a Playable Nodes project.
+  if (await exists(path.join(workspacePath, PLAYABLE_GRAPH_FILE))) {
+    throw new Error("This project uses Playable Nodes, which the Story editor cannot open.");
+  }
+}
+
+async function readNodeGraphForReferences(workspacePath: string): Promise<NodeGraph> {
+  const file = path.join(workspacePath, PLAYABLE_GRAPH_FILE);
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(file, "utf8")) as unknown;
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new Error("graph.json is not valid JSON.");
+    throw cause;
+  }
+  const validation = validateNodeGraph(value, { mode: "draft" });
+  if (!validation.ok) {
+    const issue = validation.issues[0]!;
+    throw new Error(`${issue.path}: ${issue.message}`);
+  }
+  return value as NodeGraph;
 }
 
 async function isDirectory(target: string): Promise<boolean> {

@@ -160,7 +160,7 @@ projects.
 | Phase                       | Status      |
 | --------------------------- | ----------- |
 | 0. Design                   | Done        |
-| 1. Runtime foundation       | In progress |
+| 1. Runtime foundation       | Done        |
 | 2. Separate Asset Canvas    | Not started |
 | 3. Runtime for authoring    | Not started |
 | 4. Editor on the new format | Not started |

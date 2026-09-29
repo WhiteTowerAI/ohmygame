@@ -1725,3 +1725,194 @@ function fakeModelRuntime(models: Array<{ provider: string; id: string; name: st
     hasConfiguredAuth: () => true,
   } as unknown as ModelRuntime;
 }
+
+describe("Playable Nodes development flag", () => {
+  async function createPlayableApp(prefix: string, options: Parameters<typeof createApp>[0] = {}) {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)), playableNodes: true, ...options });
+    apps.push(app);
+    return app;
+  }
+
+  it("creates blank Interactive Drama projects as Playable Nodes", async () => {
+    const app = await createPlayableApp("ohmygame-playable-create-");
+    const response = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Nodes", type: "interactive-drama", storyViewport: { width: 720, height: 1280 } },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const codebase = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` })).json();
+    expect(codebase.graph).toMatchObject({
+      title: "Nodes",
+      viewport: { width: 720, height: 1280 },
+      entryNodeId: "start",
+      nodes: [{ id: "start", signals: [] }],
+      edges: [],
+    });
+    expect(await readdir(response.json().workspacePath)).not.toContain("story.json");
+    const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
+    expect(runtime).toMatchObject({ available: true, definition: { graph: { entryNodeId: "start" } } });
+  });
+
+  it("creates the sample as a Playable Nodes project", async () => {
+    const app = await createPlayableApp("ohmygame-playable-sample-", {
+      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
+    });
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { type: "interactive-drama", templateId: "night-train" },
+    })).json();
+
+    expect(project.name).toBe("Last Train Home");
+    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["platform", "carriage", "home"]);
+    expect(codebase.graph.shell).toBeDefined();
+    const runtime = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json();
+    expect(Object.keys(runtime.definition.compiled.nodes)).toEqual(["platform", "carriage", "home"]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
+  });
+
+  it("keeps the Story editor out of Playable Nodes projects", async () => {
+    const app = await createPlayableApp("ohmygame-playable-story-guard-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const layout = await readFile(path.join(project.workspacePath, "editor/layout.json"), "utf8");
+
+    const story = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
+
+    expect(story.statusCode).toBe(400);
+    expect(story.json().error).toContain("Playable Nodes");
+    expect(await readdir(project.workspacePath)).not.toContain("story.json");
+    expect(await readFile(path.join(project.workspacePath, "editor/layout.json"), "utf8")).toBe(layout);
+  });
+
+  it("loads and atomically updates a Playable codebase", async () => {
+    const app = await createPlayableApp("ohmygame-codebase-api-");
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-drama" },
+    })).json();
+    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
+    const codebase = loaded.json();
+    codebase.graph.title = "Revised Story";
+    codebase.editorLayout.nodes.start = { x: 360, y: 240 };
+    codebase.sources = {
+      "nodes/start/node.js": "export function mount(context) { context.root.innerHTML = 'Revised'; }\n",
+    };
+
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: codebase,
+    });
+    const afterUpdate = (await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/playable/codebase`,
+    })).json();
+    const invalid = structuredClone(afterUpdate);
+    invalid.editorLayout.nodes = {};
+    const rejected = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: invalid,
+    });
+
+    expect(loaded.statusCode).toBe(200);
+    expect(updated.statusCode).toBe(204);
+    const { sources: _sources, ...persistedCodebase } = codebase;
+    expect(afterUpdate).toEqual(persistedCodebase);
+    expect(await readFile(path.join(project.workspacePath, "nodes/start/node.js"), "utf8"))
+      .toBe(codebase.sources["nodes/start/node.js"]);
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().error).toContain("Node IDs must exactly match");
+    expect((await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/playable/codebase`,
+    })).json()).toEqual(persistedCodebase);
+  });
+
+  it("rejects Playable codebase access for other project types", async () => {
+    const app = await createPlayableApp("ohmygame-codebase-type-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/projects/${project.id}/playable/codebase`,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "Playable codebases require an Interactive Drama project" });
+  });
+
+  it("exposes structured Playable validation for Playtest and agents", async () => {
+    const app = await createPlayableApp("ohmygame-playable-validation-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const valid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation` });
+    const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8"));
+    graph.entryNodeId = "missing";
+    await writeFile(path.join(project.workspacePath, "graph.json"), `${JSON.stringify(graph)}\n`);
+    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation?mode=publish` });
+
+    expect(valid.statusCode).toBe(200);
+    expect(valid.json()).toMatchObject({ ok: true, issues: [] });
+    expect(invalid.statusCode).toBe(200);
+    expect(invalid.json()).toMatchObject({ ok: false, issues: [expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })] });
+  });
+
+  it("rolls back project creation without changing a conflicting external workspace", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-codebase-workspace-"));
+    await writeFile(path.join(workspacePath, "graph.json"), "user graph\n");
+    await writeFile(path.join(workspacePath, "notes.txt"), "keep me\n");
+    const app = await createPlayableApp("ohmygame-codebase-collision-");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { type: "interactive-drama", workspacePath },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "Playable project files already exist: graph.json" });
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe("user graph\n");
+    expect(await readFile(path.join(workspacePath, "notes.txt"), "utf8")).toBe("keep me\n");
+    await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("protects Library assets declared by a Playable Nodes graph", async () => {
+    const app = await createPlayableApp("ohmygame-playable-library-api-");
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
+    await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Playable", type: "interactive-drama" },
+    })).json();
+    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    codebase.graph.assets.portrait = {
+      type: "image",
+      source: { kind: "library", assetId: asset.id },
+    };
+    codebase.graph.nodes[0].assets.push("portrait");
+    expect((await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/codebase`,
+      payload: codebase,
+    })).statusCode).toBe(204);
+
+    const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
+
+    const removed = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` });
+    expect(removed.statusCode).toBe(204);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    expect(updated.graph.assets.portrait).toBeUndefined();
+    expect(updated.graph.nodes[0].assets).not.toContain("portrait");
+  });
+});
