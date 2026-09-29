@@ -15,11 +15,12 @@ html, body, #root { width: 100%; height: 100%; margin: 0; }
 
 .playable-player-stage {
   position: relative;
-  width: min(100%, calc(100vh * var(--playable-aspect-ratio)));
-  max-height: 100%;
-  aspect-ratio: var(--playable-aspect-ratio);
   overflow: hidden;
   background: #111318;
+}
+
+.playable-player-canvas {
+  transform-origin: 0 0;
 }
 
 .playable-player-frame {
@@ -80,4 +81,9 @@ html, body, #root { width: 100%; height: 100%; margin: 0; }
   color: #d8dae0;
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
+}
+
+.playable-thumbnail-page {
+  width: 100vw;
+  height: 100vh;
 }

@@ -186,3 +186,40 @@ export function parsePreviewStateInput(
     return { error: "Enter valid JSON." };
   }
 }
+
+/** Node ID to the thumbnail cached for it in `.ohmygame/thumbnails/`. */
+export type PlayableThumbnailManifest = Record<string, { hash: string; capturedAt: string }>;
+
+/**
+ * Identifies what a Node thumbnail shows: the Node's compiled output, the
+ * Shell drawn over it, the Assets both declare, and the viewport. A cached
+ * thumbnail with another hash is stale.
+ */
+export function playableThumbnailHash(definition: NodePlayerDefinition, nodeId: string): string | undefined {
+  const { graph, compiled } = definition;
+  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+  const surface = compiled.nodes[nodeId];
+  if (!node || !surface) return undefined;
+  const shell = compiled.shell;
+  const assetIds = [...new Set([...node.assets, ...graph.shell?.assets ?? []])].sort();
+  return hashText(JSON.stringify({
+    node: [surface.html, surface.css, surface.javascript],
+    shell: shell ? [shell.html, shell.css, shell.javascript] : null,
+    assets: assetIds.map((id) => [id, graph.assets[id] ?? null]),
+    viewport: graph.viewport,
+  }));
+}
+
+/** cyrb53: a fast 53-bit string hash, enough to tell cache entries apart. */
+function hashText(text: string): string {
+  let first = 0xdeadbeef;
+  let second = 0x41c6ce57;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    first = Math.imul(first ^ code, 2654435761);
+    second = Math.imul(second ^ code, 1597334677);
+  }
+  first = Math.imul(first ^ (first >>> 16), 2246822507) ^ Math.imul(second ^ (second >>> 13), 3266489909);
+  second = Math.imul(second ^ (second >>> 16), 2246822507) ^ Math.imul(first ^ (first >>> 13), 3266489909);
+  return (4294967296 * (2097151 & second) + (first >>> 0)).toString(16).padStart(14, "0");
+}

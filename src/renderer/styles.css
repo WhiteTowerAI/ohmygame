@@ -14671,6 +14671,39 @@ button {
   font-size: 10px;
 }
 
+.playable-node-picture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.playable-node-picture.is-asset {
+  object-fit: cover;
+}
+
+.playable-node-stage.is-failed .playable-node-picture,
+.playable-node-stage.is-failed .playable-node-summary {
+  filter: grayscale(0.6);
+  opacity: 0.4;
+}
+
+.playable-node-stale {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .playable-node-issue {
   position: absolute;
   right: 8px;

@@ -21,6 +21,11 @@ const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-render
 let daemon: ManagedDaemon | undefined;
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
+/** A Node that fails to start never reports back; its window gives up after this. */
+const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
+/** Hidden Node thumbnail windows by WebContents ID. */
+const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void }>();
+let nodeThumbnailQueue: Promise<unknown> = Promise.resolve();
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
 });
@@ -133,9 +138,23 @@ ipcMain.handle("ohmygame:select-project-directory", async (event) => {
   return result.canceled ? undefined : result.filePaths[0];
 });
 ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid capture source");
-  const bounds = captureBounds(rectangle, mainWindow.getContentBounds());
-  return mainWindow.webContents.capturePage(bounds).then((image) => image.toPNG());
+  const window = mainWindow && event.sender === mainWindow.webContents
+    ? mainWindow
+    : nodeThumbnails.get(event.sender.id)?.window;
+  if (!window) throw new Error("Invalid capture source");
+  const bounds = captureBounds(rectangle, window.getContentBounds());
+  return window.webContents.capturePage(bounds).then((image) => image.toPNG());
+});
+ipcMain.handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
+  if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport)) throw new Error("Invalid thumbnail target");
+  // One hidden window at a time keeps background captures cheap.
+  const capture = nodeThumbnailQueue.then(() => captureNodeThumbnail(projectId, nodeId, viewport));
+  nodeThumbnailQueue = capture.catch(() => {});
+  return capture;
+});
+ipcMain.handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
+  nodeThumbnails.get(event.sender.id)?.finish(captured === true);
 });
 ipcMain.handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid Agent playtest source");
@@ -246,6 +265,7 @@ try {
       void Promise.resolve(playtest).then((window) => window.close(), () => {});
     }
     playtestWindows.clear();
+    for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(false);
   });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -297,6 +317,44 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
     throw new Error("Invalid capture bounds");
   }
   return bounds;
+}
+
+/**
+ * Runs one Node in a hidden window. The page stores its own screenshot, with
+ * the hash of what it ran, and then reports whether that worked.
+ */
+async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }): Promise<boolean> {
+  if (!daemon || !mainWindow) return false;
+  let finish!: (captured: boolean) => void;
+  const finished = new Promise<boolean>((resolve) => { finish = resolve; });
+  const timer = setTimeout(() => finish(false), NODE_THUMBNAIL_TIMEOUT_MS);
+  let thumbnailWindow: BrowserWindow | undefined;
+  try {
+    const opening = createDesktopWindow({
+      runtime: daemon.runtime,
+      preloadPath: path.join(moduleDirectory, "preload.cjs"),
+      rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
+      rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
+      rendererHash: `#/thumbnail/${encodeURIComponent(projectId)}/${encodeURIComponent(nodeId)}`,
+      contentSize: fitPlaytestContentSize(viewport),
+      minWidth: 1,
+      minHeight: 1,
+      hidden: true,
+      beforeLoad: (window) => {
+        thumbnailWindow = window;
+        const id = window.webContents.id;
+        nodeThumbnails.set(id, { window, finish });
+        window.once("closed", () => { nodeThumbnails.delete(id); finish(false); });
+      },
+    });
+    const captured = await Promise.race([opening.then(() => finished), finished]);
+    return captured;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    if (thumbnailWindow && !thumbnailWindow.isDestroyed()) thumbnailWindow.destroy();
+  }
 }
 
 function validRouteId(value: unknown): value is string {

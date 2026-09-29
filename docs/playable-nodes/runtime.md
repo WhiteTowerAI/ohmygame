@@ -85,6 +85,11 @@ valid, plus the default Project Style.
 }
 ```
 
+`viewport` is the fixed stage every node and the Shell are laid out in, in
+CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
+looks the same in the Workbench preview, its thumbnail, a Playtest window of
+any size, and the published game.
+
 Editor data (positions, zoom, open panels) lives in `editor/layout.json`.
 Preset names are never stored.
 

@@ -30,7 +30,7 @@ function flowNode(node: PlayableNode, position: { x: number; y: number }): Playa
     id: node.id,
     type: "playable",
     position,
-    data: { node, entry: false, destinations: [], issues: [], connected: [] },
+    data: { node, entry: false, destinations: [], issues: [], connected: [], failed: false },
   };
 }
 

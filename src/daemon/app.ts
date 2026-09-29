@@ -62,6 +62,13 @@ import {
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import { addPlayableNode, type AddPlayableNodeRequest } from "./playable-add-node.js";
 import { PLAYABLE_PRESETS } from "./playable-presets.js";
+import {
+  listPlayableThumbnails,
+  PlayableThumbnailError,
+  readGraphNodeIds,
+  readPlayableThumbnail,
+  writePlayableThumbnail,
+} from "./playable-thumbnails.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -1049,6 +1056,55 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
     }
     return reply.code(204).send();
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/thumbnails", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return { thumbnails: await listPlayableThumbnails(project.workspacePath) };
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.get<{ Params: { projectId: string; nodeId: string } }>("/projects/:projectId/playable/thumbnails/:nodeId", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      const image = await readPlayableThumbnail(project.workspacePath, request.params.nodeId);
+      if (!image) return reply.code(404).send({ error: "Thumbnail not found" });
+      reply.header("content-type", "image/webp");
+      reply.header("cache-control", "no-store");
+      reply.header("x-content-type-options", "nosniff");
+      return reply.send(image);
+    } catch (cause) {
+      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.put<{ Params: { projectId: string; nodeId: string }; Querystring: { hash: string }; Body: Buffer }>("/projects/:projectId/playable/thumbnails/:nodeId", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["hash"],
+        properties: { hash: { type: "string", maxLength: 64 } },
+      },
+    },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node thumbnails require an Interactive Drama project" });
+    if (!isWebp(request.body)) return reply.code(400).send({ error: "A Node thumbnail must be a WebP image" });
+    try {
+      const nodeIds = await readGraphNodeIds(project.workspacePath);
+      return await writePlayableThumbnail(project.workspacePath, request.params.nodeId, request.query.hash, request.body, nodeIds);
+    } catch (cause) {
+      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
   });
 
   /**

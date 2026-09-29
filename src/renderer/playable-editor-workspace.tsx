@@ -73,24 +73,30 @@ import type {
   NodeSource,
   PlayableEdge,
   PlayableNavigationMode,
+  PlayableAssetDefinition,
   PlayableNode,
 } from "../shared/playable-nodes.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import {
   addPlayableNodeAsset,
   removePlayableNodeAsset,
   setPlayableSignalLabel,
+  playableThumbnailHash,
   setPlayableSignalTarget,
   type PlayablePresetSummary,
   type PlayableProjectValidationIssue,
+  type PlayableThumbnailManifest,
 } from "../shared/playable-editor.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import {
   addPlayableNode,
   buildInteractiveDrama,
   getNodeCodebase,
+  getPlayableThumbnail,
   getPlayableValidation,
   getWorkspaceFile,
   listPlayablePresets,
+  listPlayableThumbnails,
   updateNodeCodebase,
 } from "./api.js";
 import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
@@ -98,6 +104,7 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench } from "./playable-node-workbench.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
@@ -131,6 +138,12 @@ export type PlayableFlowData = {
   issues: string[];
   /** Signals that already have an outgoing edge. */
   connected: string[];
+  /** The Node does not compile; its card keeps its last good thumbnail, dimmed. */
+  failed: boolean;
+  /** The cached screenshot of the Node, and whether its source changed since. */
+  thumbnail?: { capturedAt: string; stale: boolean };
+  /** Shown instead of a thumbnail before the Node was ever previewed. */
+  coverAsset?: PlayableAssetDefinition;
 };
 export type PlayableFlowNode = Node<PlayableFlowData, "playable">;
 type CanvasContextMenuState = {
@@ -146,7 +159,7 @@ interface CopiedPlayableNode {
 }
 
 const PlayableCanvasContext = createContext<
-  { onRenameNode: (nodeId: string, title: string) => void } | undefined
+  { projectId: string; onRenameNode: (nodeId: string, title: string) => void } | undefined
 >(undefined);
 const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
@@ -190,6 +203,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
   const [issues, setIssues] = useState<PlayableProjectValidationIssue[]>([]);
+  const [builtDefinition, setBuiltDefinition] = useState<NodePlayerDefinition>();
+  const [thumbnails, setThumbnails] = useState<PlayableThumbnailManifest>();
+  const [thumbnailRevision, setThumbnailRevision] = useState(0);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -207,6 +223,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const historyTimer = useRef<number | undefined>(undefined);
   const historyGestureBase = useRef<NodeCodebase | undefined>(undefined);
   const [, setHistoryRevision] = useState(0);
+  /** The build of each Node the canvas last tried to capture, so a failure is not retried. */
+  const thumbnailAttempts = useRef(new Map<string, string>());
 
   const codebase = useMemo(
     () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, workspaceView) : undefined,
@@ -272,10 +290,48 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (phase !== "ready") return;
     let disposed = false;
     void getPlayableValidation(projectId).then((result) => {
-      if (!disposed) setIssues(result.issues);
+      if (disposed) return;
+      setIssues(result.issues);
+      setBuiltDefinition(result.definition);
     }).catch(() => {});
     return () => { disposed = true; };
   }, [phase, projectId, codeRevision, workspaceRevision]);
+
+  useEffect(() => {
+    setThumbnails(undefined);
+    thumbnailAttempts.current.clear();
+  }, [projectId]);
+
+  useEffect(() => {
+    let disposed = false;
+    void listPlayableThumbnails(projectId).then((manifest) => {
+      if (!disposed) setThumbnails(manifest);
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [projectId, workspaceRevision, thumbnailRevision]);
+
+  // Nodes with no thumbnail, or one of an older build, are captured in the
+  // background, one hidden window at a time.
+  useEffect(() => {
+    const capture = window.ohMyGameDesktop?.captureNodeThumbnail;
+    if (!capture || !builtDefinition || !thumbnails) return;
+    const pending = builtDefinition.graph.nodes.flatMap((node) => {
+      const hash = playableThumbnailHash(builtDefinition, node.id);
+      return hash && thumbnails[node.id]?.hash !== hash
+        && thumbnailAttempts.current.get(node.id) !== hash ? [{ nodeId: node.id, hash }] : [];
+    });
+    if (!pending.length) return;
+    let disposed = false;
+    void (async () => {
+      for (const { nodeId, hash } of pending) {
+        if (disposed) return;
+        thumbnailAttempts.current.set(nodeId, hash);
+        const captured = await capture(projectId, nodeId, builtDefinition.graph.viewport).catch(() => false);
+        if (captured) setThumbnailRevision((current) => current + 1);
+      }
+    })();
+    return () => { disposed = true; };
+  }, [projectId, builtDefinition, thumbnails]);
 
   /**
    * Adopts a whole codebase into the editor. `fromDisk` makes the serialized
@@ -682,27 +738,39 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       connected.set(edge.source, [...connected.get(edge.source) ?? [], edge.sourceHandle]);
     }
     const nodeIssues = new Map<string, string[]>();
+    const failed = new Set<string>();
     for (const issue of issues) {
       const owner = issue.surfaceId ?? nodeIdForIssuePath(issue.path, nodes);
       if (!owner) continue;
       nodeIssues.set(owner, [...nodeIssues.get(owner) ?? [], issue.message]);
+      if (issue.phase === "compiler") failed.add(owner);
     }
     const destinations = new Map<string, string[]>();
     for (const [key, nodeId] of Object.entries(graphMeta?.destinations ?? {})) {
       destinations.set(nodeId, [...destinations.get(nodeId) ?? [], key]);
     }
-    return nodes.map((node) => ({
-      ...node,
-      data: {
-        node: node.data.node,
-        entry: graphMeta?.entryNodeId === node.id,
-        destinations: destinations.get(node.id) ?? [],
-        issues: nodeIssues.get(node.id) ?? [],
-        connected: connected.get(node.id) ?? [],
-      },
-    }));
-  }, [nodes, edges, issues, graphMeta]);
-  const canvasPlayer = useMemo(() => ({ onRenameNode: renameNode }), []);
+    return nodes.map((node) => {
+      const cached = thumbnails?.[node.id];
+      // Without a successful build the current hash is unknown, so a cached
+      // thumbnail is not called stale; a failing Node is dimmed instead.
+      const hash = builtDefinition ? playableThumbnailHash(builtDefinition, node.id) : undefined;
+      const coverAssetId = node.data.node.assets.find((id) => graphMeta?.assets[id]?.type === "image");
+      return {
+        ...node,
+        data: {
+          node: node.data.node,
+          entry: graphMeta?.entryNodeId === node.id,
+          destinations: destinations.get(node.id) ?? [],
+          issues: nodeIssues.get(node.id) ?? [],
+          connected: connected.get(node.id) ?? [],
+          failed: failed.has(node.id),
+          ...(cached ? { thumbnail: { capturedAt: cached.capturedAt, stale: Boolean(hash && hash !== cached.hash) } } : {}),
+          ...(coverAssetId ? { coverAsset: graphMeta!.assets[coverAssetId] } : {}),
+        },
+      };
+    });
+  }, [nodes, edges, issues, graphMeta, thumbnails, builtDefinition]);
+  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
 
   return (
@@ -883,7 +951,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
 function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
   const canvas = useContext(PlayableCanvasContext);
-  const { node, entry, destinations, issues, connected } = data;
+  const { node, entry, destinations, issues, connected, failed, thumbnail, coverAsset } = data;
   return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
@@ -894,16 +962,63 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
         {destinations.map((destination) => <span className="playable-node-badge" key={destination} title={`The Shell opens this Node as "${destination}"`}>{destination}</span>)}
       </div>
     </div>
-    <div data-alignment-frame className="story-media-stage playable-node-stage">
-      <div className="playable-node-summary">
-        <strong>{node.id}</strong>
-        <small>{node.source.html}</small>
-        {node.assets.length ? <small>{node.assets.length} asset{node.assets.length === 1 ? "" : "s"}</small> : null}
-      </div>
+    <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
+      <PlayableNodePicture projectId={canvas?.projectId} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
+      {thumbnail?.stale && !failed ? <span className="playable-node-stale" title="The Node changed since this thumbnail was taken.">Stale</span> : null}
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
     </div>
     <PlayableSignalOutputs signals={node.signals} connected={connected} />
   </div>;
+}
+
+/**
+ * What a Node card shows: the Node's last thumbnail, else its first image
+ * Asset, else a neutral card with its title.
+ */
+function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
+  projectId?: string;
+  node: PlayableNode;
+  thumbnail?: { capturedAt: string };
+  coverAsset?: PlayableAssetDefinition;
+}) {
+  const captured = usePlayableThumbnailUrl(thumbnail ? projectId : undefined, node.id, thumbnail?.capturedAt);
+  const source = coverAsset?.source;
+  const cover = useWorkspaceAssetUrl(
+    !captured && source?.kind === "workspace" ? projectId : undefined,
+    source?.kind === "workspace" ? source.path : "",
+    0,
+    !captured && source?.kind === "library" ? source.assetId : undefined,
+  );
+  const url = captured ?? cover.url;
+  if (url) return <img className={`playable-node-picture${captured ? "" : " is-asset"}`} src={url} alt="" draggable={false} />;
+  return <div className="playable-node-summary">
+    <strong>{node.title}</strong>
+    <small>{node.id}</small>
+  </div>;
+}
+
+/** Keeps showing the previous screenshot until a newer one has loaded. */
+function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, capturedAt: string | undefined): string | undefined {
+  const [url, setUrl] = useState<string>();
+  const current = useRef<string | undefined>(undefined);
+  const show = useCallback((next: string | undefined) => {
+    if (current.current) URL.revokeObjectURL(current.current);
+    current.current = next;
+    setUrl(next);
+  }, []);
+  useEffect(() => () => { if (current.current) URL.revokeObjectURL(current.current); }, []);
+  useEffect(() => {
+    if (!projectId || !capturedAt) {
+      show(undefined);
+      return;
+    }
+    let disposed = false;
+    void getPlayableThumbnail(projectId, nodeId).then((blob) => {
+      if (!disposed) show(blob ? URL.createObjectURL(blob) : undefined);
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [projectId, nodeId, capturedAt, show]);
+  return url;
 }
 
 function PlayableSignalOutputs({ signals, connected }: {
@@ -1280,7 +1395,7 @@ function createFlowNode(node: PlayableNode, position: { x: number; y: number }):
     type: "playable",
     position,
     deletable: true,
-    data: { node, entry: false, destinations: [], issues: [], connected: [] },
+    data: { node, entry: false, destinations: [], issues: [], connected: [], failed: false },
   };
 }
 

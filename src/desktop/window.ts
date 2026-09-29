@@ -17,6 +17,10 @@ interface CreateWindowOptions {
   aspectRatio?: number;
   minWidth?: number;
   minHeight?: number;
+  /** Never shown, and keeps rendering while hidden so it can be captured. */
+  hidden?: boolean;
+  /** Runs before the renderer loads, so the page can reach the window early. */
+  beforeLoad?: (window: BrowserWindow) => void;
 }
 
 export function isValidPlaytestViewport(value: unknown): value is { width: number; height: number } {
@@ -75,6 +79,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      ...(options.hidden ? { backgroundThrottling: false } : {}),
     },
   });
   if (options.aspectRatio) window.setAspectRatio(options.aspectRatio);
@@ -86,7 +91,8 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-navigate", (event, url) => {
     if (withoutHash(url) !== rendererTarget) event.preventDefault();
   });
-  window.once("ready-to-show", () => window.show());
+  if (!options.hidden) window.once("ready-to-show", () => window.show());
+  options.beforeLoad?.(window);
 
   await window.loadURL(loadTarget);
 

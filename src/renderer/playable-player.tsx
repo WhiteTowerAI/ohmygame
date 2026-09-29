@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -50,7 +51,9 @@ export function NodePlayer({
   onDiagnostic = reportDiagnostic,
 }: NodePlayerProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
+  const player = useRef<HTMLElement>(null);
   const frameLoaded = useRef(false);
+  const [scale, setScale] = useState<number>();
   // Keyed on content so callers need not memoize the preview object.
   const previewKey = JSON.stringify(preview ?? null);
   const instanceId = useMemo(
@@ -150,23 +153,39 @@ export function NodePlayer({
     if (frameLoaded.current) void initialize();
   }, [instanceId]);
 
-  const ratio =
-    definition.graph.viewport.width / definition.graph.viewport.height;
-  const style = { "--playable-aspect-ratio": String(ratio) } as CSSProperties;
+  // Nodes are always laid out at the project viewport and scaled to fit, so
+  // a Node looks the same in the Workbench, a thumbnail, and any window.
+  const { width, height } = definition.graph.viewport;
+  useLayoutEffect(() => {
+    const container = player.current;
+    if (!container) return;
+    const update = () => setScale(Math.min(container.clientWidth / width, container.clientHeight / height));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [width, height]);
+
+  const stageStyle: CSSProperties = scale === undefined
+    ? { visibility: "hidden" }
+    : { width: width * scale, height: height * scale };
+  const canvasStyle: CSSProperties = { width, height, transform: `scale(${scale ?? 1})` };
   return (
-    <main className="playable-player" style={style}>
-      <div className="playable-player-stage">
-        <iframe
-          ref={iframe}
-          className="playable-player-frame"
-          src={frameUrl}
-          sandbox={PLAYABLE_IFRAME_SANDBOX}
-          title={title}
-          onLoad={() => {
-            frameLoaded.current = true;
-            void initialize();
-          }}
-        />
+    <main ref={player} className="playable-player">
+      <div className="playable-player-stage" style={stageStyle}>
+        <div className="playable-player-canvas" style={canvasStyle}>
+          <iframe
+            ref={iframe}
+            className="playable-player-frame"
+            src={frameUrl}
+            sandbox={PLAYABLE_IFRAME_SANDBOX}
+            title={title}
+            onLoad={() => {
+              frameLoaded.current = true;
+              void initialize();
+            }}
+          />
+        </div>
         {!ready && !error ? (
           <div className="playable-player-status">Loading...</div>
         ) : null}
@@ -209,4 +228,17 @@ function errorMessage(value: unknown): string {
 
 function reportDiagnostic(error: string): void {
   console.error(`[Node Runtime] ${error}`);
+}
+
+/** Preview saves live in memory so a preview never touches the Playtest save. */
+export function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => { values.delete(key); },
+    setItem: (key, value) => { values.set(key, String(value)); },
+  };
 }

@@ -291,17 +291,21 @@ existing nodes.
 
 Thumbnails are screenshots of the real node, never a separate rendering.
 
-- The Workbench preview captures its visible frame through the desktop
-  `capturePage` capability, the same mechanism that captures Web Game project
-  covers, about one second after the node reports ready or after a reload.
+- The canvas captures every node that has no thumbnail, or one of an older
+  build, without it being opened: the desktop app runs the node in a hidden
+  window, one node at a time, as the Workbench preview runs it.
+- The node is captured through the desktop `capturePage` capability, the
+  same mechanism that captures Web Game project covers, about one second
+  after it reports ready. A run with errors is not captured. Captures keep
+  the display's pixel density, up to 1280 pixels wide.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
 - A thumbnail records the hash of the node's compiled output. When the source
   changes, the card keeps the old image with a *stale* marker until the next
-  capture.
-- A node that has never been previewed shows its first declared image asset,
-  or a neutral card with its title.
+  capture replaces it.
+- A node that has no thumbnail yet, or whose run fails, shows its first
+  declared image asset, or a neutral card with its title.
 - A node that fails to build shows its last good thumbnail dimmed with an
   error marker; opening it shows the error in the Workbench.
 - When the capture capability is unavailable (for example in the browser

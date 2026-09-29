@@ -126,7 +126,9 @@ path (a development flag) creates `graph.json` projects.
     Destination badges, add from Preset, context menu, clipboard.
 11. `feat(editor): add node workbench` — Workbench with live preview, preview
     bar, and inspector (title, Signals, Assets, State used).
-12. `feat(editor): add node thumbnails`.
+12. `feat(editor): add node thumbnails` — background captures of every Node
+    cached in `.ohmygame/thumbnails/`, stale and failed markers, Asset and
+    title fallbacks.
 13. `feat(editor): add project state, style, and shell panels`.
 14. `feat(editor): add playtest debug drawer`.
 15. `feat(agent): add playable nodes context and tools` — request context,

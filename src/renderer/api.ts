@@ -51,7 +51,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
 import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
-import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation } from "../shared/playable-editor.js";
+import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -76,6 +76,10 @@ declare global {
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
+      /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
+      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }) => Promise<boolean>;
+      /** Called by the hidden thumbnail window once its capture is stored or failed. */
+      finishNodeThumbnail?: (captured: boolean) => Promise<void>;
       openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
@@ -382,6 +386,27 @@ export async function addPlayableNode(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export async function listPlayableThumbnails(projectId: string): Promise<PlayableThumbnailManifest> {
+  const { thumbnails } = await request<{ thumbnails: PlayableThumbnailManifest }>(`/projects/${projectId}/playable/thumbnails`);
+  return thumbnails;
+}
+
+export async function getPlayableThumbnail(projectId: string, nodeId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob): Promise<void> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}?hash=${encodeURIComponent(hash)}`), {
+    method: "PUT",
+    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    body: image,
+  });
+  if (!response.ok) throw await responseError(response);
 }
 
 export async function updateNodeCodebase(

@@ -28,6 +28,9 @@ if (process.isMainFrame) {
     selectProjectDirectory: () => ipcRenderer.invoke("ohmygame:select-project-directory") as Promise<string | undefined>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
+    captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }) =>
+      ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport) as Promise<boolean>,
+    finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,
     openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId, viewport) as Promise<void>,
     agentPlaytests: Object.freeze({

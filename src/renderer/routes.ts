@@ -23,6 +23,7 @@ export type AppRoute =
   | { page: "settings"; section: SettingsSection }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string; chapterId: string }
+  | { page: "thumbnail"; projectId: string; nodeId: string }
   | { page: "project"; projectId: string; conversationId?: string };
 
 export function parseAppRoute(hash: string): AppRoute {
@@ -50,6 +51,18 @@ export function parseAppRoute(hash: string): AppRoute {
         page: "playtest",
         projectId: decodeURIComponent(playtestMatch[1]),
         chapterId: decodeURIComponent(playtestMatch[2]),
+      };
+    } catch {
+      return { page: "home" };
+    }
+  }
+  const thumbnailMatch = /^#\/thumbnail\/([^/]+)\/([^/]+)$/.exec(hash);
+  if (thumbnailMatch?.[1] && thumbnailMatch[2]) {
+    try {
+      return {
+        page: "thumbnail",
+        projectId: decodeURIComponent(thumbnailMatch[1]),
+        nodeId: decodeURIComponent(thumbnailMatch[2]),
       };
     } catch {
       return { page: "home" };

@@ -32,6 +32,7 @@ import { Tree, type NodeRendererProps } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
+import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
@@ -652,27 +653,8 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
 }
 
 async function captureProjectCover(projectId: string, frame: HTMLIFrameElement): Promise<void> {
-  const bounds = frame.getBoundingClientRect();
-  if (bounds.width < 1 || bounds.height < 1) return;
-  const png = await window.ohMyGameDesktop!.capturePage({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-  });
-  const image = await createImageBitmap(new Blob([png as BlobPart], { type: "image/png" }));
-  try {
-    const width = Math.min(800, image.width);
-    const height = Math.max(1, Math.round(image.height * width / image.width));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
-    const cover = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.8));
-    if (cover) await setProjectCover(projectId, cover);
-  } finally {
-    image.close();
-  }
+  const cover = await captureElementImage(frame, 800);
+  if (cover) await setProjectCover(projectId, cover);
 }
 
 export function normalizePreviewPath(value: string): string {

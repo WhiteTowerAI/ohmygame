@@ -3,6 +3,7 @@ import { init as initSentry } from "@sentry/electron/renderer";
 import { App } from "./app.js";
 import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
+import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute } from "./routes.js";
 import { applyAppearance, readAppearance } from "./appearance.js";
 import { initializeAnalytics } from "./analytics.js";
@@ -10,13 +11,16 @@ import "./styles.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
+const route = parseAppRoute(window.location.hash);
 if (window.ohMyGameDesktop) initSentry();
-initializeAnalytics();
+// The hidden thumbnail window is not a visit.
+if (route.page !== "thumbnail") initializeAnalytics();
 applyAppearance(readAppearance());
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }
-const route = parseAppRoute(window.location.hash);
 createRoot(root).render(route.page === "playtest"
   ? <PlaytestPage projectId={route.projectId} chapterId={route.chapterId} />
-  : <AuthProvider><App /></AuthProvider>);
+  : route.page === "thumbnail"
+    ? <NodeThumbnailPage projectId={route.projectId} nodeId={route.nodeId} />
+    : <AuthProvider><App /></AuthProvider>);

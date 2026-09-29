@@ -1328,6 +1328,37 @@ describe("daemon", () => {
     expect(loaded.rawPayload).toEqual(cover);
   });
 
+  it("stores Node thumbnails as editor cache outside the file list", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnail-api-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nodes", type: "interactive-drama" } })).json();
+    await writePlayableFixtureWorkspace(project.workspacePath);
+    const image = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+    const put = (nodeId: string, payload: Buffer, hash = "0123abcd0123ab") => app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/playable/thumbnails/${nodeId}?hash=${hash}`,
+      headers: { "content-type": "image/webp" },
+      payload,
+    });
+
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` })).statusCode).toBe(404);
+    expect((await put("menu", Buffer.from("not-webp"))).statusCode).toBe(400);
+    expect((await put("nowhere", image)).statusCode).toBe(400);
+    expect((await put("menu", image, "nope")).statusCode).toBe(400);
+    const stored = await put("menu", image);
+    expect(stored.statusCode).toBe(200);
+    expect(stored.json()).toMatchObject({ hash: "0123abcd0123ab" });
+
+    const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails` });
+    expect(listed.json()).toEqual({ thumbnails: { menu: stored.json() } });
+    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/thumbnails/menu` });
+    expect(loaded.headers["content-type"]).toBe("image/webp");
+    expect(loaded.rawPayload).toEqual(image);
+
+    const files = (await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json() as { path: string }[];
+    expect(files.some((file) => file.path.startsWith(".ohmygame"))).toBe(false);
+  });
+
   it("opens an idle event stream immediately", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-sse-")) });
     apps.push(app);

@@ -6,6 +6,7 @@ import {
   playableAssetId,
   playableAssetType,
   playableRuntimeKey,
+  playableThumbnailHash,
   removePlayableNodeAsset,
   renamePlayableSignal,
   setPlayableSignalLabel,
@@ -128,5 +129,30 @@ describe("Playable editor graph changes", () => {
     expect(parsePreviewStateInput("true", false)).toEqual({ value: true });
     expect(parsePreviewStateInput('["key"]', [])).toEqual({ value: ["key"] });
     expect(parsePreviewStateInput("{", {})).toEqual({ error: "Enter valid JSON." });
+  });
+
+  it("hashes what a Node thumbnail shows", () => {
+    const graph = createNodeGraphFixture();
+    const surface = (id: string) => ({ id, html: `<main>${id}</main>`, css: "main {}", javascript: "export function mount() {}", inputs: [] });
+    const definition = {
+      version: 1,
+      graph,
+      compiled: { nodes: { menu: surface("menu"), lobby: surface("lobby") }, shell: surface("shell") },
+      graphSignature: "a",
+    } as unknown as NodePlayerDefinition;
+    const hash = playableThumbnailHash(definition, "menu")!;
+
+    expect(hash).toMatch(/^[0-9a-f]{14}$/);
+    expect(playableThumbnailHash(definition, "archive")).toBeUndefined();
+    expect(playableThumbnailHash(definition, "lobby")).not.toBe(hash);
+    const renamed = { ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) };
+    expect(playableThumbnailHash({ ...definition, graph: renamed, graphSignature: "b" }, "menu")).toBe(hash);
+    const edited = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, menu: { ...surface("menu"), css: "main { color: red; }" } } } };
+    expect(playableThumbnailHash(edited, "menu")).not.toBe(hash);
+    const shell = { ...definition, compiled: { ...definition.compiled, shell: { ...surface("shell"), html: "<nav>New</nav>" } } };
+    expect(playableThumbnailHash(shell, "menu")).not.toBe(hash);
+    const background = { ...graph, assets: { ...graph.assets, background: { type: "image" as const, source: { kind: "workspace" as const, path: "assets/other.webp" } } } };
+    expect(playableThumbnailHash({ ...definition, graph: background }, "menu")).not.toBe(hash);
+    expect(playableThumbnailHash({ ...definition, graph: { ...graph, viewport: { width: 720, height: 1280 } } }, "menu")).not.toBe(hash);
   });
 });
