@@ -170,6 +170,19 @@ describe("Playable Graph contract", () => {
     );
   });
 
+  it("rejects graphs above the runtime resource limits", () => {
+    const graph = createPlayableGraphFixture();
+    graph.nodes = Array.from({ length: 501 }, (_, index) => ({
+      ...structuredClone(graph.nodes[0]!),
+      id: `node-${index}`,
+    }));
+
+    const result = validatePlayableGraph(graph);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "schema", path: "/nodes" }));
+  });
+
   it("provides side-effect-free graph lookups", () => {
     const graph = createPlayableGraphFixture();
 

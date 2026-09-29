@@ -25,4 +25,14 @@ describe("OhMyGame system prompt", () => {
       expect(prompt).not.toContain("smallest reliable change");
     }
   });
+
+  it("gives Interactive Drama agents the Playable Nodes contract and verification duty", () => {
+    const prompt = appendSystemPromptForProject("interactive-drama").join("\n\n");
+
+    expect(prompt).toContain("Playable Nodes creation agent");
+    expect(prompt).toContain("graph.json");
+    expect(prompt).toContain("compile every Node and Shell");
+    expect(prompt).toContain("Playtest");
+    expect(prompt).toContain("do not recreate legacy Story node types");
+  });
 });

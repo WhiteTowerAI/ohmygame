@@ -3,7 +3,7 @@ import {
   type StoryFormatPresetId,
 } from "../shared/story-formats.js";
 
-export function StoryFormatOptions({
+export function AssetCanvasFormatOptions({
   value,
   disabled = false,
   onChange,

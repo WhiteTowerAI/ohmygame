@@ -136,244 +136,91 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type StoryNodeType = "start" | "update-state" | "condition" | "open-ui" | "story-map" | "settings" | "scene" | "interaction" | "choice" | "ending" | "text" | "image" | "video" | "model-3d" | "asset";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "asset";
 
-export interface StoryPosition {
+export interface AssetCanvasPosition {
   x: number;
   y: number;
 }
 
-export interface StoryChoiceOption {
-  id: string;
-  label: string;
-  condition?: StoryVariableCondition;
-  actions?: StoryAction[];
-}
-
-export type StoryVariableType = "boolean" | "number" | "text";
-export type StoryVariableValue = boolean | number | string;
-
-export interface StoryVariable {
-  id: string;
-  name: string;
-  type: StoryVariableType;
-  initialValue: StoryVariableValue;
-}
-
-export interface StoryVariableCondition {
-  variableId: string;
-  operator: "equals" | "not-equals" | "greater-than" | "greater-than-or-equal" | "less-than" | "less-than-or-equal";
-  value: StoryVariableValue;
-}
-
-export type StoryVariableOperator = "set" | "add" | "subtract" | "multiply" | "divide";
-
-export interface StoryAction {
-  type: "update-variable";
-  variableId: string;
-  operator: StoryVariableOperator;
-  value: StoryVariableValue;
-}
-
-export interface StoryChoiceTimeout {
-  durationMs: number;
-  defaultOptionId: string;
-}
-
-export interface StoryInteractionTimeout {
-  durationMs: number;
-  outcome: string;
-}
-
-export type StorySceneMedia =
-  | { id: string; type: "image"; source: StoryAssetReference }
-  | { id: string; type: "video"; source: StoryAssetReference };
-
-/** Code owned by a Scene. Source paths are authoritative on disk; files are hydrated for the editor/runtime. */
-export interface StorySceneSurface {
-  source?: StorySourceFiles;
-  files: StorySurfaceFiles;
-}
-
-export type StorySurfaceLayout = Record<string, StorySurfaceLayoutOffset>;
-
-export interface StorySurfaceLayoutOffset {
-  offsetX: number;
-  offsetY: number;
-}
-
-/** Shared player-facing presentation owned by every visible Story node. */
-export interface StoryNodePresentation {
-  media: { items: StorySceneMedia[] };
-  surface: StorySceneSurface;
-}
-
-export interface StoryOpenUiPresentation extends StoryNodePresentation {
-  surface: StorySceneSurface & { layout?: StorySurfaceLayout };
-}
-
-export interface StorySurfaceFiles {
-  html: string;
-  css: string;
-  javascript: string;
-}
-
-/** Stable workspace paths for code authored outside of story.json. */
-export interface StorySourceFiles {
-  html: string;
-  css: string;
-  javascript: string;
-}
-
-export type StoryInteractionCommand =
-  | { type: "set-variable"; variable: string; value: StoryVariableValue }
-  | { type: "increment-variable"; variable: string; amount: number };
-
-export interface StoryEditorLayout {
+export interface AssetCanvasEditorLayout {
   version: 1;
-  nodes: Record<string, StoryPosition>;
+  nodes: Record<string, AssetCanvasPosition>;
   viewport: { x: number; y: number; zoom: number };
-  view: "canvas" | "code";
+  view: "canvas";
 }
 
-export type StoryAssetReference =
+export type AssetCanvasReference =
   | { type: "library"; assetId: string }
   | { type: "node"; nodeId: string };
 
-export interface StoryTextReference {
+export interface AssetCanvasTextReference {
   type: "node";
   nodeId: string;
 }
 
-export interface StoryTextGenerationRequest {
+export interface AssetCanvasTextGenerationRequest {
   instruction: string;
   model?: AgentModelRef;
 }
 
-export interface StoryTextGenerationResponse {
+export interface AssetCanvasTextGenerationResponse {
   text: string;
   model: AgentModelRef;
 }
 
-export type StoryNode = (
-  | { id: string; type: "start"; position: StoryPosition; data: Record<string, never> }
-  | { id: string; type: "update-state"; position: StoryPosition; data: { title: string; actions: StoryAction[] } }
-  | { id: string; type: "condition"; position: StoryPosition; data: { title: string; condition?: StoryVariableCondition } }
-  | { id: string; type: "open-ui"; position: StoryPosition; data: {
-    title: string;
-    content: StoryOpenUiContent;
-    presentation: StoryOpenUiPresentation;
-  } }
-  | { id: string; type: "story-map"; position: StoryPosition; data: {
-    title: string;
-    presentation: StoryNodePresentation;
-  } }
-  | { id: string; type: "settings"; position: StoryPosition; data: {
-    title: string;
-    presentation: StoryNodePresentation;
-  } }
-  | { id: string; type: "scene"; position: StoryPosition; data: {
-    title: string;
-    durationMs?: number;
-    presentation: StoryNodePresentation;
-  } }
-  | { id: string; type: "interaction"; position: StoryPosition; data: { title: string; outcomes: string[]; timeout?: StoryInteractionTimeout; presentation: StoryNodePresentation } }
-  | { id: string; type: "choice"; position: StoryPosition; data: { title: string; options: StoryChoiceOption[]; timeout?: StoryChoiceTimeout; presentation: StoryNodePresentation } }
-  | { id: string; type: "ending"; position: StoryPosition; data: { title: string; description: string; presentation: StoryNodePresentation } }
-  | { id: string; type: "asset"; position: StoryPosition; data: {
+export type AssetCanvasNode = (
+  | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
   } }
-  | { id: string; type: "text"; position: StoryPosition; data: {
+  | { id: string; type: "text"; position: AssetCanvasPosition; data: {
     text: string;
     instruction: string;
     model?: AgentModelRef;
   } }
-  | { id: string; type: "image"; position: StoryPosition; data: {
+  | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
-    promptSource?: StoryTextReference;
+    promptSource?: AssetCanvasTextReference;
     model?: ImageModelRef;
     resolution: ImageResolution;
     aspectRatio: ImageAspectRatio;
-    images: StoryAssetReference[];
+    images: AssetCanvasReference[];
     assetId?: string;
   } }
-  | { id: string; type: "video"; position: StoryPosition; data: {
+  | { id: string; type: "video"; position: AssetCanvasPosition; data: {
     prompt: string;
-    promptSource?: StoryTextReference;
+    promptSource?: AssetCanvasTextReference;
     model?: VideoModelRef;
     resolution: VideoResolution;
     aspectRatio: VideoAspectRatio;
     duration: number;
-    references: StoryAssetReference[];
+    references: AssetCanvasReference[];
     assetId?: string;
   } }
-  | { id: string; type: "model-3d"; position: StoryPosition; data: {
+  | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
     targetPolycount: number;
     texture: boolean;
     pbr: boolean;
-    images: StoryAssetReference[];
+    images: AssetCanvasReference[];
     assetId?: string;
   } }
 );
 
-export interface StoryEdge {
+export interface AssetCanvasEdge {
   id: string;
   source: string;
   target: string;
   sourceHandle?: string;
 }
 
-export interface StoryChapter {
-  id: string;
-  title: string;
-  nodes: StoryNode[];
-  edges: StoryEdge[];
-}
-
-export interface StoryPlayerConfig {
-  title: string;
-  /** Logical pixel dimensions shared by every runtime player surface. */
-  viewport: {
-    width: number;
-    height: number;
-  };
-  theme: {
-    accentColor: string;
-    textColor: string;
-    font: "sans" | "serif";
-  };
-  videoFit: "contain" | "cover";
-  choicePosition: "center" | "bottom";
-}
-
-export type StoryOpenUiAction = "start-game" | "continue-game" | "new-game" | "open-story-map" | "open-settings";
-export type StoryScreenAction = StoryOpenUiAction | "close" | "toggle-fullscreen" | { type: "exit"; exitId: string };
-
-export interface StoryOpenUiButton {
-  id: string;
-  label: string;
-  action: StoryOpenUiAction;
-}
-
-export interface StoryOpenUiExit {
-  id: string;
-  label: string;
-}
-
-export interface StoryOpenUiContent {
-  title: string;
-  buttons: StoryOpenUiButton[];
-  exits?: StoryOpenUiExit[];
-}
-
-export interface StoryDocument {
+export interface AssetCanvasDocument {
   version: 1;
-  /** Hydrated editor-only state. Persisted in editor/layout.json, not story.json. */
-  editorLayout: StoryEditorLayout;
-  player: StoryPlayerConfig;
-  variables: StoryVariable[];
-  chapter: StoryChapter;
+  /** Hydrated editor-only state. Persisted in editor/layout.json, not canvas.json. */
+  editorLayout: AssetCanvasEditorLayout;
+  viewport: { width: number; height: number };
+  nodes: AssetCanvasNode[];
+  edges: AssetCanvasEdge[];
 }
 
 export interface ConversationSummary {
@@ -620,7 +467,7 @@ export interface CreateProjectRequest {
   name?: string;
   type?: ProjectType;
   templateId?: "night-train";
-  storyViewport?: StoryPlayerConfig["viewport"];
+  storyViewport?: { width: number; height: number };
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { StoryPlayerConfig } from "../shared/contracts.js";
+import type { StoryViewport } from "../shared/story-formats.js";
 import {
   storyFormatForViewport,
   storyFormatPreset,
@@ -7,18 +7,18 @@ import {
   type StoryFormatPresetId,
 } from "../shared/story-formats.js";
 import { X } from "./icons.js";
-import { StoryFormatOptions } from "./story-format-options.js";
+import { AssetCanvasFormatOptions } from "./asset-canvas-format-options.js";
 
-export function StoryCanvasSettingsDialog({
+export function AssetCanvasSettingsDialog({
   viewport,
   hasContent,
   onClose,
   onChange,
 }: {
-  viewport: StoryPlayerConfig["viewport"];
+  viewport: StoryViewport;
   hasContent: boolean;
   onClose: () => void;
-  onChange: (viewport: StoryPlayerConfig["viewport"]) => void;
+  onChange: (viewport: StoryViewport) => void;
 }) {
   const titleId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -85,7 +85,7 @@ export function StoryCanvasSettingsDialog({
           </button>
         </header>
         <div className="story-canvas-settings-content">
-          <StoryFormatOptions value={selection} onChange={setSelection} />
+          <AssetCanvasFormatOptions value={selection} onChange={setSelection} />
           {changed && hasContent ? (
             <p className="story-format-warning">
               Existing UI and media are not reframed automatically. Review every

@@ -153,6 +153,19 @@ describe("Playable compiler", () => {
       message: 'Playable surface "archive" JavaScript must export "mount".',
     });
   });
+
+  it("rejects oversized surface source files with a stable error code", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+    await writeFile(
+      path.join(workspace, "nodes", "menu", "index.html"),
+      "x".repeat(5 * 1024 * 1024 + 1),
+    );
+
+    await expect(compilePlayableGraph(workspace, graph)).rejects.toMatchObject({
+      code: "resource-limit",
+      surfaceId: "menu",
+    });
+  });
 });
 
 async function createCompilerWorkspace(

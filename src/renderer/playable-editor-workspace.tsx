@@ -306,7 +306,6 @@ export function PlayableEditorWorkspace({
     setError(undefined);
     try {
       const runtime = await getPlayableProjectRuntime(project.id);
-      if (!runtime.available) throw new Error("Playable Runtime is unavailable.");
       const assets = await loadRuntimeAssets(project.id, runtime.definition.graph);
       setPreview({
         definition: { ...runtime.definition, graph: { ...runtime.definition.graph, entryNodeId: nodeId } },

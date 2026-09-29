@@ -1,18 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
-import type { LibraryAsset, ProjectState, StoryDocument } from "../../shared/contracts.js";
+import type { ProjectState } from "../../shared/contracts.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
-import { resolveStoryAssetId, validatePlayableChapter } from "../../shared/story.js";
 import type { AssetLibrary } from "../asset-library.js";
 import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { resolveStartupDirectory } from "../projects.js";
-import { readStoryCodebase } from "../story-codebase.js";
 import { buildPlayableProject } from "../playable-project.js";
 import { isCompiledPlayableGraph } from "../../shared/playable-compiled.js";
 import type { PlayablePlayerDefinition } from "../../shared/playable-player-protocol.js";
@@ -90,45 +88,9 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   } catch (cause) {
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
-  if (playable) {
-    await assertPlayablePlayerBuilt(playerDirectory);
-    return preparePlayableProject(project, playable, library, playerDirectory);
-  }
-  let story: StoryDocument;
-  try {
-    story = await readStoryCodebase(project.workspacePath);
-  } catch {
-    throw new PublishError("Interactive Drama story.json is missing or invalid");
-  }
-  const assets = new Map(library.list().map((asset) => [asset.id, asset]));
-  validatePublishedStory(story, assets);
-  const requiredIds = referencedAssetIds(story);
-  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-story-build-"));
-  try {
-    await cp(playerDirectory, output, { recursive: true });
-    await mkdir(path.join(output, "assets", "media"), { recursive: true });
-    const assetPaths: Record<string, string> = {};
-    for (const assetId of [...requiredIds].sort()) {
-      const { asset, absolutePath } = await library.content(assetId);
-      const extension = path.extname(asset.name).toLowerCase();
-      const relative = `assets/media/${asset.id}${extension}`;
-      await copyFile(absolutePath, path.join(output, ...relative.split("/")));
-      assetPaths[asset.id] = `./${relative}`;
-    }
-    const { editorLayout: _editorLayout, ...runtimeStory } = story;
-    await writeFile(path.join(output, "story.json"), `${JSON.stringify(runtimeStory, null, 2)}\n`);
-    await writeFile(path.join(output, "manifest.json"), `${JSON.stringify({
-      version: 1,
-      story: "story.json",
-      scope: `published:${project.id}`,
-      assets: assetPaths,
-    }, null, 2)}\n`);
-    return output;
-  } catch (cause) {
-    await rm(output, { recursive: true, force: true });
-    if (cause instanceof PublishError) throw cause;
-    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
-  }
+  if (!playable) throw new PublishError("Playable graph.json is missing");
+  await assertPlayablePlayerBuilt(playerDirectory);
+  return preparePlayableProject(project, playable, library, playerDirectory);
 }
 
 async function preparePlayableProject(
@@ -296,35 +258,6 @@ async function assertPlayablePlayerBuilt(playerDirectory: string): Promise<void>
       `Playable Player build is incomplete. Missing: ${missing.join(", ")}. Run npm run build:player first.`,
     );
   }
-}
-
-function validatePublishedStory(story: StoryDocument, assets: ReadonlyMap<string, LibraryAsset>): void {
-  const availableAssets = new Map([...assets.values()].flatMap((asset) => asset.mediaType === "model" ? [] : [[asset.id, asset.mediaType] as const]));
-  const chapter = story.chapter;
-  const issue = validatePlayableChapter(chapter, { availableAssets });
-  if (issue) throw new PublishError(`${chapter.title || "Untitled chapter"}: ${issue.message}`);
-  for (const node of chapter.nodes) {
-    if (node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") continue;
-    for (const item of node.data.presentation.media.items) {
-      const assetId = resolveStoryAssetId(chapter, item.source);
-      if (!assetId || assets.get(assetId)?.mediaType !== item.type) {
-        throw new PublishError(`${node.data.title || "Untitled node"} references a missing or incompatible ${item.type} asset.`);
-      }
-    }
-  }
-}
-
-function referencedAssetIds(story: StoryDocument): Set<string> {
-  const ids = new Set<string>();
-  const chapter = story.chapter;
-  for (const node of chapter.nodes) {
-    if (node.type !== "open-ui" && node.type !== "scene" && node.type !== "interaction" && node.type !== "choice" && node.type !== "ending") continue;
-    for (const item of node.data.presentation.media.items) {
-      const assetId = resolveStoryAssetId(chapter, item.source);
-      if (assetId) ids.add(assetId);
-    }
-  }
-  return ids;
 }
 
 export async function createPluginArchive(source: string): Promise<Buffer> {

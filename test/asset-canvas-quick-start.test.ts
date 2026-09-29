@@ -5,7 +5,7 @@ const api = vi.hoisted(() => ({
   createProject: vi.fn(),
   deleteProject: vi.fn(),
   listImageModels: vi.fn(),
-  updateStory: vi.fn(),
+  updateAssetCanvas: vi.fn(),
 }));
 
 vi.mock("../src/renderer/api.js", () => api);
@@ -26,7 +26,7 @@ describe("Asset Canvas quick start", () => {
     vi.clearAllMocks();
     api.createProject.mockResolvedValue(PROJECT);
     api.deleteProject.mockResolvedValue(undefined);
-    api.updateStory.mockResolvedValue(undefined);
+    api.updateAssetCanvas.mockResolvedValue(undefined);
     api.listImageModels.mockResolvedValue([]);
   });
 
@@ -36,10 +36,8 @@ describe("Asset Canvas quick start", () => {
     const result = await createAssetCanvasQuickStart("image");
 
     expect(api.createProject).toHaveBeenCalledWith({ type: "asset-canvas" });
-    expect(api.updateStory).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({
-      chapter: expect.objectContaining({
-        nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } }) })],
-      }),
+    expect(api.updateAssetCanvas).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({
+      nodes: [expect.objectContaining({ type: "image", data: expect.objectContaining({ model: { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } }) })],
     }));
     expect(result.project).toBe(PROJECT);
     expect(result.nodeId).toBeTruthy();
@@ -50,19 +48,19 @@ describe("Asset Canvas quick start", () => {
     expect(api.createProject).not.toHaveBeenCalled();
   });
 
-  it("removes a project when its starter story cannot be written", async () => {
-    api.updateStory.mockRejectedValue(new Error("Could not write story"));
+  it("removes a project when its starter canvas cannot be written", async () => {
+    api.updateAssetCanvas.mockRejectedValue(new Error("Could not write canvas"));
 
-    await expect(createAssetCanvasQuickStart("video")).rejects.toThrow("Could not write story");
+    await expect(createAssetCanvasQuickStart("video")).rejects.toThrow("Could not write canvas");
     expect(api.deleteProject).toHaveBeenCalledWith(PROJECT.id);
   });
 
   it("reports when a failed starter project cannot be removed", async () => {
-    api.updateStory.mockRejectedValue(new Error("Could not write story"));
+    api.updateAssetCanvas.mockRejectedValue(new Error("Could not write canvas"));
     api.deleteProject.mockRejectedValue(new Error("Could not delete project"));
 
     await expect(createAssetCanvasQuickStart("model-3d")).rejects.toThrow(
-      "Could not write story. The empty canvas could not be removed.",
+      "Could not write canvas. The empty canvas could not be removed.",
     );
   });
 });

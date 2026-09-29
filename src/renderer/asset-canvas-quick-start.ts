@@ -1,6 +1,6 @@
 import type { ProjectState } from "../shared/contracts.js";
-import { createAssetCanvasStarterStory, type AssetCanvasStarter } from "../shared/story.js";
-import { createProject, deleteProject, listImageModels, updateStory } from "./api.js";
+import { createAssetCanvasStarterDocument, type AssetCanvasStarter } from "../shared/asset-canvas.js";
+import { createProject, deleteProject, listImageModels, updateAssetCanvas } from "./api.js";
 
 export async function createAssetCanvasQuickStart(type: AssetCanvasStarter): Promise<{ project: ProjectState; nodeId: string }> {
   const imageModel = type === "image"
@@ -8,13 +8,13 @@ export async function createAssetCanvasQuickStart(type: AssetCanvasStarter): Pro
     : undefined;
   if (type === "image" && !imageModel) throw new Error("GPT Image 2.5 is not available");
 
-  const { story, nodeId } = createAssetCanvasStarterStory(
+  const { document, nodeId } = createAssetCanvasStarterDocument(
     type,
     imageModel ? { provider: imageModel.provider, id: imageModel.id } : undefined,
   );
   const project = await createProject({ type: "asset-canvas" });
   try {
-    await updateStory(project.id, story);
+    await updateAssetCanvas(project.id, document);
   } catch (cause) {
     try {
       await deleteProject(project.id);

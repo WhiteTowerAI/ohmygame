@@ -5,7 +5,7 @@ import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.j
 import { createProject } from "./api.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
 import { storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
-import { StoryFormatOptions } from "./story-format-options.js";
+import { AssetCanvasFormatOptions } from "./asset-canvas-format-options.js";
 
 export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
   initialType?: ProjectType;
@@ -152,7 +152,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
               </fieldset>
               {!templateId ? <fieldset className="project-create-format">
                 <legend>Canvas format</legend>
-                <StoryFormatOptions value={storyFormat} disabled={creating} onChange={setStoryFormat} />
+                <AssetCanvasFormatOptions value={storyFormat} disabled={creating} onChange={setStoryFormat} />
               </fieldset> : null}
             </>
           ) : null}

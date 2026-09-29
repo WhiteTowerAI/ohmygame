@@ -26,6 +26,7 @@ const source = {
 
 const assetIds = {
   type: "array",
+  maxItems: 500,
   uniqueItems: true,
   items: identifier,
 } as const;
@@ -41,9 +42,9 @@ export const PLAYABLE_GRAPH_SCHEMA = {
         { type: "null" },
         { type: "boolean" },
         { type: "number" },
-        { type: "string" },
-        { type: "array", items: { $ref: "#/$defs/jsonValue" } },
-        { type: "object", additionalProperties: { $ref: "#/$defs/jsonValue" } },
+        { type: "string", maxLength: 1_000_000 },
+        { type: "array", maxItems: 10_000, items: { $ref: "#/$defs/jsonValue" } },
+        { type: "object", maxProperties: 1_000, additionalProperties: { $ref: "#/$defs/jsonValue" } },
       ],
     },
     source,
@@ -76,10 +77,12 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     entryNodeId: identifier,
     initialState: {
       type: "object",
+      maxProperties: 1_000,
       additionalProperties: { $ref: "#/$defs/jsonValue" },
     },
     assets: {
       type: "object",
+      maxProperties: 1_000,
       propertyNames: identifier,
       additionalProperties: {
         type: "object",
@@ -117,11 +120,14 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     },
     destinations: {
       type: "object",
+      maxProperties: 500,
       propertyNames: identifier,
       additionalProperties: identifier,
     },
     nodes: {
       type: "array",
+      minItems: 1,
+      maxItems: 500,
       items: {
         type: "object",
         additionalProperties: false,
@@ -133,6 +139,8 @@ export const PLAYABLE_GRAPH_SCHEMA = {
           assets: assetIds,
           signals: {
             type: "array",
+            maxItems: 100,
+            uniqueItems: true,
             items: {
               type: "object",
               additionalProperties: false,
@@ -148,6 +156,7 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     },
     edges: {
       type: "array",
+      maxItems: 2_000,
       items: {
         type: "object",
         additionalProperties: false,

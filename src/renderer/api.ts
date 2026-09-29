@@ -23,9 +23,9 @@ import {
   type ProjectPackageManager,
   type ProjectFileOpenMode,
   type ProjectState,
-  type StoryDocument,
-  type StoryTextGenerationRequest,
-  type StoryTextGenerationResponse,
+  type AssetCanvasDocument,
+  type AssetCanvasTextGenerationRequest,
+  type AssetCanvasTextGenerationResponse,
   type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
   type PublishResult,
@@ -343,8 +343,8 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function getStory(projectId: string): Promise<StoryDocument> {
-  return request(`/projects/${projectId}/story`);
+export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocument> {
+  return request(`/projects/${projectId}/asset-canvas`);
 }
 
 export async function getPlayableProjectRuntime(projectId: string): Promise<PlayableProjectRuntimeResponse> {
@@ -365,12 +365,12 @@ export async function updatePlayableCodebase(
   });
 }
 
-export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
-  await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
+export async function updateAssetCanvas(projectId: string, document: AssetCanvasDocument): Promise<void> {
+  await request(`/projects/${projectId}/asset-canvas`, { method: "PUT", body: JSON.stringify(document) });
 }
 
-export async function generateStoryText(projectId: string, input: StoryTextGenerationRequest): Promise<StoryTextGenerationResponse> {
-  return request(`/projects/${projectId}/story/text/generate`, { method: "POST", body: JSON.stringify(input) });
+export async function generateAssetCanvasText(projectId: string, input: AssetCanvasTextGenerationRequest): Promise<AssetCanvasTextGenerationResponse> {
+  return request(`/projects/${projectId}/asset-canvas/text/generate`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {

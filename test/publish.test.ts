@@ -501,7 +501,6 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   await mkdir(path.join(playerDirectory, "assets"));
   await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
   await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
-  await writeFile(path.join(playerDirectory, "scene-surface.html"), "ohmygame:scene-surface");
   await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "<main>Playable sandbox</main>");
   await writeFile(path.join(playerDirectory, "assets/playable-sandbox.js"), "window.playableSandbox = true");
   const daemon = createApp({

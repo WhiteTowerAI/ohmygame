@@ -12,9 +12,9 @@ export interface PlayablePlayerDefinition {
   graphSignature: string;
 }
 
-export type PlayableProjectRuntimeResponse =
-  | { available: false }
-  | { available: true; definition: PlayablePlayerDefinition };
+export interface PlayableProjectRuntimeResponse {
+  definition: PlayablePlayerDefinition;
+}
 
 export interface PlayableAssetTransfer {
   contentType: string;

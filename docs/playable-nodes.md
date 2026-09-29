@@ -1003,3 +1003,43 @@ connect, validate, visually inspect, and debug those examples by changing only
 project content and public declarations. It may inspect the open-source Runtime
 for understanding, but should not need to modify it or depend on an unexported
 helper to express a new creative idea.
+
+## Removal and hardening status
+
+Interactive Drama now has one authored format and one playback path. New and
+existing projects use `graph.json`, ordinary Node/Shell source, the Playable
+compiler, and the Playable Runtime. The Daemon, Playtest, Published Player, and
+publisher do not read `story.json` or fall back to the old Story player. The
+old Open UI, Scene, Interaction, Choice, Ending, Story Map, Settings, and
+separate screen/scene/interaction surface protocols have been removed from the
+active product and its tests.
+
+Asset Canvas remains a separate media-generation tool. It persists
+`canvas.json`, `editor/layout.json`, and `schemas/asset-canvas.schema.json`.
+Its schema accepts only Text, Image, Video, Model 3D, and imported Asset nodes;
+it cannot store Playable Nodes or any removed Story runtime node.
+
+The hardening contract is:
+
+- `GET /projects/:projectId/playable/validation` validates the complete project
+  in `draft` mode by default or `publish` mode when requested;
+- validation returns every graph issue with `phase`, stable `code`, JSON
+  Pointer `path`, and `message`, followed by a structured compiler issue when
+  graph validation succeeds but compilation fails;
+- Agent instructions require reading the checked-in schemas, compiling every
+  Node and Shell, fixing all validation issues, and exercising the affected
+  route in Playtest when available;
+- Playtest retains a bounded recent diagnostic history and exposes current
+  Node, back stack, recent Signals, State, and save status;
+- graph size is bounded to 500 Nodes, 2,000 edges, 1,000 Assets, 500 named
+  destinations, 100 Signals per Node, and 500 Asset dependencies per surface;
+- individual surface source files are limited to 5 MiB and compiled surfaces
+  to 16 MiB; surface compilation remains concurrency-limited;
+- Node and Shell code runs in an opaque-origin iframe with exactly
+  `sandbox="allow-scripts"`; CSP denies network, objects, forms, base URLs, and
+  every resource category except the explicit data/blob media and inline style
+  needs of a compiled surface.
+
+Playtest and Published Player continue to consume the same compiled definition.
+Hardening must not introduce a second debug-only runtime or an Agent-only
+authoring representation.

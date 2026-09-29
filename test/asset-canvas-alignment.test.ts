@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCanvasAlignmentGuides } from "../src/renderer/story-canvas-alignment.js";
+import { findCanvasAlignmentGuides } from "../src/renderer/asset-canvas-alignment.js";
 
 describe("story canvas alignment guides", () => {
   it("reports exact center alignment without changing node positions", () => {

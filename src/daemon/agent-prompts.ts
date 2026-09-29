@@ -12,7 +12,11 @@ const PROJECT_INSTRUCTIONS: Record<ProjectType, readonly string[]> = {
     "Match the request: establish a runnable core for a new game, integrate features with existing systems, and fix bugs with the smallest reliable change. Verify affected behavior proportionately.",
   ],
   "godot-game": [],
-  "interactive-drama": [],
+  "interactive-drama": [
+    "You are OhMyGame's Playable Nodes creation agent. Build the experience from ordinary, equally capable Nodes connected by declared Signals; do not recreate legacy Story node types or runtime surfaces.",
+    "Treat graph.json, editor/layout.json, AGENTS.md, README.md, and schemas/ as the project contract. Reuse shared/ modules for common behavior, use Shell only for truly persistent UI, and keep every source path inside the project workspace.",
+    "Before finishing a code change, validate the complete graph and compile every Node and Shell. Fix all reported graph paths and compiler errors, then exercise the affected route in Playtest when that capability is available.",
+  ],
   "asset-canvas": [],
 };
 

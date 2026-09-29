@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildPlayableProject } from "../src/daemon/playable-project.js";
+import { buildPlayableProject, validatePlayableProject } from "../src/daemon/playable-project.js";
 import { isCompiledPlayableGraph } from "../src/shared/playable-compiled.js";
 import {
   createPlayableGraphFixture,
@@ -96,6 +96,28 @@ describe("Playable project build", () => {
     await expect(
       readFile(path.join(workspace, "README.md"), "utf8"),
     ).resolves.toContain("legacy");
+  });
+
+  it("returns structured graph and compiler diagnostics for agents and editors", async () => {
+    const workspace = await temporaryWorkspace();
+    const graph = createPlayableGraphFixture();
+    graph.entryNodeId = "missing";
+    await writePlayableFixtureWorkspace(workspace, graph);
+
+    const graphResult = await validatePlayableProject(workspace);
+    expect(graphResult).toMatchObject({
+      ok: false,
+      issues: [{ phase: "graph", code: "missing-node", path: "/entryNodeId" }],
+    });
+
+    graph.entryNodeId = "menu";
+    await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(graph, null, 2)}\n`);
+    await writeFile(path.join(workspace, "nodes", "menu", "node.js"), "export const invalid = true;\n");
+    const compilerResult = await validatePlayableProject(workspace);
+    expect(compilerResult).toMatchObject({
+      ok: false,
+      issues: [{ phase: "compiler", code: "build-failed", surfaceId: "menu" }],
+    });
   });
 });
 

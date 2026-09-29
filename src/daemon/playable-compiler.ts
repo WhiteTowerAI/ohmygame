@@ -21,7 +21,8 @@ export type PlayableCompilerErrorCode =
   | "invalid-graph"
   | "missing-source"
   | "path-outside-workspace"
-  | "build-failed";
+  | "build-failed"
+  | "resource-limit";
 
 export class PlayableCompilerError extends Error {
   constructor(
@@ -70,6 +71,8 @@ const EMBEDDED_LOADERS: NonNullable<BuildOptions["loader"]> = {
   ".vert": "text",
 };
 const MAX_CONCURRENT_SURFACE_BUILDS = 4;
+const MAX_SURFACE_SOURCE_BYTES = 5 * 1024 * 1024;
+const MAX_COMPILED_SURFACE_BYTES = 16 * 1024 * 1024;
 
 export async function compilePlayableGraph(
   workspacePath: string,
@@ -124,7 +127,7 @@ async function compileSurface(
 
   try {
     const [html, buildResult] = await Promise.all([
-      readFile(htmlPath, "utf8"),
+      readLimitedText(htmlPath, surfaceId),
       bundleSurface(
         workspaceRoot,
         cssPath,
@@ -148,13 +151,22 @@ async function compileSurface(
       ...metafileInputs(buildResult.metafile),
     ]);
 
-    return {
+    const compiled = {
       id: surfaceId,
       html,
       css: [explicitCss, importedCss].filter(Boolean).join("\n"),
       javascript,
       inputs: [...inputs].sort(),
     };
+    const compiledBytes = Buffer.byteLength(compiled.html) + Buffer.byteLength(compiled.css) + Buffer.byteLength(compiled.javascript);
+    if (compiledBytes > MAX_COMPILED_SURFACE_BYTES) {
+      throw new PlayableCompilerError(
+        "resource-limit",
+        `Playable surface "${surfaceId}" exceeds the 16 MiB compiled size limit.`,
+        surfaceId,
+      );
+    }
+    return compiled;
   } catch (cause) {
     if (boundary.violation) throw boundary.violation;
     if (cause instanceof PlayableCompilerError) throw cause;
@@ -165,6 +177,18 @@ async function compileSurface(
       { cause },
     );
   }
+}
+
+async function readLimitedText(file: string, surfaceId: string): Promise<string> {
+  const details = await stat(file);
+  if (details.size > MAX_SURFACE_SOURCE_BYTES) {
+    throw new PlayableCompilerError(
+      "resource-limit",
+      `Playable surface "${surfaceId}" contains a source file larger than 5 MiB.`,
+      surfaceId,
+    );
+  }
+  return readFile(file, "utf8");
 }
 
 async function bundleSurface(
@@ -281,7 +305,15 @@ async function resolveSourceFile(
   try {
     const resolved = await realpath(candidate);
     assertInsideWorkspace(workspaceRoot, resolved, surfaceId, sourcePath);
-    if (!(await stat(resolved)).isFile()) throw new Error("not a file");
+    const details = await stat(resolved);
+    if (!details.isFile()) throw new Error("not a file");
+    if (details.size > MAX_SURFACE_SOURCE_BYTES) {
+      throw new PlayableCompilerError(
+        "resource-limit",
+        `Playable surface "${surfaceId}" contains a source file larger than 5 MiB.`,
+        surfaceId,
+      );
+    }
     return resolved;
   } catch (cause) {
     if (cause instanceof PlayableCompilerError) throw cause;

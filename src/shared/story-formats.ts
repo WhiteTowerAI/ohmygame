@@ -1,6 +1,7 @@
-import type { StoryPlayerConfig } from "./contracts.js";
-
-export type StoryViewport = StoryPlayerConfig["viewport"];
+export interface StoryViewport {
+  width: number;
+  height: number;
+}
 
 export const STORY_FORMAT_PRESETS = [
   {

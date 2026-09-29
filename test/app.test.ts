@@ -5,8 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { type StoryDocument } from "../src/shared/contracts.js";
-import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
+import { type AssetCanvasDocument } from "../src/shared/contracts.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
@@ -153,6 +152,23 @@ describe("daemon", () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({ error: "Playable codebases require an Interactive Drama project" });
+  });
+
+  it("exposes structured Playable validation for Playtest and agents", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-playable-validation-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+
+    const valid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation` });
+    const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8"));
+    graph.entryNodeId = "missing";
+    await writeFile(path.join(project.workspacePath, "graph.json"), `${JSON.stringify(graph)}\n`);
+    const invalid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation?mode=publish` });
+
+    expect(valid.statusCode).toBe(200);
+    expect(valid.json()).toMatchObject({ ok: true, issues: [] });
+    expect(invalid.statusCode).toBe(200);
+    expect(invalid.json()).toMatchObject({ ok: false, issues: [expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })] });
   });
 
   it("rolls back project creation without changing a conflicting external workspace", async () => {
@@ -364,7 +380,6 @@ describe("daemon", () => {
     expect(codebase.graph.initialState).toEqual({ boarded: false });
     expect(codebase.graph.edges).toHaveLength(2);
     const runtime = (await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/playable` })).json();
-    expect(runtime.available).toBe(true);
     expect(Object.keys(runtime.definition.compiled.nodes)).toEqual(["platform", "carriage", "home"]);
     expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
   });
@@ -406,28 +421,28 @@ describe("daemon", () => {
     expect(general.statusCode).toBe(400);
   });
 
-  it("loads and updates an Interactive Drama story", async () => {
+  it("loads and updates an Asset Canvas document", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const project = (await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Story", type: "interactive-drama" },
+      payload: { name: "Canvas", type: "asset-canvas" },
     })).json();
 
-    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
-    const story = loaded.json();
-    story.chapter.title = "The Stopover";
-    const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
+    const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` });
+    const canvas = loaded.json();
+    canvas.viewport = { width: 1080, height: 1080 };
+    const updated = await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: canvas });
 
     expect(loaded.statusCode).toBe(200);
-    expect(story.chapter).toMatchObject({ nodes: [], edges: [] });
+    expect(canvas).toMatchObject({ nodes: [], edges: [] });
     expect(updated.statusCode).toBe(204);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json())
-      .toMatchObject({ chapter: { title: "The Stopover" } });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json())
+      .toMatchObject({ viewport: { width: 1080, height: 1080 } });
   });
 
-  it("generates story text with a selected language model", async () => {
+  it("generates Asset Canvas text with a selected language model", async () => {
     const model = { provider: "provider-one", id: "model-one", name: "Model One" };
     const completeSimple = vi.fn().mockResolvedValue({
       role: "assistant",
@@ -443,11 +458,11 @@ describe("daemon", () => {
       createModelRuntime: async () => runtime,
     });
     apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
 
     const response = await app.inject({
       method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
+      url: `/projects/${project.id}/asset-canvas/text/generate`,
       payload: { instruction: "Write an image prompt", model: { provider: model.provider, id: model.id } },
     });
 
@@ -456,17 +471,17 @@ describe("daemon", () => {
     expect(completeSimple).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects story text generation without an available model", async () => {
+  it("rejects Asset Canvas text generation without an available model", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
       createModelRuntime: async () => fakeModelRuntime([]),
     });
     apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
 
     const response = await app.inject({
       method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
+      url: `/projects/${project.id}/asset-canvas/text/generate`,
       payload: { instruction: "Write an image prompt", model: { provider: "missing", id: "missing" } },
     });
 
@@ -474,7 +489,7 @@ describe("daemon", () => {
     expect(response.json()).toEqual({ error: "The selected language model is not available" });
   });
 
-  it("rejects story text generation for other project types", async () => {
+  it("rejects Asset Canvas text generation for other project types", async () => {
     const completeSimple = vi.fn();
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
@@ -488,12 +503,12 @@ describe("daemon", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
+      url: `/projects/${project.id}/asset-canvas/text/generate`,
       payload: { instruction: "Write an image prompt", model: { provider: "provider-one", id: "model-one" } },
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Story documents require an Interactive Drama project" });
+    expect(response.json()).toEqual({ error: "Text generation requires an Asset Canvas project" });
     expect(completeSimple).not.toHaveBeenCalled();
   });
 
@@ -592,7 +607,7 @@ describe("daemon", () => {
     const project = (await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Story", type: "interactive-drama" },
+      payload: { name: "Canvas", type: "asset-canvas" },
     })).json();
     await writeFile(path.join(project.workspacePath, "opening.mp4"), "video bytes");
 
@@ -604,8 +619,8 @@ describe("daemon", () => {
     const content = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/content` });
     expect(content.rawPayload.toString()).toBe("video bytes");
 
-    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapter.nodes.push({
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    story.nodes.push({
       id: "video",
       type: "video",
       position: { x: 0, y: 0 },
@@ -618,37 +633,20 @@ describe("daemon", () => {
         references: [],
         assetId: first[0].id,
       },
-    }, {
-      id: "scene",
-      type: "scene",
-      position: { x: 100, y: 0 },
-      data: {
-        title: "Opening",
-        presentation: {
-          media: { items: [
-            { id: "library-clip", type: "video", source: { type: "library", assetId: first[0].id } },
-            { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
-          ] },
-          surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) },
-        },
-      },
     });
     syncStoryLayout(story);
-    await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story });
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: story });
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}` });
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json()).toEqual({ error: "Asset is used by 1 project" });
 
     const references = await app.inject({ method: "GET", url: `/library/assets/${first[0].id}/references` });
-    expect(references.json()).toEqual([{ id: project.id, name: "Story", type: "interactive-drama" }]);
+    expect(references.json()).toEqual([{ id: project.id, name: "Canvas", type: "asset-canvas" }]);
     const removed = await app.inject({ method: "DELETE", url: `/library/assets/${first[0].id}?force=true` });
     expect(removed.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
-    const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
-    expect(updatedStory.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([
-      { id: "node-clip", type: "video", source: { type: "node", nodeId: "video" } },
-    ]);
+    const updatedStory = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updatedStory.nodes.find((node: { id: string }) => node.id === "video").data.assetId).toBeUndefined();
   });
 
   it("protects Library assets declared by a Playable Nodes graph", async () => {
@@ -710,14 +708,14 @@ describe("daemon", () => {
     expect(missing.statusCode).toBe(404);
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
     expect(blocked.statusCode).toBe(409);
-    await expect(readFile(path.join(story.workspacePath, "story.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(story.workspacePath, "canvas.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("blocks Library deletion when an Interactive Drama document cannot be verified", async () => {
+  it("blocks Library deletion when an Asset Canvas document cannot be verified", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-old-story-")) });
     apps.push(app);
-    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    await writeFile(path.join(storyProject.workspacePath, "story.json"), JSON.stringify({ version: 1, chapters: [] }));
+    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    await writeFile(path.join(storyProject.workspacePath, "canvas.json"), JSON.stringify({ version: 1, chapters: [] }));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
@@ -729,11 +727,11 @@ describe("daemon", () => {
     expect(response.json().error).toContain("Cannot verify Library references");
   });
 
-  it("blocks Library deletion when a canonical Interactive Drama project is incomplete", async () => {
+  it("blocks Library deletion when an Asset Canvas project is incomplete", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-incomplete-story-")) });
     apps.push(app);
-    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    await app.inject({ method: "GET", url: `/projects/${storyProject.id}/story` });
+    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    await app.inject({ method: "GET", url: `/projects/${storyProject.id}/asset-canvas` });
     await rm(path.join(storyProject.workspacePath, "editor/layout.json"));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
@@ -784,10 +782,10 @@ describe("daemon", () => {
     const project = (await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Story", type: "interactive-drama" },
+      payload: { name: "Canvas", type: "asset-canvas" },
     })).json();
-    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapter.nodes.push({
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    story.nodes.push({
       id: "video",
       type: "video",
       position: { x: 100, y: 0 },
@@ -801,12 +799,12 @@ describe("daemon", () => {
       },
     });
     syncStoryLayout(story);
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/references` })).json()).toHaveLength(1);
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updated.nodes.find((node: { id: string }) => node.id === "video").data.references).toEqual([]);
   });
 
   it("rejects Library image data that does not match its media type", async () => {
@@ -844,18 +842,16 @@ describe("daemon", () => {
     const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
     expect(content.rawPayload).toEqual(mp4);
 
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapter.nodes.push(
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    story.nodes.push(
       { id: "uploaded-video", type: "asset", position: { x: 100, y: 0 }, data: { assetId: response.json().id, mediaType: "video" } },
-      { id: "scene", type: "scene", position: { x: 400, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "node", nodeId: "uploaded-video" } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } },
     );
     syncStoryLayout(story);
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${response.json().id}?force=true` })).statusCode).toBe(204);
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
-    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "scene").data.presentation.media.items).toEqual([]);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updated.nodes.some((node: { id: string }) => node.id === "uploaded-video")).toBe(false);
   });
 
   it("removes deleted Library assets from image references", async () => {
@@ -866,20 +862,22 @@ describe("daemon", () => {
       url: "/library/assets",
       payload: { name: "reference.png", image: { mediaType: "image/png", data: "iVBORw0KGgo=" } },
     })).json();
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    story.chapter.nodes.push(
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const story = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    story.nodes.push(
       { id: "library-image", type: "asset", position: { x: 100, y: 0 }, data: { assetId: image.id, mediaType: "image" } },
       { id: "generated-image", type: "image", position: { x: 400, y: 0 }, data: { prompt: "Compose", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: image.id }, { type: "node", nodeId: "library-image" }] } },
+      { id: "generated-model", type: "model-3d", position: { x: 700, y: 0 }, data: { targetPolycount: 5000, texture: true, pbr: true, images: [{ type: "library", assetId: image.id }] } },
     );
     syncStoryLayout(story);
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: story })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}` })).statusCode).toBe(409);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${image.id}?force=true` })).statusCode).toBe(204);
 
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    expect(updated.chapter.nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
-    expect(updated.chapter.nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updated.nodes.some((node: { id: string }) => node.id === "library-image")).toBe(false);
+    expect(updated.nodes.find((node: { id: string }) => node.id === "generated-image").data.images).toEqual([]);
+    expect(updated.nodes.find((node: { id: string }) => node.id === "generated-model").data.images).toEqual([]);
   });
 
   it("rejects unsafe workspace file paths", async () => {
@@ -1829,8 +1827,8 @@ describe("daemon", () => {
   });
 });
 
-function syncStoryLayout(story: StoryDocument): void {
-  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
+function syncStoryLayout(story: AssetCanvasDocument): void {
+  story.editorLayout.nodes = Object.fromEntries(story.nodes.map((node) => [node.id, node.position] as const));
 }
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
