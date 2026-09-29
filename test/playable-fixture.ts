@@ -1,4 +1,4 @@
-import type { PlayableGraph } from "../src/shared/playable-nodes.js";
+import type { NodeGraph } from "../src/shared/playable-nodes.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -18,7 +18,7 @@ export const PLAYABLE_FIXTURE_FILES = new Set([
   "nodes/archive/node.js",
 ]);
 
-export function createPlayableGraphFixture(): PlayableGraph {
+export function createNodeGraphFixture(): NodeGraph {
   return {
     version: 1,
     title: "Ash Club",
@@ -101,7 +101,7 @@ export function createPlayableGraphFixture(): PlayableGraph {
 
 export async function writePlayableFixtureWorkspace(
   workspace: string,
-  graph = createPlayableGraphFixture(),
+  graph = createNodeGraphFixture(),
 ): Promise<void> {
   await Promise.all([
     mkdir(path.join(workspace, "assets"), { recursive: true }),

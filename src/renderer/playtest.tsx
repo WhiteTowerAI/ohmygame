@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
-import type { PlayableRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { getLibraryAsset, getPlayableProjectRuntime, getWorkspaceAsset } from "./api.js";
-import { PlayablePlayer } from "./playable-player.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
+import { getLibraryAsset, getNodeRuntime, getWorkspaceAsset } from "./api.js";
+import { NodePlayer } from "./playable-player.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 export function PlaytestPage({ projectId }: { projectId: string; chapterId: string }) {
-  const [snapshot, setSnapshot] = useState<PlayableRuntimeSnapshot>();
+  const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [playable, setPlayable] = useState<
     | { status: "loading" }
-    | { status: "ready"; definition: PlayablePlayerDefinition; assets: Record<string, Blob> }
+    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob> }
     | { status: "error"; error: string }
   >({ status: "loading" });
 
@@ -19,7 +19,7 @@ export function PlaytestPage({ projectId }: { projectId: string; chapterId: stri
     setPlayable({ status: "loading" });
     setSnapshot(undefined);
     setDiagnostics([]);
-    void getPlayableProjectRuntime(projectId).then(async (result) => {
+    void getNodeRuntime(projectId).then(async (result) => {
       const assets = await mapConcurrent(
         Object.entries(result.definition.graph.assets),
         4,
@@ -46,7 +46,7 @@ export function PlaytestPage({ projectId }: { projectId: string; chapterId: stri
   if (playable.status === "ready") return (
     <>
       <WindowDragRegion />
-      <PlayablePlayer
+      <NodePlayer
         definition={playable.definition}
         assets={playable.assets}
         saveKey={`ohmygame:playable:project:${projectId}`}

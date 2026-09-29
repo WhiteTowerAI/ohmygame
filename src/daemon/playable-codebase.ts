@@ -3,15 +3,15 @@ import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "
 import path from "node:path";
 import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../shared/playable-graph-schema.js";
-import { validatePlayableGraph } from "../shared/playable-graph-validation.js";
+import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import {
-  isPlayableEditorLayout,
+  isNodeEditorLayout,
   playableLayoutMatchesGraph,
-  type PlayableCodebase,
-  type PlayableCodebaseUpdate,
-  type PlayableEditorLayout,
+  type NodeCodebase,
+  type NodeCodebaseUpdate,
+  type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
-import type { PlayableGraph } from "../shared/playable-nodes.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
 const GRAPH_FILE = "graph.json";
@@ -20,8 +20,8 @@ const GRAPH_SCHEMA_FILE = "schemas/graph.schema.json";
 const LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
 const codebaseOperations = new Map<string, Promise<void>>();
 
-export class PlayableCodebaseError extends Error {
-  override readonly name = "PlayableCodebaseError";
+export class NodeCodebaseError extends Error {
+  override readonly name = "NodeCodebaseError";
 }
 
 const AGENT_INSTRUCTIONS = `# Playable Nodes Project
@@ -74,15 +74,15 @@ export function createPlayableStarterCodebase(
   title: string,
   viewport: { width: number; height: number },
   template: "blank" | "night-train" = "blank",
-): PlayableCodebase {
+): NodeCodebase {
   return template === "night-train"
     ? nightTrainCodebase(title, viewport)
     : blankCodebase(title, viewport);
 }
 
-export async function createPlayableCodebase(
+export async function createNodeCodebase(
   workspacePath: string,
-  codebase: PlayableCodebase,
+  codebase: NodeCodebase,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
     await validateCodebase(workspacePath, codebase, false);
@@ -92,7 +92,7 @@ export async function createPlayableCodebase(
       ...generatedFiles,
     ]);
     if (collisions.length) {
-      throw new PlayableCodebaseError(
+      throw new NodeCodebaseError(
         `Playable project files already exist: ${collisions.join(", ")}`,
       );
     }
@@ -116,7 +116,7 @@ export async function createPlayableCodebase(
           flag: "wx",
         });
       }
-      await ensurePlayableCodebaseContract(workspacePath);
+      await ensureNodeCodebaseContract(workspacePath);
     } catch (cause) {
       await restoreFiles(workspacePath, snapshot);
       throw cause;
@@ -124,29 +124,29 @@ export async function createPlayableCodebase(
   });
 }
 
-export async function readPlayableCodebase(
+export async function readNodeCodebase(
   workspacePath: string,
-): Promise<PlayableCodebase> {
+): Promise<NodeCodebase> {
   return withCodebaseLock(workspacePath, async () => {
     const [graphValue, layoutValue] = await Promise.all([
       readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE),
       readJson(path.join(workspacePath, LAYOUT_FILE), LAYOUT_FILE),
     ]);
     const codebase = {
-      graph: graphValue as PlayableGraph,
-      editorLayout: layoutValue as PlayableEditorLayout,
+      graph: graphValue as NodeGraph,
+      editorLayout: layoutValue as NodeEditorLayout,
     };
     await validateCodebase(workspacePath, codebase, true);
     return codebase;
   });
 }
 
-export async function writePlayableCodebase(
+export async function writeNodeCodebase(
   workspacePath: string,
-  update: PlayableCodebaseUpdate,
+  update: NodeCodebaseUpdate,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
-    const codebase: PlayableCodebase = {
+    const codebase: NodeCodebase = {
       graph: update.graph,
       editorLayout: update.editorLayout,
     };
@@ -178,7 +178,7 @@ export async function writePlayableCodebase(
       }
       await writeJsonAtomic(workspacePath, GRAPH_FILE, codebase.graph);
       await writeJsonAtomic(workspacePath, LAYOUT_FILE, codebase.editorLayout);
-      await ensurePlayableCodebaseContract(workspacePath);
+      await ensureNodeCodebaseContract(workspacePath);
       await removeEmptySourceDirectories(workspacePath, sourceDeletions);
     } catch (cause) {
       await restoreFiles(workspacePath, snapshot);
@@ -187,7 +187,7 @@ export async function writePlayableCodebase(
   });
 }
 
-export async function ensurePlayableCodebaseContract(
+export async function ensureNodeCodebaseContract(
   workspacePath: string,
 ): Promise<void> {
   await Promise.all([
@@ -206,7 +206,7 @@ export async function ensurePlayableCodebaseContract(
 
 async function validateCodebase(
   workspacePath: string,
-  codebase: PlayableCodebase,
+  codebase: NodeCodebase,
   requireFiles: boolean,
   additionalFiles: string[] = [],
 ): Promise<void> {
@@ -220,7 +220,7 @@ async function validateCodebase(
         ],
       )
     : undefined;
-  const validation = validatePlayableGraph(codebase.graph, {
+  const validation = validateNodeGraph(codebase.graph, {
     mode: "draft",
     ...(availableFiles ? { availableFiles } : {}),
   });
@@ -228,7 +228,7 @@ async function validateCodebase(
     const first = validation.issues[0]!;
     throw new Error(`${first.path}: ${first.message}`);
   }
-  if (!isPlayableEditorLayout(codebase.editorLayout)) {
+  if (!isNodeEditorLayout(codebase.editorLayout)) {
     throw new Error("Invalid editor/layout.json.");
   }
   if (!playableLayoutMatchesGraph(codebase.graph, codebase.editorLayout)) {
@@ -241,7 +241,7 @@ async function validateCodebase(
 function blankCodebase(
   title: string,
   viewport: { width: number; height: number },
-): PlayableCodebase {
+): NodeCodebase {
   return {
     graph: {
       version: 1,
@@ -261,7 +261,7 @@ function blankCodebase(
 function nightTrainCodebase(
   title: string,
   viewport: { width: number; height: number },
-): PlayableCodebase {
+): NodeCodebase {
   return {
     graph: {
       version: 1,
@@ -331,7 +331,7 @@ function node(
 
 function layout(
   nodes: Record<string, { x: number; y: number }>,
-): PlayableEditorLayout {
+): NodeEditorLayout {
   return {
     version: 1,
     nodes,
@@ -340,7 +340,7 @@ function layout(
   };
 }
 
-function starterSources(graph: PlayableGraph): Record<string, string> {
+function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = {};
   for (const item of graph.nodes) {
     sources[item.source.html] = nodeHtml(item.id, item.title);
@@ -511,8 +511,8 @@ async function writeTextAtomic(
 }
 
 function validateSourceUpdates(
-  graph: PlayableGraph,
-  value: PlayableCodebaseUpdate["sources"],
+  graph: NodeGraph,
+  value: NodeCodebaseUpdate["sources"],
 ): Record<string, string> {
   if (value === undefined) return {};
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -542,8 +542,8 @@ function validateSourceUpdates(
 
 async function validateSourceDeletions(
   workspacePath: string,
-  nextGraph: PlayableGraph,
-  value: PlayableCodebaseUpdate["sourceDeletions"],
+  nextGraph: NodeGraph,
+  value: NodeCodebaseUpdate["sourceDeletions"],
   updatedSources: string[],
 ): Promise<string[]> {
   if (value === undefined) return [];
@@ -555,11 +555,11 @@ async function validateSourceDeletions(
     throw new Error("Playable source deletions must not contain duplicates.");
   }
   const currentValue = await readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE);
-  const currentValidation = validatePlayableGraph(currentValue);
+  const currentValidation = validateNodeGraph(currentValue);
   if (!currentValidation.ok) {
     throw new Error("The current graph.json is invalid and its sources cannot be deleted safely.");
   }
-  const currentSources = declaredSourcePaths(currentValue as PlayableGraph);
+  const currentSources = declaredSourcePaths(currentValue as NodeGraph);
   const nextSources = declaredSourcePaths(nextGraph);
   const updates = new Set(updatedSources);
   for (const relative of deletions) {
@@ -576,7 +576,7 @@ async function validateSourceDeletions(
   return deletions;
 }
 
-function declaredSourcePaths(graph: PlayableGraph): Set<string> {
+function declaredSourcePaths(graph: NodeGraph): Set<string> {
   const declared = new Set<string>();
   for (const node of graph.nodes) {
     for (const kind of ["html", "css", "javascript"] as const) declared.add(node.source[kind]);
@@ -648,7 +648,7 @@ async function resolveWorkspaceMutationPath(
     path.posix.isAbsolute(normalized) ||
     normalized.split("/").some((part) => !part || part === "." || part === "..")
   ) {
-    throw new PlayableCodebaseError(`Invalid workspace path "${relative}".`);
+    throw new NodeCodebaseError(`Invalid workspace path "${relative}".`);
   }
   const root = await realpath(workspacePath);
   const candidate = path.resolve(root, ...normalized.split("/"));
@@ -656,7 +656,7 @@ async function resolveWorkspaceMutationPath(
 
   try {
     if ((await lstat(candidate)).isSymbolicLink()) {
-      throw new PlayableCodebaseError(`Workspace path "${relative}" cannot be a symbolic link.`);
+      throw new NodeCodebaseError(`Workspace path "${relative}" cannot be a symbolic link.`);
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
@@ -680,7 +680,7 @@ async function resolveWorkspaceMutationPath(
 function assertInsideWorkspace(root: string, candidate: string, relative: string): void {
   const relation = path.relative(root, candidate);
   if (relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
-    throw new PlayableCodebaseError(`Workspace path "${relative}" leaves the project workspace.`);
+    throw new NodeCodebaseError(`Workspace path "${relative}" leaves the project workspace.`);
   }
 }
 

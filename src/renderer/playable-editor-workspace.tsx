@@ -20,18 +20,18 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
-import type { PlayableCodebase } from "../shared/playable-codebase.js";
-import type { JsonObject, PlayableGraph, PlayableNode, PlayableSource } from "../shared/playable-nodes.js";
+import type { NodeCodebase } from "../shared/playable-codebase.js";
+import type { JsonObject, NodeGraph, PlayableNode, NodeSource } from "../shared/playable-nodes.js";
 import { deletePlayableSignal, renamePlayableSignal } from "../shared/playable-editor.js";
-import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import {
   buildInteractiveDrama,
   getLibraryAsset,
-  getPlayableCodebase,
-  getPlayableProjectRuntime,
+  getNodeCodebase,
+  getNodeRuntime,
   getWorkspaceAsset,
   getWorkspaceFile,
-  updatePlayableCodebase,
+  updateNodeCodebase,
 } from "./api.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { AssetMedia } from "./asset-gallery.js";
@@ -54,14 +54,14 @@ import {
   X,
 } from "./icons.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
-import { PlayablePlayer } from "./playable-player.js";
+import { NodePlayer } from "./playable-player.js";
 import { playtestHash } from "./routes.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import "@xyflow/react/dist/style.css";
 
 type EditorView = "flow" | "state" | "assets" | "shell" | "destinations" | "code";
-type SourceKind = keyof PlayableSource;
+type SourceKind = keyof NodeSource;
 type PlayableFlowData = Record<string, unknown> & {
   node: PlayableNode;
   entry: boolean;
@@ -101,7 +101,7 @@ export function PlayableEditorWorkspace({
 }) {
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
-  const [codebase, setCodebase] = useState<PlayableCodebase>();
+  const [codebase, setCodebase] = useState<NodeCodebase>();
   const [view, setView] = useState<EditorView>("flow");
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
@@ -115,7 +115,7 @@ export function PlayableEditorWorkspace({
   const [building, setBuilding] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
-  const [preview, setPreview] = useState<{ definition: PlayablePlayerDefinition; assets: Record<string, Blob> }>();
+  const [preview, setPreview] = useState<{ definition: NodePlayerDefinition; assets: Record<string, Blob> }>();
   const [codebaseGeneration, setCodebaseGeneration] = useState(0);
   const editVersionRef = useRef(0);
   const dirtyRef = useRef(false);
@@ -128,7 +128,7 @@ export function PlayableEditorWorkspace({
     setPhase("loading");
     setError(undefined);
     try {
-      const [next, assets] = await Promise.all([getPlayableCodebase(project.id), loadLibraryAssets()]);
+      const [next, assets] = await Promise.all([getNodeCodebase(project.id), loadLibraryAssets()]);
       if (request !== loadRequestRef.current) return;
       setCodebase(next);
       setLibraryAssets(assets);
@@ -198,7 +198,7 @@ export function PlayableEditorWorkspace({
     labelStyle: { fill: "var(--text-muted)", fontSize: 9 },
   })) : [], [graph, selectedEdgeId]);
 
-  function updateCodebase(change: (draft: PlayableCodebase) => void): void {
+  function updateCodebase(change: (draft: NodeCodebase) => void): void {
     setCodebase((current) => {
       if (!current) return current;
       const next = structuredClone(current);
@@ -211,7 +211,7 @@ export function PlayableEditorWorkspace({
     setPreview(undefined);
   }
 
-  async function loadSurfaceSources(source: PlayableSource): Promise<void> {
+  async function loadSurfaceSources(source: NodeSource): Promise<void> {
     setError(undefined);
     try {
       const loaded = await Promise.all(SOURCE_KINDS.map(async (kind) => {
@@ -245,7 +245,7 @@ export function PlayableEditorWorkspace({
     setSaving(true);
     setError(undefined);
     try {
-      await updatePlayableCodebase(project.id, {
+      await updateNodeCodebase(project.id, {
         ...codebase,
         sources: Object.fromEntries([...savedSources].map((file) => [file, sources[file] ?? ""])),
         sourceDeletions: [...savedDeletions],
@@ -277,12 +277,12 @@ export function PlayableEditorWorkspace({
     setPreview(undefined);
   }
 
-  function discardSourceDrafts(source: PlayableSource): void {
+  function discardSourceDrafts(source: NodeSource): void {
     const files = new Set(SOURCE_KINDS.map((kind) => source[kind]));
     setDirtySources((current) => new Set([...current].filter((file) => !files.has(file))));
   }
 
-  function deleteUnusedSources(source: PlayableSource, nextGraph: PlayableGraph): void {
+  function deleteUnusedSources(source: NodeSource, nextGraph: NodeGraph): void {
     const stillDeclared = declaredSourcePaths(nextGraph);
     const deleted = SOURCE_KINDS.map((kind) => source[kind]).filter((file) => (
       persistedSourcePathsRef.current.has(file) && !stillDeclared.has(file)
@@ -305,7 +305,7 @@ export function PlayableEditorWorkspace({
     if (!await save()) return;
     setError(undefined);
     try {
-      const runtime = await getPlayableProjectRuntime(project.id);
+      const runtime = await getNodeRuntime(project.id);
       const assets = await loadRuntimeAssets(project.id, runtime.definition.graph);
       setPreview({
         definition: { ...runtime.definition, graph: { ...runtime.definition.graph, entryNodeId: nodeId } },
@@ -524,13 +524,13 @@ function RailButton({ active, label, icon, onClick }: { active: boolean; label: 
 }
 
 function NodeInspector({ graph, node, projectId, workspaceRevision, sources, sourceKind, preview, onSourceKind, onSourceChange, onChange, onRenameSignal, onDeleteSignal, onEntry, onPreview, onDelete, onClose }: {
-  graph: PlayableGraph;
+  graph: NodeGraph;
   node: PlayableNode;
   projectId: string;
   workspaceRevision: number;
   sources: Record<string, string>;
   sourceKind: SourceKind;
-  preview?: { definition: PlayablePlayerDefinition; assets: Record<string, Blob> };
+  preview?: { definition: NodePlayerDefinition; assets: Record<string, Blob> };
   onSourceKind: (kind: SourceKind) => void;
   onSourceChange: (file: string, content: string) => void;
   onChange: (node: PlayableNode) => void;
@@ -562,7 +562,7 @@ function NodeInspector({ graph, node, projectId, workspaceRevision, sources, sou
         <label><span>Title</span><input value={node.title} maxLength={120} onChange={(event) => onChange({ ...node, title: event.target.value })} /></label>
         <div className="playable-inline-actions"><button type="button" disabled={graph.entryNodeId === node.id} onClick={onEntry}>{graph.entryNodeId === node.id ? "Entry Node" : "Set as Entry"}</button><button type="button" onClick={onPreview}><Play size={12} />Preview</button></div>
       </section>
-      {preview ? <section className="playable-node-preview"><PlayablePlayer definition={preview.definition} assets={preview.assets} saveKey={`ohmygame:editor-preview:${node.id}`} /></section> : null}
+      {preview ? <section className="playable-node-preview"><NodePlayer definition={preview.definition} assets={preview.assets} saveKey={`ohmygame:editor-preview:${node.id}`} /></section> : null}
       <section className="playable-inspector-section"><div className="playable-section-heading"><strong>Signals</strong><button type="button" onClick={() => onChange({ ...node, signals: [...node.signals, { id: uniqueId("signal", new Set(node.signals.map((signal) => signal.id))), label: "New signal" }] })}><Plus size={12} />Add</button></div>
         <div className="playable-list-editor">{node.signals.map((signal, index) => <SignalRow key={signal.id} signal={signal} duplicateIds={new Set(node.signals.filter((_, item) => item !== index).map((item) => item.id))} onRename={onRenameSignal} onLabel={(label) => { const signals = [...node.signals]; signals[index] = { ...signal, label }; onChange({ ...node, signals }); }} onDelete={() => onDeleteSignal(signal.id)} />)}</div>
       </section>
@@ -577,7 +577,7 @@ function NodeInspector({ graph, node, projectId, workspaceRevision, sources, sou
 
 function NodeAssetRow({ id, asset, projectId, revision, checked, onChecked, onInsert }: {
   id: string;
-  asset: PlayableGraph["assets"][string];
+  asset: NodeGraph["assets"][string];
   projectId: string;
   revision: number;
   checked: boolean;
@@ -613,7 +613,7 @@ function SignalRow({ signal, duplicateIds, onRename, onLabel, onDelete }: {
   return <div><input aria-label="Signal ID" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDraft(signal.id); event.currentTarget.blur(); } }} /><input aria-label="Signal label" value={signal.label} onChange={(event) => onLabel(event.target.value)} /><button type="button" title="Remove signal" onClick={onDelete}><Trash2 size={13} /></button></div>;
 }
 
-function EdgeInspector({ edge, onChange, onDelete, onClose }: { edge: PlayableGraph["edges"][number]; onChange: (mode: "replace" | "push") => void; onDelete: () => void; onClose: () => void }) {
+function EdgeInspector({ edge, onChange, onDelete, onClose }: { edge: NodeGraph["edges"][number]; onChange: (mode: "replace" | "push") => void; onDelete: () => void; onClose: () => void }) {
   return <aside className="playable-inspector"><header><div><strong>Navigation</strong><span>{edge.id}</span></div><button type="button" title="Close" aria-label="Close" onClick={onClose}><X size={14} /></button></header><div className="playable-inspector-scroll"><section className="playable-inspector-section"><dl className="playable-edge-summary"><dt>Signal</dt><dd>{edge.source.nodeId}.{edge.source.signal}</dd><dt>Target</dt><dd>{edge.targetNodeId}</dd></dl><label><span>History mode</span><select value={edge.mode} onChange={(event) => onChange(event.target.value as "replace" | "push")}><option value="replace">Replace</option><option value="push">Push</option></select></label></section><section className="playable-danger-zone"><button type="button" onClick={onDelete}><Trash2 size={13} />Delete Edge</button></section></div></aside>;
 }
 
@@ -624,7 +624,7 @@ function JsonProjectEditor({ title, description, value, onApply }: { title: stri
   return <section className="playable-project-editor"><header><h2>{title}</h2><p>{description}</p></header><textarea spellCheck={false} value={text} onChange={(event) => setText(event.target.value)} /><footer>{error ? <span role="alert">{error}</span> : <span>JSON object</span>}<button type="button" onClick={() => { try { const parsed = JSON.parse(text) as unknown; if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("State must be a JSON object."); onApply(parsed as JsonObject); setError(undefined); } catch (cause) { setError(errorMessage(cause)); } }}>Apply</button></footer></section>;
 }
 
-function AssetsEditor({ graph, libraryAssets, onChange }: { graph: PlayableGraph; libraryAssets: LibraryAsset[]; onChange: (assets: PlayableGraph["assets"]) => void }) {
+function AssetsEditor({ graph, libraryAssets, onChange }: { graph: NodeGraph; libraryAssets: LibraryAsset[]; onChange: (assets: NodeGraph["assets"]) => void }) {
   function addLibraryAsset(asset: LibraryAsset): void {
     if (asset.mediaType === "model") return;
     const id = uniqueId(normalizeIdentifier(asset.name.replace(/\.[^.]+$/, "")) || "asset", new Set(Object.keys(graph.assets)));
@@ -633,7 +633,7 @@ function AssetsEditor({ graph, libraryAssets, onChange }: { graph: PlayableGraph
   return <section className="playable-project-editor playable-assets-editor"><header><h2>Assets</h2><p>Stable IDs exposed to Node and Shell code.</p></header><div className="playable-assets-grid"><section><h3>Manifest</h3>{Object.entries(graph.assets).map(([id, asset]) => <div className="playable-asset-row" key={id}><div><strong>{id}</strong><span>{asset.type} · {asset.source.kind === "library" ? asset.source.assetId : asset.source.path}</span></div><button type="button" title="Remove asset" onClick={() => { const next = { ...graph.assets }; delete next[id]; onChange(next); }}><Trash2 size={13} /></button></div>)}{Object.keys(graph.assets).length === 0 ? <p className="playable-empty">No assets declared.</p> : null}</section><section><h3>Library</h3>{libraryAssets.filter((asset) => asset.mediaType !== "model").map((asset) => <button className="playable-library-row" type="button" key={asset.id} disabled={Object.values(graph.assets).some((item) => item.source.kind === "library" && item.source.assetId === asset.id)} onClick={() => addLibraryAsset(asset)}><Plus size={13} /><span>{asset.name}</span><small>{asset.mediaType}</small></button>)}{libraryAssets.length === 0 ? <p className="playable-empty">Library is empty.</p> : null}</section></div></section>;
 }
 
-function ShellEditor({ graph, sources, sourceKind, loadGeneration, onSourceKind, onLoad, onChangeSource, onEnable, onChange }: { graph: PlayableGraph; sources: Record<string, string>; sourceKind: SourceKind; loadGeneration: number; onSourceKind: (kind: SourceKind) => void; onLoad: (source: PlayableSource) => Promise<void>; onChangeSource: (file: string, content: string) => void; onEnable: () => void; onChange: (shell: PlayableGraph["shell"]) => void }) {
+function ShellEditor({ graph, sources, sourceKind, loadGeneration, onSourceKind, onLoad, onChangeSource, onEnable, onChange }: { graph: NodeGraph; sources: Record<string, string>; sourceKind: SourceKind; loadGeneration: number; onSourceKind: (kind: SourceKind) => void; onLoad: (source: NodeSource) => Promise<void>; onChangeSource: (file: string, content: string) => void; onEnable: () => void; onChange: (shell: NodeGraph["shell"]) => void }) {
   const shell = graph.shell;
   useEffect(() => { if (shell) void onLoad(shell.source); }, [Boolean(shell), loadGeneration]);
   if (!shell) return <section className="playable-project-editor playable-empty-editor"><header><h2>Shell</h2><p>Persistent project UI mounted above every Node.</p></header><button type="button" onClick={onEnable}><Plus size={14} />Enable Shell</button></section>;
@@ -641,7 +641,7 @@ function ShellEditor({ graph, sources, sourceKind, loadGeneration, onSourceKind,
   return <section className="playable-project-editor playable-shell-editor"><header><div><h2>Shell</h2><p>Persistent UI and named Destination actions.</p></div><button className="playable-secondary-action" type="button" onClick={() => onChange(undefined)}>Disable Shell</button></header><div className="playable-shell-assets"><strong>Declared Assets</strong>{Object.keys(graph.assets).map((id) => <label key={id}><input type="checkbox" checked={shell.assets.includes(id)} onChange={(event) => onChange({ ...shell, assets: event.target.checked ? [...shell.assets, id] : shell.assets.filter((asset) => asset !== id) })} /><span>{id}</span></label>)}{Object.keys(graph.assets).length === 0 ? <span>No project assets declared.</span> : null}</div><div className="playable-source-tabs">{SOURCE_KINDS.map((kind) => <button className={sourceKind === kind ? "is-active" : ""} type="button" key={kind} onClick={() => onSourceKind(kind)}>{SOURCE_LABELS[kind]}</button>)}</div><div className="playable-source-path">{file}</div><textarea spellCheck={false} value={sources[file] ?? (sourceKind === "html" ? "<nav></nav>\n" : sourceKind === "css" ? ":host { pointer-events: none; }\n" : DEFAULT_JS)} onChange={(event) => onChangeSource(file, event.target.value)} /></section>;
 }
 
-function DestinationsEditor({ graph, onChange }: { graph: PlayableGraph; onChange: (value: Record<string, string>) => void }) {
+function DestinationsEditor({ graph, onChange }: { graph: NodeGraph; onChange: (value: Record<string, string>) => void }) {
   return <section className="playable-project-editor"><header><h2>Destinations</h2><p>Stable names the Shell can open without knowing Node IDs.</p></header><div className="playable-destination-list">{Object.entries(graph.destinations).map(([name, nodeId]) => <DestinationRow key={name} name={name} nodeId={nodeId} nodes={graph.nodes} onRename={(requestedName) => { if (!requestedName || requestedName === name) return; const used = new Set(Object.keys(graph.destinations).filter((candidate) => candidate !== name)); const nextName = uniqueId(requestedName, used); const next = { ...graph.destinations }; delete next[name]; next[nextName] = nodeId; onChange(next); }} onNode={(nextNodeId) => onChange({ ...graph.destinations, [name]: nextNodeId })} onDelete={() => { const next = { ...graph.destinations }; delete next[name]; onChange(next); }} />)}<button type="button" onClick={() => onChange({ ...graph.destinations, [uniqueId("destination", new Set(Object.keys(graph.destinations)))]: graph.entryNodeId })}><Plus size={13} />Add Destination</button></div></section>;
 }
 
@@ -651,8 +651,8 @@ function DestinationRow({ name, nodeId, nodes, onRename, onNode, onDelete }: { n
   return <div><input aria-label={`Destination ${name}`} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => { const normalized = normalizeIdentifier(draft); if (normalized) onRename(normalized); else setDraft(name); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><select aria-label={`Node for ${name}`} value={nodeId} onChange={(event) => onNode(event.target.value)}>{nodes.map((node) => <option value={node.id} key={node.id}>{node.title}</option>)}</select><button type="button" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={onDelete}><Trash2 size={13} /></button></div>;
 }
 
-function nodeSource(id: string): PlayableSource { return { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` }; }
-function declaredSourcePaths(graph: PlayableGraph): Set<string> {
+function nodeSource(id: string): NodeSource { return { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` }; }
+function declaredSourcePaths(graph: NodeGraph): Set<string> {
   const paths = new Set<string>();
   for (const node of graph.nodes) for (const kind of SOURCE_KINDS) paths.add(node.source[kind]);
   if (graph.shell) for (const kind of SOURCE_KINDS) paths.add(graph.shell.source[kind]);
@@ -662,6 +662,6 @@ function normalizeIdentifier(value: string): string { return value.trim().replac
 function uniqueId(base: string, used: ReadonlySet<string>): string { let id = base || "item"; let index = 2; while (used.has(id)) id = `${base}-${index++}`; return id; }
 function errorMessage(value: unknown): string { return value instanceof Error ? value.message : String(value); }
 
-async function loadRuntimeAssets(projectId: string, graph: PlayableGraph): Promise<Record<string, Blob>> {
+async function loadRuntimeAssets(projectId: string, graph: NodeGraph): Promise<Record<string, Blob>> {
   return Object.fromEntries(await Promise.all(Object.entries(graph.assets).map(async ([id, asset]) => [id, asset.source.kind === "library" ? await getLibraryAsset(asset.source.assetId) : await getWorkspaceAsset(projectId, asset.source.path)] as const)));
 }

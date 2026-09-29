@@ -8,11 +8,11 @@ than extending it. Existing Interactive Drama documents do not need to remain
 compatible.
 
 The public feature name is **Playable Nodes**. A project is structured as a
-**Playable Graph**, and the code that runs it is the **Flow Runtime**.
+**Node Graph**, and the code that runs it is the **Node Runtime**.
 
 ## Product idea
 
-A Playable Graph is a collection of programmable screens connected by signals.
+A Node Graph is a collection of programmable screens connected by signals.
 Each screen is a Playable Node.
 
 A node can be a cinematic scene, menu, archive, dialogue, investigation board,
@@ -34,7 +34,7 @@ other project-level libraries as long as its built module follows the same
 surface protocol. V1 does not give every node an independent package,
 dependency graph, or development server.
 
-The Flow Runtime owns everything that must survive a node:
+The Node Runtime owns everything that must survive a node:
 
 - project state;
 - navigation;
@@ -81,7 +81,7 @@ The architecture preserves the original design intent:
 
 The freedom is intentionally bounded at the host boundary. A node is not an
 independent application with its own server and save system. It is a powerful
-browser surface hosted by the Flow Runtime. Inside the node, presentation and
+browser surface hosted by the Node Runtime. Inside the node, presentation and
 interaction are flexible. Between nodes, signals, state, assets, and lifecycle
 remain explicit so the project can be inspected, saved, tested, and published.
 
@@ -147,14 +147,14 @@ should be introduced only after real projects demonstrate the need.
 | Name           | Meaning                                                    |
 | -------------- | ---------------------------------------------------------- |
 | Playable Nodes | The user-facing feature                                    |
-| Playable Graph | The saved graph of nodes and edges                         |
+| Node Graph | The saved graph of nodes and edges                         |
 | Playable Node  | One independently presented and operated screen            |
 | Signal         | A named outcome emitted by a node                          |
 | Edge           | A graph connection from one node signal to another node    |
 | Project State  | Serializable data shared by the project                    |
 | Shell          | Optional project-wide UI that remains mounted across nodes |
 | Destination    | A stable project-wide name for a commonly opened node      |
-| Flow Runtime   | The state, navigation, lifecycle, save, and surface host   |
+| Node Runtime   | The state, navigation, lifecycle, save, and surface host   |
 | Preset         | Starter content for a node; it has no runtime meaning      |
 
 ## Architecture layers
@@ -169,7 +169,7 @@ for the first usable product.
 - Signal;
 - Edge;
 - Project State;
-- Flow Runtime;
+- Node Runtime;
 - Asset Manifest and explicit node asset dependencies;
 - Shared Modules.
 
@@ -194,7 +194,7 @@ additional renderer services remain later work.
 The playable document contains only:
 
 ```text
-Playable Graph
+Node Graph
 ├── project metadata
 ├── viewport
 ├── entry node
@@ -647,7 +647,7 @@ awaiting `reset()` and then emitting its normal `start` signal.
 
 ## Surface and lifecycle
 
-The Flow Runtime uses one sandbox document and one surface implementation for
+The Node Runtime uses one sandbox document and one surface implementation for
 all nodes. The document contains a persistent Shell layer and a replaceable
 node layer. Each mounted surface receives its own `ShadowRoot`, so authored
 markup and CSS remain scoped while both layers share the same Runtime. On a
@@ -696,7 +696,7 @@ The first product version has these authoring surfaces:
 - **Shell Editor** edits the optional persistent project UI and its named
   Destination actions;
 - **Assets** selects project resources and assigns stable IDs;
-- **Playtest** runs the real Flow Runtime and can reveal current node, back
+- **Playtest** runs the real Node Runtime and can reveal current node, back
   stack, recent Signals, state changes, and runtime errors.
 
 Users normally create a node from a Preset, describe or edit its visual and
@@ -796,7 +796,7 @@ Shell atomically. The Player endpoint validates and compiles the same
 
 ## Compiler contract
 
-The compiler consumes one validated Playable Graph and the project workspace.
+The compiler consumes one validated Node Graph and the project workspace.
 It produces a self-contained browser module and stylesheet for every Node and
 for the optional Shell. HTML remains ordinary authored markup. JavaScript and
 CSS are bundled so local Shared Modules and dependencies from the project's
@@ -875,7 +875,7 @@ naming targets, keep authoritative State in the Runtime, declare asset
 dependencies, use Shared Modules for reuse, and reserve the Shell for
 persistent project UI.
 
-The full Flow Runtime is not copied into every authored project. Keeping one
+The full Node Runtime is not copied into every authored project. Keeping one
 open-source implementation avoids accidental engine edits, incompatible
 project forks, unnecessary Agent context, and difficult upgrades. Runtime
 source should remain clearly organized and searchable, without requiring a
@@ -887,7 +887,7 @@ contract change to the Runtime must update its public types, relevant Schema,
 tests, and documentation together.
 
 The workspace provides one non-interactive validation path and uses the same
-Flow Runtime for preview and published play. Validation errors must be specific
+Node Runtime for preview and published play. Validation errors must be specific
 and actionable. For example:
 
 ```text
@@ -978,7 +978,7 @@ The replacement does not preserve these runtime concepts:
 - type-specific progress such as selected choices and unlocked endings:
   projects record the state they need in Project State;
 - runtime navigation edges mixed with asset-generation connections: asset
-  creation stays outside the Playable Graph.
+  creation stays outside the Node Graph.
 
 ## Definition of a successful v1
 
@@ -1007,8 +1007,8 @@ helper to express a new creative idea.
 ## Removal and hardening status
 
 Interactive Drama now has one authored format and one playback path. New and
-existing projects use `graph.json`, ordinary Node/Shell source, the Playable
-compiler, and the Playable Runtime. The Daemon, Playtest, Published Player, and
+existing projects use `graph.json`, ordinary Node/Shell source, the Node
+compiler, and the Node Runtime. The Daemon, Playtest, Published Player, and
 publisher do not read `story.json` or fall back to the old Story player. The
 old Open UI, Scene, Interaction, Choice, Ending, Story Map, Settings, and
 separate screen/scene/interaction surface protocols have been removed from the

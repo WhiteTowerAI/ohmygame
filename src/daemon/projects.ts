@@ -4,13 +4,13 @@ import path from "node:path";
 import type { AssetCanvasDocument, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
-import { validatePlayableGraph } from "../shared/playable-graph-validation.js";
-import type { PlayableGraph } from "../shared/playable-nodes.js";
+import { validateNodeGraph } from "../shared/playable-graph-validation.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { ASSET_CANVAS_FILE, createAssetCanvasCodebase, readAssetCanvasCodebase, writeAssetCanvasCodebase } from "./asset-canvas-codebase.js";
-import { readPlayableCodebase, writePlayableCodebase } from "./playable-codebase.js";
+import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -514,7 +514,7 @@ export class ProjectManager {
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
       if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         try {
-          const graph = await readPlayableGraphForReferences(project.workspacePath);
+          const graph = await readNodeGraphForReferences(project.workspacePath);
           referenced ||= Object.values(graph.assets).some((asset) => (
             asset.source.kind === "library" && asset.source.assetId === assetId
           ));
@@ -558,12 +558,12 @@ export class ProjectManager {
       }
       if (project.type !== "interactive-drama" && project.type !== "asset-canvas") continue;
       if (await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
-        const graph = await readPlayableGraphForReferences(project.workspacePath);
+        const graph = await readNodeGraphForReferences(project.workspacePath);
         const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
           asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
         )));
         if (removedIds.size > 0) {
-          const codebase = await readPlayableCodebase(project.workspacePath);
+          const codebase = await readNodeCodebase(project.workspacePath);
           for (const id of removedIds) delete codebase.graph.assets[id];
           codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
             ...node,
@@ -572,7 +572,7 @@ export class ProjectManager {
           if (codebase.graph.shell) {
             codebase.graph.shell.assets = codebase.graph.shell.assets.filter((id) => !removedIds.has(id));
           }
-          await writePlayableCodebase(project.workspacePath, codebase);
+          await writeNodeCodebase(project.workspacePath, codebase);
           await this.touch(project.id);
         }
       }
@@ -928,7 +928,7 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
-async function readPlayableGraphForReferences(workspacePath: string): Promise<PlayableGraph> {
+async function readNodeGraphForReferences(workspacePath: string): Promise<NodeGraph> {
   const file = path.join(workspacePath, PLAYABLE_GRAPH_FILE);
   let value: unknown;
   try {
@@ -937,12 +937,12 @@ async function readPlayableGraphForReferences(workspacePath: string): Promise<Pl
     if (cause instanceof SyntaxError) throw new Error("graph.json is not valid JSON.");
     throw cause;
   }
-  const validation = validatePlayableGraph(value, { mode: "draft" });
+  const validation = validateNodeGraph(value, { mode: "draft" });
   if (!validation.ok) {
     const issue = validation.issues[0]!;
     throw new Error(`${issue.path}: ${issue.message}`);
   }
-  return value as PlayableGraph;
+  return value as NodeGraph;
 }
 
 async function isDirectory(target: string): Promise<boolean> {

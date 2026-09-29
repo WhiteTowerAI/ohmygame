@@ -4,7 +4,7 @@ import {
   type PlayableHostMessage,
 } from "../shared/playable-player-protocol.js";
 import {
-  PlayableRuntime,
+  NodeRuntime,
   type PlayableSave,
   type PlayableSaveStore,
 } from "../shared/playable-runtime.js";
@@ -39,7 +39,7 @@ async function startSession(
     }
     const saveStore = new ParentSaveStore(message.instanceId, message.save);
     const host = new DocumentPlayableSurfaceHost(document);
-    const runtime = new PlayableRuntime({
+    const runtime = new NodeRuntime({
       graph: message.definition.graph,
       compiled: message.definition.compiled,
       graphSignature: message.definition.graphSignature,
@@ -145,7 +145,7 @@ class ParentSaveStore implements PlayableSaveStore {
   dispose(): void {
     for (const pending of this.#pending.values())
       pending.reject(
-        new Error("Playable Player closed before the save completed."),
+        new Error("Published Player closed before the save completed."),
       );
     this.#pending.clear();
   }
@@ -153,7 +153,7 @@ class ParentSaveStore implements PlayableSaveStore {
 
 interface SandboxSession {
   instanceId: string;
-  runtime: PlayableRuntime;
+  runtime: NodeRuntime;
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;
   assetUrls: Record<string, string>;

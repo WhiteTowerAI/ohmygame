@@ -1,5 +1,5 @@
 import type {
-  CompiledPlayableGraph,
+  CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "./playable-compiled.js";
 import { playableNodeById } from "./playable-graph.js";
@@ -14,10 +14,10 @@ import type {
   JsonObject,
   JsonValue,
   PlayableCleanup,
-  PlayableGraph,
+  NodeGraph,
   PlayableNavigationMode,
   PlayableNodeContext,
-  PlayableRuntimeContext,
+  NodeRuntimeContext,
   PlayableShellContext,
   PlayableStateService,
 } from "./playable-nodes.js";
@@ -61,9 +61,9 @@ export interface PlayableSurfaceHost {
   ): Promise<PlayableMountedSurface>;
 }
 
-export interface PlayableRuntimeOptions {
-  graph: PlayableGraph;
-  compiled: CompiledPlayableGraph;
+export interface NodeRuntimeOptions {
+  graph: NodeGraph;
+  compiled: CompiledNodeGraph;
   graphSignature: string;
   surfaceHost: PlayableSurfaceHost;
   saveStore: PlayableSaveStore;
@@ -72,7 +72,7 @@ export interface PlayableRuntimeOptions {
   onError?: (error: unknown) => void;
 }
 
-export interface PlayableRuntimeSnapshot {
+export interface NodeRuntimeSnapshot {
   currentNodeId: string;
   backStack: string[];
   recentSignals: Array<{ nodeId: string; signal: string }>;
@@ -83,7 +83,7 @@ export interface PlayableRuntimeSnapshot {
   failed: boolean;
 }
 
-export type PlayableRuntimeErrorCode =
+export type NodeRuntimeErrorCode =
   | "not-started"
   | "already-started"
   | "disposed"
@@ -96,14 +96,14 @@ export type PlayableRuntimeErrorCode =
   | "no-save"
   | "invalid-cleanup";
 
-export class PlayableRuntimeError extends Error {
+export class NodeRuntimeError extends Error {
   constructor(
-    readonly code: PlayableRuntimeErrorCode,
+    readonly code: NodeRuntimeErrorCode,
     message: string,
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = "PlayableRuntimeError";
+    this.name = "NodeRuntimeError";
   }
 }
 
@@ -118,9 +118,9 @@ interface SurfaceToken {
   navigationReady: boolean;
 }
 
-export class PlayableRuntime {
-  readonly #graph: PlayableGraph;
-  readonly #compiled: CompiledPlayableGraph;
+export class NodeRuntime {
+  readonly #graph: NodeGraph;
+  readonly #compiled: CompiledNodeGraph;
   readonly #graphSignature: string;
   readonly #surfaceHost: PlayableSurfaceHost;
   readonly #saveStore: PlayableSaveStore;
@@ -144,7 +144,7 @@ export class PlayableRuntime {
   #disposePromise?: Promise<void>;
   #saveQueue: Promise<void> = Promise.resolve();
 
-  constructor(options: PlayableRuntimeOptions) {
+  constructor(options: NodeRuntimeOptions) {
     this.#graph = options.graph;
     this.#compiled = options.compiled;
     this.#graphSignature = options.graphSignature;
@@ -161,9 +161,9 @@ export class PlayableRuntime {
     this.#assertNotDisposed();
     this.#assertNotFailed();
     if (this.#started || this.#starting)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "already-started",
-        "Playable Runtime has already started.",
+        "Node Runtime has already started.",
       );
     this.#starting = true;
     const operation = this.#performStart();
@@ -185,7 +185,7 @@ export class PlayableRuntime {
       if (this.#graph.shell) {
         const surface = this.#compiled.shell;
         if (!surface)
-          throw new PlayableRuntimeError(
+          throw new NodeRuntimeError(
             "missing-compiled-surface",
             "Compiled Shell is missing.",
           );
@@ -207,7 +207,7 @@ export class PlayableRuntime {
     }
   }
 
-  snapshot(): PlayableRuntimeSnapshot {
+  snapshot(): NodeRuntimeSnapshot {
     return {
       currentNodeId: this.#navigation.currentNodeId,
       backStack: [...this.#navigation.backStack],
@@ -282,7 +282,7 @@ export class PlayableRuntime {
   ): Promise<void> {
     this.#assertStarted();
     if (this.#transitioning)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "navigation-in-progress",
         "A Playable navigation is already in progress.",
       );
@@ -332,13 +332,13 @@ export class PlayableRuntime {
   async #mountNode(nodeId: string): Promise<ActiveSurface> {
     const node = playableNodeById(this.#graph, nodeId);
     if (!node)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "missing-compiled-surface",
         `Playable Node "${nodeId}" is missing.`,
       );
     const surface = this.#compiled.nodes[nodeId];
     if (!surface)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "missing-compiled-surface",
         `Compiled Playable Node "${nodeId}" is missing.`,
       );
@@ -399,7 +399,7 @@ export class PlayableRuntime {
       } catch (cause) {
         this.#reportError(cause);
       }
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "invalid-cleanup",
         "Playable mount() returned a value that is not a cleanup function.",
       );
@@ -410,7 +410,7 @@ export class PlayableRuntime {
     token: SurfaceToken,
     abortController: AbortController,
     declaredAssets: readonly string[],
-  ): Omit<PlayableRuntimeContext, "root"> {
+  ): Omit<NodeRuntimeContext, "root"> {
     return {
       assets: { url: (id) => this.#assetUrl(token, declaredAssets, id) },
       state: this.#stateService(token, abortController.signal),
@@ -479,14 +479,14 @@ export class PlayableRuntime {
   ): string {
     this.#assertSurfaceActive(token);
     if (!declaredAssets.includes(id)) {
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "undeclared-asset",
         `Asset "${id}" is not declared for this Playable surface.`,
       );
     }
     const url = this.#assetUrls[id];
     if (typeof url !== "string" || url.length === 0) {
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "missing-asset-url",
         `Asset "${id}" has no runtime URL.`,
       );
@@ -517,7 +517,7 @@ export class PlayableRuntime {
     this.#assertNavigationReady(token);
     const save = this.#cachedSave;
     if (!save)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "no-save",
         "There is no compatible Playable save to continue.",
       );
@@ -630,7 +630,7 @@ export class PlayableRuntime {
   #assertSurfaceActive(token: SurfaceToken): void {
     this.#assertStarted();
     if (!token.active)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "stale-surface",
         "This Playable surface is no longer active.",
       );
@@ -639,7 +639,7 @@ export class PlayableRuntime {
   #assertNavigationReady(token: SurfaceToken): void {
     this.#assertSurfaceActive(token);
     if (!token.navigationReady || this.#transitioning) {
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "navigation-in-progress",
         "Playable navigation is unavailable while a surface is mounting or another navigation is in progress.",
       );
@@ -658,25 +658,25 @@ export class PlayableRuntime {
     this.#assertNotDisposed();
     this.#assertNotFailed();
     if (!this.#started)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "not-started",
-        "Playable Runtime has not started.",
+        "Node Runtime has not started.",
       );
   }
 
   #assertNotDisposed(): void {
     if (this.#disposed)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "disposed",
-        "Playable Runtime has been disposed.",
+        "Node Runtime has been disposed.",
       );
   }
 
   #assertNotFailed(): void {
     if (this.#failed)
-      throw new PlayableRuntimeError(
+      throw new NodeRuntimeError(
         "runtime-failed",
-        "Playable Runtime stopped after startup or a surface transition failed.",
+        "Node Runtime stopped after startup or a surface transition failed.",
       );
   }
 }

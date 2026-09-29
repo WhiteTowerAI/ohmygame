@@ -1,11 +1,11 @@
 import { Errors } from "typebox/schema";
 import { PLAYABLE_GRAPH_SCHEMA } from "./playable-graph-schema.js";
 import { isJsonObject } from "./playable-state.js";
-import type { PlayableGraph, PlayableSource } from "./playable-nodes.js";
+import type { NodeGraph, NodeSource } from "./playable-nodes.js";
 
-export type PlayableGraphValidationMode = "draft" | "publish";
+export type NodeGraphValidationMode = "draft" | "publish";
 
-export interface PlayableGraphValidationIssue {
+export interface NodeGraphValidationIssue {
   code:
     | "schema"
     | "duplicate-id"
@@ -21,23 +21,23 @@ export interface PlayableGraphValidationIssue {
   message: string;
 }
 
-export type PlayableGraphValidationOptions =
+export type NodeGraphValidationOptions =
   | { mode?: "draft"; availableFiles?: ReadonlySet<string> }
   | { mode: "publish"; availableFiles: ReadonlySet<string> };
 
-export interface PlayableGraphValidationResult {
+export interface NodeGraphValidationResult {
   ok: boolean;
-  issues: PlayableGraphValidationIssue[];
+  issues: NodeGraphValidationIssue[];
 }
 
-export function isPlayableGraph(value: unknown): value is PlayableGraph {
-  return validatePlayableGraph(value).ok;
+export function isNodeGraph(value: unknown): value is NodeGraph {
+  return validateNodeGraph(value).ok;
 }
 
-export function validatePlayableGraph(
+export function validateNodeGraph(
   value: unknown,
-  options: PlayableGraphValidationOptions = {},
-): PlayableGraphValidationResult {
+  options: NodeGraphValidationOptions = {},
+): NodeGraphValidationResult {
   const [valid, schemaErrors] = Errors(PLAYABLE_GRAPH_SCHEMA, value);
   if (!valid) {
     return {
@@ -61,8 +61,8 @@ export function validatePlayableGraph(
     };
   }
 
-  const graph = value as PlayableGraph;
-  const issues: PlayableGraphValidationIssue[] = [];
+  const graph = value as NodeGraph;
+  const issues: NodeGraphValidationIssue[] = [];
   if (options.mode === "publish" && !options.availableFiles) {
     issue(
       issues,
@@ -217,7 +217,7 @@ function uniqueIndex<T>(
   items: readonly T[],
   id: (item: T) => string,
   path: string,
-  issues: PlayableGraphValidationIssue[],
+  issues: NodeGraphValidationIssue[],
 ): Map<string, T> {
   const result = new Map<string, T>();
   for (const [index, item] of items.entries()) {
@@ -238,8 +238,8 @@ function validateAssetDependencies(
   assetIds: readonly string[],
   path: string,
   owner: string,
-  graph: PlayableGraph,
-  issues: PlayableGraphValidationIssue[],
+  graph: NodeGraph,
+  issues: NodeGraphValidationIssue[],
 ): void {
   for (const [index, assetId] of assetIds.entries()) {
     if (!Object.hasOwn(graph.assets, assetId))
@@ -253,10 +253,10 @@ function validateAssetDependencies(
 }
 
 function validateSourceFiles(
-  source: PlayableSource,
+  source: NodeSource,
   path: string,
   files: ReadonlySet<string> | undefined,
-  issues: PlayableGraphValidationIssue[],
+  issues: NodeGraphValidationIssue[],
 ): void {
   if (!files) return;
   for (const [name, sourcePath] of Object.entries(source)) {
@@ -271,8 +271,8 @@ function validateSourceFiles(
 }
 
 function issue(
-  issues: PlayableGraphValidationIssue[],
-  code: PlayableGraphValidationIssue["code"],
+  issues: NodeGraphValidationIssue[],
+  code: NodeGraphValidationIssue["code"],
   path: string,
   message: string,
 ): void {

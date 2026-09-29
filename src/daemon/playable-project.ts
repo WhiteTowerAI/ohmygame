@@ -2,19 +2,19 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  validatePlayableGraph,
-  type PlayableGraphValidationIssue,
-  type PlayableGraphValidationMode,
+  validateNodeGraph,
+  type NodeGraphValidationIssue,
+  type NodeGraphValidationMode,
 } from "../shared/playable-graph-validation.js";
-import type { PlayableGraph } from "../shared/playable-nodes.js";
-import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
-import { compilePlayableGraph, PlayableCompilerError } from "./playable-compiler.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
+import { compileNodeGraph, NodeCompilerError } from "./playable-compiler.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
 export async function buildPlayableProject(
   workspacePath: string,
-  mode: PlayableGraphValidationMode = "draft",
-): Promise<PlayablePlayerDefinition | undefined> {
+  mode: NodeGraphValidationMode = "draft",
+): Promise<NodePlayerDefinition | undefined> {
   const validation = await validatePlayableProject(workspacePath, mode);
   if (validation.missing) return undefined;
   if (!validation.ok || !validation.definition) {
@@ -26,7 +26,7 @@ export async function buildPlayableProject(
 
 export interface PlayableProjectValidationIssue {
   phase: "graph" | "compiler";
-  code: PlayableGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | PlayableCompilerError["code"];
+  code: NodeGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | NodeCompilerError["code"];
   path: string;
   message: string;
   surfaceId?: string;
@@ -36,12 +36,12 @@ export interface PlayableProjectValidationResult {
   ok: boolean;
   missing?: boolean;
   issues: PlayableProjectValidationIssue[];
-  definition?: PlayablePlayerDefinition;
+  definition?: NodePlayerDefinition;
 }
 
 export async function validatePlayableProject(
   workspacePath: string,
-  mode: PlayableGraphValidationMode = "draft",
+  mode: NodeGraphValidationMode = "draft",
 ): Promise<PlayableProjectValidationResult> {
   let source: string;
   try {
@@ -55,9 +55,9 @@ export async function validatePlayableProject(
     throw cause;
   }
 
-  let graph: PlayableGraph;
+  let graph: NodeGraph;
   try {
-    graph = JSON.parse(source) as PlayableGraph;
+    graph = JSON.parse(source) as NodeGraph;
   } catch {
     return {
       ok: false,
@@ -69,7 +69,7 @@ export async function validatePlayableProject(
       .filter((file) => !file.directory)
       .map((file) => file.path),
   );
-  const graphValidation = validatePlayableGraph(graph, {
+  const graphValidation = validateNodeGraph(graph, {
     mode,
     availableFiles: files,
   });
@@ -79,12 +79,12 @@ export async function validatePlayableProject(
   };
   let compiled;
   try {
-    compiled = await compilePlayableGraph(workspacePath, graph, {
+    compiled = await compileNodeGraph(workspacePath, graph, {
       minify: mode === "publish",
       sourcemap: mode === "draft",
     });
   } catch (cause) {
-    if (!(cause instanceof PlayableCompilerError)) throw cause;
+    if (!(cause instanceof NodeCompilerError)) throw cause;
     return {
       ok: false,
       issues: [{

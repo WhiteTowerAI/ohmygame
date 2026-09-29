@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { deletePlayableSignal, renamePlayableSignal } from "../src/shared/playable-editor.js";
-import { createPlayableGraphFixture } from "./playable-fixture.js";
+import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable editor graph changes", () => {
   it("renames a Signal and preserves its connected Edge", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const renamed = renamePlayableSignal(graph, "menu", "start", "begin");
 
     expect(renamed.nodes.find((node) => node.id === "menu")?.signals)
@@ -16,7 +16,7 @@ describe("Playable editor graph changes", () => {
   });
 
   it("removes an Edge only when its Signal is explicitly deleted", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const updated = deletePlayableSignal(graph, "menu", "start");
 
     expect(updated.nodes.find((node) => node.id === "menu")?.signals).not.toContainEqual(

@@ -52,13 +52,13 @@ import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
 import { buildPlayableProject, validatePlayableProject } from "./playable-project.js";
 import {
-  createPlayableCodebase,
+  createNodeCodebase,
   createPlayableStarterCodebase,
-  PlayableCodebaseError,
-  readPlayableCodebase,
-  writePlayableCodebase,
+  NodeCodebaseError,
+  readNodeCodebase,
+  writeNodeCodebase,
 } from "./playable-codebase.js";
-import type { PlayableCodebaseUpdate } from "../shared/playable-codebase.js";
+import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -927,7 +927,7 @@ export function createApp(options: AppOptions = {}) {
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
       if (project.type === "interactive-drama") {
         try {
-          await createPlayableCodebase(
+          await createNodeCodebase(
             project.workspacePath,
             createPlayableStarterCodebase(
               project.name,
@@ -941,7 +941,7 @@ export function createApp(options: AppOptions = {}) {
       }
       return reply.code(201).send(project);
     } catch (cause) {
-      if (cause instanceof ProjectWorkspaceError || cause instanceof PlayableCodebaseError) {
+      if (cause instanceof ProjectWorkspaceError || cause instanceof NodeCodebaseError) {
         return reply.code(400).send({ error: cause.message });
       }
       throw cause;
@@ -962,7 +962,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable Runtime requires an Interactive Drama project" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node Runtime requires an Interactive Drama project" });
     try {
       const definition = await buildPlayableProject(project.workspacePath);
       if (!definition) return reply.code(404).send({ error: "Playable graph.json is missing" });
@@ -996,13 +996,13 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
     try {
-      return await readPlayableCodebase(project.workspacePath);
+      return await readNodeCodebase(project.workspacePath);
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
 
-  app.put<{ Params: { projectId: string }; Body: PlayableCodebaseUpdate }>("/projects/:projectId/playable/codebase", {
+  app.put<{ Params: { projectId: string }; Body: NodeCodebaseUpdate }>("/projects/:projectId/playable/codebase", {
     schema: { body: { type: "object" } },
     bodyLimit: 1_000_000,
   }, async (request, reply) => {
@@ -1010,7 +1010,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
     try {
-      await writePlayableCodebase(project.workspacePath, request.body);
+      await writeNodeCodebase(project.workspacePath, request.body);
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }

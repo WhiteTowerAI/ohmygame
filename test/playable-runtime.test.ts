@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
-  CompiledPlayableGraph,
+  CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "../src/shared/playable-compiled.js";
 import type {
@@ -9,13 +9,13 @@ import type {
 } from "../src/shared/playable-nodes.js";
 import {
   MemoryPlayableSaveStore,
-  PlayableRuntime,
+  NodeRuntime,
   type PlayableMountedSurface,
   type PlayableSave,
   type PlayableSaveStore,
   type PlayableSurfaceHost,
 } from "../src/shared/playable-runtime.js";
-import { createPlayableGraphFixture } from "./playable-fixture.js";
+import { createNodeGraphFixture } from "./playable-fixture.js";
 
 type NodeContext = Omit<PlayableNodeContext, "root">;
 type ShellContext = Omit<PlayableShellContext, "root">;
@@ -74,7 +74,7 @@ class FakeSurfaceHost implements PlayableSurfaceHost {
   }
 }
 
-describe("Playable Runtime", () => {
+describe("Node Runtime", () => {
   it("mounts the persistent Shell once and replaces the current Node", async () => {
     const { runtime, host } = createRuntime();
 
@@ -449,7 +449,7 @@ describe("Playable Runtime", () => {
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "archive",
       backStack: [],
-      state: createPlayableGraphFixture().initialState,
+      state: createNodeGraphFixture().initialState,
     });
     expect(host.nodeContexts.map(({ id }) => id)).toEqual(["menu", "archive"]);
 
@@ -457,7 +457,7 @@ describe("Playable Runtime", () => {
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "menu",
       backStack: [],
-      state: createPlayableGraphFixture().initialState,
+      state: createNodeGraphFixture().initialState,
     });
   });
 
@@ -521,14 +521,14 @@ function createRuntime(
     onError?: (error: unknown) => void;
   } = {},
 ): {
-  runtime: PlayableRuntime;
+  runtime: NodeRuntime;
   host: FakeSurfaceHost;
 } {
-  const graph = createPlayableGraphFixture();
+  const graph = createNodeGraphFixture();
   const host = options.host ?? new FakeSurfaceHost();
   return {
     host,
-    runtime: new PlayableRuntime({
+    runtime: new NodeRuntime({
       graph,
       compiled: createCompiledGraph(),
       graphSignature: "fixture-v1",
@@ -544,7 +544,7 @@ function createRuntime(
   };
 }
 
-function createCompiledGraph(): CompiledPlayableGraph {
+function createCompiledGraph(): CompiledNodeGraph {
   const surface = (id: string): CompiledPlayableSurface => ({
     id,
     html: "",
@@ -585,7 +585,7 @@ function createSave(overrides: Partial<PlayableSave> = {}): PlayableSave {
     savedAt: "2026-09-27T00:00:00.000Z",
     currentNodeId: "menu",
     backStack: [],
-    state: createPlayableGraphFixture().initialState,
+    state: createNodeGraphFixture().initialState,
     ...overrides,
   };
 }

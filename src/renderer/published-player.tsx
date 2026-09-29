@@ -1,24 +1,24 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { isCompiledPlayableGraph } from "../shared/playable-compiled.js";
-import { isPlayableGraph } from "../shared/playable-graph-validation.js";
-import type { PlayablePlayerDefinition } from "../shared/playable-player-protocol.js";
+import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
+import { isNodeGraph } from "../shared/playable-graph-validation.js";
+import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import {
-  isPublishedPlayableManifest,
-  type PublishedPlayableManifest,
+  isPublishedNodeManifest,
+  type PublishedNodeManifest,
 } from "../shared/playable-publish.js";
-import { PlayablePlayer } from "./playable-player.js";
+import { NodePlayer } from "./playable-player.js";
 import "./playable-player.css";
 
 function PublishedPlayer() {
-  const [manifest, setManifest] = useState<PublishedPlayableManifest>();
+  const [manifest, setManifest] = useState<PublishedNodeManifest>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let disposed = false;
     void fetch("./manifest.json").then(requireJson).then((value) => {
-      if (!isPublishedPlayableManifest(value)) {
-        throw new Error("The published Playable manifest is invalid.");
+      if (!isPublishedNodeManifest(value)) {
+        throw new Error("The Published Player manifest is invalid.");
       }
       if (!disposed) setManifest(value);
     }).catch((cause) => {
@@ -29,20 +29,20 @@ function PublishedPlayer() {
 
   if (error) return <PublishedState error={error} />;
   if (!manifest) return <PublishedState />;
-  return <PublishedPlayablePlayer manifest={manifest} />;
+  return <PublishedNodePlayer manifest={manifest} />;
 }
 
-function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableManifest }) {
+function PublishedNodePlayer({ manifest }: { manifest: PublishedNodeManifest }) {
   const [state, setState] = useState<
     | { loading: true }
-    | { loading: false; definition: PlayablePlayerDefinition; assets: Record<string, Blob> }
+    | { loading: false; definition: NodePlayerDefinition; assets: Record<string, Blob> }
     | { loading: false; error: string }
   >({ loading: true });
 
   useEffect(() => {
     let disposed = false;
     void Promise.all([
-      fetchVerified(manifest.definition.path, manifest.definition.integrity, "Playable definition")
+      fetchVerified(manifest.definition.path, manifest.definition.integrity, "Published Node definition")
         .then((bytes) => JSON.parse(new TextDecoder().decode(bytes)) as unknown),
       mapConcurrent(Object.entries(manifest.assets), 4, async ([id, asset]) => {
         const bytes = await fetchVerified(asset.path, asset.integrity, `Asset "${id}"`);
@@ -51,8 +51,8 @@ function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableMani
       }),
     ]).then(([definition, assets]) => {
       if (disposed) return;
-      if (!isPublishedPlayableDefinition(definition, manifest)) {
-        throw new Error("The published Playable definition does not match its manifest.");
+      if (!isPublishedNodeDefinition(definition, manifest)) {
+        throw new Error("The Published Node definition does not match its manifest.");
       }
       document.title = definition.graph.title;
       setState({ loading: false, definition, assets: Object.fromEntries(assets) });
@@ -64,19 +64,19 @@ function PublishedPlayablePlayer({ manifest }: { manifest: PublishedPlayableMani
 
   if (state.loading) return <PublishedState />;
   if ("error" in state) return <PublishedState error={state.error} />;
-  return <PlayablePlayer
+  return <NodePlayer
     definition={state.definition}
     assets={state.assets}
     saveKey={`ohmygame:playable:${manifest.scope}`}
   />;
 }
 
-function isPublishedPlayableDefinition(
+function isPublishedNodeDefinition(
   value: unknown,
-  manifest: PublishedPlayableManifest,
-): value is PlayablePlayerDefinition {
+  manifest: PublishedNodeManifest,
+): value is NodePlayerDefinition {
   if (!isRecord(value) || value.version !== 1 || value.graphSignature !== manifest.graphSignature ||
-    !isPlayableGraph(value.graph) || !isCompiledPlayableGraph(value.compiled, value.graph)) return false;
+    !isNodeGraph(value.graph) || !isCompiledNodeGraph(value.compiled, value.graph)) return false;
   const graphAssets = Object.entries(value.graph.assets).sort(([left], [right]) => left.localeCompare(right));
   const manifestAssets = Object.entries(manifest.assets).sort(([left], [right]) => left.localeCompare(right));
   return graphAssets.length === manifestAssets.length && graphAssets.every(([id, asset], index) => (

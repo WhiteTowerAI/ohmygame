@@ -4,7 +4,7 @@ import {
   playableNodeById,
 } from "./playable-graph.js";
 import type {
-  PlayableGraph,
+  NodeGraph,
   PlayableNavigationMode,
 } from "./playable-nodes.js";
 
@@ -30,7 +30,7 @@ export class PlayableNavigationError extends Error {
 }
 
 export function createPlayableNavigation(
-  graph: PlayableGraph,
+  graph: NodeGraph,
 ): PlayableNavigationState {
   if (!playableNodeById(graph, graph.entryNodeId)) {
     throw new PlayableNavigationError(
@@ -42,7 +42,7 @@ export function createPlayableNavigation(
 }
 
 export function navigatePlayableSignal(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   state: PlayableNavigationState,
   signal: string,
 ): PlayableNavigationState {
@@ -74,7 +74,7 @@ export function navigatePlayableSignal(
 }
 
 export function openPlayableDestination(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   state: PlayableNavigationState,
   destination: string,
   mode: PlayableNavigationMode = "replace",

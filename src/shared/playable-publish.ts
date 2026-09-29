@@ -1,24 +1,24 @@
 import { Check } from "typebox/value";
 import type { PlayableAssetType } from "./playable-nodes.js";
 
-export interface PublishedPlayableFile {
+export interface PublishedNodeFile {
   path: string;
   integrity: string;
 }
 
-export interface PublishedPlayableAsset extends PublishedPlayableFile {
+export interface PublishedNodeAsset extends PublishedNodeFile {
   type: PlayableAssetType;
   contentType: string;
   size: number;
 }
 
-export interface PublishedPlayableManifest {
+export interface PublishedNodeManifest {
   version: 1;
   runtime: "playable-nodes";
   scope: string;
   graphSignature: string;
-  definition: PublishedPlayableFile;
-  assets: Record<string, PublishedPlayableAsset>;
+  definition: PublishedNodeFile;
+  assets: Record<string, PublishedNodeAsset>;
 }
 
 const integrity = {
@@ -65,9 +65,9 @@ export const PUBLISHED_PLAYABLE_MANIFEST_SCHEMA = {
   },
 } as const;
 
-export function isPublishedPlayableManifest(value: unknown): value is PublishedPlayableManifest {
+export function isPublishedNodeManifest(value: unknown): value is PublishedNodeManifest {
   if (!Check(PUBLISHED_PLAYABLE_MANIFEST_SCHEMA, value)) return false;
-  return Object.values((value as PublishedPlayableManifest).assets).every((asset) => (
+  return Object.values((value as PublishedNodeManifest).assets).every((asset) => (
     asset.contentType.toLowerCase().startsWith(`${asset.type}/`)
   ));
 }

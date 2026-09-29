@@ -46,8 +46,8 @@ import {
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { PlayableProjectRuntimeResponse } from "../shared/playable-player-protocol.js";
-import type { PlayableCodebase, PlayableCodebaseUpdate } from "../shared/playable-codebase.js";
+import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
+import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -347,17 +347,17 @@ export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocu
   return request(`/projects/${projectId}/asset-canvas`);
 }
 
-export async function getPlayableProjectRuntime(projectId: string): Promise<PlayableProjectRuntimeResponse> {
+export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
   return request(`/projects/${projectId}/playable`);
 }
 
-export async function getPlayableCodebase(projectId: string): Promise<PlayableCodebase> {
+export async function getNodeCodebase(projectId: string): Promise<NodeCodebase> {
   return request(`/projects/${projectId}/playable/codebase`);
 }
 
-export async function updatePlayableCodebase(
+export async function updateNodeCodebase(
   projectId: string,
-  codebase: PlayableCodebaseUpdate,
+  codebase: NodeCodebaseUpdate,
 ): Promise<void> {
   await request(`/projects/${projectId}/playable/codebase`, {
     method: "PUT",

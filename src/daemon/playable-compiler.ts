@@ -7,42 +7,42 @@ import {
   type Metafile,
   type Plugin,
 } from "esbuild";
-import { validatePlayableGraph } from "../shared/playable-graph-validation.js";
+import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type {
-  CompiledPlayableGraph,
+  CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "../shared/playable-compiled.js";
 import type {
-  PlayableGraph,
-  PlayableSource,
+  NodeGraph,
+  NodeSource,
 } from "../shared/playable-nodes.js";
 
-export type PlayableCompilerErrorCode =
+export type NodeCompilerErrorCode =
   | "invalid-graph"
   | "missing-source"
   | "path-outside-workspace"
   | "build-failed"
   | "resource-limit";
 
-export class PlayableCompilerError extends Error {
+export class NodeCompilerError extends Error {
   constructor(
-    readonly code: PlayableCompilerErrorCode,
+    readonly code: NodeCompilerErrorCode,
     message: string,
     readonly surfaceId?: string,
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = "PlayableCompilerError";
+    this.name = "NodeCompilerError";
   }
 }
 
-export interface PlayableCompilerOptions {
+export interface NodeCompilerOptions {
   minify?: boolean;
   sourcemap?: boolean;
 }
 
 export type {
-  CompiledPlayableGraph,
+  CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "../shared/playable-compiled.js";
 
@@ -74,15 +74,15 @@ const MAX_CONCURRENT_SURFACE_BUILDS = 4;
 const MAX_SURFACE_SOURCE_BYTES = 5 * 1024 * 1024;
 const MAX_COMPILED_SURFACE_BYTES = 16 * 1024 * 1024;
 
-export async function compilePlayableGraph(
+export async function compileNodeGraph(
   workspacePath: string,
-  graph: PlayableGraph,
-  options: PlayableCompilerOptions = {},
-): Promise<CompiledPlayableGraph> {
-  const validation = validatePlayableGraph(graph);
+  graph: NodeGraph,
+  options: NodeCompilerOptions = {},
+): Promise<CompiledNodeGraph> {
+  const validation = validateNodeGraph(graph);
   if (!validation.ok) {
     const first = validation.issues[0]!;
-    throw new PlayableCompilerError(
+    throw new NodeCompilerError(
       "invalid-graph",
       `${first.path}: ${first.message}`,
     );
@@ -115,8 +115,8 @@ export async function compilePlayableGraph(
 async function compileSurface(
   workspaceRoot: string,
   surfaceId: string,
-  source: PlayableSource,
-  options: PlayableCompilerOptions,
+  source: NodeSource,
+  options: NodeCompilerOptions,
 ): Promise<CompiledPlayableSurface> {
   const [htmlPath, cssPath, javascriptPath] = await Promise.all([
     resolveSourceFile(workspaceRoot, source.html, surfaceId),
@@ -140,7 +140,7 @@ async function compileSurface(
     const importedCss = outputText(buildResult, "script.css", false);
     const javascript = outputText(buildResult, "script.js");
     if (!outputExports(buildResult.metafile, "script.js").includes("mount")) {
-      throw new PlayableCompilerError(
+      throw new NodeCompilerError(
         "build-failed",
         `Playable surface "${surfaceId}" JavaScript must export "mount".`,
         surfaceId,
@@ -160,7 +160,7 @@ async function compileSurface(
     };
     const compiledBytes = Buffer.byteLength(compiled.html) + Buffer.byteLength(compiled.css) + Buffer.byteLength(compiled.javascript);
     if (compiledBytes > MAX_COMPILED_SURFACE_BYTES) {
-      throw new PlayableCompilerError(
+      throw new NodeCompilerError(
         "resource-limit",
         `Playable surface "${surfaceId}" exceeds the 16 MiB compiled size limit.`,
         surfaceId,
@@ -169,8 +169,8 @@ async function compileSurface(
     return compiled;
   } catch (cause) {
     if (boundary.violation) throw boundary.violation;
-    if (cause instanceof PlayableCompilerError) throw cause;
-    throw new PlayableCompilerError(
+    if (cause instanceof NodeCompilerError) throw cause;
+    throw new NodeCompilerError(
       "build-failed",
       `Failed to compile Playable surface "${surfaceId}": ${errorMessage(cause)}`,
       surfaceId,
@@ -182,7 +182,7 @@ async function compileSurface(
 async function readLimitedText(file: string, surfaceId: string): Promise<string> {
   const details = await stat(file);
   if (details.size > MAX_SURFACE_SOURCE_BYTES) {
-    throw new PlayableCompilerError(
+    throw new NodeCompilerError(
       "resource-limit",
       `Playable surface "${surfaceId}" contains a source file larger than 5 MiB.`,
       surfaceId,
@@ -196,7 +196,7 @@ async function bundleSurface(
   cssEntryPoint: string,
   javascriptEntryPoint: string,
   boundary: Plugin,
-  options: PlayableCompilerOptions,
+  options: NodeCompilerOptions,
 ): Promise<BuildResult<{ metafile: true }>> {
   return build({
     absWorkingDir: workspaceRoot,
@@ -223,8 +223,8 @@ async function bundleSurface(
 function workspaceBoundaryPlugin(
   workspaceRoot: string,
   surfaceId: string,
-): { plugin: Plugin; violation?: PlayableCompilerError } {
-  const boundary: { plugin: Plugin; violation?: PlayableCompilerError } = {
+): { plugin: Plugin; violation?: NodeCompilerError } {
+  const boundary: { plugin: Plugin; violation?: NodeCompilerError } = {
     plugin: {
       name: "playable-workspace-boundary",
       setup(context) {
@@ -260,7 +260,7 @@ function workspaceBoundaryPlugin(
               args.path,
             );
           } catch (cause) {
-            if (cause instanceof PlayableCompilerError) {
+            if (cause instanceof NodeCompilerError) {
               boundary.violation ??= cause;
               return { errors: [{ text: cause.message }] };
             }
@@ -286,7 +286,7 @@ async function resolveWorkspaceRoot(workspacePath: string): Promise<string> {
     if (!(await stat(root)).isDirectory()) throw new Error("not a directory");
     return root;
   } catch (cause) {
-    throw new PlayableCompilerError(
+    throw new NodeCompilerError(
       "missing-source",
       `Playable workspace does not exist or is not a directory: ${workspacePath}`,
       undefined,
@@ -308,7 +308,7 @@ async function resolveSourceFile(
     const details = await stat(resolved);
     if (!details.isFile()) throw new Error("not a file");
     if (details.size > MAX_SURFACE_SOURCE_BYTES) {
-      throw new PlayableCompilerError(
+      throw new NodeCompilerError(
         "resource-limit",
         `Playable surface "${surfaceId}" contains a source file larger than 5 MiB.`,
         surfaceId,
@@ -316,8 +316,8 @@ async function resolveSourceFile(
     }
     return resolved;
   } catch (cause) {
-    if (cause instanceof PlayableCompilerError) throw cause;
-    throw new PlayableCompilerError(
+    if (cause instanceof NodeCompilerError) throw cause;
+    throw new NodeCompilerError(
       "missing-source",
       `Playable surface "${surfaceId}" references missing source file "${sourcePath}".`,
       surfaceId,
@@ -340,7 +340,7 @@ function assertInsideWorkspace(
       !path.isAbsolute(relative))
   )
     return;
-  throw new PlayableCompilerError(
+  throw new NodeCompilerError(
     "path-outside-workspace",
     `Playable surface "${surfaceId}" cannot load "${requestedPath}" because it resolves outside the project workspace.`,
     surfaceId,

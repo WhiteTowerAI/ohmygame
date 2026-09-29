@@ -12,10 +12,10 @@ import type { AssetLibrary } from "../asset-library.js";
 import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
-import { isCompiledPlayableGraph } from "../../shared/playable-compiled.js";
-import type { PlayablePlayerDefinition } from "../../shared/playable-player-protocol.js";
-import { isPublishedPlayableManifest, type PublishedPlayableAsset, type PublishedPlayableManifest } from "../../shared/playable-publish.js";
-import { isPlayableGraph } from "../../shared/playable-graph-validation.js";
+import { isCompiledNodeGraph } from "../../shared/playable-compiled.js";
+import type { NodePlayerDefinition } from "../../shared/playable-player-protocol.js";
+import { isPublishedNodeManifest, type PublishedNodeAsset, type PublishedNodeManifest } from "../../shared/playable-publish.js";
+import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 
 interface PackageJson {
@@ -82,20 +82,20 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
   if (!library || !playerDirectory || !await exists(path.join(playerDirectory, "index.html"))) {
     throw new PublishError("Interactive Drama Player is not built. Run npm run build:player first.");
   }
-  let playable: PlayablePlayerDefinition | undefined;
+  let playable: NodePlayerDefinition | undefined;
   try {
     playable = await buildPlayableProject(project.workspacePath, "publish");
   } catch (cause) {
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
   if (!playable) throw new PublishError("Playable graph.json is missing");
-  await assertPlayablePlayerBuilt(playerDirectory);
+  await assertNodePlayerBuilt(playerDirectory);
   return preparePlayableProject(project, playable, library, playerDirectory);
 }
 
 async function preparePlayableProject(
   project: ProjectState,
-  definition: PlayablePlayerDefinition,
+  definition: NodePlayerDefinition,
   library: AssetLibrary,
   playerDirectory: string,
 ): Promise<string> {
@@ -103,7 +103,7 @@ async function preparePlayableProject(
   try {
     await cp(playerDirectory, output, { recursive: true });
     await mkdir(path.join(output, "assets", "media"), { recursive: true });
-    const assets: Record<string, PublishedPlayableAsset> = {};
+    const assets: Record<string, PublishedNodeAsset> = {};
     const writtenAssets = new Set<string>();
     for (const [id, assetDefinition] of Object.entries(definition.graph.assets).sort(([left], [right]) => left.localeCompare(right))) {
       let absolutePath: string;
@@ -143,7 +143,7 @@ async function preparePlayableProject(
     }
     const definitionBytes = Buffer.from(`${JSON.stringify(definition)}\n`);
     await writeFile(path.join(output, "playable.json"), definitionBytes);
-    const manifest: PublishedPlayableManifest = {
+    const manifest: PublishedNodeManifest = {
       version: 1,
       runtime: "playable-nodes",
       scope: `published:${project.id}`,
@@ -166,30 +166,30 @@ async function preparePlayableProject(
 
 export async function validatePlayablePublishDirectory(directory: string): Promise<void> {
   const manifestValue = await readJsonFile(path.join(directory, "manifest.json"), "Published manifest");
-  if (!isPublishedPlayableManifest(manifestValue)) {
-    throw new PublishError("Published Playable manifest is invalid.");
+  if (!isPublishedNodeManifest(manifestValue)) {
+    throw new PublishError("Published Player manifest is invalid.");
   }
   const manifest = manifestValue;
-  const definitionBytes = await readPublishedFile(directory, manifest.definition.path, "Playable definition");
-  assertIntegrity("Playable definition", definitionBytes, manifest.definition.integrity);
-  let definition: PlayablePlayerDefinition;
+  const definitionBytes = await readPublishedFile(directory, manifest.definition.path, "Published Node definition");
+  assertIntegrity("Published Node definition", definitionBytes, manifest.definition.integrity);
+  let definition: NodePlayerDefinition;
   try {
-    definition = JSON.parse(definitionBytes.toString("utf8")) as PlayablePlayerDefinition;
+    definition = JSON.parse(definitionBytes.toString("utf8")) as NodePlayerDefinition;
   } catch {
-    throw new PublishError("Published Playable definition is not valid JSON.");
+    throw new PublishError("Published Node definition is not valid JSON.");
   }
   const actualSignature = createHash("sha256")
     .update(JSON.stringify({ graph: definition.graph, compiled: definition.compiled }))
     .digest("hex");
-  if (definition.version !== 1 || !isPlayableGraph(definition.graph) ||
-    !isCompiledPlayableGraph(definition.compiled, definition.graph) ||
+  if (definition.version !== 1 || !isNodeGraph(definition.graph) ||
+    !isCompiledNodeGraph(definition.compiled, definition.graph) ||
     definition.graphSignature !== actualSignature || definition.graphSignature !== manifest.graphSignature) {
-    throw new PublishError("Published Playable definition does not match its manifest.");
+    throw new PublishError("Published Node definition does not match its manifest.");
   }
   const graphAssets = Object.entries(definition.graph?.assets ?? {}).sort(([left], [right]) => left.localeCompare(right));
   const manifestAssets = Object.entries(manifest.assets).sort(([left], [right]) => left.localeCompare(right));
   if (graphAssets.length !== manifestAssets.length || graphAssets.some(([id], index) => id !== manifestAssets[index]?.[0])) {
-    throw new PublishError("Published Playable asset manifest does not match the graph.");
+    throw new PublishError("Published asset manifest does not match the Node Graph.");
   }
   for (const [id, asset] of manifestAssets) {
     const declared = definition.graph.assets[id]!;
@@ -242,7 +242,7 @@ function sha256Integrity(bytes: Uint8Array): string {
   return `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
 }
 
-async function assertPlayablePlayerBuilt(playerDirectory: string): Promise<void> {
+async function assertNodePlayerBuilt(playerDirectory: string): Promise<void> {
   const required = [
     "index.html",
     "playable-sandbox.html",
@@ -255,7 +255,7 @@ async function assertPlayablePlayerBuilt(playerDirectory: string): Promise<void>
   ).filter((file): file is string => file !== undefined);
   if (missing.length) {
     throw new PublishError(
-      `Playable Player build is incomplete. Missing: ${missing.join(", ")}. Run npm run build:player first.`,
+      `Published Player build is incomplete. Missing: ${missing.join(", ")}. Run npm run build:player first.`,
     );
   }
 }

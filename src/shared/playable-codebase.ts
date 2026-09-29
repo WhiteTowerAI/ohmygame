@@ -1,33 +1,33 @@
 import { Check } from "typebox/value";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
-import type { PlayableGraph } from "./playable-nodes.js";
+import type { NodeGraph } from "./playable-nodes.js";
 
-export interface PlayableEditorLayout {
+export interface NodeEditorLayout {
   version: 1;
   nodes: Record<string, { x: number; y: number }>;
   viewport: { x: number; y: number; zoom: number };
   view: "canvas" | "code";
 }
 
-export interface PlayableCodebase {
-  graph: PlayableGraph;
-  editorLayout: PlayableEditorLayout;
+export interface NodeCodebase {
+  graph: NodeGraph;
+  editorLayout: NodeEditorLayout;
 }
 
-export interface PlayableCodebaseUpdate extends PlayableCodebase {
+export interface NodeCodebaseUpdate extends NodeCodebase {
   sources?: Record<string, string>;
   sourceDeletions?: string[];
 }
 
-export function isPlayableEditorLayout(
+export function isNodeEditorLayout(
   value: unknown,
-): value is PlayableEditorLayout {
+): value is NodeEditorLayout {
   return Check(EDITOR_LAYOUT_SCHEMA, value);
 }
 
 export function playableLayoutMatchesGraph(
-  graph: PlayableGraph,
-  layout: PlayableEditorLayout,
+  graph: NodeGraph,
+  layout: NodeEditorLayout,
 ): boolean {
   const graphIds = new Set(graph.nodes.map((node) => node.id));
   const layoutIds = Object.keys(layout.nodes);

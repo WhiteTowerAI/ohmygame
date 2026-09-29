@@ -1,18 +1,18 @@
 import type {
   PlayableEdge,
-  PlayableGraph,
+  NodeGraph,
   PlayableNode,
 } from "./playable-nodes.js";
 
 export function playableNodeById(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   nodeId: string,
 ): PlayableNode | undefined {
   return graph.nodes.find((node) => node.id === nodeId);
 }
 
 export function playableEdgeForSignal(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   nodeId: string,
   signal: string,
 ): PlayableEdge | undefined {
@@ -22,7 +22,7 @@ export function playableEdgeForSignal(
 }
 
 export function playableDestinationNode(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   destination: string,
 ): PlayableNode | undefined {
   const nodeId = graph.destinations[destination];
@@ -30,7 +30,7 @@ export function playableDestinationNode(
 }
 
 export function playableOutgoingEdges(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   nodeId: string,
 ): PlayableEdge[] {
   return graph.edges.filter((edge) => edge.source.nodeId === nodeId);

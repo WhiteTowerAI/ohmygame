@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteAsset, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getPlayableCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updatePlayableCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
+import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteAsset, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -64,15 +64,15 @@ describe("renderer event stream", () => {
     const codebase = {
       graph: { version: 1, title: "Story" },
       editorLayout: { version: 1, nodes: {} },
-    } as Awaited<ReturnType<typeof getPlayableCodebase>>;
+    } as Awaited<ReturnType<typeof getNodeCodebase>>;
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json(codebase))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getPlayableCodebase("project-1")).resolves.toEqual(codebase);
+    await expect(getNodeCodebase("project-1")).resolves.toEqual(codebase);
     const update = { ...codebase, sources: { "nodes/start/node.js": "export function mount() {}\n" } };
-    await expect(updatePlayableCodebase("project-1", update)).resolves.toBeUndefined();
+    await expect(updateNodeCodebase("project-1", update)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/projects/project-1/playable/codebase",

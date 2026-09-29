@@ -4,7 +4,7 @@ import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.j
 import type { ProjectState } from "../shared/contracts.js";
 import type { ProjectManager } from "./projects.js";
 import {
-  createPlayableCodebase,
+  createNodeCodebase,
   createPlayableStarterCodebase,
 } from "./playable-codebase.js";
 
@@ -19,7 +19,7 @@ export async function createInteractiveDramaStarterProject(
   const project = await projects.create(name?.trim() || INTERACTIVE_DRAMA_STARTER.name, "interactive-drama", workspacePath);
   try {
     await projects.setCover(project.id, cover);
-    await createPlayableCodebase(
+    await createNodeCodebase(
       project.workspacePath,
       createPlayableStarterCodebase(
         project.name,

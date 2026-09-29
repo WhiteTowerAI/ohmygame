@@ -1,19 +1,19 @@
-import type { CompiledPlayableGraph } from "./playable-compiled.js";
-import type { PlayableGraph } from "./playable-nodes.js";
+import type { CompiledNodeGraph } from "./playable-compiled.js";
+import type { NodeGraph } from "./playable-nodes.js";
 import type {
-  PlayableRuntimeSnapshot,
+  NodeRuntimeSnapshot,
   PlayableSave,
 } from "./playable-runtime.js";
 
-export interface PlayablePlayerDefinition {
+export interface NodePlayerDefinition {
   version: 1;
-  graph: PlayableGraph;
-  compiled: CompiledPlayableGraph;
+  graph: NodeGraph;
+  compiled: CompiledNodeGraph;
   graphSignature: string;
 }
 
-export interface PlayableProjectRuntimeResponse {
-  definition: PlayablePlayerDefinition;
+export interface NodeRuntimeResponse {
+  definition: NodePlayerDefinition;
 }
 
 export interface PlayableAssetTransfer {
@@ -25,7 +25,7 @@ export type PlayableHostMessage =
   | {
       kind: "ohmygame:playable:init";
       instanceId: string;
-      definition: PlayablePlayerDefinition;
+      definition: NodePlayerDefinition;
       assets: Record<string, PlayableAssetTransfer>;
       save?: unknown;
     }
@@ -46,7 +46,7 @@ export type PlayableFrameMessage =
   | {
       kind: "ohmygame:playable:snapshot";
       instanceId: string;
-      snapshot: PlayableRuntimeSnapshot;
+      snapshot: NodeRuntimeSnapshot;
     }
   | {
       kind: "ohmygame:playable:error";

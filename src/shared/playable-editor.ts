@@ -1,11 +1,11 @@
-import type { PlayableGraph } from "./playable-nodes.js";
+import type { NodeGraph } from "./playable-nodes.js";
 
 export function renamePlayableSignal(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   nodeId: string,
   oldId: string,
   newId: string,
-): PlayableGraph {
+): NodeGraph {
   const next = structuredClone(graph);
   const node = next.nodes.find((candidate) => candidate.id === nodeId);
   if (!node || !newId || node.signals.some((signal) => signal.id === newId && signal.id !== oldId)) {
@@ -19,10 +19,10 @@ export function renamePlayableSignal(
 }
 
 export function deletePlayableSignal(
-  graph: PlayableGraph,
+  graph: NodeGraph,
   nodeId: string,
   signalId: string,
-): PlayableGraph {
+): NodeGraph {
   const next = structuredClone(graph);
   const node = next.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return graph;

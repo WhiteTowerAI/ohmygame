@@ -6,11 +6,11 @@ import {
   openPlayableDestination,
   PlayableNavigationError,
 } from "../src/shared/playable-navigation.js";
-import { createPlayableGraphFixture } from "./playable-fixture.js";
+import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable navigation", () => {
   it("starts at the Entry Node and follows replace edges", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
     const next = navigatePlayableSignal(graph, initial, "start");
 
@@ -19,7 +19,7 @@ describe("Playable navigation", () => {
   });
 
   it("pushes return locations and remounts them on back", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
     const archive = navigatePlayableSignal(graph, initial, "inspect");
     const returned = navigatePlayableBack(archive);
@@ -30,7 +30,7 @@ describe("Playable navigation", () => {
   });
 
   it("opens Shell destinations with explicit navigation modes", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
 
     expect(openPlayableDestination(graph, initial, "archive")).toEqual({
@@ -44,7 +44,7 @@ describe("Playable navigation", () => {
   });
 
   it("returns actionable errors for invalid navigation requests", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
     graph.edges = graph.edges.filter(
       (edge) => edge.source.signal !== "inspect",
@@ -73,7 +73,7 @@ describe("Playable navigation", () => {
   });
 
   it("rejects a graph whose Entry Node is missing", () => {
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     graph.entryNodeId = "missing";
 
     expect(() => createPlayableNavigation(graph)).toThrowError(

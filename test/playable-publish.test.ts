@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ArtifactBuilder, validatePlayablePublishDirectory } from "../src/daemon/publish/archive.js";
-import { isPublishedPlayableManifest } from "../src/shared/playable-publish.js";
+import { isPublishedNodeManifest } from "../src/shared/playable-publish.js";
 import {
-  createPlayableGraphFixture,
+  createNodeGraphFixture,
   writePlayableFixtureWorkspace,
 } from "./playable-fixture.js";
 
@@ -22,7 +22,7 @@ afterEach(async () => {
   );
 });
 
-describe("Playable published Player", () => {
+describe("Published Player", () => {
   it("validates the strict published manifest contract", () => {
     const manifest = {
       version: 1,
@@ -33,10 +33,10 @@ describe("Playable published Player", () => {
       assets: {},
     };
 
-    expect(isPublishedPlayableManifest(manifest)).toBe(true);
-    expect(isPublishedPlayableManifest({ ...manifest, extra: true })).toBe(false);
-    expect(isPublishedPlayableManifest({ ...manifest, definition: { ...manifest.definition, path: "../playable.json" } })).toBe(false);
-    expect(isPublishedPlayableManifest({ ...manifest, assets: {
+    expect(isPublishedNodeManifest(manifest)).toBe(true);
+    expect(isPublishedNodeManifest({ ...manifest, extra: true })).toBe(false);
+    expect(isPublishedNodeManifest({ ...manifest, definition: { ...manifest.definition, path: "../playable.json" } })).toBe(false);
+    expect(isPublishedNodeManifest({ ...manifest, assets: {
       clip: { path: "./assets/media/clip.mp4", integrity: `sha256-${"A".repeat(43)}=`, type: "video", contentType: "image/png", size: 1 },
     } })).toBe(false);
   });
@@ -45,13 +45,13 @@ describe("Playable published Player", () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await temporary("ohmygame-playable-publish-player-");
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     if (graph.shell) graph.shell.assets = [];
     await writePlayableFixtureWorkspace(workspace, graph);
     await mkdir(path.join(player, "assets"));
     await Promise.all([
-      writeFile(path.join(player, "index.html"), "Published Playable Player"),
+      writeFile(path.join(player, "index.html"), "Published Player"),
       writeFile(path.join(player, "playable-sandbox.html"), "Playable sandbox"),
       writeFile(path.join(player, "assets", "playable-sandbox.js"), "window.sandbox = true"),
       writeFile(path.join(player, "player.js"), "window.player = true"),
@@ -112,7 +112,7 @@ describe("Playable published Player", () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await playerFixture();
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     graph.assets.poster = structuredClone(graph.assets.background!);
     graph.nodes[0]!.assets.push("poster");
@@ -145,7 +145,7 @@ describe("Playable published Player", () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await playerFixture();
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     graph.assets.background!.type = "video";
     if (graph.shell) graph.shell.assets = [];
@@ -161,7 +161,7 @@ describe("Playable published Player", () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await playerFixture();
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     if (graph.shell) graph.shell.assets = [];
     await writePlayableFixtureWorkspace(workspace, graph);
@@ -184,7 +184,7 @@ describe("Playable published Player", () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await playerFixture();
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     if (graph.shell) graph.shell.assets = [];
     await writePlayableFixtureWorkspace(workspace, graph);
@@ -212,14 +212,14 @@ describe("Playable published Player", () => {
     ]);
 
     await expect(validatePlayablePublishDirectory(output))
-      .rejects.toThrow("Published Playable definition does not match its manifest.");
+      .rejects.toThrow("Published Node definition does not match its manifest.");
   });
 
-  it("rejects an incomplete Playable Player build", async () => {
+  it("rejects an incomplete Published Player build", async () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await temporary("ohmygame-playable-publish-player-");
     const data = await temporary("ohmygame-playable-publish-data-");
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     delete graph.assets.theme;
     if (graph.shell) graph.shell.assets = [];
     await writePlayableFixtureWorkspace(workspace, graph);
@@ -235,7 +235,7 @@ describe("Playable published Player", () => {
       workspacePath: workspace,
       preview: { status: "stopped" },
     })).rejects.toThrow(
-      "Playable Player build is incomplete. Missing: playable-sandbox.html, assets/playable-sandbox.js.",
+      "Published Player build is incomplete. Missing: playable-sandbox.html, assets/playable-sandbox.js.",
     );
   });
 });
@@ -244,7 +244,7 @@ async function playerFixture(): Promise<string> {
   const player = await temporary("ohmygame-playable-publish-player-");
   await mkdir(path.join(player, "assets"));
   await Promise.all([
-    writeFile(path.join(player, "index.html"), "Published Playable Player"),
+    writeFile(path.join(player, "index.html"), "Published Player"),
     writeFile(path.join(player, "playable-sandbox.html"), "Playable sandbox"),
     writeFile(path.join(player, "assets", "playable-sandbox.js"), "window.sandbox = true"),
   ]);

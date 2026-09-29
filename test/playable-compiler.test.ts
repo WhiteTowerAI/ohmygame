@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  compilePlayableGraph,
-  PlayableCompilerError,
+  compileNodeGraph,
+  NodeCompilerError,
 } from "../src/daemon/playable-compiler.js";
-import type { PlayableGraph } from "../src/shared/playable-nodes.js";
-import { createPlayableGraphFixture } from "./playable-fixture.js";
+import type { NodeGraph } from "../src/shared/playable-nodes.js";
+import { createNodeGraphFixture } from "./playable-fixture.js";
 
 const temporaryRoots: string[] = [];
 
@@ -19,11 +19,11 @@ afterEach(async () => {
   );
 });
 
-describe("Playable compiler", () => {
+describe("Node compiler", () => {
   it("compiles Nodes and Shell with Shared Modules and project dependencies", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
 
-    const result = await compilePlayableGraph(workspace, graph);
+    const result = await compileNodeGraph(workspace, graph);
     const menu = result.nodes.menu!;
 
     expect(result.version).toBe(1);
@@ -52,7 +52,7 @@ describe("Playable compiler", () => {
   it("supports production minification and inline source maps", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
 
-    const result = await compilePlayableGraph(workspace, graph, {
+    const result = await compileNodeGraph(workspace, graph, {
       minify: true,
       sourcemap: true,
     });
@@ -78,7 +78,7 @@ describe("Playable compiler", () => {
       ].join("\n"),
     );
 
-    const result = await compilePlayableGraph(workspace, graph);
+    const result = await compileNodeGraph(workspace, graph);
 
     expect(result.nodes.menu!.javascript).toContain("IMPORT_BRANCH");
     expect(result.nodes.menu!.javascript).toContain("REQUIRE_BRANCH");
@@ -91,7 +91,7 @@ describe("Playable compiler", () => {
     await rm(path.join(workspace, "nodes", "menu", "index.html"));
     await symlink(outside, path.join(workspace, "nodes", "menu", "index.html"));
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toMatchObject({
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
       code: "path-outside-workspace",
       surfaceId: "menu",
     });
@@ -108,11 +108,11 @@ describe("Playable compiler", () => {
       'export { value as mount } from "../../../outside.js";\n',
     );
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toMatchObject({
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
       code: "path-outside-workspace",
       surfaceId: "menu",
     });
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toThrow(
+    await expect(compileNodeGraph(workspace, graph)).rejects.toThrow(
       "resolves outside the project workspace",
     );
   });
@@ -123,7 +123,7 @@ describe("Playable compiler", () => {
     });
     await writePackage(path.join(root, "node_modules", "tiny-dep"));
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toThrow(
+    await expect(compileNodeGraph(workspace, graph)).rejects.toThrow(
       "resolves outside the project workspace",
     );
   });
@@ -132,8 +132,8 @@ describe("Playable compiler", () => {
     const { workspace, graph } = await createCompilerWorkspace();
     await rm(path.join(workspace, "nodes", "archive", "node.js"));
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toEqual(
-      expect.objectContaining<Partial<PlayableCompilerError>>({
+    await expect(compileNodeGraph(workspace, graph)).rejects.toEqual(
+      expect.objectContaining<Partial<NodeCompilerError>>({
         code: "missing-source",
         surfaceId: "archive",
       }),
@@ -147,7 +147,7 @@ describe("Playable compiler", () => {
       "export const title = 'No mount';\n",
     );
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toMatchObject({
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
       code: "build-failed",
       surfaceId: "archive",
       message: 'Playable surface "archive" JavaScript must export "mount".',
@@ -161,7 +161,7 @@ describe("Playable compiler", () => {
       "x".repeat(5 * 1024 * 1024 + 1),
     );
 
-    await expect(compilePlayableGraph(workspace, graph)).rejects.toMatchObject({
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
       code: "resource-limit",
       surfaceId: "menu",
     });
@@ -173,14 +173,14 @@ async function createCompilerWorkspace(
 ): Promise<{
   root: string;
   workspace: string;
-  graph: PlayableGraph;
+  graph: NodeGraph;
 }> {
   const root = await mkdtemp(
     path.join(tmpdir(), "ohmygame-playable-compiler-"),
   );
   temporaryRoots.push(root);
   const workspace = path.join(root, "workspace");
-  const graph = createPlayableGraphFixture();
+  const graph = createNodeGraphFixture();
   await Promise.all([
     mkdir(path.join(workspace, "nodes", "menu"), { recursive: true }),
     mkdir(path.join(workspace, "nodes", "lobby"), { recursive: true }),

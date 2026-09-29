@@ -1,4 +1,4 @@
-import type { PlayableGraph } from "./playable-nodes.js";
+import type { NodeGraph } from "./playable-nodes.js";
 
 export interface CompiledPlayableSurface {
   id: string;
@@ -9,16 +9,16 @@ export interface CompiledPlayableSurface {
   inputs: string[];
 }
 
-export interface CompiledPlayableGraph {
+export interface CompiledNodeGraph {
   version: 1;
   nodes: Record<string, CompiledPlayableSurface>;
   shell?: CompiledPlayableSurface;
 }
 
-export function isCompiledPlayableGraph(
+export function isCompiledNodeGraph(
   value: unknown,
-  graph: PlayableGraph,
-): value is CompiledPlayableGraph {
+  graph: NodeGraph,
+): value is CompiledNodeGraph {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.nodes))
     return false;
   const nodes = value.nodes;

@@ -7,7 +7,7 @@ export interface JsonObject {
 export type PlayableNavigationMode = "replace" | "push";
 export type PlayableAssetType = "image" | "video" | "audio";
 
-export interface PlayableSource {
+export interface NodeSource {
   html: string;
   css: string;
   javascript: string;
@@ -29,13 +29,13 @@ export interface PlayableSignal {
 export interface PlayableNode {
   id: string;
   title: string;
-  source: PlayableSource;
+  source: NodeSource;
   assets: string[];
   signals: PlayableSignal[];
 }
 
 export interface PlayableShell {
-  source: PlayableSource;
+  source: NodeSource;
   assets: string[];
 }
 
@@ -49,7 +49,7 @@ export interface PlayableEdge {
   mode: PlayableNavigationMode;
 }
 
-export interface PlayableGraph {
+export interface NodeGraph {
   version: 1;
   title: string;
   viewport: {
@@ -73,7 +73,7 @@ export interface PlayableStateService {
   subscribe(listener: (state: Readonly<JsonObject>) => void): () => void;
 }
 
-export interface PlayableRuntimeContext {
+export interface NodeRuntimeContext {
   root: ShadowRoot;
   assets: { url(id: string): string };
   state: PlayableStateService;
@@ -87,14 +87,14 @@ export interface PlayableRuntimeContext {
   lifecycle: { signal: AbortSignal };
 }
 
-export interface PlayableNodeContext extends PlayableRuntimeContext {
+export interface PlayableNodeContext extends NodeRuntimeContext {
   navigation: {
     emit(signal: string): Promise<void>;
     back(): Promise<void>;
   };
 }
 
-export interface PlayableShellContext extends PlayableRuntimeContext {
+export interface PlayableShellContext extends NodeRuntimeContext {
   navigation: {
     back(): Promise<void>;
     open(destination: string, mode?: PlayableNavigationMode): Promise<void>;

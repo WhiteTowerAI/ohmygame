@@ -8,25 +8,25 @@ import {
 import type {
   PlayableAssetTransfer,
   PlayableFrameMessage,
-  PlayablePlayerDefinition,
+  NodePlayerDefinition,
 } from "../shared/playable-player-protocol.js";
 import { isPlayableFrameMessage } from "../shared/playable-player-protocol.js";
-import type { PlayableRuntimeSnapshot } from "../shared/playable-runtime.js";
+import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { PLAYABLE_IFRAME_SANDBOX } from "../shared/playable-sandbox.js";
 import "./playable-player.css";
 
-export interface PlayablePlayerProps {
-  definition: PlayablePlayerDefinition;
+export interface NodePlayerProps {
+  definition: NodePlayerDefinition;
   assets: Readonly<Record<string, Blob>>;
   saveKey: string;
   title?: string;
   frameUrl?: string;
   storage?: Storage;
-  onSnapshot?: (snapshot: PlayableRuntimeSnapshot) => void;
+  onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
 }
 
-export function PlayablePlayer({
+export function NodePlayer({
   definition,
   assets,
   saveKey,
@@ -35,7 +35,7 @@ export function PlayablePlayer({
   storage = window.localStorage,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
-}: PlayablePlayerProps) {
+}: NodePlayerProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const instanceId = useMemo(
     () => `playable-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -164,5 +164,5 @@ function errorMessage(value: unknown): string {
 }
 
 function reportDiagnostic(error: string): void {
-  console.error(`[Playable Runtime] ${error}`);
+  console.error(`[Node Runtime] ${error}`);
 }

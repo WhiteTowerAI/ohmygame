@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  createPlayableCodebase,
+  createNodeCodebase,
   createPlayableStarterCodebase,
-  readPlayableCodebase,
-  writePlayableCodebase,
+  readNodeCodebase,
+  writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
@@ -27,7 +27,7 @@ describe("Playable codebase", () => {
     const workspace = await temporaryWorkspace();
     const starter = createPlayableStarterCodebase("A < B & C", { width: 720, height: 1280 });
     starter.graph.nodes[0]!.title = "A < B & C";
-    await createPlayableCodebase(workspace, starter);
+    await createNodeCodebase(workspace, starter);
 
     expect(await tree(workspace)).toEqual([
       "AGENTS.md",
@@ -40,7 +40,7 @@ describe("Playable codebase", () => {
       "schemas/editor-layout.schema.json",
       "schemas/graph.schema.json",
     ]);
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     expect(codebase.graph).toMatchObject({
       title: "A < B & C",
       entryNodeId: "start",
@@ -60,7 +60,7 @@ describe("Playable codebase", () => {
 
   it("expresses the sample through ordinary Nodes, State, Signals, edges, and Shell", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase(
         "Last Train Home",
@@ -69,7 +69,7 @@ describe("Playable codebase", () => {
       ),
     );
 
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     expect(codebase.graph.nodes.map((node) => node.id)).toEqual([
       "platform",
       "carriage",
@@ -97,7 +97,7 @@ describe("Playable codebase", () => {
     ]);
     await writeFile(path.join(workspace, "schemas/graph.schema.json"), "{}\n");
 
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
@@ -112,7 +112,7 @@ describe("Playable codebase", () => {
     await writeFile(path.join(workspace, "graph.json"), "existing graph\n");
     await writeFile(path.join(workspace, "notes.txt"), "keep me\n");
 
-    await expect(createPlayableCodebase(
+    await expect(createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     )).rejects.toThrow("Playable project files already exist: graph.json");
@@ -128,18 +128,18 @@ describe("Playable codebase", () => {
       mkdir(path.join(invalidJson, "editor")),
     ]);
     await writeFile(path.join(invalidJson, "editor/layout.json"), "{}\n");
-    await expect(readPlayableCodebase(invalidJson)).rejects.toThrow("graph.json is not valid JSON");
+    await expect(readNodeCodebase(invalidJson)).rejects.toThrow("graph.json is not valid JSON");
 
     const missingSource = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       missingSource,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
     await rm(path.join(missingSource, "nodes/start/node.js"));
-    await expect(readPlayableCodebase(missingSource)).rejects.toThrow("does not exist");
+    await expect(readNodeCodebase(missingSource)).rejects.toThrow("does not exist");
 
     const mismatchedLayout = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       mismatchedLayout,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
@@ -151,28 +151,28 @@ describe("Playable codebase", () => {
       path.join(mismatchedLayout, "editor/layout.json"),
       `${JSON.stringify(layout)}\n`,
     );
-    await expect(readPlayableCodebase(mismatchedLayout)).rejects.toThrow(
+    await expect(readNodeCodebase(mismatchedLayout)).rejects.toThrow(
       "Node IDs must exactly match",
     );
   });
 
   it("updates graph and layout together and rejects invalid changes without writing", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     codebase.graph.title = "Revised";
     codebase.editorLayout.nodes.start = { x: 240, y: 320 };
-    await writePlayableCodebase(workspace, codebase);
-    await expect(readPlayableCodebase(workspace)).resolves.toEqual(codebase);
+    await writeNodeCodebase(workspace, codebase);
+    await expect(readNodeCodebase(workspace)).resolves.toEqual(codebase);
 
     const graphBefore = await readFile(path.join(workspace, "graph.json"), "utf8");
     const layoutBefore = await readFile(path.join(workspace, "editor/layout.json"), "utf8");
     const invalid = structuredClone(codebase);
     invalid.editorLayout.nodes = {};
-    await expect(writePlayableCodebase(workspace, invalid)).rejects.toThrow(
+    await expect(writeNodeCodebase(workspace, invalid)).rejects.toThrow(
       "Node IDs must exactly match",
     );
     expect(await readFile(path.join(workspace, "graph.json"), "utf8")).toBe(graphBefore);
@@ -181,19 +181,19 @@ describe("Playable codebase", () => {
 
   it("serializes concurrent reads and writes as complete codebase versions", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Initial", { width: 1280, height: 720 }),
     );
-    const initial = await readPlayableCodebase(workspace);
+    const initial = await readNodeCodebase(workspace);
     const operations: Array<Promise<void | { title: string; x: number }>> = [];
 
     for (let index = 1; index <= 20; index += 1) {
       const version = structuredClone(initial);
       version.graph.title = `Version ${index}`;
       version.editorLayout.nodes.start = { x: index, y: 0 };
-      operations.push(writePlayableCodebase(workspace, version));
-      operations.push(readPlayableCodebase(workspace).then((codebase) => ({
+      operations.push(writeNodeCodebase(workspace, version));
+      operations.push(readNodeCodebase(workspace).then((codebase) => ({
         title: codebase.graph.title,
         x: codebase.editorLayout.nodes.start!.x,
       })));
@@ -205,7 +205,7 @@ describe("Playable codebase", () => {
     for (const result of reads) {
       expect(result.title).toBe(`Version ${result.x}`);
     }
-    await expect(readPlayableCodebase(workspace)).resolves.toMatchObject({
+    await expect(readNodeCodebase(workspace)).resolves.toMatchObject({
       graph: { title: "Version 20" },
       editorLayout: { nodes: { start: { x: 20, y: 0 } } },
     });
@@ -214,11 +214,11 @@ describe("Playable codebase", () => {
 
   it("creates declared Node source files in the same codebase update", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     codebase.graph.nodes.push({
       id: "archive",
       title: "Archive",
@@ -232,7 +232,7 @@ describe("Playable codebase", () => {
     });
     codebase.editorLayout.nodes.archive = { x: 420, y: 180 };
 
-    await writePlayableCodebase(workspace, {
+    await writeNodeCodebase(workspace, {
       ...codebase,
       sources: {
         "nodes/archive/index.html": "<main>Archive</main>\n",
@@ -242,20 +242,20 @@ describe("Playable codebase", () => {
     });
 
     expect(await readFile(path.join(workspace, "nodes/archive/index.html"), "utf8")).toBe("<main>Archive</main>\n");
-    await expect(readPlayableCodebase(workspace)).resolves.toEqual(codebase);
+    await expect(readNodeCodebase(workspace)).resolves.toEqual(codebase);
     await expect(buildPlayableProject(workspace, "publish")).resolves.toBeDefined();
   });
 
   it("rejects undeclared source updates without changing the codebase", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     const graphBefore = await readFile(path.join(workspace, "graph.json"), "utf8");
 
-    await expect(writePlayableCodebase(workspace, {
+    await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sources: { "shared/undeclared.js": "export const value = true;\n" },
     })).rejects.toThrow("is not declared by a Node or Shell");
@@ -268,17 +268,17 @@ describe("Playable codebase", () => {
   it("rejects source writes through a symlinked workspace directory", async () => {
     const workspace = await temporaryWorkspace();
     const outside = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
     await rm(path.join(workspace, "nodes/start"), { recursive: true });
     await symlink(outside, path.join(workspace, "nodes/start"), "dir");
-    const codebase = await readPlayableCodebase(workspace).catch(() => (
+    const codebase = await readNodeCodebase(workspace).catch(() => (
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 })
     ));
 
-    await expect(writePlayableCodebase(workspace, {
+    await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sources: {
         "nodes/start/index.html": "outside html\n",
@@ -292,11 +292,11 @@ describe("Playable codebase", () => {
 
   it("removes source files and empty directories with a Node deletion", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     codebase.graph.nodes.push({
       id: "archive",
       title: "Archive",
@@ -310,11 +310,11 @@ describe("Playable codebase", () => {
       "nodes/archive/style.css": "main {}\n",
       "nodes/archive/node.js": "export function mount() {}\n",
     };
-    await writePlayableCodebase(workspace, { ...codebase, sources: archiveSources });
+    await writeNodeCodebase(workspace, { ...codebase, sources: archiveSources });
 
     codebase.graph.nodes = codebase.graph.nodes.filter((node) => node.id !== "archive");
     delete codebase.editorLayout.nodes.archive;
-    await writePlayableCodebase(workspace, {
+    await writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: Object.keys(archiveSources),
     });
@@ -326,14 +326,14 @@ describe("Playable codebase", () => {
 
   it("removes Shell source files when the Shell is disabled", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }, "night-train"),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
     const shell = codebase.graph.shell!;
     delete codebase.graph.shell;
-    await writePlayableCodebase(workspace, {
+    await writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: Object.values(shell.source),
     });
@@ -344,17 +344,17 @@ describe("Playable codebase", () => {
 
   it("rejects undeclared and still-declared source deletions", async () => {
     const workspace = await temporaryWorkspace();
-    await createPlayableCodebase(
+    await createNodeCodebase(
       workspace,
       createPlayableStarterCodebase("Story", { width: 1280, height: 720 }),
     );
-    const codebase = await readPlayableCodebase(workspace);
+    const codebase = await readNodeCodebase(workspace);
 
-    await expect(writePlayableCodebase(workspace, {
+    await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: ["nodes/other/index.html"],
     })).rejects.toThrow("not declared by the current Node or Shell graph");
-    await expect(writePlayableCodebase(workspace, {
+    await expect(writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: ["nodes/start/index.html"],
     })).rejects.toThrow("still declared by a Node or Shell");

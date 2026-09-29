@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPlayableProject, validatePlayableProject } from "../src/daemon/playable-project.js";
-import { isCompiledPlayableGraph } from "../src/shared/playable-compiled.js";
+import { isCompiledNodeGraph } from "../src/shared/playable-compiled.js";
 import {
-  createPlayableGraphFixture,
+  createNodeGraphFixture,
   writePlayableFixtureWorkspace,
 } from "./playable-fixture.js";
 
@@ -58,23 +58,23 @@ describe("Playable project build", () => {
     await writePlayableFixtureWorkspace(workspace);
     const definition = (await buildPlayableProject(workspace))!;
 
-    expect(isCompiledPlayableGraph(definition.compiled, definition.graph)).toBe(true);
+    expect(isCompiledNodeGraph(definition.compiled, definition.graph)).toBe(true);
 
     const missingNode = structuredClone(definition.compiled);
     delete missingNode.nodes.menu;
-    expect(isCompiledPlayableGraph(missingNode, definition.graph)).toBe(false);
+    expect(isCompiledNodeGraph(missingNode, definition.graph)).toBe(false);
 
     const missingShell = structuredClone(definition.compiled);
     delete missingShell.shell;
-    expect(isCompiledPlayableGraph(missingShell, definition.graph)).toBe(false);
+    expect(isCompiledNodeGraph(missingShell, definition.graph)).toBe(false);
 
     const extraField = { ...structuredClone(definition.compiled), debug: true };
-    expect(isCompiledPlayableGraph(extraField, definition.graph)).toBe(false);
+    expect(isCompiledNodeGraph(extraField, definition.graph)).toBe(false);
   });
 
   it("uses publish validation for the static Player", async () => {
     const workspace = await temporaryWorkspace();
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     graph.edges = graph.edges.filter(
       (edge) => edge.source.signal !== "inspect",
     );
@@ -100,7 +100,7 @@ describe("Playable project build", () => {
 
   it("returns structured graph and compiler diagnostics for agents and editors", async () => {
     const workspace = await temporaryWorkspace();
-    const graph = createPlayableGraphFixture();
+    const graph = createNodeGraphFixture();
     graph.entryNodeId = "missing";
     await writePlayableFixtureWorkspace(workspace, graph);
 
