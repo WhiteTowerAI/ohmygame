@@ -75,9 +75,13 @@ import type {
   PlayableNavigationMode,
   PlayableNode,
 } from "../shared/playable-nodes.js";
-import type {
-  PlayablePresetSummary,
-  PlayableProjectValidationIssue,
+import {
+  addPlayableNodeAsset,
+  removePlayableNodeAsset,
+  setPlayableSignalLabel,
+  setPlayableSignalTarget,
+  type PlayablePresetSummary,
+  type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
 import { storyViewportRatio } from "../shared/story-formats.js";
 import {
@@ -93,6 +97,7 @@ import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
+import { PlayableNodeWorkbench } from "./playable-node-workbench.js";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
@@ -178,6 +183,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [fileRequest, setFileRequest] = useState(openFileRequest);
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
+  const [openedNodeId, setOpenedNodeId] = useState<string>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
@@ -214,6 +220,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
+  const openedNode = workspaceView === "canvas" && phase === "ready"
+    ? nodes.find((node) => node.id === openedNodeId)?.data.node
+    : undefined;
+
+  // An undo or an Agent edit can remove the open Node; go back to the canvas.
+  useEffect(() => {
+    if (phase === "ready" && openedNodeId && !nodes.some((node) => node.id === openedNodeId)) setOpenedNodeId(undefined);
+  }, [phase, nodes, openedNodeId]);
 
   useEffect(() => {
     if (openFileRequest) setFileRequest(openFileRequest);
@@ -222,6 +236,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     if (!openFileRequest) return;
     setSelectedId(undefined);
+    setOpenedNodeId(undefined);
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
 
@@ -379,7 +394,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const key = event.key.toLowerCase();
       const undo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
       const redo = (event.metaKey || event.ctrlKey) && ((event.shiftKey && key === "z") || (!event.metaKey && key === "y"));
-      if (event.altKey || (!undo && !redo)) return;
+      if (event.altKey || (!undo && !redo) || isTextEntry(event.target)) return;
       event.preventDefault();
       if (redo) redoEditorChange();
       else undoEditorChange();
@@ -452,6 +467,30 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       : node));
   }
 
+  /**
+   * Adopts a graph edited as a whole (by the Workbench inspector) while
+   * keeping canvas positions and selection.
+   */
+  function applyGraph(next: NodeGraph): void {
+    const { nodes: graphNodes, edges: graphEdges, ...meta } = next;
+    setGraphMeta(meta);
+    setNodes((current) => current.map((node) => {
+      const updated = graphNodes.find((candidate) => candidate.id === node.id);
+      return updated ? { ...node, data: { ...node.data, node: updated } } : node;
+    }));
+    setEdges((current) => graphEdges.map((edge) => {
+      const flow = toFlowEdge(edge);
+      return current.find((candidate) => candidate.id === edge.id)?.selected ? { ...flow, selected: true } : flow;
+    }));
+  }
+
+  function openNode(nodeId: string): void {
+    setCanvasContextMenu(undefined);
+    setSelectedEdgeId(undefined);
+    setSelectedId(nodeId);
+    setOpenedNodeId(nodeId);
+  }
+
   function setEntryNode(nodeId: string): void {
     setGraphMeta((current) => current ? { ...current, entryNodeId: nodeId } : current);
   }
@@ -502,6 +541,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   function openFile(path: string): void {
+    setOpenedNodeId(undefined);
     setFileRequest({ path, id: Date.now() });
     setWorkspaceView("code");
   }
@@ -667,7 +707,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   return (
     <section
-      className="viewer-pane interactive-drama-workspace playable-editor-workspace"
+      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -751,7 +791,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
                 onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedId(undefined); }}
                 onNodeClick={(_event, node) => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); setSelectedId(node.id); }}
-                onNodeDoubleClick={(_event, node) => { setCanvasContextMenu(undefined); openFile(node.data.node.source.html); }}
+                onNodeDoubleClick={(_event, node) => openNode(node.id)}
                 onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
                 onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
                 onNodeContextMenu={(event, node) => {
@@ -799,6 +839,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             onRedo={redoEditorChange}
             onPaste={() => { if (copiedNode) void insertNodeCopy(copiedNode, canvasContextMenu.flowPosition); }}
             onAdd={(presetId) => void addNodeFromPreset(presetId, canvasContextMenu.flowPosition)}
+            onOpen={() => { if (canvasContextMenu.nodeId) openNode(canvasContextMenu.nodeId); }}
             onCopy={() => { if (canvasContextMenu.nodeId) void copyNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) void duplicateNode(canvasContextMenu.nodeId); }}
             onSetEntry={() => { if (canvasContextMenu.nodeId) setEntryNode(canvasContextMenu.nodeId); }}
@@ -814,6 +855,21 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       </div> : <main className="story-code-view" aria-label="Playable Nodes code">
         <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={fileRequest} />
       </main>}
+      {openedNode && codebase ? <PlayableNodeWorkbench
+        projectId={projectId}
+        node={openedNode}
+        graph={codebase.graph}
+        issues={issues}
+        revision={workspaceRevision + codeRevision}
+        onClose={() => setOpenedNodeId(undefined)}
+        onOpenNode={openNode}
+        onOpenSource={() => openFile(openedNode.source.html)}
+        onRename={(title) => renameNode(openedNode.id, title)}
+        onSignalLabel={(signalId, label) => applyGraph(setPlayableSignalLabel(codebase.graph, openedNode.id, signalId, label))}
+        onSignalTarget={(signalId, target) => applyGraph(setPlayableSignalTarget(codebase.graph, openedNode.id, signalId, target))}
+        onAddAsset={(asset) => applyGraph(addPlayableNodeAsset(codebase.graph, openedNode.id, asset).graph)}
+        onRemoveAsset={(assetId) => applyGraph(removePlayableNodeAsset(codebase.graph, openedNode.id, assetId))}
+      /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog
         viewport={playerViewport}
         hasContent={nodes.length > 0}
@@ -1030,7 +1086,7 @@ function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChang
   );
 }
 
-function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onCopy, onDuplicate, onSetEntry, onDelete }: {
+function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
   menu: CanvasContextMenuState;
   presets: readonly PlayablePresetSummary[];
   canUndo: boolean;
@@ -1043,6 +1099,7 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
   onRedo: () => unknown;
   onPaste: () => void;
   onAdd: (presetId: string) => void;
+  onOpen: () => void;
   onCopy: () => void;
   onDuplicate: () => void;
   onSetEntry: () => void;
@@ -1111,6 +1168,7 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
           </div> : null}
         </div>
       </> : <>
+        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>Open</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Entry Node" : "Set as Entry"}</span></button>
@@ -1276,6 +1334,11 @@ export function nodeIdForIssuePath(path: string, nodes: readonly PlayableFlowNod
     || path === node.data.node.source.css
     || path === node.data.node.source.javascript
     || path.startsWith(`nodes/${node.id}/`))?.id;
+}
+
+function isTextEntry(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));
 }
 
 function errorMessage(error: unknown): string {

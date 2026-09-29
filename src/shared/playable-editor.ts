@@ -1,5 +1,5 @@
 import type { NodeGraphValidationIssue } from "./playable-graph-validation.js";
-import type { NodeGraph } from "./playable-nodes.js";
+import type { JsonValue, NodeGraph, PlayableAssetDefinition, PlayableAssetType } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
 
 export interface PlayableProjectValidationIssue {
@@ -64,4 +64,125 @@ export function deletePlayableSignal(
   node.signals = node.signals.filter((signal) => signal.id !== signalId);
   next.edges = next.edges.filter((edge) => edge.source.nodeId !== nodeId || edge.source.signal !== signalId);
   return next;
+}
+
+export function setPlayableSignalLabel(
+  graph: NodeGraph,
+  nodeId: string,
+  signalId: string,
+  label: string,
+): NodeGraph {
+  const next = structuredClone(graph);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  const trimmed = label.trim();
+  if (!node || !trimmed) return graph;
+  node.signals = node.signals.map((signal) => signal.id === signalId ? { ...signal, label: trimmed.slice(0, 120) } : signal);
+  return next;
+}
+
+/** One Signal leads to one Node; `undefined` disconnects the Signal. */
+export function setPlayableSignalTarget(
+  graph: NodeGraph,
+  nodeId: string,
+  signalId: string,
+  targetNodeId: string | undefined,
+): NodeGraph {
+  const next = structuredClone(graph);
+  const current = next.edges.find((edge) => edge.source.nodeId === nodeId && edge.source.signal === signalId);
+  next.edges = next.edges.filter((edge) => edge !== current);
+  if (targetNodeId && next.nodes.some((node) => node.id === targetNodeId)) {
+    next.edges.push({
+      id: current?.id ?? `${nodeId}:${signalId}`,
+      source: { nodeId, signal: signalId },
+      targetNodeId,
+      mode: current?.mode ?? "replace",
+    });
+  }
+  return next;
+}
+
+export function playableAssetType(mediaType: string): PlayableAssetType | undefined {
+  const kind = mediaType.split("/")[0];
+  return kind === "image" || kind === "video" || kind === "audio" ? kind : undefined;
+}
+
+/** A readable Asset ID from a file name, unique within `taken`. */
+export function playableAssetId(name: string, taken: ReadonlySet<string>): string {
+  const slug = name
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
+    .slice(0, 100) || "asset";
+  if (!taken.has(slug)) return slug;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${slug}-${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * Declares an Asset on a Node. A source the graph already declares keeps its
+ * Asset ID, so the same Library file is never declared twice.
+ */
+export function addPlayableNodeAsset(
+  graph: NodeGraph,
+  nodeId: string,
+  asset: { name: string } & PlayableAssetDefinition,
+): { graph: NodeGraph; assetId: string } {
+  const next = structuredClone(graph);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  const sameSource = (definition: PlayableAssetDefinition) => JSON.stringify(definition.source) === JSON.stringify(asset.source);
+  const existing = Object.entries(next.assets).find(([, definition]) => sameSource(definition))?.[0];
+  const assetId = existing ?? playableAssetId(asset.name, new Set(Object.keys(next.assets)));
+  if (!node) return { graph, assetId };
+  if (!existing) next.assets[assetId] = { type: asset.type, source: asset.source };
+  if (!node.assets.includes(assetId)) node.assets.push(assetId);
+  return { graph: next, assetId };
+}
+
+/** Removes the Asset from the Node, and from the graph once nothing declares it. */
+export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetId: string): NodeGraph {
+  const next = structuredClone(graph);
+  const node = next.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) return graph;
+  node.assets = node.assets.filter((id) => id !== assetId);
+  const used = next.nodes.some((candidate) => candidate.assets.includes(assetId)) || next.shell?.assets.includes(assetId);
+  if (!used) delete next.assets[assetId];
+  return next;
+}
+
+/**
+ * Identifies what a preview session runs. Node titles, Signal labels, and the
+ * graph title are editor text the Runtime never reads, so renaming them keeps
+ * the running preview.
+ */
+export function playableRuntimeKey(definition: NodePlayerDefinition): string {
+  const { title: _title, nodes, ...graph } = definition.graph;
+  return JSON.stringify({
+    graph: { ...graph, nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signals.map((signal) => signal.id) })) },
+    compiled: definition.compiled,
+  });
+}
+
+/** Preview State inputs are typed by the key's initial value. */
+export function formatPreviewStateInput(value: JsonValue): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+export function parsePreviewStateInput(
+  text: string,
+  initial: JsonValue,
+): { value: JsonValue } | { error: string } {
+  if (typeof initial === "string") return { value: text };
+  if (typeof initial === "number") {
+    const value = Number(text);
+    return text.trim() && Number.isFinite(value) ? { value } : { error: "Enter a number." };
+  }
+  if (typeof initial === "boolean") return { value: text === "true" };
+  try {
+    return { value: JSON.parse(text) as JsonValue };
+  } catch {
+    return { error: "Enter valid JSON." };
+  }
 }

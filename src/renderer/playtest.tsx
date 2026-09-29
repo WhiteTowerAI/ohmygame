@@ -4,6 +4,7 @@ import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfi
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getLibraryAsset, getNodeRuntime, getStory, getWorkspaceAsset, listLibraryAssets } from "./api.js";
 import { NodePlayer } from "./playable-player.js";
+import { loadPlayableAssets } from "./playable-assets.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { StoryInteractionSurface, type StoryCompletionSource } from "./story-interaction-surface.js";
@@ -46,23 +47,10 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
         if (!disposed) onStory();
         return;
       }
-      const assets = await mapConcurrent(
-        Object.entries(result.definition.graph.assets),
-        4,
-        async ([id, asset]) => {
-          try {
-            const blob = asset.source.kind === "library"
-              ? await getLibraryAsset(asset.source.assetId)
-              : await getWorkspaceAsset(projectId, asset.source.path);
-            return [id, blob] as const;
-          } catch (cause) {
-            throw new Error(`Could not load Asset "${id}": ${errorMessage(cause)}`);
-          }
-        },
-      );
+      const assets = await loadPlayableAssets(projectId, result.definition.graph);
       if (disposed) return;
       document.title = `${result.definition.graph.title} - Playtest`;
-      setPlayable({ status: "ready", definition: result.definition, assets: Object.fromEntries(assets) });
+      setPlayable({ status: "ready", definition: result.definition, assets });
     }).catch((cause) => {
       if (!disposed) setPlayable({ status: "error", error: errorMessage(cause) });
     });
@@ -101,22 +89,6 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
       </div>
     </main>
   );
-}
-
-async function mapConcurrent<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  operation: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (next < values.length) {
-      const index = next++;
-      results[index] = await operation(values[index]!);
-    }
-  }));
-  return results;
 }
 
 function StoryPlaytestPage({ projectId, chapterId }: { projectId: string; chapterId: string }) {
