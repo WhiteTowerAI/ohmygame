@@ -16,7 +16,7 @@ const ELEMENT_SCREENSHOT_WIDTH = 960;
 
 /**
  * What the Playable editor contributes to the next chat message: the Node or
- * Shell open in its Workbench, and an element picked in that preview.
+ * Shell (the Scene or Overlay) open in its Workbench, and an element picked in that preview.
  */
 export interface PlayableChatState {
   surface?: {
@@ -54,13 +54,12 @@ export function usePlayableChatReport({ graph, surface, picked, clearPicked, sta
   useEffect(() => {
     if (!onChange) return;
     const context = playableSurfaceContext(graph, surface);
-    const node = surface.kind === "node" ? graph.nodes.find((candidate) => candidate.id === surface.nodeId) : undefined;
     const elementContext = picked ? playableElementContext(picked) : undefined;
     onChange({
       ...(context ? {
         surface: {
           key: surfaceKey,
-          chip: { kind: "playable-node", label: context.label, detail: surface.kind === "node" ? `Node ${node?.id ?? surface.nodeId}` : "Persistent UI" },
+          chip: { kind: "playable-node", label: context.label, detail: surface.kind === "node" ? "Scene" : "Stays on screen" },
           context,
           references: playableSurfaceReferences(graph, surface),
         },

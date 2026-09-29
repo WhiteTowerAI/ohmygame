@@ -3,6 +3,12 @@
 This document describes what creating a Playable Nodes project feels like. The
 Runtime contract is described separately; this document is about the editor.
 
+It uses the editor's words: a node is a **Scene**, a Signal with its edge is
+an **Exit**, the Entry Node is the **Start**, the Shell is the **Overlay**,
+Project State is **Variables**, and a Preset is a **Template**. The engine
+term follows in parentheses where it matters; code, schemas, and tools keep
+the engine terms ([vocabulary](README.md#vocabulary)).
+
 ## Principle
 
 > The author describes. The Agent builds. The author sees it live.
@@ -21,13 +27,12 @@ The workspace keeps the current Interactive Drama layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Header: project title · Style · Shell · State · Playtest ·   │
-│         Publish                                              │
+│ Header: Project ▾ · Home           Playtest · chat · Publish │
 ├───────────────┬──────────────────────────────────────────────┤
 │               │                                              │
 │  Chat with    │   Flow canvas                                │
 │  the Agent    │     or                                       │
-│  (left/right, │   Node Workbench (opened from a node)        │
+│  (left/right, │   Scene Workbench (opened from a Scene)      │
 │  collapsible) │                                              │
 │               │                                              │
 └───────────────┴──────────────────────────────────────────────┘
@@ -35,195 +40,218 @@ The workspace keeps the current Interactive Drama layout:
 
 - The chat panel keeps its existing placement preference and collapse
   behavior.
-- The main area shows either the Flow canvas or the Workbench of one node,
+- The main area shows either the Flow canvas or the Workbench of one Scene,
   with a breadcrumb (`Canvas › Case archive`) to return, as the current
   editor does.
-- Style, Shell, and State open from the header. Playtest opens the real
-  Runtime.
+- The **Project ▾** menu holds **Screen size**, **Variables**, **Overlay**,
+  **Export**, and **Show technical details**. **Home** returns
+  to the project list. **Playtest** opens the real Runtime; the chat toggle
+  and **Publish** follow it.
+
+### Technical details
+
+The editor hides engine details by default. **Show technical details** in
+the Project ▾ menu reveals IDs, file paths, value types, the Playtest
+**History** (back stack), and the **Code** tab. The setting is shared by
+every editor window.
 
 ## Flow canvas
 
 The canvas answers one question: how can the player move through the
 project?
 
-Each node card shows:
+Each Scene card shows:
 
-- a live thumbnail of the node, rendered by the Runtime, so the canvas looks
+- a live thumbnail of the Scene, rendered by the Runtime, so the canvas looks
   like the game rather than like a diagram;
-- the node title;
-- one output port per declared Signal, labeled with the Signal label;
-- an **Entry** badge on the entry node and **Destination** badges such as
-  `home` or `rules`;
-- an issue marker when the node fails to build, emits an undeclared Signal,
-  or has an unconnected Signal.
+- the Scene title;
+- one output port per Exit, labeled with the Exit name (Signal label);
+- a **Start** badge on the Scene the player starts in (**Set as Start**
+  moves it);
+- an issue marker when the Scene fails to build, emits an undeclared Signal,
+  or has an Exit that goes nowhere.
 
-Edges connect a Signal port to a target node. `replace` and `push` edges are
-drawn differently, and the edge inspector offers only those two modes.
+When the project has an Overlay, it appears as its own card with one output
+port per Overlay Exit and no input: nothing leads to the Overlay, and its
+Exits work from whichever Scene is showing.
 
-The canvas keeps the current editor's mature interactions: add-node menu,
+A connection links an Exit port to a target Scene. Exits with **Allow Back**
+(`push` edges) are drawn differently from ordinary ones (`replace`).
+
+The canvas keeps the current editor's mature interactions: Add Scene menu,
 context menu, selection, alignment guides, copy and paste, zoom controls,
 and fit view.
 
 Connecting can happen two ways, and both produce the same edges:
 
-- drag from a Signal port to a node;
-- ask the Agent, for example "connect Start to the lobby and Archive to the
-  case archive as push".
+- drag from an Exit port to a Scene;
+- ask the Agent, for example "connect Start to the lobby, and let Archive
+  open the case archive with Back allowed".
 
-## Creating a node
+## Creating a Scene
 
-1. The author chooses **Add node** on the canvas.
-2. They pick a Preset (Blank, Main menu, Cinematic scene, Dialogue choice,
-   Archive, Investigation, QTE, Ending) or write a short description.
-3. The node appears on the canvas with working starter content, and the
+1. The author chooses **Add Scene** on the canvas.
+2. Under **Start from a template** they pick a Template (Blank, Main menu,
+   Cinematic scene, Dialogue choice, Archive, Investigation, Ending) or write
+   a short description.
+3. The Scene appears on the canvas with working starter content, and the
    Workbench opens.
-4. The chat is focused with the new node as context, ready for "make this the
-   Ash Club start screen, with a dark stone background and four entries".
+4. The chat is focused with the new Scene as context, ready for "make this
+   the Ash Club start screen, with a dark stone background and four entries".
 
-A Preset is starter content plus instructions for the Agent. It is not stored
-as a type, and a node created from "Main menu" can later become anything.
+A Template (Preset) is starter content plus instructions for the Agent. It is
+not stored as a type, and a Scene created from "Main menu" can later become
+anything.
 
-## Node Workbench
+## Scene Workbench
 
-Opening a node shows its Workbench. It reuses the current
+Opening a Scene shows its Workbench. It reuses the current
 `NodeWorkbenchLayout`: a large preview and a resizable, collapsible
-inspector. Every node gets the same Workbench.
+inspector. Every Scene gets the same Workbench.
 
 ```text
 ┌────────────────────────────────────────────┬─────────────────┐
 │                                            │ Title           │
 │                                            │                 │
-│              Live preview                  │ Signals         │
-│        (real Runtime, real assets)         │  start → Lobby  │
-│                                            │  archive → …    │
+│              Live preview                  │ Exits           │
+│        (real Runtime, real assets)         │  Start → Lobby  │
+│                                            │  Archive → …    │
 │                                            │                 │
 │                                            │ Assets          │
 │                                            │  [img] [video]  │
 ├────────────────────────────────────────────┤                 │
-│ Preview bar: restart node · state · recent │ State used      │
-│ Signals · pick element                     │                 │
+│ Preview bar: Replay · Start with… ·        │ Variables used  │
+│ Point at… · Play from here                 │                 │
 └────────────────────────────────────────────┴─────────────────┘
 ```
 
 ### Live preview
 
-The preview runs the node in the real Node Runtime. It is interactive:
-clicking "进入俱乐部" in the preview emits `enter-club`, and the preview bar
-shows the Signal and the target it would lead to instead of leaving the node.
+The preview runs the Scene in the real Node Runtime. It is interactive:
+clicking "进入俱乐部" in the preview takes the `enter-club` Exit, and the
+preview shows the Exit taken and the Scene it would open instead of leaving
+the Scene. An Exit that is not connected shows `"进入俱乐部" doesn't go
+anywhere yet` with **Connect…** and **Ask AI to create it**.
 
 The preview bar offers:
 
-- **Restart node** to mount the node again;
-- **Preview state** to set Project State values for this preview, for
-  example to see the archive after eight completed rounds;
-- **Recent Signals and errors** from this node;
-- **Pick element** to point at part of the preview and refer to it in chat.
+- **Replay** to play the Scene again from the start;
+- **Start with…** to choose the Variables this preview starts with (preview
+  state), for example to see the archive after eight completed rounds;
+- **Point at…** to point at part of the preview and refer to it in chat;
+- **Play from here** to open Playtest at this Scene with the chosen
+  Variables.
+
+Below the preview, the Exits taken and errors from this Scene are listed.
 
 ### Inspector
 
-The inspector contains only things every node has:
+The inspector contains only things every Scene has:
 
 - **Title**, the editor-facing name.
-- **Signals**: each declared Signal, its label, and the node it leads to.
-  Authors can rename labels and jump to the target. The Agent adds Signals
-  when it builds interactions that leave the node.
-- **Assets**: the assets this node declares, with thumbnails, stable IDs, and
-  missing-file status. Authors can add assets from the Library, upload a
-  file, or ask the Agent to generate one for this node (see
-  [Asset Canvas](#relationship-with-asset-canvas)).
-- **State used**: the Project State keys this node read or wrote in recent
+- **Exits**: each Exit, its name, the Scene it opens, and **Allow Back**.
+  Authors can rename Exits, retarget them, and jump to the target. The Agent
+  adds Exits when it builds interactions that leave the Scene.
+- **Assets**: the assets this Scene declares, with thumbnails and
+  missing-file status (and stable IDs with technical details). Authors can
+  add assets from the Library, upload a file, or ask the Agent to generate
+  one for this Scene (see [Asset Canvas](#relationship-with-asset-canvas)).
+- **Variables used**: the Variables this Scene read or changed in recent
   previews, with current values.
 
 There are no type-specific forms. What used to be a Choice's options or a
-Scene's duration now lives in the node's own content and is changed by
+Scene's duration now lives in the Scene's own content and is changed by
 describing the change.
 
-### Talking to the Agent about a node
+### Talking to the Agent about a Scene
 
-When a node or the Shell is open, the composer shows it as a chip, and the
+When a Scene or the Overlay is open, the composer shows it as a chip, and the
 next message carries it as context: its ID, source files, Signals and their
-targets, declared assets, and Destinations. A picked element adds a second
-chip, and the message carries its description and a screenshot of the
+targets, and declared assets. An element chosen with **Point at…** adds a
+second chip, and the message carries its description and a screenshot of the
 preview with the element outlined. Removing a chip leaves it out of the
 message. The conversation shows only the chip labels; the Agent receives the
-full context. The Agent edits the node's files; the preview reloads when the
-change is saved; new or removed Signals appear on the inspector and canvas
+full context. The Agent edits the Scene's files; the preview reloads when the
+change is saved; new or removed Exits appear on the inspector and canvas
 immediately.
 
 Typical requests:
 
 - "Make the right page an index of three cases; choosing one changes the left
   page."
-- "Show the number of completed rounds from state on the left page."
-- Picking "打开博弈笔记" and saying "this should lead to a new notes node".
-- Picking a title and saying "use the pixel typeface from the main menu".
+- "Show the number of completed rounds on the left page."
+- Pointing at "打开博弈笔记" and saying "this should lead to a new notes
+  Scene".
+- Pointing at a title and saying "use the pixel typeface from the main
+  menu".
 
 Small edits use the same loop. Direct text editing inside the preview is a
 possible later improvement, not a v1 requirement.
 
 ### Code, when it is really needed
 
-The Workbench overflow menu contains **Open source**, which opens the node's
-files in the coding view. It is not a tab of the Workbench and it is never
-the default view.
+The Workbench overflow menu contains **Open code**, which opens the Scene's
+files in the **Code** tab. The Code tab appears only with technical details
+shown; it is not part of the Workbench and it is never the default view.
 
 ## Project Style
 
-**Style** in the header, and in every Workbench header, opens a panel with
-the project's shared visual language: color swatches and the other tokens of
-`shared/style/theme.css`, and buttons that open `theme.css`,
-`components.css`, and `components.js`. It is stored as ordinary shared
-source files that every node imports.
+The Project Style is the project's shared visual language: the tokens in
+`shared/style/theme.css`, the classes in `components.css`, and the behaviour
+in `components.js`. It is stored as ordinary shared source files that every
+Scene imports. The editor has no Style panel: a read-only view could not
+change anything, so the style is changed in conversation, or in those files
+from the Code view with technical details on.
 
-- The Agent reads and uses the Project Style whenever it builds a node.
+- The Agent reads and uses the Project Style whenever it builds a Scene.
 - Authors can change the style through conversation ("make the whole game
   warmer, like lamp light on old paper").
-- Changing the style updates every node that uses it.
+- Changing the style updates every Scene that uses it.
 
 Project Style is how two different screens, such as the Ash Club menu and
 archive, stay recognizably part of one game.
 
-## Shell and Destinations
+## Overlay
 
-**Shell** in the header opens a Workbench for the optional persistent UI,
-such as the Ash Club top bar. It works like a node Workbench: live preview
-over a sample node chosen in the preview bar, element picking, a
-Destinations list, declared assets, and chat context. Without a Shell the
-button explains that the Agent can add one.
+The Overlay (Shell) is optional UI that stays on screen while Scenes change,
+such as the Ash Club top bar. **Overlay** in the Project ▾ menu, or opening
+the Overlay card, shows its Workbench. It works like a Scene Workbench: live
+preview over a Scene chosen under **Shown over**, **Point at…**, Exits,
+declared assets, and chat context. Without an Overlay it explains that the
+Agent can add one.
 
-Destinations (`home`, `lobby`, `rules`, …) are listed with the node each one
-opens; each can be retargeted, opened, or removed, and a new one opens the
-sample node. Authors also assign a Destination from the node inspector or the
-canvas context menu's **Destination** submenu, and the node card shows its
-badge.
+The Overlay has its own Exits (Shell `signals`), such as **Home** or
+**Rules**. They are connected like a Scene's, from the Overlay card or its
+inspector, and are followed from whichever Scene is showing.
 
-## Project State
+## Variables
 
-**State** in the header, and in every Workbench header, shows the
-project's shared data as a table of keys, initial values, and types inferred
-from those values. Initial values are editable, and keys can be added or
-removed. Authors rarely add keys by hand; the Agent adds a key when a node
-needs one and explains it in chat.
+**Variables** in the Project ▾ menu, and in every Workbench header, shows the
+project's shared data (Project State) as a table of names and starting
+values; value types appear with technical details. Starting values are
+editable, and Variables can be added or removed. Authors rarely add them by
+hand; the Agent adds one when a Scene needs it and explains it in chat.
 
-While a Workbench preview runs, the panel adds its live values, highlights
-keys that changed recently, and lists the recent changes. Playtest shows the
-same changes in its debug drawer.
+While a Workbench preview runs, the panel adds the values **Now**,
+highlights Variables that changed recently, and lists the recent changes.
+Playtest shows the same changes in its debug drawer.
 
 ## Playtest
 
-Playtest runs the real Runtime from the saved game or the entry node, or
-from a chosen node with a chosen state. A chosen start runs without saving,
-so the saved game is untouched. It keeps the current Playtest entry point
-and adds a compact debug drawer, which collapses to a pill showing the
-current node and the error count:
+Playtest runs the real Runtime from the saved game or the Start Scene, or
+from a chosen Scene with chosen Variables (**Play from here** in a
+Workbench). A chosen start runs without saving, so the saved game is
+untouched. It keeps the current Playtest entry point and adds a compact
+debug drawer, which collapses to a pill showing the current Scene and the
+error count:
 
-- current node, with **Open in editor**, which focuses the editor window and
-  opens that node's Workbench;
-- back stack;
-- recent Signals and the edges they followed;
-- State changes;
+- current Scene, with **Open in editor**, which focuses the editor window and
+  opens that Scene's Workbench;
+- **History** (back stack), with technical details;
+- Exits taken and where they led;
+- Variable changes;
 - Runtime and build errors;
-- **Start from a Node**, with a node and preview State.
+- **Play from a Scene…**, with a Scene and starting Variables.
 
 The same information is available to the Agent in serializable form, so it
 can verify a flow it just built.
@@ -238,22 +266,22 @@ Asset Canvas and Playable Nodes stay separate workspaces:
   the old editor.
 - Generating media is exploratory iteration; arranging a playable project is
   structural work. They are different working modes.
-- With Agent-first authoring, the Agent can find or generate the media a node
-  needs, so the author does not need both on one canvas.
+- With Agent-first authoring, the Agent can find or generate the media a
+  Scene needs, so the author does not need both on one canvas.
 
 Separation must not make the authoring loop longer. Three bridges keep it
 short:
 
 1. **One Asset Library with stable project Asset IDs.** Asset Canvas results
    enter the Library. A project Asset ID such as `club-background` points at
-   one Library asset, and nodes use only the project Asset ID. **Replace**
-   re-points that ID at a better Library asset, which updates every node that
+   one Library asset, and Scenes use only the project Asset ID. **Replace**
+   re-points that ID at a better Library asset, which updates every Scene that
    uses it without changing code.
-2. **Media from the Workbench.** The node inspector can pick from the
-   Library, upload, or ask the Agent for a single generation for this node.
-   Complex generation opens the asset in Asset Canvas and returns to the node
+2. **Media from the Workbench.** The Scene inspector can pick from the
+   Library, upload, or ask the Agent for a single generation for this Scene.
+   Complex generation opens the asset in Asset Canvas and returns to the Scene
    afterwards.
-3. **Where used.** Asset Canvas can show which nodes use an asset. This can
+3. **Where used.** Asset Canvas can show which Scenes use an asset. This can
    come after v1.
 
 If real use shows authors constantly switching between the two workspaces,
@@ -264,28 +292,28 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | Current editor part                                   | In Playable Nodes                                                     |
 | ----------------------------------------------------- | --------------------------------------------------------------------- |
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
-| Flow canvas interactions (menu, guides, clipboard)    | Keep, with one node card and Signal ports                             |
-| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Keep as the single Workbench for every node and for the Shell         |
+| Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card, the Overlay card, and Exit ports           |
+| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Keep as the single Workbench for every Scene and for the Overlay      |
 | Library asset picker and upload                       | Keep in the Assets section of the inspector                           |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
-| Variables dialog                                      | Becomes the Project State panel                                       |
-| Story issue banners                                   | Become node issue markers and validation messages                     |
-| Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and node content                     |
-| Condition and Update State nodes                      | Remove; nodes read State and emit distinct Signals                    |
-| Story Map and Settings system nodes                   | Remove; ordinary nodes, Destinations, and the Shell                   |
+| Variables dialog                                      | Becomes the Variables (Project State) panel                           |
+| Story issue banners                                   | Become Scene issue markers and validation messages                    |
+| Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and Scene content                    |
+| Condition and Update State nodes                      | Remove; Scenes read Variables and take distinct Exits                 |
+| Story Map and Settings system nodes                   | Remove; ordinary Scenes and the Overlay's Exits                       |
 | Text, Image, Video, and 3D generation nodes           | Stay in Asset Canvas only                                             |
 
 The detailed inventory and PR order belong in `roadmap.md`.
 
 ## Design decisions
 
-### Presets
+### Templates
 
-v1 ships seven Presets. Each Preset contains starter source that already uses
-the Project Style, its expected Signals, and a short brief that tells the
-Agent what the author usually wants next.
+v1 ships seven Templates (Presets). Each contains starter source that
+already uses the Project Style, its expected Signals, and a short brief that
+tells the Agent what the author usually wants next.
 
-| Preset           | Starter content                                                  | Starter Signals        |
+| Template         | Starter content                                                  | Starter Signals        |
 | ---------------- | ---------------------------------------------------------------- | ---------------------- |
 | Blank            | An empty full-screen stage                                       | none                   |
 | Main menu        | Title, subtitle, a list of entries, background image slot        | `start`                |
@@ -293,48 +321,48 @@ Agent what the author usually wants next.
 | Dialogue choice  | Background, speaker line, and options that can read State        | `option-a`, `option-b` |
 | Archive          | A book or folder with an index that changes the visible page     | `leave`                |
 | Investigation    | An image with hotspots that record findings in State             | `done`                 |
-| Ending           | Ending title and text, restart and return-to-menu actions        | none                   |
+| Ending           | Ending title and text, replay and return-to-menu actions         | none                   |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. QTE and other small games start from Blank plus a
 description; they are too varied for one useful starting point.
 
-Presets live in OhMyGame, not in projects. Creating a node copies the
-Preset's source into `nodes/<id>/`; later Preset changes do not affect
-existing nodes.
+Templates live in OhMyGame, not in projects. Creating a Scene copies the
+Template's source into `nodes/<id>/`; later Template changes do not affect
+existing Scenes.
 
-### Node thumbnails
+### Scene thumbnails
 
-Thumbnails are screenshots of the real node, never a separate rendering.
+Thumbnails are screenshots of the real Scene, never a separate rendering.
 
-- The canvas captures every node that has no thumbnail, or one of an older
-  build, without it being opened: the desktop app runs the node in a hidden
-  window, one node at a time, as the Workbench preview runs it.
-- The node is captured through the desktop `capturePage` capability, the
+- The canvas captures every Scene that has no thumbnail, or one of an older
+  build, without it being opened: the desktop app runs the Scene in a hidden
+  window, one Scene at a time, as the Workbench preview runs it.
+- The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
   the display's pixel density, up to 1280 pixels wide.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
-- A thumbnail records the hash of the node's compiled output. When the source
+- A thumbnail records the hash of the Scene's compiled output. When the source
   changes, the card keeps the old image with a *stale* marker until the next
   capture replaces it.
-- A node that has no thumbnail yet, or whose run fails, shows its first
+- A Scene that has no thumbnail yet, or whose run fails, shows its first
   declared image asset, or a neutral card with its title.
-- A node that fails to build shows its last good thumbnail dimmed with an
+- A Scene that fails to build shows its last good thumbnail dimmed with an
   error marker; opening it shows the error in the Workbench.
 - When the capture capability is unavailable (for example in the browser
   development build), the canvas uses the same fallbacks.
 
-The same capture is attached to Agent requests about that node.
+The same capture is attached to Agent requests about that Scene.
 
 ### Element picking
 
-Element picking is editor tooling implemented by the sandbox host, not by
-node code, and it is disabled in the Published Player.
+Element picking (**Point at…**) is editor tooling implemented by the sandbox
+host, not by node code, and it is disabled in the Published Player.
 
-1. **Pick element** puts the preview into pick mode. The sandbox host draws a
+1. **Point at…** puts the preview into pick mode. The sandbox host draws a
    hover outline inside the node's surface and blocks node input.
 2. Clicking returns a **picked element** description: node ID, source
    location when known, CSS path within the node root, tag, visible text
@@ -350,11 +378,11 @@ node code, and it is disabled in the Published Player.
 
 ### Cinematic scenes
 
-"Advance when the video ends" is node content, not a Runtime feature. The
+"Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playCinematic()` component that plays a
 declared video, offers skip, and emits a given Signal when the video ends or
-is skipped. The Cinematic scene Preset uses it. Authors who want something
-else (a choice over the last frame, a loop until input) change the node like
+is skipped. The Cinematic scene Template uses it. Authors who want something
+else (a choice over the last frame, a loop until input) change the Scene like
 any other.
 
 This keeps the Runtime free of media-ended and timer transitions while the
@@ -362,19 +390,20 @@ most common interactive-film case needs no code.
 
 ### Multi-node Agent changes
 
-The Agent may create several nodes, Signals, and edges in one turn. Turn
+The Agent may create several Scenes and Exits in one turn. Turn
 review below comes after the MVP
 ([roadmap](roadmap.md#after-the-mvp)).
 
 - Before each Agent turn, the editor records a checkpoint of `graph.json`,
   `editor/layout.json`, and the node, Shell, and `shared/` source files.
-- After the turn, the canvas highlights the change set: new nodes and edges
-  marked **New**, changed nodes marked **Edited**, removed ones listed in a
+- After the turn, the canvas highlights the change set: new Scenes and
+  connections marked **New**, changed Scenes marked **Edited**, removed ones
+  listed in a
   summary bar.
 - The summary bar offers **Keep** and **Undo turn**. Undo restores the
   checkpoint. Continuing to edit implicitly keeps the change.
-- New nodes without a position in `editor/layout.json` are placed by the
-  editor to the right of the node whose Signal leads to them, avoiding
+- New Scenes without a position in `editor/layout.json` are placed by the
+  editor to the right of the Scene whose Exit leads to them, avoiding
   overlaps. The Agent does not need to compute layout.
 
 ### Asset versions
@@ -383,8 +412,8 @@ The project has no separate version concept. A project Asset ID points at
 exactly one Library asset. Choosing a better image means pointing that
 project Asset ID at a different Library asset with **Replace**.
 
-- Nodes that should change together share one project Asset ID.
-- A node that must keep an image while others change uses a different
+- Scenes that should change together share one project Asset ID.
+- A Scene that must keep an image while others change uses a different
   project Asset ID, for example `club-background-night`.
 
 This gives both "update everywhere" and "keep this one" without a pinning

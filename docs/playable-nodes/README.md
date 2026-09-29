@@ -38,11 +38,28 @@ describing them to the Agent, not by choosing a node type or writing code.
 | Signal        | A named outcome a node reports, such as `open-archive`                 |
 | Edge          | A connection from one node's Signal to another node                    |
 | Project State | Serializable data shared across nodes and included in saves            |
-| Shell         | Optional project-wide UI that stays mounted while nodes change         |
-| Destination   | A project-wide name for a commonly opened node, used by the Shell      |
+| Shell         | Optional project-wide UI that stays mounted and emits its own Signals  |
 | Project Style | Shared theme and components that keep every node visually consistent  |
 | Preset        | Starter content and instructions for a new node; no runtime meaning    |
 | Node Runtime  | Hosts nodes and owns state, navigation, back stack, saves, and assets  |
+
+The editor shows authors plainer words for the same things. Code, schemas,
+tools, and the other documents keep the engine terms; `authoring.md` uses the
+editor's words.
+
+| Editor                   | Engine term                                    |
+| ------------------------ | ---------------------------------------------- |
+| Scene                    | Node                                           |
+| Exit                     | A Signal and the edge that routes it           |
+| Exit with **Allow Back** | A `push` edge                                  |
+| Start                    | Entry Node (`entryNodeId`)                     |
+| Overlay                  | Shell                                          |
+| Variables                | Project State                                  |
+| Start with…              | Preview state                                  |
+| Template                 | Preset                                         |
+| Replay                   | Restart                                        |
+| Point at…                | Pick element                                   |
+| History                  | Back stack (shown only with technical details) |
 
 ## Documents
 

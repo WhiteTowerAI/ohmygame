@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  playableDestinationNode,
   playableEdgeForSignal,
   playableNodeById,
   playableOutgoingEdges,
+  playableSignalsOf,
 } from "../src/shared/playable-graph.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import {
@@ -60,7 +60,13 @@ describe("Node Graph contract", () => {
       targetNodeId: "missing",
       mode: "replace",
     });
-    graph.destinations.broken = "missing";
+    graph.nodes.push({ ...structuredClone(graph.nodes[1]!), id: "shell" });
+    graph.edges.push({
+      id: "shell-broken",
+      source: { nodeId: "shell", signal: "missing" },
+      targetNodeId: "menu",
+      mode: "replace",
+    });
 
     const result = validateNodeGraph(graph);
 
@@ -70,7 +76,13 @@ describe("Node Graph contract", () => {
     expect(
       result.issues.some(
         (item) =>
-          item.path === "/destinations/broken" && item.code === "missing-node",
+          item.path === `/nodes/${graph.nodes.length - 1}/id` && item.code === "reserved-id",
+      ),
+    ).toBe(true);
+    expect(
+      result.issues.some(
+        (item) =>
+          item.path === `/edges/${graph.edges.length - 1}/source/signal` && item.code === "missing-signal",
       ),
     ).toBe(true);
     expect(
@@ -190,7 +202,8 @@ describe("Node Graph contract", () => {
     expect(playableNodeById(graph, "missing")).toBeUndefined();
     expect(playableEdgeForSignal(graph, "menu", "inspect")?.mode).toBe("push");
     expect(playableOutgoingEdges(graph, "menu")).toHaveLength(2);
-    expect(playableDestinationNode(graph, "archive")?.id).toBe("archive");
-    expect(playableDestinationNode(graph, "missing")).toBeUndefined();
+    expect(playableSignalsOf(graph, "shell")?.map((signal) => signal.id)).toEqual(["home", "archive"]);
+    expect(playableSignalsOf(graph, "menu")).toHaveLength(2);
+    expect(playableSignalsOf(graph, "missing")).toBeUndefined();
   });
 });

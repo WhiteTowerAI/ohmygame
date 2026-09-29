@@ -42,8 +42,11 @@ export function createNodeGraphFixture(): NodeGraph {
         javascript: "shell/shell.js",
       },
       assets: ["theme"],
+      signals: [
+        { id: "home", label: "Home" },
+        { id: "archive", label: "Archive" },
+      ],
     },
-    destinations: { home: "menu", archive: "archive" },
     nodes: [
       {
         id: "menu",
@@ -94,6 +97,18 @@ export function createNodeGraphFixture(): NodeGraph {
         source: { nodeId: "menu", signal: "inspect" },
         targetNodeId: "archive",
         mode: "push",
+      },
+      {
+        id: "shell-home",
+        source: { nodeId: "shell", signal: "home" },
+        targetNodeId: "menu",
+        mode: "replace",
+      },
+      {
+        id: "shell-archive",
+        source: { nodeId: "shell", signal: "archive" },
+        targetNodeId: "archive",
+        mode: "replace",
       },
     ],
   };

@@ -34,9 +34,13 @@ export interface PlayableNode {
   signals: PlayableSignal[];
 }
 
+/** Edges from the Shell's Signals name this reserved ID as their source Node. */
+export const PLAYABLE_SHELL_ID = "shell";
+
 export interface PlayableShell {
   source: NodeSource;
   assets: string[];
+  signals: PlayableSignal[];
 }
 
 export interface PlayableEdge {
@@ -60,7 +64,6 @@ export interface NodeGraph {
   initialState: JsonObject;
   assets: Record<string, PlayableAssetDefinition>;
   shell?: PlayableShell;
-  destinations: Record<string, string>;
   nodes: PlayableNode[];
   edges: PlayableEdge[];
 }
@@ -94,12 +97,8 @@ export interface PlayableNodeContext extends NodeRuntimeContext {
   };
 }
 
-export interface PlayableShellContext extends NodeRuntimeContext {
-  navigation: {
-    back(): Promise<void>;
-    open(destination: string, mode?: PlayableNavigationMode): Promise<void>;
-  };
-}
+/** The Shell navigates like a Node: it emits its own Signals, which edges route. */
+export type PlayableShellContext = PlayableNodeContext;
 
 export type PlayableCleanup = () => void | Promise<void>;
 export type PlayableMount = (

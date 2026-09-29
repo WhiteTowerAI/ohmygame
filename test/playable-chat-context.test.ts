@@ -3,7 +3,7 @@ import { playableElementContext, playableSurfaceContext, playableSurfaceReferenc
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable chat context", () => {
-  it("describes an open Node with its sources, Signals, Assets, and Destinations", () => {
+  it("describes an open Node with its sources, Signals, and Assets", () => {
     const context = playableSurfaceContext(createNodeGraphFixture(), { kind: "node", nodeId: "menu" });
 
     expect(context?.label).toBe("Main menu");
@@ -11,12 +11,14 @@ describe("Playable chat context", () => {
     expect(context?.text).toContain("Sources: nodes/menu/index.html, nodes/menu/style.css, nodes/menu/node.js");
     expect(context?.text).toContain('- start "Start" → lobby (replace)');
     expect(context?.text).toContain("Assets: background (image)");
-    expect(context?.text).toContain("Destinations: home");
   });
 
   it("describes the Shell and returns nothing for a missing surface", () => {
     const graph = createNodeGraphFixture();
-    expect(playableSurfaceContext(graph, { kind: "shell" })?.text).toContain("Destinations: home → menu, archive → archive");
+    const shell = playableSurfaceContext(graph, { kind: "shell" });
+    expect(shell?.label).toBe("Overlay");
+    expect(shell?.text).toContain('- home "Home" → menu (replace)');
+    expect(shell?.text).toContain('- archive "Archive" → archive (replace)');
     expect(playableSurfaceContext(graph, { kind: "node", nodeId: "gone" })).toBeUndefined();
     expect(playableSurfaceContext({ ...graph, shell: undefined }, { kind: "shell" })).toBeUndefined();
   });

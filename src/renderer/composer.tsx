@@ -52,6 +52,8 @@ interface ComposerProps {
   contexts?: ChatContextChip[];
   onRemoveContext?: (kind: ChatContextChip["kind"]) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Text an editor asks to put in the prompt, such as "Ask AI to create it"; a new `id` inserts it again. */
+  promptRequest?: { text: string; id: number };
 }
 
 export interface ComposerDraft {
@@ -92,6 +94,7 @@ export function Composer({
   contexts = [],
   onRemoveContext,
   onDirtyChange,
+  promptRequest,
 }: ComposerProps) {
   const initialSkill = parseSkillInvocation(initialDraft?.prompt ?? "");
   const initialPlugin = extractLeadingPluginMention(initialSkill?.prompt ?? initialDraft?.prompt ?? "", initialDraft?.mentions ?? []);
@@ -135,6 +138,16 @@ export function Composer({
     });
     onInitialDraftHandled?.();
   }, []);
+  useEffect(() => {
+    if (!promptRequest) return;
+    const next = prompt.trim() ? `${prompt.trimEnd()}\n${promptRequest.text}` : promptRequest.text;
+    setPrompt(next);
+    setMentionCursor(next.length);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(next.length, next.length);
+    });
+  }, [promptRequest?.id]);
   useEffect(() => {
     if (!mentionKey) setDismissedMention(undefined);
   }, [mentionKey]);

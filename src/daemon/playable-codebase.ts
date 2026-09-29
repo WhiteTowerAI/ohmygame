@@ -29,7 +29,7 @@ const AGENT_INSTRUCTIONS = `# Playable Nodes Project
 
 This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
-- \`graph.json\` declares the viewport, initial State, Assets, optional Shell, named Destinations, Nodes, Signals, and navigation edges.
+- \`graph.json\` declares the viewport, initial State, Assets, optional Shell, Nodes, Signals, and navigation edges.
 - Every Node follows the same protocol. Its HTML, CSS, and JavaScript are ordinary source files referenced by \`node.source\`.
 - Node JavaScript exports \`mount(context)\`. Render into \`context.root\` and optionally return a cleanup function.
 - Emit only Signals declared by the current Node: \`context.navigation.emit(signalId)\`. Signals describe outcomes; they do not name target Nodes.
@@ -38,10 +38,24 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - \`shared/style/components.js\` exports \`playCinematic(context, { assetId, signal })\`, which plays a declared video, offers skip, and emits the Signal when it ends or is skipped. Cinematic behaviour is Node content, so change it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
-- The optional Shell is persistent project UI. Use it only for controls or presentation that truly continue across Node changes. Shell navigation uses named Destinations.
+- The optional Shell is persistent project UI. Use it only for controls or presentation that truly continue across Node changes. The Shell declares its own \`signals\` and emits them like a Node; edges from the Shell use \`"shell"\` as their source \`nodeId\`, so no Node may use that ID.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
 - Keep IDs and source paths stable when editing existing objects. Keep \`editor/layout.json\` synchronized with the exact Node IDs in \`graph.json\`.
 - Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
+
+## Words the editor uses
+
+The user sees the editor, not this contract. Talk to them in its words:
+
+| Editor | Contract |
+| --- | --- |
+| Scene | Node |
+| Exit | Signal and the edge that routes it |
+| Start | \`entryNodeId\` |
+| Overlay | Shell |
+| Variables | \`initialState\` and the live State |
+| Allow Back | edge \`mode: "push"\` |
+| Template | Preset |
 `;
 
 const PROJECT_DOCUMENTATION = `# Playable Nodes Project
@@ -70,7 +84,7 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
-The optional Shell exports the same \`mount(context)\` function. Its navigation API is \`open(destination, mode?)\` and \`back()\`. Shell CSS should enable pointer events only on interactive Shell elements.
+The optional Shell exports the same \`mount(context)\` function and receives the same context. It emits the Signals declared in \`graph.shell.signals\`; edges route them from the source \`nodeId\` \`"shell"\`. Shell CSS should enable pointer events only on interactive Shell elements.
 
 The mount function may return a synchronous or asynchronous cleanup function. Source may import local Shared Modules and dependencies declared by this project. Network access is unavailable at runtime.
 `;
@@ -255,7 +269,6 @@ function blankCodebase(
       entryNodeId: "start",
       initialState: {},
       assets: {},
-      destinations: { home: "start" },
       nodes: [node("start", "Start", [])],
       edges: [],
     },
@@ -282,8 +295,8 @@ function nightTrainCodebase(
           javascript: "shell/shell.js",
         },
         assets: [],
+        signals: [{ id: "home", label: "Home" }],
       },
-      destinations: { home: "platform" },
       nodes: [
         node("platform", "Platform", [
           { id: "board", label: "Board the train" },
@@ -306,9 +319,16 @@ function nightTrainCodebase(
           targetNodeId: "home",
           mode: "replace",
         },
+        {
+          id: "shell-home",
+          source: { nodeId: "shell", signal: "home" },
+          targetNodeId: "platform",
+          mode: "replace",
+        },
       ],
     },
     editorLayout: layout({
+      shell: { x: 80, y: -160 },
       platform: { x: 80, y: 180 },
       carriage: { x: 420, y: 180 },
       home: { x: 760, y: 180 },
@@ -428,7 +448,7 @@ button { border: 1px solid #ffffff40; padding: 8px 12px; color: white; backgroun
 
 const SHELL_JAVASCRIPT = `export function mount(context) {
   const button = context.root.querySelector("[data-home]");
-  const home = () => context.navigation.open("home", "replace");
+  const home = () => context.navigation.emit("home");
   button.addEventListener("click", home);
   return () => button.removeEventListener("click", home);
 }

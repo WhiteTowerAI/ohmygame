@@ -4,7 +4,7 @@ import type { StoryChapter, StoryInteractionCommand, StoryNode, StoryPlayerConfi
 import { advanceOpenUi, advanceSceneTime, chooseOption, completeSceneMedia, createStorySave, DEFAULT_STORY_PLAYER_CONFIG, getNextNode, getSettingsNode, getStoryMapNode, matchesStoryCondition, openUiRuntimeContent, previewStoryNode, resolveInteractionNode, resolveStoryAssetId, restartGame, sceneStillDurationMs, shouldCreateStoryCheckpoint, shouldPersistStoryCheckpoint, storyDiscoveries, storyNodePresentation, validatePlayableChapter, type PlayerRuntimeState, type PlayingRuntimeState } from "../shared/story.js";
 import { getLibraryAsset, getNodeRuntime, getStory, getWorkspaceAsset, listLibraryAssets } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { PlaytestDebugDrawer, type PlaytestStart } from "./playable-playtest-drawer.js";
+import { PlaytestDebugDrawer, takePlaytestStart, usePlaytestStartRequests, type PlaytestStart } from "./playable-playtest-drawer.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { loadStoryProgress, saveStoryProgress, storyProgressKey, storySignature } from "./story-progress.js";
@@ -52,7 +52,8 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
     setPlayable({ status: "loading" });
     setSnapshot(undefined);
     setDiagnostics([]);
-    setStart(undefined);
+    // The editor's "Play from here" leaves its start waiting for this window.
+    setStart(takePlaytestStart(projectId));
     history.current.reset();
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) {
@@ -74,6 +75,8 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
     setSnapshot(next);
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
+
+  usePlaytestStartRequests(projectId, (next) => restart(next, false));
 
   /** Starts another Runtime session; a chosen start never touches the saved game. */
   function restart(nextStart: PlaytestStart | undefined, clearSave: boolean): void {

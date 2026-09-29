@@ -5,25 +5,26 @@ import type {
 import {
   playableEdgeForSignal,
   playableNodeById,
+  playableSignalsOf,
 } from "./playable-graph.js";
 import {
   createPlayableNavigation,
   navigatePlayableBack,
   navigatePlayableSignal,
-  openPlayableDestination,
   PlayableNavigationError,
   type PlayableNavigationState,
 } from "./playable-navigation.js";
-import type {
-  JsonObject,
-  JsonValue,
-  PlayableCleanup,
-  NodeGraph,
-  PlayableNavigationMode,
-  PlayableNodeContext,
-  NodeRuntimeContext,
-  PlayableShellContext,
-  PlayableStateService,
+import {
+  PLAYABLE_SHELL_ID,
+  type JsonObject,
+  type JsonValue,
+  type PlayableCleanup,
+  type NodeGraph,
+  type PlayableNavigationMode,
+  type PlayableNodeContext,
+  type NodeRuntimeContext,
+  type PlayableShellContext,
+  type PlayableStateService,
 } from "./playable-nodes.js";
 import {
   cloneJsonObject,
@@ -118,13 +119,6 @@ export type NodeRuntimeNavigationReport =
       at: string;
     }
   | { kind: "back"; nodeId: string; targetNodeId?: string; at: string }
-  | {
-      kind: "destination";
-      destination: string;
-      targetNodeId: string;
-      mode: PlayableNavigationMode;
-      at: string;
-    }
   | { kind: "restart" | "continue"; targetNodeId: string; at: string };
 
 export interface NodeRuntimeErrorRecord {
@@ -377,22 +371,24 @@ export class NodeRuntime {
     this.#stateListeners.clear();
   }
 
+  /** The current Node or the Shell, whichever `token` belongs to, emits `signal`. */
   async #emit(token: SurfaceToken, signal: string): Promise<void> {
     this.#assertNavigationReady(token);
-    const nodeId = this.#navigation.currentNodeId;
-    const node = playableNodeById(this.#graph, nodeId);
-    if (!node?.signals.some((candidate) => candidate.id === signal)) {
+    const source = token.surfaceId === PLAYABLE_SHELL_ID
+      ? PLAYABLE_SHELL_ID
+      : this.#navigation.currentNodeId;
+    if (!playableSignalsOf(this.#graph, source)?.some((candidate) => candidate.id === signal)) {
       throw new PlayableNavigationError(
         "unknown-signal",
-        `Node "${nodeId}" did not declare Signal "${signal}".`,
+        `${source === PLAYABLE_SHELL_ID ? "The Shell" : `Node "${source}"`} did not declare Signal "${signal}".`,
       );
     }
-    const edge = playableEdgeForSignal(this.#graph, nodeId, signal);
+    const edge = playableEdgeForSignal(this.#graph, source, signal);
     const at = this.#now().toISOString();
     this.#recentSignals = [
       ...this.#recentSignals,
       {
-        nodeId,
+        nodeId: source,
         signal,
         ...(edge ? { edgeId: edge.id, targetNodeId: edge.targetNodeId } : {}),
         at,
@@ -401,7 +397,7 @@ export class NodeRuntime {
     if (this.#policy === "report") {
       this.#report({
         kind: "signal",
-        nodeId,
+        nodeId: source,
         signal,
         ...(edge
           ? { edgeId: edge.id, targetNodeId: edge.targetNodeId, mode: edge.mode }
@@ -412,34 +408,7 @@ export class NodeRuntime {
     }
     this.#changed();
     await this.#navigate(() =>
-      navigatePlayableSignal(this.#graph, this.#navigation, signal),
-    );
-  }
-
-  async #open(
-    token: SurfaceToken,
-    destination: string,
-    mode: PlayableNavigationMode = "replace",
-  ): Promise<void> {
-    this.#assertNavigationReady(token);
-    if (this.#policy === "report") {
-      const next = openPlayableDestination(
-        this.#graph,
-        this.#navigation,
-        destination,
-        mode,
-      );
-      this.#report({
-        kind: "destination",
-        destination,
-        targetNodeId: next.currentNodeId,
-        mode,
-        at: this.#now().toISOString(),
-      });
-      return;
-    }
-    await this.#navigate(() =>
-      openPlayableDestination(this.#graph, this.#navigation, destination, mode),
+      navigatePlayableSignal(this.#graph, this.#navigation, signal, source),
     );
   }
 
@@ -560,7 +529,7 @@ export class NodeRuntime {
 
   async #mountShell(surface: CompiledPlayableSurface): Promise<ActiveSurface> {
     const token: SurfaceToken = {
-      surfaceId: "shell",
+      surfaceId: PLAYABLE_SHELL_ID,
       active: true,
       navigationReady: false,
     };
@@ -572,12 +541,10 @@ export class NodeRuntime {
         this.#graph.shell?.assets ?? [],
       ),
       navigation: {
-        back: this.#guardAsync(token, () => this.#back(token)),
-        open: this.#guardAsync(
-          token,
-          (destination: string, mode?: PlayableNavigationMode) =>
-            this.#open(token, destination, mode),
+        emit: this.#guardAsync(token, (signal: string) =>
+          this.#emit(token, signal),
         ),
+        back: this.#guardAsync(token, () => this.#back(token)),
       },
     };
     try {

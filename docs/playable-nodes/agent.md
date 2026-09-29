@@ -35,8 +35,10 @@ Every project contains an `AGENTS.md` with the stable rules:
 - Use only assets declared by the node, through `context.assets.url(id)`.
 - Build every screen with the Project Style in `shared/style/`. Add a new
   shared component there when two nodes need the same piece of UI.
-- Use the Shell only for UI that must stay alive across nodes; use
-  Destinations for Shell navigation.
+- Use the Shell only for UI that must stay alive across nodes. The Shell
+  declares its own Signals in `graph.shell.signals` and emits them like a
+  node; their edges use the reserved source `nodeId` `"shell"`, which no
+  node may use.
 - Use `replace` for forward progress and `push` only when the player should
   return with `back()`.
 - Keep IDs and source paths stable. Do not rely on `window` globals.
@@ -44,6 +46,13 @@ Every project contains an `AGENTS.md` with the stable rules:
 
 `README.md` documents the files and the node API in more detail, and
 `schemas/` contains the exact JSON contracts.
+
+The author sees the editor's words, not the engine's. The Agent uses the
+editor's words when talking to the author and the engine terms in code: a
+node is a Scene, a Signal with its edge is an Exit, the Entry Node is the
+Start, the Shell is the Overlay, State is Variables, a `push` edge is an Exit
+with **Allow Back**, and a Preset is a Template
+([vocabulary](README.md#vocabulary)).
 
 ## Request context
 
@@ -63,8 +72,9 @@ source files also arrive as workspace file references.
 ```
 
 A picked element also attaches a screenshot of the preview with the element
-outlined. On the canvas, with no Workbench open, a message carries no editor
-context.
+outlined. With the Shell open, the context item is labeled Overlay and lists
+the Shell's sources, Signals with their targets, and assets. On the canvas,
+with no Workbench open, a message carries no editor context.
 
 ## Common tasks
 
@@ -88,8 +98,9 @@ find a Library asset, or generate one with `generate_image` or
 `generate_video`, add a project Asset ID for it, and declare it on the node.
 Tell the author what was generated.
 
-**Persistent UI.** Build it in `shell/`, add the Destinations it opens, and
-remove any duplicated per-node copies.
+**Persistent UI.** Build it in `shell/`, declare its Signals on
+`graph.shell`, connect them with edges from `"shell"`, and remove any
+duplicated per-node copies.
 
 **Restyle the game.** Change `shared/style/` first; touch individual nodes
 only where they override the style.

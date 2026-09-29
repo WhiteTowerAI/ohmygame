@@ -80,8 +80,9 @@ describe("Playable codebase", () => {
     ]);
     expect(codebase.graph.initialState).toEqual({ boarded: false });
     expect(codebase.graph.shell).toBeDefined();
-    expect(codebase.graph.edges).toHaveLength(2);
+    expect(codebase.graph.edges).toHaveLength(3);
     expect(codebase.graph.nodes.flatMap((node) => node.signals)).toHaveLength(2);
+    expect(codebase.graph.shell?.signals.map((signal) => signal.id)).toEqual(["home"]);
     const runtime = await buildPlayableProject(workspace, "publish");
     expect(Object.keys(runtime!.compiled.nodes)).toEqual([
       "platform",
@@ -336,6 +337,8 @@ describe("Playable codebase", () => {
     const codebase = await readNodeCodebase(workspace);
     const shell = codebase.graph.shell!;
     delete codebase.graph.shell;
+    codebase.graph.edges = codebase.graph.edges.filter((edge) => edge.source.nodeId !== "shell");
+    delete codebase.editorLayout.nodes.shell;
     await writeNodeCodebase(workspace, {
       ...codebase,
       sourceDeletions: Object.values(shell.source),

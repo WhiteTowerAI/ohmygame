@@ -30,7 +30,7 @@ function flowNode(node: PlayableNode, position: { x: number; y: number }): Playa
     id: node.id,
     type: "playable",
     position,
-    data: { node, entry: false, destinations: [], issues: [], connected: [], failed: false },
+    data: { node, entry: false, issues: [], connected: [], failed: false },
   };
 }
 
@@ -41,7 +41,6 @@ const META: GraphMeta = {
   entryNodeId: "start",
   initialState: {},
   assets: {},
-  destinations: { home: "start" },
 };
 
 const LAYOUT: NodeEditorLayout = {
@@ -58,7 +57,7 @@ describe("playable canvas serialization", () => {
       flowNode(playableNode("carriage"), { x: 520, y: 180 }),
     ];
     const edges = [toFlowEdge({
-      id: "start:begin",
+      id: "start-begin",
       source: { nodeId: "start", signal: "begin" },
       targetNodeId: "carriage",
       mode: "replace",
@@ -69,7 +68,7 @@ describe("playable canvas serialization", () => {
     expect(codebase.graph.title).toBe("Ash Club");
     expect(codebase.graph.nodes.map((node) => node.id)).toEqual(["start", "carriage"]);
     expect(codebase.graph.edges).toEqual([{
-      id: "start:begin",
+      id: "start-begin",
       source: { nodeId: "start", signal: "begin" },
       targetNodeId: "carriage",
       mode: "replace",
@@ -80,7 +79,7 @@ describe("playable canvas serialization", () => {
 
   it("round-trips both edge modes and marks push edges on the canvas", () => {
     const edge: PlayableEdge = {
-      id: "start:inspect",
+      id: "start-inspect",
       source: { nodeId: "start", signal: "inspect" },
       targetNodeId: "archive",
       mode: "push",
@@ -88,7 +87,7 @@ describe("playable canvas serialization", () => {
 
     const flowEdge = toFlowEdge(edge);
 
-    expect(flowEdge).toMatchObject({ label: "push", className: "playable-edge-push", sourceHandle: "inspect" });
+    expect(flowEdge).toMatchObject({ label: "↩ Back", className: "playable-edge-push", sourceHandle: "inspect" });
     expect(toPlayableEdge(flowEdge)).toEqual(edge);
     // A replace edge stays undecorated so only push edges read as a stack push.
     const replace = toFlowEdge({ ...edge, mode: "replace" });

@@ -14718,6 +14718,60 @@ button {
   white-space: nowrap;
 }
 
+.playable-overlay-card {
+  display: grid;
+  width: 240px;
+  gap: 8px;
+  padding: 8px 0 10px 10px;
+  border: 1px dashed color-mix(in srgb, var(--border-strong) 80%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.playable-overlay-card.is-selected {
+  border-color: var(--accent);
+}
+
+.playable-overlay-card > .story-node-outputs {
+  position: static;
+  width: auto;
+  gap: 8px;
+}
+
+.playable-overlay-card > .playable-node-issue {
+  margin: 0 10px 0 0;
+}
+
+.playable-overlay-card .story-scene-node-label strong {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.playable-project-menu {
+  width: 232px;
+}
+
+.playable-project-menu button {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+}
+
+.playable-project-menu button > small {
+  grid-column: 3;
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.playable-project-menu button[role="menuitemcheckbox"][aria-checked="true"] {
+  color: var(--text);
+}
+
+.playable-project-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
 .playable-node-badge.is-entry {
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent);
@@ -14864,40 +14918,36 @@ button {
   white-space: nowrap;
 }
 
-.playable-edge-modes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.playable-edge-modes button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+.playable-edge-back {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
   padding: 7px 9px;
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 8px;
-  background: transparent;
   color: var(--text);
   cursor: pointer;
+}
+
+.playable-edge-back input {
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.playable-edge-back span {
+  display: grid;
   gap: 2px;
-  text-align: left;
 }
 
-.playable-edge-modes button.is-active {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.playable-edge-modes button strong {
+.playable-edge-back strong {
   font-size: 11px;
 }
 
-.playable-edge-modes button small {
+.playable-edge-back small {
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.35;
-  white-space: normal;
 }
 
 .playable-edge-delete {
@@ -15036,6 +15086,28 @@ button {
 .playable-workbench-activity p.is-error,
 .playable-workbench-activity p.is-error > svg {
   color: var(--danger);
+}
+.playable-workbench-activity p.is-warning {
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
+.playable-workbench-activity p.is-warning > svg {
+  color: var(--warning);
+}
+.playable-workbench-activity p.is-warning select {
+  max-width: 120px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+.playable-workbench-activity p.is-warning button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .playable-workbench-activity p.is-empty {
   grid-template-columns: minmax(0, 1fr);
@@ -15216,6 +15288,26 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-raised);
+}
+.playable-workbench-signal.is-unconnected {
+  border-style: dashed;
+}
+.playable-workbench-signal.is-unconnected .playable-workbench-signal-target select {
+  color: var(--text-muted);
+}
+.playable-workbench-signal-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.playable-workbench-signal .playable-workbench-signal-back input {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
 }
 .playable-workbench-signal-label {
   display: grid;
@@ -15444,12 +15536,20 @@ button {
 .playable-state-table-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.2fr) 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 24px;
   align-items: center;
   gap: 8px;
 }
 .playable-state-table.has-live .playable-state-table-head,
 .playable-state-table.has-live .playable-state-table-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.9fr) 24px;
+}
+.playable-state-table.has-type .playable-state-table-head,
+.playable-state-table.has-type .playable-state-table-row {
+  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.2fr) 24px;
+}
+.playable-state-table.has-type.has-live .playable-state-table-head,
+.playable-state-table.has-type.has-live .playable-state-table-row {
   grid-template-columns: minmax(0, 1fr) 50px minmax(0, 1.1fr) minmax(0, 0.9fr) 24px;
 }
 .playable-state-table-head {
@@ -15528,8 +15628,7 @@ button {
   cursor: default;
   opacity: 0.45;
 }
-.playable-state-new > :is(input, select),
-.playable-destination-add > input {
+.playable-state-new > :is(input, select) {
   min-width: 0;
   height: 24px;
   padding: 0 6px;
@@ -15564,160 +15663,6 @@ button {
   color: var(--text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.playable-style-colors > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.playable-style-colors span {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  width: 64px;
-}
-.playable-style-colors i {
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.playable-style-colors code {
-  overflow: hidden;
-  max-width: 100%;
-  color: var(--text-muted);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-style-tokens dl {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-}
-.playable-style-tokens dl > div {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: 8px;
-}
-.playable-style-tokens :is(dt, dd) {
-  overflow: hidden;
-  margin: 0;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-style-tokens dd {
-  color: var(--text-muted);
-}
-.playable-style-files {
-  display: grid;
-  gap: 6px;
-}
-.playable-style-files button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-.playable-style-files button:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-.playable-style-files button span {
-  display: grid;
-  min-width: 0;
-}
-.playable-style-files button strong {
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
-}
-.playable-style-files button small {
-  overflow: hidden;
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-destinations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.playable-destination-chip {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  font-size: 10px;
-}
-.playable-destination-chip code {
-  color: var(--text);
-  font-size: 10px;
-}
-.playable-destination-chip button,
-.playable-destination-remove {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.playable-destination-chip button:hover,
-.playable-destination-remove:hover {
-  color: var(--danger);
-}
-.playable-destination-add {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-}
-.playable-destination-add.is-invalid > input {
-  border-color: var(--danger);
-}
-.playable-destination-add > button {
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-.playable-destination-add > button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-.playable-destination-menu {
-  min-width: 232px;
-}
-.playable-destination-menu .playable-destination-add {
-  align-items: center;
-  padding: 6px;
-}
-.playable-destination-menu small {
-  margin-left: auto;
-  color: var(--accent);
 }
 .playable-workbench-sample {
   cursor: default;

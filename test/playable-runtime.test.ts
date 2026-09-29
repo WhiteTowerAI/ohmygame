@@ -104,14 +104,14 @@ describe("Node Runtime", () => {
     });
   });
 
-  it("supports push, back, and Shell destinations without remounting the Shell", async () => {
+  it("supports push, back, and Shell Signals without remounting the Shell", async () => {
     const { runtime, host } = createRuntime();
     await runtime.start();
 
     await nodeContext(host, "menu").navigation.emit("inspect");
     expect(runtime.snapshot().backStack).toEqual(["menu"]);
     await nodeContext(host, "archive").navigation.back();
-    await shellContext(host).navigation.open("archive", "replace");
+    await shellContext(host).navigation.emit("archive");
 
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "archive",
@@ -151,7 +151,7 @@ describe("Node Runtime", () => {
       nodeNavigation = context.navigation.emit("start");
     };
     host.onMountShell = (_surface, context) => {
-      shellNavigation = context.navigation.open("archive");
+      shellNavigation = context.navigation.emit("archive");
     };
     const { runtime } = createRuntime({ host });
 
@@ -178,9 +178,9 @@ describe("Node Runtime", () => {
     const { runtime } = createRuntime({ host });
     await runtime.start();
 
-    const first = shellContext(host).navigation.open("archive");
+    const first = shellContext(host).navigation.emit("archive");
     await expect(
-      shellContext(host).navigation.open("home"),
+      shellContext(host).navigation.emit("home"),
     ).rejects.toMatchObject({ code: "navigation-in-progress" });
     releaseArchive();
     await first;
@@ -252,7 +252,7 @@ describe("Node Runtime", () => {
     const { runtime } = createRuntime({ host });
     await runtime.start();
 
-    const navigation = shellContext(host).navigation.open("archive");
+    const navigation = shellContext(host).navigation.emit("archive");
     await mountingArchive;
     const disposal = runtime.dispose();
     releaseArchive();
@@ -281,7 +281,7 @@ describe("Node Runtime", () => {
     await runtime.start();
     const shell = shellContext(host);
 
-    await expect(shell.navigation.open("archive")).rejects.toThrow(
+    await expect(shell.navigation.emit("archive")).rejects.toThrow(
       "archive mount failed",
     );
 
@@ -525,7 +525,7 @@ describe("NodeRuntime preview tooling", () => {
 
     await nodeContext(host, "menu").navigation.emit("start");
     await nodeContext(host, "menu").navigation.back();
-    await shellContext(host).navigation.open("archive", "push");
+    await shellContext(host).navigation.emit("archive");
 
     expect(host.events).toEqual(["mount:shell", "mount:menu"]);
     const snapshot = runtime.snapshot();
@@ -537,17 +537,12 @@ describe("NodeRuntime preview tooling", () => {
     });
     expect(snapshot.recentSignals).toEqual([
       expect.objectContaining({ nodeId: "menu", signal: "start", targetNodeId: "lobby" }),
+      expect.objectContaining({ nodeId: "shell", signal: "archive", targetNodeId: "archive" }),
     ]);
     expect(snapshot.reports).toEqual([
       expect.objectContaining({ kind: "signal", signal: "start", targetNodeId: "lobby" }),
       { kind: "back", nodeId: "menu", at: "2026-09-28T00:00:00.000Z" },
-      {
-        kind: "destination",
-        destination: "archive",
-        targetNodeId: "archive",
-        mode: "push",
-        at: "2026-09-28T00:00:00.000Z",
-      },
+      expect.objectContaining({ kind: "signal", nodeId: "shell", signal: "archive", edgeId: "shell-archive", targetNodeId: "archive", mode: "replace" }),
     ]);
   });
 

@@ -3,7 +3,6 @@ import {
   createPlayableNavigation,
   navigatePlayableBack,
   navigatePlayableSignal,
-  openPlayableDestination,
   PlayableNavigationError,
 } from "../src/shared/playable-navigation.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
@@ -29,18 +28,22 @@ describe("Playable navigation", () => {
     expect(archive).toEqual({ currentNodeId: "archive", backStack: ["menu"] });
   });
 
-  it("opens Shell destinations with explicit navigation modes", () => {
+  it("follows Shell Signals from whichever Node is current", () => {
     const graph = createNodeGraphFixture();
     const initial = createPlayableNavigation(graph);
+    const lobby = navigatePlayableSignal(graph, initial, "start");
 
-    expect(openPlayableDestination(graph, initial, "archive")).toEqual({
+    expect(navigatePlayableSignal(graph, lobby, "archive", "shell")).toEqual({
       currentNodeId: "archive",
       backStack: [],
     });
-    expect(openPlayableDestination(graph, initial, "archive", "push")).toEqual({
+    graph.edges = graph.edges.map((edge) => edge.id === "shell-archive" ? { ...edge, mode: "push" } : edge);
+    expect(navigatePlayableSignal(graph, lobby, "archive", "shell")).toEqual({
       currentNodeId: "archive",
-      backStack: ["menu"],
+      backStack: ["lobby"],
     });
+    expect(() => navigatePlayableSignal(graph, lobby, "home"))
+      .toThrowError(expect.objectContaining({ code: "unknown-signal" }));
   });
 
   it("returns actionable errors for invalid navigation requests", () => {
@@ -56,16 +59,9 @@ describe("Playable navigation", () => {
     expect(() =>
       navigatePlayableSignal(graph, initial, "inspect"),
     ).toThrowError(expect.objectContaining({ code: "unconnected-signal" }));
+    graph.edges = graph.edges.map((edge) => edge.id === "shell-home" ? { ...edge, mode: "overlay" as "replace" } : edge);
     expect(() =>
-      openPlayableDestination(graph, initial, "missing"),
-    ).toThrowError(expect.objectContaining({ code: "unknown-destination" }));
-    expect(() =>
-      openPlayableDestination(
-        graph,
-        initial,
-        "archive",
-        "overlay" as "replace",
-      ),
+      navigatePlayableSignal(graph, initial, "home", "shell"),
     ).toThrowError(expect.objectContaining({ code: "invalid-mode" }));
     expect(() => navigatePlayableBack(initial)).toThrowError(
       PlayableNavigationError,

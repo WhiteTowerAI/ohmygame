@@ -1,7 +1,9 @@
-import type {
-  PlayableEdge,
-  NodeGraph,
-  PlayableNode,
+import {
+  PLAYABLE_SHELL_ID,
+  type PlayableEdge,
+  type NodeGraph,
+  type PlayableNode,
+  type PlayableSignal,
 } from "./playable-nodes.js";
 
 export function playableNodeById(
@@ -21,12 +23,16 @@ export function playableEdgeForSignal(
   );
 }
 
-export function playableDestinationNode(
+/**
+ * The Signals a surface declares: a Node's, or the Shell's for
+ * `PLAYABLE_SHELL_ID`. Undefined when the surface does not exist.
+ */
+export function playableSignalsOf(
   graph: NodeGraph,
-  destination: string,
-): PlayableNode | undefined {
-  const nodeId = graph.destinations[destination];
-  return nodeId === undefined ? undefined : playableNodeById(graph, nodeId);
+  surfaceId: string,
+): readonly PlayableSignal[] | undefined {
+  if (surfaceId === PLAYABLE_SHELL_ID) return graph.shell?.signals;
+  return playableNodeById(graph, surfaceId)?.signals;
 }
 
 export function playableOutgoingEdges(

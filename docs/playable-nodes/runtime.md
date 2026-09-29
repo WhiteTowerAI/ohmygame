@@ -63,9 +63,12 @@ valid, plus the default Project Style.
   },
   "shell": {
     "source": { "html": "shell/index.html", "css": "shell/style.css", "javascript": "shell/shell.js" },
-    "assets": []
+    "assets": [],
+    "signals": [
+      { "id": "home", "label": "首页" },
+      { "id": "rules", "label": "规则" }
+    ]
   },
-  "destinations": { "home": "main-menu", "lobby": "game-lobby", "rules": "game-rules" },
   "nodes": [
     {
       "id": "main-menu",
@@ -80,7 +83,9 @@ valid, plus the default Project Style.
   ],
   "edges": [
     { "id": "e1", "source": { "nodeId": "main-menu", "signal": "enter-club" }, "targetNodeId": "game-lobby", "mode": "replace" },
-    { "id": "e2", "source": { "nodeId": "main-menu", "signal": "open-archive" }, "targetNodeId": "archive", "mode": "push" }
+    { "id": "e2", "source": { "nodeId": "main-menu", "signal": "open-archive" }, "targetNodeId": "archive", "mode": "push" },
+    { "id": "e3", "source": { "nodeId": "shell", "signal": "home" }, "targetNodeId": "main-menu", "mode": "replace" },
+    { "id": "e4", "source": { "nodeId": "shell", "signal": "rules" }, "targetNodeId": "game-rules", "mode": "push" }
   ]
 }
 ```
@@ -90,8 +95,9 @@ CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
 looks the same in the Workbench preview, its thumbnail, a Playtest window of
 any size, and the published game.
 
-Editor data (positions, zoom, open panels) lives in `editor/layout.json`.
-Preset names are never stored.
+Editor data (positions, zoom, open panels) lives in `editor/layout.json`;
+the Shell's card position is stored under `nodes.shell`. Preset names are
+never stored.
 
 ## Node protocol
 
@@ -135,18 +141,16 @@ interface NodeContext extends RuntimeContext {
   navigation: { emit(signal: string): Promise<void>; back(): Promise<void> };
 }
 
-interface ShellContext extends RuntimeContext {
-  navigation: { open(destination: string, mode?: "replace" | "push"): Promise<void>; back(): Promise<void> };
-}
+type ShellContext = NodeContext;
 ```
 
-Every request is validated. An undeclared asset, unknown state key, undeclared
-Signal, or unknown destination produces a visible runtime error instead of
-silently doing nothing.
+Every request is validated. An undeclared asset, unknown state key, or
+undeclared Signal produces a visible runtime error instead of silently doing
+nothing.
 
-Nodes emit their declared Signals or go back; they cannot open destinations.
-The Shell opens destinations or goes back; it cannot emit a node's Signal.
-Story flow therefore stays visible in the graph.
+Nodes and the Shell each emit only their own declared Signals or go back; the
+Shell cannot emit a node's Signal and a node cannot emit the Shell's. Story
+flow therefore stays visible in the graph.
 
 ## Project State
 
@@ -165,7 +169,9 @@ Story flow therefore stays visible in the graph.
 
 A Signal says what happened; an edge says where it leads.
 
-- A node and Signal pair has at most one edge.
+- A node and Signal pair has at most one edge. The Shell's Signals are
+  routed the same way, with the reserved source `nodeId` `"shell"`
+  (`PLAYABLE_SHELL_ID`); no node may use that ID.
 - Edges carry no conditions or state effects in v1. A node reads State and
   emits the Signal that fits.
 - A declared Signal may be unconnected while editing. Emitting it during
@@ -181,15 +187,18 @@ A Signal says what happened; an edge says where it leads.
 The back stack stores node IDs, not live instances. Anything that must survive
 leaving a node belongs in Project State.
 
-## Destinations and the Shell
-
-Destinations are project-wide names for nodes (`home`, `rules`, …) used by the
-Shell. They are aliases for entry points, not a second graph.
+## The Shell
 
 The Shell is optional project-wide UI mounted above the current node. It stays
 alive while nodes change, so it never flashes or loses temporary UI state. Its
 layer ignores pointer events by default; interactive Shell elements opt in
 with `pointer-events: auto`.
+
+The Shell declares its own `signals` (the same `{ id, label }` shape as a
+node's) and calls `navigation.emit(signal)` like a node. Its edges start at
+`"shell"` and are followed from whichever node is current, so a top-bar
+**Home** is one edge rather than one per node. `playableSignalsOf(graph,
+surfaceId)` returns the Signals of a node or, for `"shell"`, of the Shell.
 
 Shared modules and the Shell solve different problems: shared modules reuse
 source and are mounted with each node; the Shell is one live instance across
@@ -285,8 +294,9 @@ The Runtime accepts a navigation policy:
 
 - `follow` (Playtest and Published Player): Signals navigate.
 - `report` (Workbench preview): a Signal is validated and reported to the host
-  with the edge it would follow, and the node stays mounted. `back()` is
-  reported the same way.
+  with the edge it would follow, and the node stays mounted. `back()`,
+  `restart()`, and `continue()` are reported the same way. Report kinds are
+  `signal`, `back`, `restart`, and `continue`.
 
 The Workbench preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.
@@ -344,18 +354,21 @@ Validation runs in `draft` mode for editing and Playtest and `publish` mode
 for publishing. Each issue has a stable `code`, a JSON Pointer `path`, and an
 actionable `message`. It checks that:
 
-- IDs are non-empty and unique in their scope;
-- `entryNodeId`, destinations, and edge targets exist;
-- every edge starts at a declared Signal, with at most one edge per pair;
+- IDs are non-empty and unique in their scope, and no node uses the
+  reserved ID `shell` (`reserved-id`);
+- `entryNodeId` and edge targets exist;
+- every edge starts at a declared Signal of a node or, from `shell`, of the
+  Shell, with at most one edge per pair;
 - every node and Shell asset dependency exists in `assets`;
 - source and asset paths are relative and stay inside the workspace;
 - referenced files exist;
 - `initialState` is a JSON object;
 - modes are only `replace` and `push`;
-- in `publish` mode, every declared Signal has an edge.
+- in `publish` mode, every declared Signal, the Shell's included, has an
+  edge.
 
-Limits: 500 nodes, 2,000 edges, 1,000 assets, 500 destinations, 100 Signals
-per node, 500 asset dependencies per surface, 5 MiB per source file, and
+Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node or
+Shell, 500 asset dependencies per surface, 5 MiB per source file, and
 16 MiB per compiled surface.
 
 ## Publishing

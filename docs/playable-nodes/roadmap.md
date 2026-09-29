@@ -48,24 +48,24 @@ desktop app with a Playable Nodes project.
 
 | Current capability                                                     | Where                                                                   | Decision | In Playable Nodes                                                        |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------ |
-| Workspace header, home, publish, chat toggle                           | `InteractiveDramaWorkspace`                                             | Keep     | Same header plus Style, Shell, State                                     |
+| Workspace header, home, publish, chat toggle                           | `InteractiveDramaWorkspace`                                             | Keep     | Same header plus a Project ▾ menu (Variables, Overlay, Export, …)        |
 | Chat left/right placement and collapse                                 | `project-shell.tsx`, `chat-layout.ts`                                   | Keep     | Unchanged; adds Playable Nodes context to messages                       |
 | Canvas pan, zoom, fit view, zoom controls                              | `ZoomControls`, canvas                                                  | Keep     | Unchanged                                                                |
-| Add-node menu and canvas context menu                                  | `CanvasToolbar`, `StoryCanvasContextMenu`                               | Adapt    | Presets instead of node types                                            |
+| Add-node menu and canvas context menu                                  | `CanvasToolbar`, `StoryCanvasContextMenu`                               | Adapt    | Templates (Presets) instead of node types                                |
 | Alignment guides, copy and paste                                       | `story-canvas-alignment.ts`, `story-canvas-clipboard.ts`                | Adapt    | Copy duplicates node source under a new ID                               |
-| Node cards with preview and inline title rename                        | `StoryPresentationNodeCard`, `InlineNodeTitle`                          | Adapt    | One card: thumbnail, title, Signal ports, badges, issue marker           |
+| Node cards with preview and inline title rename                        | `StoryPresentationNodeCard`, `InlineNodeTitle`                          | Adapt    | One Scene card: thumbnail, title, Exit ports, Start badge, issue marker  |
 | Output ports                                                           | `StoryNodeOutputs`                                                      | Adapt    | Ports are declared Signals                                               |
 | Breadcrumb from node editor to canvas                                  | `StoryEditorBreadcrumb`                                                 | Keep     | Unchanged                                                                |
-| Workbench layout with preview and resizable inspector                  | `NodeWorkbenchLayout`                                                   | Keep     | Single Workbench for every node and the Shell                            |
+| Workbench layout with preview and resizable inspector                  | `NodeWorkbenchLayout`                                                   | Keep     | Single Workbench for every Scene and the Overlay                         |
 | Live runtime preview inside the Workbench                              | `StoryRuntimeWorkbenchPreview`                                          | Adapt    | Node Runtime with `report` policy and preview state                      |
 | Library asset picker and upload                                        | `StoryMediaSourcePicker`, `StoryAssetPicker`                            | Adapt    | Inspector Assets section; declares project Asset IDs                     |
-| Variables dialog                                                       | `story-variables-dialog.tsx`                                            | Adapt    | Project State panel                                                      |
+| Variables dialog                                                       | `story-variables-dialog.tsx`                                            | Adapt    | Variables (Project State) panel                                          |
 | Story issues banner                                                    | workspace                                                               | Adapt    | Validation issues and node markers                                       |
 | Playtest page, save and restore                                        | `playtest.tsx`, `story-progress.ts`                                     | Adapt    | Node Runtime, one save slot, debug drawer                                |
 | Open UI, Scene, Interaction, Choice, Ending workbenches and inspectors | `*Workbench`, `StoryInspector`, `ChoiceActionsEditor`, `ChoiceConditionRule` | Remove   | Presets plus conversation                                                |
 | Scene timeline and duration                                            | `SceneWorkbench`, `SceneTimerClock`                                     | Remove   | Cinematic Preset with `playCinematic()`                                  |
 | Condition and Update State nodes                                       | `ConditionEditorPage`, `UpdateStateEditorPage`                          | Remove   | Node code reads State and emits Signals                                  |
-| Story Map and Settings system nodes                                    | `story-map.tsx`, `story-settings.tsx`                                   | Remove   | Ordinary nodes, Destinations, Shell                                      |
+| Story Map and Settings system nodes                                    | `story-map.tsx`, `story-settings.tsx`                                   | Remove   | Ordinary nodes and Shell Signals                                         |
 | Screen, scene, interaction surfaces                                    | `story-*-surface.tsx`, `public/*-surface.html`                          | Remove   | One sandbox surface                                                      |
 | Text, Image, Video, 3D, Asset generation nodes                         | `TextNode` … `AssetNode`, `MediaNodeShell`                              | Move     | Asset Canvas only                                                        |
 
@@ -122,16 +122,16 @@ one. During this phase only the internal "Playable Nodes" project creation
 path (a development flag) creates `graph.json` projects.
 
 10. `feat(editor): open playable projects in the drama workspace` — header,
-    chat, canvas with one node card, Signal ports, edges, Entry and
-    Destination badges, add from Preset, context menu, clipboard.
+    chat, canvas with one node card, Signal ports, edges, Entry badge, add
+    from Preset, context menu, clipboard.
 11. `feat(editor): add node workbench` — Workbench with live preview, preview
     bar, and inspector (title, Signals, Assets, State used).
 12. `feat(editor): add node thumbnails` — background captures of every Node
     cached in `.ohmygame/thumbnails/`, stale and failed markers, Asset and
     title fallbacks.
 13. `feat(editor): add project state, style, and shell panels` — State
-    and Style panels over the canvas and inside Workbenches, the Shell
-    Workbench, and Destinations assigned from the inspector and canvas menu.
+    and Style panels over the canvas and inside Workbenches, and the Shell
+    Workbench.
 14. `feat(editor): add playtest debug drawer` — current node with Open in
     editor, back stack, Signals, State changes, errors, and start from a
     chosen node and State.
@@ -141,7 +141,16 @@ path (a development flag) creates `graph.json` projects.
 16. `feat(editor): add element picking to chat` — a picked element and a
     marked screenshot sent with the next message.
 
-Check for each: exercised in the desktop app. After step 16, build the
+Then, before the switch, a simplification pass
+(`feat(editor): use author-facing words and shell signals`): the editor says
+Scene, Exit, Start, Overlay, Variables, and Template, with a **Show technical
+details** toggle for IDs, paths, types, History, and the Code tab; the Shell
+declares its own Signals routed by edges from `"shell"`; the Overlay card on
+the canvas and **Play from here** in the Workbench; the read-only Style panel
+is removed, since restyling happens in conversation.
+
+Check for each: exercised in the desktop app. After step 16 and the
+simplification pass, build the
 [vision success list](vision.md#what-success-looks-like) through conversation
 and confirm every *Keep* and *Adapt* row of the inventory.
 

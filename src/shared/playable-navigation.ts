@@ -1,11 +1,12 @@
 import {
-  playableDestinationNode,
   playableEdgeForSignal,
   playableNodeById,
+  playableSignalsOf,
 } from "./playable-graph.js";
-import type {
-  NodeGraph,
-  PlayableNavigationMode,
+import {
+  PLAYABLE_SHELL_ID,
+  type NodeGraph,
+  type PlayableNavigationMode,
 } from "./playable-nodes.js";
 
 export interface PlayableNavigationState {
@@ -19,7 +20,6 @@ export class PlayableNavigationError extends Error {
       | "unknown-node"
       | "unknown-signal"
       | "unconnected-signal"
-      | "unknown-destination"
       | "empty-back-stack"
       | "invalid-mode",
     message: string,
@@ -41,28 +41,33 @@ export function createPlayableNavigation(
   return { currentNodeId: graph.entryNodeId, backStack: [] };
 }
 
+/**
+ * Follows the edge of a Signal. The current Node emits by default; the Shell
+ * emits its own Signals with `source` set to `PLAYABLE_SHELL_ID`.
+ */
 export function navigatePlayableSignal(
   graph: NodeGraph,
   state: PlayableNavigationState,
   signal: string,
+  source: string = state.currentNodeId,
 ): PlayableNavigationState {
-  const node = playableNodeById(graph, state.currentNodeId);
-  if (!node)
+  if (!playableNodeById(graph, state.currentNodeId))
     throw new PlayableNavigationError(
       "unknown-node",
       `Current Node "${state.currentNodeId}" does not exist.`,
     );
-  if (!node.signals.some((candidate) => candidate.id === signal)) {
+  const owner = source === PLAYABLE_SHELL_ID ? "The Shell" : `Node "${source}"`;
+  if (!playableSignalsOf(graph, source)?.some((candidate) => candidate.id === signal)) {
     throw new PlayableNavigationError(
       "unknown-signal",
-      `Node "${node.id}" did not declare Signal "${signal}".`,
+      `${owner} did not declare Signal "${signal}".`,
     );
   }
-  const edge = playableEdgeForSignal(graph, node.id, signal);
+  const edge = playableEdgeForSignal(graph, source, signal);
   if (!edge)
     throw new PlayableNavigationError(
       "unconnected-signal",
-      `Signal "${node.id}.${signal}" has no Edge.`,
+      `Signal "${source}.${signal}" has no Edge.`,
     );
   if (!playableNodeById(graph, edge.targetNodeId)) {
     throw new PlayableNavigationError(
@@ -71,21 +76,6 @@ export function navigatePlayableSignal(
     );
   }
   return navigateToNode(state, edge.targetNodeId, edge.mode);
-}
-
-export function openPlayableDestination(
-  graph: NodeGraph,
-  state: PlayableNavigationState,
-  destination: string,
-  mode: PlayableNavigationMode = "replace",
-): PlayableNavigationState {
-  const node = playableDestinationNode(graph, destination);
-  if (!node)
-    throw new PlayableNavigationError(
-      "unknown-destination",
-      `Destination "${destination}" does not reference an existing Node.`,
-    );
-  return navigateToNode(state, node.id, mode);
 }
 
 export function navigatePlayableBack(

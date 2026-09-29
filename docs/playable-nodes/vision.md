@@ -98,8 +98,8 @@ canvas the node shows four output ports, each connected to a target.
 node, so it needs no extra nodes. The record text reads Project State, such
 as completed rounds. "打开博弈笔记" emits a Signal that the graph connects to the
 notes node. The top bar is the project **Shell**: it stays mounted across
-nodes and opens named **Destinations** (`home`, `lobby`, `rules`) or goes
-back.
+nodes, declares its own Signals (`home`, `lobby`, `rules`) that the graph
+connects like any node's, and can go back.
 
 Nothing in either case requires a special node type.
 

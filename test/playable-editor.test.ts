@@ -12,8 +12,8 @@ import {
   removePlayableNodeAsset,
   removePlayableShellAsset,
   renamePlayableSignal,
+  playableEdgeId,
   setPlayableSignalLabel,
-  setPlayableDestination,
   setPlayableSignalTarget,
 } from "../src/shared/playable-editor.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
@@ -66,7 +66,7 @@ describe("Playable editor graph changes", () => {
     expect(disconnected.edges.some((edge) => edge.source.signal === "start")).toBe(false);
     const reconnected = setPlayableSignalTarget(disconnected, "menu", "start", "archive");
     expect(reconnected.edges).toContainEqual({
-      id: "menu:start",
+      id: "menu-start",
       source: { nodeId: "menu", signal: "start" },
       targetNodeId: "archive",
       mode: "replace",
@@ -162,12 +162,27 @@ describe("Playable editor graph changes", () => {
 });
 
 describe("Playable project editing", () => {
-  it("sets, retargets, and removes a Destination", () => {
-    const destinations = { home: "menu" };
-    expect(setPlayableDestination(destinations, "archive", "archive")).toEqual({ home: "menu", archive: "archive" });
-    expect(setPlayableDestination(destinations, "home", "lobby")).toEqual({ home: "lobby" });
-    expect(setPlayableDestination(destinations, "home", undefined)).toEqual({});
-    expect(destinations).toEqual({ home: "menu" });
+  it("gives new edges IDs that graph.json accepts", () => {
+    const graph = createNodeGraphFixture();
+    const connected = setPlayableSignalTarget(graph, "archive", "missing-signal", "menu");
+    expect(playableEdgeId([], "menu", "start")).toBe("menu-start");
+    expect(playableEdgeId([{ id: "menu-start" }], "menu", "start")).toBe("menu-start-2");
+    const disconnected = setPlayableSignalTarget(graph, "menu", "start", undefined);
+    const reconnected = setPlayableSignalTarget(disconnected, "menu", "start", "archive");
+    expect(reconnected.edges.find((edge) => edge.source.signal === "start")?.id).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+    expect(connected.edges.some((edge) => edge.id.includes(":"))).toBe(false);
+  });
+
+  it("edits the Shell's Signals like a Node's", () => {
+    const graph = createNodeGraphFixture();
+    const renamed = setPlayableSignalLabel(graph, "shell", "home", "Menu");
+    expect(renamed.shell?.signals.find((signal) => signal.id === "home")?.label).toBe("Menu");
+    const retargeted = setPlayableSignalTarget(graph, "shell", "home", "lobby", "push");
+    expect(retargeted.edges.find((edge) => edge.source.nodeId === "shell" && edge.source.signal === "home"))
+      .toMatchObject({ targetNodeId: "lobby", mode: "push" });
+    const disconnected = setPlayableSignalTarget(graph, "shell", "archive", undefined);
+    expect(disconnected.edges.some((edge) => edge.source.nodeId === "shell" && edge.source.signal === "archive")).toBe(false);
+    expect(graph.shell?.signals.find((signal) => signal.id === "home")?.label).toBe("Home");
   });
 
   it("adds and removes Shell assets", () => {

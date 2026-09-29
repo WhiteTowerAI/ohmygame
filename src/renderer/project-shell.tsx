@@ -117,6 +117,7 @@ export function ProjectShell({
   /** The Playable surface whose chip the user removed from the next message. */
   const [dismissedSurface, setDismissedSurface] = useState<string>();
   const [composerDirty, setComposerDirty] = useState(false);
+  const [promptRequest, setPromptRequest] = useState<{ text: string; id: number }>();
   const modelCatalog = useAgentModels();
   const effectiveModel = preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
@@ -778,6 +779,7 @@ export function ProjectShell({
               else setDismissedSurface(playableChat?.surface?.key);
             }}
             onDirtyChange={setComposerDirty}
+            promptRequest={promptRequest}
             onCompact={compactCurrentConversation}
             onContextUsage={currentContextPercent}
             onCancelPlan={discardPlan}
@@ -858,6 +860,10 @@ export function ProjectShell({
         onHome={requestHome}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
         onChatContextChange={setPlayableChat}
+        onAskAgent={(text) => {
+          setAgentCollapsed(false);
+          setPromptRequest({ text, id: Date.now() });
+        }}
       /> : <InteractiveDramaWorkspace
         project={project}
         initialNodeId={initialCanvasNodeId}

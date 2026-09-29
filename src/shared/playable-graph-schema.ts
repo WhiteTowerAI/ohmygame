@@ -24,6 +24,21 @@ const source = {
   },
 } as const;
 
+const signals = {
+  type: "array",
+  maxItems: 100,
+  uniqueItems: true,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "label"],
+    properties: {
+      id: identifier,
+      label: { type: "string", minLength: 1, maxLength: 120 },
+    },
+  },
+} as const;
+
 const assetIds = {
   type: "array",
   maxItems: 500,
@@ -58,7 +73,6 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     "entryNodeId",
     "initialState",
     "assets",
-    "destinations",
     "nodes",
     "edges",
   ],
@@ -115,14 +129,8 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     shell: {
       type: "object",
       additionalProperties: false,
-      required: ["source", "assets"],
-      properties: { source, assets: assetIds },
-    },
-    destinations: {
-      type: "object",
-      maxProperties: 500,
-      propertyNames: identifier,
-      additionalProperties: identifier,
+      required: ["source", "assets", "signals"],
+      properties: { source, assets: assetIds, signals },
     },
     nodes: {
       type: "array",
@@ -137,20 +145,7 @@ export const PLAYABLE_GRAPH_SCHEMA = {
           title: { type: "string", minLength: 1, maxLength: 120 },
           source,
           assets: assetIds,
-          signals: {
-            type: "array",
-            maxItems: 100,
-            uniqueItems: true,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["id", "label"],
-              properties: {
-                id: identifier,
-                label: { type: "string", minLength: 1, maxLength: 120 },
-              },
-            },
-          },
+          signals,
         },
       },
     },
