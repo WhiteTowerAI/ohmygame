@@ -269,11 +269,11 @@ describe("agent tools", () => {
     const tool = createAgentTools(drama, runner, projects).find(({ name }) => name === "playable_add_node");
     if (!tool) throw new Error("Expected the add Node tool");
 
-    const result = await tool.execute("call-node", { preset: "cinematic", id: "opening" }, undefined, undefined, {} as never);
+    const result = await tool.execute("call-node", { preset: "scene", id: "opening" }, undefined, undefined, {} as never);
 
     expect(result.details).toEqual({ playableNode: {
       id: "opening",
-      preset: "cinematic",
+      preset: "scene",
       files: ["nodes/opening/index.html", "nodes/opening/style.css", "nodes/opening/node.js"],
       signals: ["next"],
     } });

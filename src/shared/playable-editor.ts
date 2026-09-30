@@ -28,6 +28,9 @@ export interface PlayableProjectValidationResult {
 export interface PlayablePresetSummary {
   id: string;
   label: string;
+  /** One line for the author. */
+  summary: string;
+  /** Instructions for the Agent; not shown to the author. */
   brief: string;
   signals: string[];
 }

@@ -110,6 +110,7 @@ import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
+import { PlayableTemplateDialog } from "./playable-template-dialog.js";
 import { requestPlaytestStart } from "./playable-playtest-drawer.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
 import type { PlayableChatState } from "./playable-chat.js";
@@ -1326,22 +1327,8 @@ function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChang
   onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
-  const addMenu = useRef<HTMLDivElement>(null);
   const { fitView, getNodes, screenToFlowPosition, setViewport } = useReactFlow();
-
-  useEffect(() => {
-    if (!addOpen) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!addMenu.current?.contains(event.target as globalThis.Node)) setAddOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setAddOpen(false); };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [addOpen]);
+  const closeAdd = useCallback(() => setAddOpen(false), []);
 
   async function fitCanvas(): Promise<void> {
     if (getNodes().length === 0) {
@@ -1359,29 +1346,19 @@ function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChang
 
   return (
     <Panel className="story-canvas-toolbar" position="bottom-center">
-      <div ref={addMenu} className="story-add-node">
-        {addOpen ? (
-          <div className="story-add-node-menu-shell">
-            <div className="story-add-node-menu" role="menu" aria-label="Add Scene">
-              <span className="story-add-node-menu-label">Start from a template</span>
-              {presets.map((preset) => <button
-                type="button"
-                role="menuitem"
-                key={preset.id}
-                disabled={busy}
-                onClick={() => {
-                  const position = placementPosition();
-                  if (position) onAdd(preset.id, position);
-                  setAddOpen(false);
-                }}
-              ><Clapperboard size={15} /><span><strong>{preset.label}</strong><small>{preset.brief}</small></span></button>)}
-            </div>
-          </div>
-        ) : null}
-        <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-expanded={addOpen} onClick={() => setAddOpen((open) => !open)}>
-          {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
-        </button>
-      </div>
+      <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
+        {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
+      </button>
+      {addOpen ? createPortal(<PlayableTemplateDialog
+        presets={presets}
+        busy={busy}
+        onClose={closeAdd}
+        onChoose={(presetId) => {
+          const position = placementPosition();
+          if (position) onAdd(presetId, position);
+          setAddOpen(false);
+        }}
+      />, document.body) : null}
       <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => onModeChange("pointer")}>
         <MousePointer2 size={18} />
       </button>
@@ -1468,7 +1445,7 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
                 role="menuitem"
                 key={preset.id}
                 disabled={busy}
-                title={preset.brief}
+                title={preset.summary}
                 onClick={() => run(() => onAdd(preset.id))}
               ><Clapperboard size={15} /><span>{preset.label}</span></button>)}
             </div>

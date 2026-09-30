@@ -3,16 +3,17 @@ import type { PlayableSignal } from "../shared/playable-nodes.js";
 /**
  * Presets are starting points, not Node types: the chosen name is never
  * stored, and a Node created from one can become anything. Each Preset brings
- * starter source that already uses the Project Style, its starter Signals, and
- * a brief that tells the Agent what the author usually wants next.
+ * starter source that already uses the Project Style, its starter Signals, a
+ * one-line summary for the author, and a brief that tells the Agent what the
+ * author usually wants next.
  */
 export const PLAYABLE_PRESET_IDS = [
   "blank",
   "main-menu",
-  "cinematic",
-  "dialogue-choice",
-  "archive",
-  "investigation",
+  "scene",
+  "choice",
+  "qte",
+  "hotspot",
   "ending",
 ] as const;
 
@@ -21,6 +22,9 @@ export type PlayablePresetId = (typeof PLAYABLE_PRESET_IDS)[number];
 export interface PlayablePreset {
   id: PlayablePresetId;
   label: string;
+  /** One line for the author, shown in Add a Scene. */
+  summary: string;
+  /** What the Agent should do next with a Node made from this Preset. */
   brief: string;
   signals: PlayableSignal[];
   /** Source for `nodes/<id>/`, keyed by file name. */
@@ -41,6 +45,7 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "blank",
     label: "Blank",
+    summary: "Start from an empty screen",
     brief:
       "An empty full-screen stage using the Project Style. Describe the screen you want and build it here; add Signals for each outcome the player can reach.",
     signals: [],
@@ -53,6 +58,7 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "main-menu",
     label: "Main menu",
+    summary: "A title and a list of choices",
     brief:
       "Title, subtitle, entry list, and a background image slot. Declare an image Asset and set it on the stage, then rename the `start` Signal and add one Signal per entry.",
     signals: [signal("start", "Start")],
@@ -89,30 +95,33 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     }),
   },
   {
-    id: "cinematic",
-    label: "Cinematic scene",
+    id: "scene",
+    label: "Scene",
+    summary: "A full-screen video or image",
     brief:
-      "Full-screen video with skip that emits `next` when playback ends. Declare a video Asset on this Node and pass its ID to playCinematic. For a different ending behaviour, replace the call with your own code.",
+      "Full-screen media that emits `next` when a video ends, is skipped, or the player continues past an image. Declare a video or image Asset on this Node and pass its ID and type to playScene. For a different ending behaviour, replace the call with your own code.",
     signals: [signal("next", "Next")],
     source: () => ({
       html: "<main></main>\n",
       css: STYLE_IMPORT,
       javascript: [
-        'import { playCinematic } from "../../shared/style/components.js";',
+        'import { playScene } from "../../shared/style/components.js";',
         "",
         "export function mount(context) {",
-        "  // Declare a video Asset on this Node and use its ID here.",
-        '  return playCinematic(context, { assetId: "cinematic", signal: "next" });',
+        "  // Declare a video or image Asset on this Node, then pass",
+        '  // { assetId: "<id>", type: "video" | "image" } here.',
+        '  return playScene(context, { signal: "next" });',
         "}",
         "",
       ].join("\n"),
     }),
   },
   {
-    id: "dialogue-choice",
-    label: "Dialogue choice",
+    id: "choice",
+    label: "Choice",
+    summary: "Answers that lead different ways",
     brief:
-      "A speaker line and options that may read State. Rewrite the options for this beat, rename the Signals to the outcomes they describe, and gate an option on State when the story needs it.",
+      "A line and options that may read State. Rewrite the options for this beat, rename the Signals to the outcomes they describe, and gate an option on State when the story needs it. Add a time limit only when asked.",
     signals: [signal("option-a", "Option A"), signal("option-b", "Option B")],
     source: (title) => ({
       html: [
@@ -146,47 +155,70 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     }),
   },
   {
-    id: "archive",
-    label: "Archive",
+    id: "qte",
+    label: "QTE",
+    summary: "Press in time, or miss",
     brief:
-      "A folder with an index that changes the visible page. Replace the entries with the real records; read State to reveal records the player has unlocked. Reached with a `push` edge so `leave` can return.",
-    signals: [signal("leave", "Leave")],
+      "A timed prompt: pressing the key or the button in time emits `success`, running out of time emits `fail`. Set the key, the time limit, and the prompt for this moment, put a still or a looping video behind it, and rename the Signals to what happens.",
+    signals: [signal("success", "Made it"), signal("fail", "Missed")],
     source: (title) => ({
       html: [
-        '<main class="stage">',
-        `  <h1 class="title">${escapeHtml(title)}</h1>`,
-        '  <section class="panel" style="display: grid; grid-template-columns: 200px 1fr; gap: var(--space-3);">',
-        '    <ul class="menu" data-index>',
-        '      <li><button type="button" class="action is-quiet" data-page="first">First record</button></li>',
-        '      <li><button type="button" class="action is-quiet" data-page="second">Second record</button></li>',
-        "    </ul>",
-        '    <article class="body" data-page-body>Choose a record.</article>',
-        "  </section>",
-        '  <button type="button" class="action" data-signal="leave">Close the archive</button>',
+        '<main class="stage is-cover">',
+        `  <p class="eyebrow">${escapeHtml(title)}</p>`,
+        '  <h1 class="title">Jump!</h1>',
+        '  <button type="button" class="action" data-press>Press Space</button>',
+        '  <div class="qte-time" aria-hidden="true"><span data-time></span></div>',
         "</main>",
         "",
       ].join("\n"),
-      css: STYLE_IMPORT,
+      css: [
+        STYLE_IMPORT,
+        ".qte-time {",
+        "  width: 320px;",
+        "  height: 6px;",
+        "  overflow: hidden;",
+        "  border-radius: 3px;",
+        "  background: var(--color-line);",
+        "}",
+        "",
+        ".qte-time span {",
+        "  display: block;",
+        "  height: 100%;",
+        "  background: var(--color-accent);",
+        "  transform-origin: left;",
+        "}",
+        "",
+      ].join("\n"),
       javascript: [
-        "const PAGES = {",
-        '  first: "The first record is water damaged; only a date survives.",',
-        '  second: "The second record names a witness who never testified.",',
-        "};",
+        '/** The key to press and how long the player has, in milliseconds. */',
+        'const KEY = " ";',
+        "const TIME_LIMIT = 3000;",
         "",
         "export function mount(context) {",
-        '  const index = context.root.querySelector("[data-index]");',
-        '  const body = context.root.querySelector("[data-page-body]");',
-        '  const leave = context.root.querySelector(\'[data-signal="leave"]\');',
-        "  const show = (event) => {",
-        '    const page = event.target.closest("[data-page]")?.dataset.page;',
-        "    if (page) body.textContent = PAGES[page];",
+        '  const press = context.root.querySelector("[data-press]");',
+        '  const time = context.root.querySelector("[data-time]");',
+        "  let done = false;",
+        "  const finish = (signal) => {",
+        "    if (done) return;",
+        "    done = true;",
+        "    void context.navigation.emit(signal);",
         "  };",
-        '  const close = () => context.navigation.emit("leave");',
-        '  index.addEventListener("click", show);',
-        '  leave.addEventListener("click", close);',
+        '  const hit = () => finish("success");',
+        "  const onKey = (event) => {",
+        "    if (event.key !== KEY) return;",
+        "    event.preventDefault();",
+        "    hit();",
+        "  };",
+        "  // The bar empties over the time limit.",
+        "  const bar = time.animate([{ transform: \"scaleX(1)\" }, { transform: \"scaleX(0)\" }], { duration: TIME_LIMIT, fill: \"forwards\" });",
+        '  const timer = setTimeout(() => finish("fail"), TIME_LIMIT);',
+        '  press.addEventListener("click", hit);',
+        '  window.addEventListener("keydown", onKey);',
         "  return () => {",
-        '    index.removeEventListener("click", show);',
-        '    leave.removeEventListener("click", close);',
+        "    clearTimeout(timer);",
+        "    bar.cancel();",
+        '    press.removeEventListener("click", hit);',
+        '    window.removeEventListener("keydown", onKey);',
         "  };",
         "}",
         "",
@@ -194,47 +226,43 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     }),
   },
   {
-    id: "investigation",
-    label: "Investigation",
+    id: "hotspot",
+    label: "Hotspot",
+    summary: "Spots on a picture to click",
     brief:
-      "An image with hotspots that record findings in State. Declare the scene image Asset, position the hotspots over it, and declare the State key that collects findings before writing to it.",
-    signals: [signal("done", "Done")],
+      "A picture with clickable spots, each emitting its own Signal. Declare the image Asset and set it as the stage background, place one spot per thing the player can click, and name each Signal after it. To require several finds before moving on, record them in a declared State key.",
+    signals: [signal("door", "Door"), signal("window", "Window")],
     source: (title) => ({
       html: [
-        '<main class="stage is-cover" style="position: relative;">',
-        `  <h1 class="title">${escapeHtml(title)}</h1>`,
-        '  <button type="button" class="action is-quiet" data-clue="ledger" style="position: absolute; left: 22%; top: 46%;">Ledger</button>',
-        '  <button type="button" class="action is-quiet" data-clue="key" style="position: absolute; left: 63%; top: 61%;">Key</button>',
-        '  <p class="body" data-found>Nothing found yet.</p>',
-        '  <button type="button" class="action" data-signal="done">Leave the room</button>',
+        '<main class="stage is-cover">',
+        `  <p class="eyebrow">${escapeHtml(title)}</p>`,
+        '  <p class="body">Look around.</p>',
+        '  <button type="button" class="action is-quiet hotspot" data-signal="door" style="left: 24%; top: 38%;">Door</button>',
+        '  <button type="button" class="action is-quiet hotspot" data-signal="window" style="left: 64%; top: 30%;">Window</button>',
         "</main>",
         "",
       ].join("\n"),
-      css: STYLE_IMPORT,
+      css: [
+        STYLE_IMPORT,
+        ".stage {",
+        "  position: relative;",
+        "}",
+        "",
+        "/* Place each spot over the thing it stands for in the picture. */",
+        ".hotspot {",
+        "  position: absolute;",
+        "}",
+        "",
+        "/* Set a declared image Asset as the background in node.js. */",
+        "",
+      ].join("\n"),
       javascript: [
         "export function mount(context) {",
-        '  const hotspots = [...context.root.querySelectorAll("[data-clue]")];',
-        '  const found = context.root.querySelector("[data-found]");',
-        '  const done = context.root.querySelector(\'[data-signal="done"]\');',
-        "  // Declare an array State key such as foundClues and use it here.",
-        "  const render = (clues) => {",
-        '    found.textContent = clues.length ? `Found: ${clues.join(", ")}` : "Nothing found yet.";',
-        "  };",
-        "  const collect = async (event) => {",
-        "    const clue = event.currentTarget.dataset.clue;",
-        '    const clues = context.state.get("foundClues") ?? [];',
-        "    if (clues.includes(clue)) return;",
-        '    await context.state.set("foundClues", [...clues, clue]);',
-        "  };",
-        '  const leave = () => context.navigation.emit("done");',
-        '  const stop = context.state.subscribe((state) => render(state.foundClues ?? []));',
-        '  for (const hotspot of hotspots) hotspot.addEventListener("click", collect);',
-        '  done.addEventListener("click", leave);',
-        '  render(context.state.get("foundClues") ?? []);',
+        '  const spots = [...context.root.querySelectorAll("[data-signal]")];',
+        "  const open = (event) => context.navigation.emit(event.currentTarget.dataset.signal);",
+        '  for (const spot of spots) spot.addEventListener("click", open);',
         "  return () => {",
-        "    stop();",
-        '    for (const hotspot of hotspots) hotspot.removeEventListener("click", collect);',
-        '    done.removeEventListener("click", leave);',
+        '    for (const spot of spots) spot.removeEventListener("click", open);',
         "  };",
         "}",
         "",
@@ -244,6 +272,7 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "ending",
     label: "Ending",
+    summary: "The end, with Play again",
     brief:
       "Ending title and text with restart and return-to-menu actions. Endings need no Signals because they use session controls; add one if this ending continues into an epilogue.",
     signals: [],

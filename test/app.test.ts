@@ -1839,7 +1839,7 @@ describe("Playable Nodes development flag", () => {
     const presets = await app.inject({ method: "GET", url: "/playable/presets" });
     expect(presets.statusCode).toBe(200);
     expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
-      "blank", "main-menu", "cinematic", "dialogue-choice", "archive", "investigation", "ending",
+      "blank", "main-menu", "scene", "choice", "qte", "hotspot", "ending",
     ]);
 
     const created = await app.inject({

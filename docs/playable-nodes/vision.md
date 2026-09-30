@@ -112,7 +112,7 @@ Freedom must not mean "write code".
   writes the node; the author sees it live and keeps refining through
   conversation. Hand editing code is an escape hatch that most authors never
   use.
-- **Presets as a starting point.** Choosing "Main menu" or "Cinematic scene"
+- **Presets as a starting point.** Choosing "Main menu" or "Scene"
   gives the Agent and the author a working start. After creation it is an
   ordinary node that can become anything.
 - **Project Style.** A shared theme and shared components keep every node in

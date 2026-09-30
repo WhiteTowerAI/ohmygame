@@ -41,7 +41,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Every Node must show something sensible with the initial State, because the editor previews each Node from a new game.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
-- \`shared/style/components.js\` exports \`playCinematic(context, { assetId, signal })\`, which plays a declared video, offers skip, and emits the Signal when it ends or is skipped. Cinematic behaviour is Node content, so change it freely.
+- \`shared/style/components.js\` exports \`playScene(context, { signal, assetId, type })\`, which shows a declared video or image full screen, offers Skip or Continue, and emits the Signal when the video ends or the player moves on. Scene behaviour is Node content, so change it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
@@ -74,7 +74,7 @@ This project is made of one graph plus ordinary browser source files. Every Node
 - \`nodes/<id>/\` contains a Node's HTML, CSS, and JavaScript.
 - \`shared/\` contains ordinary modules imported by more than one Node.
 - \`shared/components/\` contains UI shown on more than one Node, such as a Home button.
-- \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playCinematic()\`.
+- \`shared/style/\` is the Project Style: \`theme.css\` tokens, \`components.css\` classes, and \`components.js\` components such as \`playScene()\`.
 - \`editor/layout.json\` contains editor-only positions and viewport state.
 - \`schemas/\` contains the exact persisted JSON contracts.
 - \`.ohmygame/\` is editor cache, such as Node thumbnails. It is never published; leave it alone.

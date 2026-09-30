@@ -1147,6 +1147,7 @@ export function createApp(options: AppOptions = {}) {
     presets: PLAYABLE_PRESETS.map((preset) => ({
       id: preset.id,
       label: preset.label,
+      summary: preset.summary,
       brief: preset.brief,
       signals: preset.signals.map((signal) => signal.id),
     })),

@@ -135,7 +135,7 @@ shell, and media generation tools.
 Creates a node from a Preset, exactly as the editor does.
 
 ```json
-{ "preset": "archive", "id": "archive", "title": "Case archive" }
+{ "preset": "choice", "id": "conductor", "title": "The conductor" }
 ```
 
 It copies the Preset source into `nodes/<id>/`, adds the node with the

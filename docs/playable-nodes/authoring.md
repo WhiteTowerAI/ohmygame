@@ -102,9 +102,10 @@ Connecting can happen two ways, and both produce the same edges:
 ## Creating a Scene
 
 1. The author chooses **Add Scene** on the canvas.
-2. Under **Start from a template** they pick a Template (Blank, Main menu,
-   Cinematic scene, Dialogue choice, Archive, Investigation, Ending) or write
-   a short description.
+2. The **Add a Scene** window shows each Template (Blank, Main menu, Scene,
+   Choice, QTE, Hotspot, Ending) as a
+   picture with one line of summary, and they pick one. The right-click
+   menu offers the same Templates as a list.
 3. The Scene appears on the canvas with working starter content, and the
    Workbench opens.
 4. The chat is focused with the new Scene as context, ready for "make this
@@ -368,22 +369,28 @@ The detailed inventory and PR order belong in `roadmap.md`.
 ### Templates
 
 v1 ships seven Templates (Presets). Each contains starter source that
-already uses the Project Style, its expected Signals, and a short brief that
-tells the Agent what the author usually wants next.
+already uses the Project Style, its expected Signals, a one-line summary
+for the author, and a brief that tells the Agent what the author usually
+wants next. The brief is not shown to the author. Each Template's picture in
+**Add a Scene** is a static image made with the default Project Style and
+example media; the media is only in the picture, not in the new Scene.
 
 | Template         | Starter content                                                  | Starter Signals        |
 | ---------------- | ---------------------------------------------------------------- | ---------------------- |
 | Blank            | An empty full-screen stage                                       | none                   |
 | Main menu        | Title, subtitle, a list of entries, background image slot        | `start`                |
-| Cinematic scene  | Full-screen video with skip; advances when the video ends        | `next`                 |
-| Dialogue choice  | Background, speaker line, and options that can read State        | `option-a`, `option-b` |
-| Archive          | A book or folder with an index that changes the visible page     | `leave`                |
-| Investigation    | An image with hotspots that record findings in State             | `done`                 |
+| Scene            | Full-screen video or image with Skip or Continue                 | `next`                 |
+| Choice           | A line and options that can read State                           | `option-a`, `option-b` |
+| QTE              | A key or button to press before a timer runs out                 | `success`, `fail`      |
+| Hotspot          | A picture with clickable spots, one Signal per spot              | `door`, `window`       |
 | Ending           | Ending title and text, replay and return-to-menu actions         | none                   |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
-and adds them freely. QTE and other small games start from Blank plus a
-description; they are too varied for one useful starting point.
+and adds them freely. The set follows the old editor's story nodes: Open UI
+became Main menu, the Continue interaction folded into Scene, and Start,
+Condition, and Update State are not Templates because the Start badge, Scene
+code, and Exit conditions cover them. Other screens, such as an archive or a
+small game, start from Blank plus a description.
 
 Templates live in OhMyGame, not in projects. Creating a Scene copies the
 Template's source into `nodes/<id>/`; later Template changes do not affect
@@ -440,12 +447,12 @@ the Published Player.
    the next message together with one screenshot of the preview. The chips
    clear once sent.
 
-### Cinematic scenes
+### Video and image Scenes
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
-Project Style includes a small `playCinematic()` component that plays a
-declared video, offers skip, and emits a given Signal when the video ends or
-is skipped. The Cinematic scene Template uses it. Authors who want something
+Project Style includes a small `playScene()` component that shows a declared
+video or image, offers Skip or Continue, and emits a given Signal when the
+video ends or the player moves on. The Scene Template uses it. Authors who want something
 else (a choice over the last frame, a loop until input) change the Scene like
 any other.
 
