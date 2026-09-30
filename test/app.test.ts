@@ -5,8 +5,6 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
-import { type StoryDocument } from "../src/shared/contracts.js";
-import { DEFAULT_SCENE_SURFACE_FILES, isStoryDocument, validatePlayableChapter } from "../src/shared/story.js";
 import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -310,76 +308,6 @@ describe("daemon", () => {
     expect(godot.statusCode).toBe(201);
     expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
     expect(general.statusCode).toBe(400);
-  });
-
-  it("generates story text with a selected language model", async () => {
-    const model = { provider: "provider-one", id: "model-one", name: "Model One" };
-    const completeSimple = vi.fn().mockResolvedValue({
-      role: "assistant",
-      content: [{ type: "text", text: "A cinematic rooftop at night." }],
-      stopReason: "stop",
-    });
-    const runtime = {
-      ...fakeModelRuntime([model]),
-      completeSimple,
-    } as unknown as ModelRuntime;
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
-      createModelRuntime: async () => runtime,
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
-      payload: { instruction: "Write an image prompt", model: { provider: model.provider, id: model.id } },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ text: "A cinematic rooftop at night.", model: { provider: model.provider, id: model.id } });
-    expect(completeSimple).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects story text generation without an available model", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
-      createModelRuntime: async () => fakeModelRuntime([]),
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
-      payload: { instruction: "Write an image prompt", model: { provider: "missing", id: "missing" } },
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toEqual({ error: "The selected language model is not available" });
-  });
-
-  it("rejects story text generation for other project types", async () => {
-    const completeSimple = vi.fn();
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-text-")),
-      createModelRuntime: async () => ({
-        ...fakeModelRuntime([{ provider: "provider-one", id: "model-one", name: "Model One" }]),
-        completeSimple,
-      } as unknown as ModelRuntime),
-    });
-    apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/projects/${project.id}/story/text/generate`,
-      payload: { instruction: "Write an image prompt", model: { provider: "provider-one", id: "model-one" } },
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Story documents require an Interactive Drama project" });
-    expect(completeSimple).not.toHaveBeenCalled();
   });
 
   it("lists projects", async () => {
@@ -1692,33 +1620,6 @@ describe("Playable Nodes projects", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
   });
 
-  it("reports which editor an Interactive Drama project opens in", async () => {
-    const app = await createPlayableApp("ohmygame-playable-format-");
-    const playable = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    const web = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
-
-    expect((await app.inject({ method: "GET", url: `/projects/${playable.id}/playable/format` })).json())
-      .toEqual({ format: "playable" });
-    await rm(path.join(playable.workspacePath, "graph.json"));
-    expect((await app.inject({ method: "GET", url: `/projects/${playable.id}/playable/format` })).json())
-      .toEqual({ format: "story" });
-    expect((await app.inject({ method: "GET", url: `/projects/${web.id}/playable/format` })).statusCode).toBe(409);
-    expect((await app.inject({ method: "GET", url: "/projects/missing/playable/format" })).statusCode).toBe(404);
-  });
-
-  it("keeps the Story editor out of Playable Nodes projects", async () => {
-    const app = await createPlayableApp("ohmygame-playable-story-guard-");
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    const layout = await readFile(path.join(project.workspacePath, "editor/layout.json"), "utf8");
-
-    const story = await app.inject({ method: "GET", url: `/projects/${project.id}/story` });
-
-    expect(story.statusCode).toBe(400);
-    expect(story.json().error).toContain("Playable Nodes");
-    expect(await readdir(project.workspacePath)).not.toContain("story.json");
-    expect(await readFile(path.join(project.workspacePath, "editor/layout.json"), "utf8")).toBe(layout);
-  });
-
   it("lists Presets and adds a Node from one", async () => {
     const app = await createPlayableApp("ohmygame-playable-presets-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
@@ -1924,7 +1825,6 @@ describe("Asset Canvas projects", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json().nodes).toEqual([
       expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
     ]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/story` })).statusCode).toBe(400);
   });
 
   it("rejects canvas documents with Story nodes", async () => {

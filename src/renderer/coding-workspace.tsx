@@ -783,7 +783,7 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
         ? requestedPath
         : selectedPath && result.some((file) => file.path === selectedPath)
         ? selectedPath
-        : result.find((file) => file.path === "story.json" && !file.directory)?.path ?? result.find((file) => !file.directory)?.path;
+        : result.find((file) => !file.directory)?.path;
       setSelectedPath(nextPath);
       if (!nextPath) {
         setSelectedFile(undefined);

@@ -352,7 +352,7 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | ----------------------------------------------------- | --------------------------------------------------------------------- |
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
 | Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
-| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
+| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Remove; Scenes use a preview-only Workbench with tools                |
 | Library asset picker and upload                       | Keep, behind the preview toolbar's Media menu                         |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with Ask AI to fix on errors        |
 | Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |

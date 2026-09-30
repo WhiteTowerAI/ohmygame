@@ -26,9 +26,6 @@ import {
   type AssetCanvasDocument,
   type AssetCanvasTextGenerationRequest,
   type AssetCanvasTextGenerationResponse,
-  type StoryDocument,
-  type StoryTextGenerationRequest,
-  type StoryTextGenerationResponse,
   type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
   type PublishResult,
@@ -356,20 +353,12 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function getStory(projectId: string): Promise<StoryDocument> {
-  return request(`/projects/${projectId}/story`);
-}
-
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
   return request(`/projects/${projectId}/playable`);
 }
 
 export async function getNodeCodebase(projectId: string): Promise<NodeCodebase> {
   return request(`/projects/${projectId}/playable/codebase`);
-}
-
-export async function getPlayableFormat(projectId: string): Promise<{ format: "playable" | "story" }> {
-  return request(`/projects/${projectId}/playable/format`);
 }
 
 export async function getPlayableValidation(
@@ -424,10 +413,6 @@ export async function updateNodeCodebase(
   });
 }
 
-export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
-  await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
-}
-
 export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocument> {
   return request(`/projects/${projectId}/asset-canvas`);
 }
@@ -438,10 +423,6 @@ export async function updateAssetCanvas(projectId: string, document: AssetCanvas
 
 export async function generateAssetCanvasText(projectId: string, input: AssetCanvasTextGenerationRequest): Promise<AssetCanvasTextGenerationResponse> {
   return request(`/projects/${projectId}/asset-canvas/text/generate`, { method: "POST", body: JSON.stringify(input) });
-}
-
-export async function generateStoryText(projectId: string, input: StoryTextGenerationRequest): Promise<StoryTextGenerationResponse> {
-  return request(`/projects/${projectId}/story/text/generate`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {

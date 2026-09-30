@@ -1,15 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, PanelToggle, Search, Upload, X } from "./icons.js";
+import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 
 /**
- * Workbench pieces shared by the story editor and the Playable Nodes editor: a
- * breadcrumb back to the canvas, a large preview with a resizable, collapsible
- * inspector, a scaled preview frame, and the Library picker.
+ * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
+ * canvas, a scaled preview frame, and the Library picker.
  */
 export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
   label: string;
@@ -52,84 +51,6 @@ function BreadcrumbTitle({ value, onCommit }: { value: string; onCommit: (value:
       }
     }}
   />;
-}
-
-export function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
-  className: string;
-  preview: ReactNode;
-  inspector: ReactNode;
-  timeline: ReactNode;
-}) {
-  const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [inspectorWidth, setInspectorWidth] = useState(340);
-  const workbench = useRef<HTMLDivElement>(null);
-  const resize = useRef<{ pointerId: number } | undefined>(undefined);
-
-  function constrainedInspectorWidth(clientX: number): number {
-    const bounds = workbench.current?.getBoundingClientRect();
-    if (!bounds) return inspectorWidth;
-    const maximum = Math.max(280, Math.min(480, bounds.width - 420));
-    return Math.round(Math.max(280, Math.min(maximum, bounds.right - clientX - 5)));
-  }
-
-  function finishResize(target: HTMLDivElement, pointerId: number, clientX: number): void {
-    if (resize.current?.pointerId !== pointerId) return;
-    if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-    const width = constrainedInspectorWidth(clientX);
-    workbench.current?.style.setProperty("--story-workbench-inspector-width", `${width}px`);
-    workbench.current?.classList.remove("is-resizing-inspector");
-    resize.current = undefined;
-    setInspectorWidth(width);
-  }
-
-  return <div
-    ref={workbench}
-    className={`story-node-workbench ${className}${inspectorOpen ? " has-inspector" : " is-inspector-collapsed"}${timeline ? " has-timeline" : ""}`}
-    style={{ "--story-workbench-inspector-width": `${inspectorWidth}px` } as CSSProperties}
-  >
-    <div className="story-node-workbench-stage">
-      <div className="story-node-workbench-preview">{preview}</div>
-      {inspectorOpen ? <div
-        className="story-node-workbench-resizer"
-        role="separator"
-        aria-label="Resize inspector"
-        aria-orientation="vertical"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          const next = Math.max(280, Math.min(480, inspectorWidth + (event.key === "ArrowLeft" ? 16 : -16)));
-          setInspectorWidth(next);
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          resize.current = { pointerId: event.pointerId };
-          workbench.current?.classList.add("is-resizing-inspector");
-        }}
-        onPointerMove={(event) => {
-          if (resize.current?.pointerId !== event.pointerId) return;
-          workbench.current?.style.setProperty("--story-workbench-inspector-width", `${constrainedInspectorWidth(event.clientX)}px`);
-        }}
-        onPointerUp={(event) => finishResize(event.currentTarget, event.pointerId, event.clientX)}
-        onPointerCancel={(event) => finishResize(event.currentTarget, event.pointerId, event.clientX)}
-        onLostPointerCapture={() => {
-          workbench.current?.classList.remove("is-resizing-inspector");
-          resize.current = undefined;
-        }}
-      /> : null}
-      {inspectorOpen ? <div className="story-node-workbench-inspector">{inspector}</div> : null}
-      <button
-        className="story-node-workbench-inspector-toggle"
-        type="button"
-        title={inspectorOpen ? "Hide inspector" : "Show inspector"}
-        aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
-        aria-expanded={inspectorOpen}
-        onClick={() => setInspectorOpen((open) => !open)}
-      ><PanelToggle size={15} /></button>
-    </div>
-    {timeline ? <div className="story-node-workbench-timeline">{timeline}</div> : null}
-  </div>;
 }
 
 /** Scales a fixed-size stage to fit its frame while keeping the viewport ratio. */
@@ -234,7 +155,7 @@ export async function uploadLibraryFile(file: File): Promise<LibraryAsset> {
   return { ...uploaded, assetId: uploaded.id, path: uploaded.name };
 }
 
-export function libraryUploadMediaType(file: File): LibraryUploadMediaType | undefined {
+function libraryUploadMediaType(file: File): LibraryUploadMediaType | undefined {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "png") return "image/png";
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";

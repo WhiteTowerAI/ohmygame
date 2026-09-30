@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -975,15 +975,6 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/story", async (request, reply) => {
-    try {
-      return await projects.story(request.params.projectId);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
-    }
-  });
-
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/asset-canvas", async (request, reply) => {
     try {
       return await projects.assetCanvas(request.params.projectId);
@@ -1117,23 +1108,6 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  /**
-   * Which editor an Interactive Drama project opens in. Cheaper than building
-   * the project, which is what the Runtime endpoint does. Removed with
-   * `story.json` support.
-   */
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/format", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "A project format requires an Interactive Drama project" });
-    try {
-      await readFile(path.join(project.workspacePath, "graph.json"));
-      return { format: "playable" as const };
-    } catch {
-      return { format: "story" as const };
-    }
-  });
-
   app.get("/playable/presets", async () => ({
     presets: PLAYABLE_PRESETS.map((preset) => ({
       id: preset.id,
@@ -1181,19 +1155,6 @@ export function createApp(options: AppOptions = {}) {
     return result;
   });
 
-  app.put<{ Params: { projectId: string }; Body: StoryDocument }>("/projects/:projectId/story", {
-    schema: { body: { type: "object" } },
-    bodyLimit: 1_000_000,
-  }, async (request, reply) => {
-    try {
-      await projects.setStory(request.params.projectId, request.body);
-      return reply.code(204).send();
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
-    }
-  });
-
   const textGenerationOptions = {
     schema: {
       body: {
@@ -1214,7 +1175,7 @@ export function createApp(options: AppOptions = {}) {
     bodyLimit: 32_000,
   };
 
-  const generateText = (projectType: ProjectType, error: string) => async (request: FastifyRequest<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>, reply: FastifyReply) => {
+  const generateText = (projectType: ProjectType, error: string) => async (request: FastifyRequest<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>, reply: FastifyReply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== projectType) {
@@ -1236,12 +1197,6 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   };
-
-  app.post<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>(
-    "/projects/:projectId/story/text/generate",
-    textGenerationOptions,
-    generateText("interactive-drama", "Story documents require an Interactive Drama project"),
-  );
 
   app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
     "/projects/:projectId/asset-canvas/text/generate",

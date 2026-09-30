@@ -27,7 +27,6 @@ import {
   getConversation,
   getConversationContextUsage,
   getConversationCapabilities,
-  getPlayableFormat,
   getProject,
   listModels,
   listConversations,
@@ -50,7 +49,6 @@ import type { ChatReference } from "./chat-reference.js";
 import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { AssetCanvasWorkspace } from "./asset-canvas-workspace.js";
-import { InteractiveDramaWorkspace } from "./interactive-drama-workspace.js";
 import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
@@ -109,8 +107,6 @@ export function ProjectShell({
   const [publishing, setPublishing] = useState(false);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
-  /** Which editor an Interactive Drama project opens in; undefined until known. */
-  const [projectFormat, setProjectFormat] = useState<"playable" | "story">();
   const [modelChanging, setModelChanging] = useState(false);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [chatReference, setChatReference] = useState<ChatReference>();
@@ -375,17 +371,6 @@ export function ProjectShell({
   const project = state.project;
   const conversation = state.conversation;
 
-  useEffect(() => {
-    if (!project || project.type !== "interactive-drama") return;
-    let disposed = false;
-    setProjectFormat(undefined);
-    // A graph.json project opens in the Playable Nodes editor; story.json keeps
-    // the story editor. Treat a failed probe as the story format.
-    void getPlayableFormat(project.id)
-      .then((result) => { if (!disposed) setProjectFormat(result.format); })
-      .catch(() => { if (!disposed) setProjectFormat("story"); });
-    return () => { disposed = true; };
-  }, [project?.id, project?.type]);
   const displayedModel = state.settings.model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
   const activeTurn = state.turns.findLast((turn) => turn.status === "inProgress");
   const items = state.turns.flatMap((turn) => turn.items);
@@ -872,7 +857,7 @@ export function ProjectShell({
         chatCollapsed={agentIsCollapsed}
         onHome={requestHome}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
-      /> : projectFormat === undefined ? <section className="viewer-pane" /> : projectFormat === "playable" ? <PlayableEditorWorkspace
+      /> : <PlayableEditorWorkspace
         project={project}
         agentBusy={agentBusy}
         publishing={publishing}
@@ -889,19 +874,6 @@ export function ProjectShell({
           setPromptRequest({ text, id: Date.now() });
         }}
         onSendToAgent={sendEditorRequest}
-      /> : <InteractiveDramaWorkspace
-        project={project}
-        initialNodeId={initialCanvasNodeId}
-        onInitialNodeHandled={onInitialCanvasNodeHandled}
-        agentBusy={agentBusy}
-        publishing={publishing}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
-        onPublish={publish}
-        chatOnRight={chatLayout === "right"}
-        chatCollapsed={agentIsCollapsed}
-        onHome={requestHome}
-        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       />}
     </main>
   );

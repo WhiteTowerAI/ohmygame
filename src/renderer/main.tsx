@@ -20,7 +20,7 @@ if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }
 createRoot(root).render(route.page === "playtest"
-  ? <PlaytestPage projectId={route.projectId} chapterId={route.chapterId} />
+  ? <PlaytestPage projectId={route.projectId} />
   : route.page === "thumbnail"
     ? <NodeThumbnailPage projectId={route.projectId} nodeId={route.nodeId} />
     : <AuthProvider><App /></AuthProvider>);
