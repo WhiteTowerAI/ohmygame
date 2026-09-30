@@ -336,10 +336,14 @@ short:
    one Library asset, and Scenes use only the project Asset ID. **Replace**
    re-points that ID at a better Library asset, which updates every Scene that
    uses it without changing code.
-2. **Media from the Workbench.** A picked image or video can be replaced from
-   the Library, by upload, or by asking the Agent for a single generation.
-   Complex generation opens the asset in Asset Canvas and returns to the Scene
-   afterwards.
+2. **Upload from the Workbench.** The preview toolbar's **Upload** menu
+   asks where an image or a video goes. **As background** declares it on
+   the Scene and shows it as the Scene's background at once, with Undo in
+   the toast; clicking an empty Scene's box does the same. **Add to chat**
+   declares it and adds it to the chat as an attachment, next to any picked
+   elements; the author says where it goes and sends. As background is
+   unavailable when the Scene has no single background element, for
+   example after the Agent removed it.
 3. **Where used.** Asset Canvas can show which Scenes use an asset. This can
    come after v1.
 
@@ -353,7 +357,7 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
 | Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
 | `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
-| Library asset picker and upload                       | Keep, to replace a picked image or video                              |
+| Library asset picker and upload                       | Upload stays, behind the preview toolbar's Upload menu                |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
 | Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
@@ -378,7 +382,7 @@ example media; the media is only in the picture, not in the new Scene.
 | Template         | Starter content                                                  | Starter Signals        |
 | ---------------- | ---------------------------------------------------------------- | ---------------------- |
 | Blank            | An empty full-screen stage                                       | none                   |
-| Main menu        | Title, subtitle, a list of entries, background image slot        | `start`                |
+| Main menu        | Title, subtitle, a list of entries, over the background          | `start`                |
 | Scene            | Full-screen video or image with Skip or Continue                 | `next`                 |
 | Choice           | A line and options that can read State                           | `option-a`, `option-b` |
 | QTE              | A key or button to press before a timer runs out                 | `success`, `fail`      |
@@ -450,14 +454,23 @@ the Published Player.
 ### Video and image Scenes
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
-Project Style includes a small `playScene()` component that shows a declared
-video or image, offers Skip or Continue, and emits a given Signal when the
+Project Style includes a small `playScene()` component that shows the
+Scene's background, offers Skip or Continue, and emits a given Signal when the
 video ends or the player moves on. The Scene Template uses it. Authors who want something
 else (a choice over the last frame, a loop until input) change the Scene like
 any other.
 
 This keeps the Runtime free of media-ended and timer transitions while the
 most common interactive-film case needs no code.
+
+Every Scene has one background: a `.backdrop` element
+(`data-media="backdrop"`) whose `data-asset` and `data-type` say what it
+shows. The Scene Template is only a background with Skip or Continue; Main
+menu, Choice, QTE, and Hotspot put their content over it. Setting the
+background from the editor writes those two attributes in the Scene's HTML,
+the same way text edits are written. `showBackdrop()` plays it the same way
+everywhere: a video plays once with sound and stops on its last frame, an
+image stays still. Exits decide when to move on.
 
 ### Multi-node Agent changes
 

@@ -9,6 +9,10 @@ export interface PlayablePickResult {
   /** The Signal named by the nearest `data-signal` attribute, such as an Exit button's. */
   signal?: string;
   tag: string;
+  /** The element shows media: an image, a video, or a `data-media` slot for one. */
+  media?: true;
+  /** The element's `data-media` value, such as `scene` for playScene() media. */
+  mediaSlot?: string;
   text: string;
   /** Bounding box in the sandbox frame's CSS pixels. */
   box: { x: number; y: number; width: number; height: number };
@@ -17,6 +21,8 @@ export interface PlayablePickResult {
 const TEXT_EXCERPT_LIMIT = 120;
 const SURFACE_ATTRIBUTE = "data-playable-surface";
 const SIGNAL_ATTRIBUTE = "data-signal";
+const MEDIA_ATTRIBUTE = "data-media";
+const MEDIA_TAGS = new Set(["img", "video", "picture"]);
 
 /** The subset of Element used by the picker, so path logic runs without a DOM. */
 export interface PickableElement {
@@ -53,12 +59,17 @@ export function describePlayablePick(
     .map((element) => element.getAttribute(SIGNAL_ATTRIBUTE))
     .find((value): value is string => Boolean(value));
   const rect = target.getBoundingClientRect();
+  const tag = target.tagName.toLowerCase();
+  const mediaSlot = target.getAttribute(MEDIA_ATTRIBUTE);
+  const media = MEDIA_TAGS.has(tag) || mediaSlot !== null;
   return {
     nodeId: surface.getAttribute(SURFACE_ATTRIBUTE)!,
     ...(source ? { source } : {}),
     cssPath: playableCssPath(target),
     ...(signal ? { signal } : {}),
-    tag: target.tagName.toLowerCase(),
+    tag,
+    ...(media ? { media: true as const } : {}),
+    ...(mediaSlot ? { mediaSlot } : {}),
     text: excerpt(target.textContent ?? ""),
     box: {
       x: round(rect.x),

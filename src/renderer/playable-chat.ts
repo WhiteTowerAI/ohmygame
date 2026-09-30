@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { PromptContext, PromptImage, PromptReference } from "../shared/contracts.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
-import { playableDrawingContext, playableElementContext, playableNodeContext, playableNodeReferences } from "../shared/playable-chat-context.js";
+import { playableAssetContext, playableDrawingContext, playableElementContext, playableNodeContext, playableNodeReferences } from "../shared/playable-chat-context.js";
 import type { ChatContextChip } from "./chat-reference.js";
 import { captureElementImage } from "./page-capture.js";
 
@@ -10,9 +10,17 @@ import { captureElementImage } from "./page-capture.js";
 const ELEMENT_SCREENSHOT_WIDTH = 960;
 const MARK_COLOR = "#ff5a1f";
 const DRAWING_KEY = "drawing";
+const MEDIA_KEY = "media:";
 
 /** One freehand stroke, in project viewport pixels. */
 export type PlayableStroke = readonly { x: number; y: number }[];
+
+/** An image or video added from the preview and declared on the Node, waiting for the message that places it. */
+export interface PlayableMediaAttachment {
+  assetId: string;
+  name: string;
+  type: "image" | "video";
+}
 
 /** Something the next chat message carries besides the open Node. */
 export interface PlayableChatAttachment {
@@ -22,8 +30,8 @@ export interface PlayableChatAttachment {
 
 /**
  * What the Playable editor contributes to the next chat message: the Node
- * (Scene) open in its Workbench, and the elements picked or drawn on in that
- * preview. Picks and the drawing share one screenshot.
+ * (Scene) open in its Workbench, the elements picked or drawn on in that
+ * preview, and media added from it. Picks and the drawing share one screenshot.
  */
 export interface PlayableChatState {
   surface?: {
@@ -49,19 +57,22 @@ export function playablePickKey(pick: PlayablePickResult): string {
  * Reports what an open Workbench adds to the next chat message, and nothing
  * once it closes. `stage` holds the preview whose frame is captured.
  */
-export function usePlayableChatReport({ graph, nodeId, picks, strokes, onRemovePick, onClearPicks, onClearDrawing, stage, onChange }: {
+export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia, stage, onChange }: {
   graph: NodeGraph;
   nodeId: string;
   picks: readonly PlayablePickResult[];
   strokes: readonly PlayableStroke[];
+  media: readonly PlayableMediaAttachment[];
   onRemovePick: (key: string) => void;
   onClearPicks: () => void;
   onClearDrawing: () => void;
+  onRemoveMedia: (assetId: string) => void;
+  onClearMedia: () => void;
   stage: RefObject<HTMLElement | null>;
   onChange?: (state: PlayableChatState | undefined) => void;
 }): void {
-  const handlers = useRef({ onRemovePick, onClearPicks, onClearDrawing });
-  handlers.current = { onRemovePick, onClearPicks, onClearDrawing };
+  const handlers = useRef({ onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia });
+  handlers.current = { onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia };
 
   useEffect(() => {
     if (!onChange) return;
@@ -76,6 +87,10 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, onRemoveP
     if (strokes.length) {
       const drawing = playableDrawingContext(nodeId, strokes.length);
       attachments.push({ chip: { key: DRAWING_KEY, kind: "playable-drawing", label: drawing.label }, context: drawing });
+    }
+    for (const item of media) {
+      const assetContext = playableAssetContext(nodeId, item.assetId, item);
+      attachments.push({ chip: { key: `${MEDIA_KEY}${item.assetId}`, kind: "playable-asset", label: item.name, detail: item.type }, context: assetContext });
     }
     onChange({
       ...(context ? {
@@ -94,14 +109,16 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, onRemoveP
       },
       removeAttachment: (key) => {
         if (key === DRAWING_KEY) handlers.current.onClearDrawing();
+        else if (key.startsWith(MEDIA_KEY)) handlers.current.onRemoveMedia(key.slice(MEDIA_KEY.length));
         else handlers.current.onRemovePick(key);
       },
       clearAttachments: () => {
         handlers.current.onClearPicks();
         handlers.current.onClearDrawing();
+        handlers.current.onClearMedia();
       },
     });
-  }, [graph, nodeId, picks, strokes, onChange]);
+  }, [graph, nodeId, picks, strokes, media, onChange]);
 
   useEffect(() => () => onChange?.(undefined), [onChange]);
 }

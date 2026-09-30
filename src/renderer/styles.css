@@ -15141,39 +15141,7 @@ button {
 .playable-workbench-menu {
   min-width: 180px;
 }
-.playable-workbench-pick-actions {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-}
-.playable-workbench-pick-actions button {
-  display: inline-flex;
-  height: 20px;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 9px;
-}
-.playable-workbench-pick-actions button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-.playable-workbench-pick-actions small {
-  overflow: hidden;
-  color: var(--danger);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Preview tools: Play, Select, Text, Draw, floating over the preview. */
+/* Preview tools: Play, Select, Text, Draw, and Media, floating over the preview. */
 .playable-preview-toolbar {
   position: absolute;
   z-index: 4;
@@ -15404,24 +15372,47 @@ button {
   .playable-preview-toast { animation: none; }
 }
 
-/* Replace a picked image or video, next to it in the preview. */
-.playable-media-actions {
-  position: absolute;
-  z-index: 3;
+/* The Media menu, above its toolbar button. */
+.playable-preview-media {
+  position: relative;
+  display: inline-flex;
+}
+.playable-preview-popover.is-media {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  gap: 2px;
+  min-width: 132px;
   padding: 4px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+  transform: translateX(-50%);
 }
-.playable-media-actions.is-below {
-  transform: translate(-50%, 6px);
-}
-.playable-media-actions.is-inside {
-  transform: translate(-50%, -8px);
+.playable-preview-toolbar .playable-preview-popover.is-media button {
+  justify-content: flex-start;
+  width: 100%;
 }
 
-.story-workbench-preview-frame.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer, .playable-preview-toasts, .playable-preview-popover, .playable-media-actions) {
+/* Over an empty Scene's dashed box, which sits in the sandboxed frame: a click opens upload. */
+.playable-scene-empty-target {
+  position: absolute;
+  z-index: 2;
+  top: 22%;
+  left: 18%;
+  width: 64%;
+  height: 56%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.playable-scene-empty-target:hover {
+  background: rgb(255 255 255 / 4%);
+}
+.playable-scene-empty-target:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.story-workbench-preview-frame.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer, .playable-preview-toasts, .playable-preview-popover, .playable-scene-empty-target) {
   visibility: hidden;
 }
 .playable-drawing-layer {

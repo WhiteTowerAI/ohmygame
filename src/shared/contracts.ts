@@ -494,11 +494,11 @@ export interface PromptReference {
 
 /**
  * Editor context sent with a prompt, such as the Node open in the Playable
- * editor, an element picked in its preview, or a drawing on it. The agent reads `text`; the
+ * editor, an element picked in its preview, a drawing on it, or media added from it. The agent reads `text`; the
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset";
   label: string;
   text: string;
 }

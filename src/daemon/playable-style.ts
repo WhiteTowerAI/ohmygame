@@ -120,21 +120,36 @@ export const PLAYABLE_PROJECT_STYLE_FILES: Record<string, string> = {
   list-style: none;
 }
 
-.scene {
+/* A Node's background: the one \`.backdrop\` element, full screen behind the
+   stage's content. Its data-asset and data-type name a declared Asset, which
+   showBackdrop() in components.js shows; until then it is a plain gradient. */
+.has-backdrop {
   position: relative;
+  isolation: isolate;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: radial-gradient(circle at 70% 30%, var(--color-panel), var(--color-page) 70%);
+}
+
+.backdrop > video,
+.backdrop > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A Scene: only its background, with Skip or Continue. */
+.scene {
   display: grid;
   width: 100%;
   height: 100%;
-  margin: 0;
   place-items: center;
-  background: #000;
-}
-
-.scene video,
-.scene img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
 }
 
 .scene .skip {
@@ -144,51 +159,87 @@ export const PLAYABLE_PROJECT_STYLE_FILES: Record<string, string> = {
 }
 
 .scene .scene-empty {
+  box-sizing: border-box;
+  display: grid;
+  width: 64%;
+  height: 56%;
+  margin: 0;
+  place-items: center;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius);
   color: var(--color-muted);
   font-size: var(--text-body);
 }
 `,
   "shared/style/components.js": `/**
- * Shows a declared video or image Asset full screen and emits a Signal when
- * the video ends, or when the player skips or continues. Without an Asset it
- * shows a placeholder the player can continue past. Scene transitions are
- * Node content, not a Runtime feature, so change or replace this function
- * freely.
+ * Shows the Node's background: the one \`.backdrop\` element, whose
+ * \`data-asset\` and \`data-type\` ("image" or "video") name a declared
+ * Asset. A video plays once with sound and stops on its last frame. The
+ * editor sets the two attributes itself, so change the background there
+ * rather than adding media elements. Call it from mount().
+ *
+ * @param {object} context the Node context passed to mount
+ * @returns {{ video?: HTMLVideoElement, shown: boolean, cleanup: () => void }}
+ */
+export function showBackdrop(context) {
+  const backdrop = context.root.querySelector('[data-media="backdrop"]');
+  const assetId = backdrop?.getAttribute("data-asset");
+  if (!backdrop || !assetId) return { shown: false, cleanup: () => {} };
+  const url = context.assets.url(assetId);
+  if (backdrop.getAttribute("data-type") !== "video") {
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = "";
+    backdrop.append(image);
+    return { shown: true, cleanup: () => image.remove() };
+  }
+  const video = document.createElement("video");
+  video.src = url;
+  video.playsInline = true;
+  backdrop.append(video);
+  // Where sound may not start on its own, play muted rather than stay black.
+  video.play?.().catch(() => {
+    video.muted = true;
+    return video.play?.();
+  }).catch(() => {});
+  return {
+    video,
+    shown: true,
+    cleanup: () => {
+      video.pause();
+      video.remove();
+    },
+  };
+}
+
+/**
+ * A Scene: shows the background and emits a Signal when its video ends, or
+ * when the player skips or continues. Without a background it shows a
+ * placeholder the player can continue past. Scene transitions are Node
+ * content, not a Runtime feature, so change or replace this function freely.
  *
  * @param {object} context the Node context passed to mount
  * @param {object} options
  * @param {string} options.signal the Signal to emit when the Scene finishes
- * @param {string} [options.assetId] a video or image Asset declared by this Node
- * @param {"video" | "image"} [options.type] the Asset's type, video by default
  * @param {string} [options.skipLabel]
  * @returns {() => void} cleanup
  */
-export function playScene(context, { signal, assetId, type = "video", skipLabel }) {
-  const figure = document.createElement("figure");
-  figure.className = "scene";
-  const video = type === "video" && assetId ? document.createElement("video") : undefined;
-  if (video) {
-    video.src = context.assets.url(assetId);
-    video.autoplay = true;
-    video.playsInline = true;
-    figure.append(video);
-  } else if (assetId) {
-    const image = document.createElement("img");
-    image.src = context.assets.url(assetId);
-    image.alt = "";
-    figure.append(image);
-  } else {
+export function playScene(context, { signal, skipLabel }) {
+  const stage = context.root.querySelector('[data-media="backdrop"]')?.parentElement ?? context.root;
+  const backdrop = showBackdrop(context);
+  const added = [];
+  if (!backdrop.shown) {
     const empty = document.createElement("p");
     empty.className = "scene-empty";
-    empty.textContent = "Add a video or an image to this Scene.";
-    figure.append(empty);
+    empty.textContent = "Add a video or an image";
+    added.push(empty);
   }
   const skip = document.createElement("button");
   skip.type = "button";
   skip.className = "action is-quiet skip";
-  skip.textContent = skipLabel ?? (video ? "Skip" : "Continue");
-  figure.append(skip);
-  context.root.append(figure);
+  skip.textContent = skipLabel ?? (backdrop.video ? "Skip" : "Continue");
+  added.push(skip);
+  stage.append(...added);
 
   let finished = false;
   const finish = () => {
@@ -196,16 +247,14 @@ export function playScene(context, { signal, assetId, type = "video", skipLabel 
     finished = true;
     void context.navigation.emit(signal);
   };
-  video?.addEventListener("ended", finish);
+  backdrop.video?.addEventListener("ended", finish);
   skip.addEventListener("click", finish);
-  // A blocked autoplay should not trap the player on a still frame.
-  video?.play?.().catch(() => skip.focus());
 
   return () => {
-    video?.removeEventListener("ended", finish);
+    backdrop.video?.removeEventListener("ended", finish);
     skip.removeEventListener("click", finish);
-    video?.pause();
-    figure.remove();
+    backdrop.cleanup();
+    for (const element of added) element.remove();
   };
 }
 `,

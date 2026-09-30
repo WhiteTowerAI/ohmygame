@@ -276,13 +276,13 @@ const promptSchema = {
       },
       contexts: {
         type: "array",
-        maxItems: 4,
+        maxItems: 12,
         items: {
           type: "object",
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },

@@ -6,9 +6,10 @@ import {
   Check,
   Clipboard,
   FileCode2,
-  Folder,
+  Image,
   InfoCircle,
   LoaderCircle,
+  MessageSquarePlus,
   MoreHorizontal,
   MousePointer2,
   Play,
@@ -39,18 +40,19 @@ import {
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
 import { getNodeRuntime } from "./api.js";
-import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
-import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
+import type { LibraryAsset } from "./library-assets.js";
+import { uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
-import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableStroke } from "./playable-chat.js";
+import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableMediaAttachment, type PlayableStroke } from "./playable-chat.js";
 
 const ASSET_UPLOAD_ACCEPT = ".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm";
 const TOAST_LIMIT = 3;
 const TOAST_MS = 3500;
 const TOAST_LONG_MS = 6000;
+/** Long enough to take a change back. */
+const TOAST_ACTION_MS = 10000;
 const PICK_LIMIT = 8;
-const MEDIA_TAGS = new Set(["img", "video", "picture"]);
 
 export interface PlayableAssetRequest extends PlayableAssetDefinition {
   name: string;
@@ -91,6 +93,8 @@ interface PreviewToast {
   tone: "info" | "saved" | "asked" | "warning" | "error";
   /** A Scene the message offers to open. */
   targetNodeId?: string;
+  /** A button that takes the change back, such as Undo. */
+  action?: { label: string; run: () => void };
 }
 
 /** Something in the Scene that needs the author: an error, or an Exit that goes nowhere. */
@@ -119,6 +123,8 @@ export function PlayableNodeWorkbench({
   onSendToAgent,
   onWriteText,
   onAddAsset,
+  onSetBackdrop,
+  backdrop,
   onPlayFromHere,
   onSnapshot,
   onChatContextChange,
@@ -139,6 +145,13 @@ export function PlayableNodeWorkbench({
   onWriteText: (edit: PlayableTextEdit) => Promise<boolean>;
   /** Declares an asset on the Scene and resolves with its ID once saved. */
   onAddAsset: (asset: PlayableAssetRequest) => Promise<string>;
+  /**
+   * Shows the asset as the Scene's background and resolves with a way to undo
+   * it; undefined when the background cannot be set in place.
+   */
+  onSetBackdrop?: (asset: PlayableAssetRequest) => Promise<(() => Promise<void>) | undefined>;
+  /** Whether the Scene's background shows anything yet; unset when the editor cannot set it. */
+  backdrop?: "missing" | "set";
   /** Opens a Playtest that starts at this Scene. */
   onPlayFromHere?: (start: PlaytestStart) => void;
   /** Receives the preview's Runtime snapshots; undefined when a new session starts. */
@@ -152,6 +165,7 @@ export function PlayableNodeWorkbench({
   const [tool, setTool] = useState<PreviewTool>("play");
   const [picks, setPicks] = useState<PlayablePickResult[]>([]);
   const [strokes, setStrokes] = useState<PlayableStroke[]>([]);
+  const [media, setMedia] = useState<PlayableMediaAttachment[]>([]);
   const [storage] = useState(createMemoryStorage);
   const { toasts, show: showToast, dismiss: dismissToast } = usePreviewToasts();
   const page = useRef<HTMLElement>(null);
@@ -168,6 +182,7 @@ export function PlayableNodeWorkbench({
     setTool("play");
     setPicks([]);
     setStrokes([]);
+    setMedia([]);
   }, [node.id]);
 
   // Esc puts the pointer back to playing. The preview frame reports its own Esc.
@@ -199,9 +214,12 @@ export function PlayableNodeWorkbench({
     nodeId: node.id,
     picks,
     strokes,
+    media,
     onRemovePick: removePick,
     onClearPicks: () => setPicks([]),
     onClearDrawing: () => setStrokes([]),
+    onRemoveMedia: (assetId) => setMedia((current) => current.filter((item) => item.assetId !== assetId)),
+    onClearMedia: () => setMedia([]),
     stage: page,
     onChange: onChatContextChange,
   });
@@ -241,18 +259,30 @@ export function PlayableNodeWorkbench({
     })();
   }, [askAgent, onWriteText, showToast]);
 
-  const replaceMedia = useCallback(async (pick: PlayablePickResult, asset: PlayableAssetRequest) => {
+  /**
+   * As background, the editor sets the Scene's background and offers Undo.
+   * Otherwise the media goes into the chat, declared on the Scene, for the
+   * message to say where it goes.
+   */
+  const addMedia = useCallback(async (asset: PlayableAssetRequest, target: MediaTarget) => {
     try {
+      const undo = target === "backdrop" && onSetBackdrop ? await onSetBackdrop(asset) : undefined;
+      if (undo) {
+        // A picked background is gone once the preview reloads with the new one.
+        setPicks((current) => current.filter((pick) => pick.mediaSlot !== "backdrop"));
+        return showToast({ tone: "saved", text: `The background is now ${asset.name}`, action: { label: "Undo", run: () => {
+          void undo().then(() => showToast({ tone: "saved", text: "Put the background back" }), (cause) => showToast({ tone: "error", text: `Could not undo: ${errorMessage(cause)}` }));
+        } } });
+      }
       const assetId = await onAddAsset(asset);
-      await askAgent(
-        `Show the asset "${assetId}" in this <${pick.tag}> instead of what it shows now. The asset is declared on the Scene.`,
-        [playableElementContext(pick)],
-        `Replacing <${pick.tag}> with ${asset.name}`,
-      );
+      if (asset.type !== "image" && asset.type !== "video") return;
+      const type = asset.type;
+      setMedia((current) => [...current.filter((item) => item.assetId !== assetId), { assetId, name: asset.name, type }]);
+      showToast({ tone: "saved", text: `${asset.name} is in the chat: say where it goes` });
     } catch (cause) {
       showToast({ tone: "error", text: `Could not add ${asset.name}: ${errorMessage(cause)}` });
     }
-  }, [askAgent, onAddAsset, showToast]);
+  }, [onAddAsset, onSetBackdrop, showToast]);
 
   const preview: PlayablePreviewOptions = { policy: "report", startNodeId: node.id };
   const nodeIssues = issues.filter((issue) => issue.surfaceId === node.id
@@ -260,7 +290,8 @@ export function PlayableNodeWorkbench({
     || Object.values(node.source).includes(issue.path));
   const previewIssues = collectPreviewIssues(graph, node, nodeIssues, runtime.error, snapshot, diagnostics);
   const ready = Boolean(runtime.definition && runtime.assets);
-  const mediaPicks = tool === "draw" ? [] : picks.filter((pick) => MEDIA_TAGS.has(pick.tag));
+  const canSetBackdrop = Boolean(backdrop && onSetBackdrop);
+  const chooser = useMediaChooser((asset, target) => void addMedia(asset, target), (text) => showToast({ tone: "error", text }));
 
   const actions = <>
     <button type="button" className="playable-workbench-tool" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={13} /><span>Replay</span></button>
@@ -281,6 +312,12 @@ export function PlayableNodeWorkbench({
         onTool={setTool}
         onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
         onClearStrokes={() => setStrokes([])}
+        media={<UploadMenu
+          disabled={!ready}
+          uploading={chooser.uploading}
+          canSetBackdrop={canSetBackdrop}
+          onUpload={chooser.upload}
+        />}
       >
         <PreviewIssues graph={graph} issues={previewIssues} onSignalTarget={onSignalTarget} onAskAgent={onAskAgent} />
       </PreviewToolbar>
@@ -309,13 +346,15 @@ export function PlayableNodeWorkbench({
       drawing={tool === "draw"}
       onStroke={(stroke) => setStrokes((current) => [...current, stroke])}
     /> : null}
-    {mediaPicks.map((pick) => <PickedMediaActions
-      key={playablePickKey(pick)}
-      pick={pick}
-      viewport={graph.viewport}
-      onReplace={(asset) => void replaceMedia(pick, asset)}
-      {...(onAskAgent ? { onGenerate: () => onAskAgent(askToGenerateMedia(pick)) } : {})}
-    />)}
+    {backdrop === "missing" && onSetBackdrop && ready && tool === "play" ? <button
+      type="button"
+      className="playable-scene-empty-target"
+      title="Add a video or an image"
+      aria-label="Upload a background for this Scene"
+      disabled={chooser.uploading}
+      onClick={() => chooser.upload("backdrop")}
+    /> : null}
+    {chooser.elements}
   </WorkbenchPreview>;
 
   return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
@@ -402,7 +441,7 @@ const TOOL_HINTS: Record<Exclude<PreviewTool, "play">, string> = {
 };
 
 /** Floats over the bottom of the preview; `children` sit beside the tools, such as the issues badge. */
-export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, children }: {
+export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, media, children }: {
   tool: PreviewTool;
   disabled: boolean;
   strokes: number;
@@ -410,6 +449,8 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
   onTool: (tool: PreviewTool) => void;
   onUndoStroke: () => void;
   onClearStrokes: () => void;
+  /** An action after the tools, such as the Media menu. */
+  media?: ReactNode;
   children?: ReactNode;
 }) {
   return <div className="playable-preview-toolbar">
@@ -424,6 +465,7 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
         disabled={disabled && value !== "play"}
         onClick={() => onTool(value)}
       ><Icon size={14} /><span>{label}</span></button>)}
+      {media ? <><span className="playable-preview-toolbar-divider" aria-hidden="true" />{media}</> : null}
       {strokes ? <>
         <span className="playable-preview-toolbar-divider" aria-hidden="true" />
         <button type="button" title="Undo the last stroke" aria-label="Undo stroke" onClick={onUndoStroke}><Undo2 size={14} /></button>
@@ -486,80 +528,61 @@ export function DrawingLayer({ viewport, strokes, drawing, onStroke }: {
   </svg>;
 }
 
-/**
- * Over a picked image or video: replace it from the Library, a file, or by
- * asking the AI. `pick.box` is in project viewport pixels, so the bar is
- * placed in percentages of the stage: under the element, or inside its
- * bottom edge when there is no room below, as for a full-screen background.
- */
-function PickedMediaActions({ pick, viewport, onReplace, onGenerate }: {
-  pick: PlayablePickResult;
-  viewport: { width: number; height: number };
-  onReplace: (asset: PlayableAssetRequest) => void;
-  onGenerate?: () => void;
-}) {
-  const { x, y, width, height } = pick.box;
-  const center = Math.min(Math.max((x + width / 2) / viewport.width, 0.15), 0.85);
-  const bottom = Math.min(y + height, viewport.height);
-  const below = bottom < viewport.height * 0.88;
-  const style = below
-    ? { left: `${center * 100}%`, top: `${(bottom / viewport.height) * 100}%` }
-    : { left: `${center * 100}%`, bottom: `${Math.max(0, 1 - bottom / viewport.height) * 100}%` };
-  return <div className={`playable-media-actions${below ? " is-below" : " is-inside"}`} style={style} role="group" aria-label={`Replace <${pick.tag}>`}>
-    <MediaReplaceActions pick={pick} onReplace={onReplace} {...(onGenerate ? { onGenerate } : {})} />
-  </div>;
-}
+/** Where uploaded media goes: the Scene's background, or the chat. */
+type MediaTarget = "backdrop" | "chat";
 
-function MediaReplaceActions({ pick, onReplace, onGenerate }: {
-  pick: PlayablePickResult;
-  onReplace: (asset: PlayableAssetRequest) => void;
-  onGenerate?: () => void;
-}) {
-  const [library, setLibrary] = useState<LibraryAsset[]>();
+/** Uploads an image or a video. `elements` holds the file input, and must be rendered. */
+function useMediaChooser(onAsset: (asset: PlayableAssetRequest, target: MediaTarget) => void, onError: (text: string) => void) {
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
-  const video = pick.tag === "video";
+  const target = useRef<MediaTarget>("chat");
 
   const use = (asset: LibraryAsset) => {
     const type = playableAssetType(asset.mediaType);
-    if (type !== "image" && type !== "video") return setError("Pick an image or a video.");
-    setError(undefined);
-    onReplace({ name: asset.name, type, source: { kind: "library", assetId: asset.id } });
+    if (type !== "image" && type !== "video") return onError(`${asset.name} is not an image or a video`);
+    onAsset({ name: asset.name, type, source: { kind: "library", assetId: asset.id } }, target.current);
   };
 
-  return <div className="playable-workbench-pick-actions">
-    <button type="button" title="Replace with something from the Library" onClick={() => {
-      void loadLibraryAssets().then(setLibrary).catch((cause) => setError(errorMessage(cause)));
-    }}><Folder size={11} /><span>Library</span></button>
-    <button type="button" title="Replace with a file" disabled={uploading} onClick={() => fileInput.current?.click()}>
-      {uploading ? <LoaderCircle className="spin" size={11} /> : <Upload size={11} />}<span>Upload</span>
-    </button>
-    {onGenerate ? <button type="button" title={`Describe a new ${video ? "video" : "image"} for the AI to make`} onClick={onGenerate}><Sparkles size={11} /><span>Generate</span></button> : null}
-    {error ? <small className="is-error" title={error}>{error}</small> : null}
-    <input ref={fileInput} type="file" accept={ASSET_UPLOAD_ACCEPT} hidden onChange={(event) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
-      if (!file) return;
-      setUploading(true);
-      setError(undefined);
-      void uploadLibraryFile(file).then(use, (cause) => setError(`Could not upload: ${errorMessage(cause)}`)).finally(() => setUploading(false));
-    }} />
-    {library ? <LibraryAssetPicker
-      title={`Replace <${pick.tag}>`}
-      assets={library.filter((asset) => {
-        const type = playableAssetType(asset.mediaType);
-        return type === "image" || type === "video";
-      })}
-      onClose={() => setLibrary(undefined)}
-      onSelect={(asset) => { setLibrary(undefined); use(asset); }}
-    /> : null}
-  </div>;
+  const elements = <input ref={fileInput} type="file" accept={ASSET_UPLOAD_ACCEPT} hidden onChange={(event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    void uploadLibraryFile(file).then(use, (cause) => onError(`Could not upload: ${errorMessage(cause)}`)).finally(() => setUploading(false));
+  }} />;
+
+  return {
+    uploading,
+    elements,
+    upload: (to: MediaTarget) => {
+      target.current = to;
+      fileInput.current?.click();
+    },
+  };
 }
 
-/** The chat request behind "Generate": the user describes what to make. */
-export function askToGenerateMedia(pick: PlayablePickResult): string {
-  return `Make a new ${pick.tag === "video" ? "video" : "image"} for the picked <${pick.tag}> and use it there instead: `;
+/** The toolbar's Upload action: as the Scene's background, or into the chat. */
+function UploadMenu({ disabled, uploading, canSetBackdrop, onUpload }: {
+  disabled: boolean;
+  uploading: boolean;
+  canSetBackdrop: boolean;
+  onUpload: (to: MediaTarget) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useDismiss(open, [button, menu], () => setOpen(false));
+  const choose = (to: MediaTarget) => () => { setOpen(false); onUpload(to); };
+
+  return <span className="playable-preview-media">
+    <button ref={button} type="button" title="Upload an image or a video" aria-haspopup="menu" aria-expanded={open} disabled={disabled || uploading} onClick={() => setOpen((current) => !current)}>
+      {uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>Upload</span>
+    </button>
+    {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label="Upload">
+      <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? "Show it behind this Scene" : "This Scene has no background to set; add it to the chat instead"} onClick={choose("backdrop")}><Image size={13} /><span>As background</span></button>
+      <button type="button" role="menuitem" onClick={choose("chat")}><MessageSquarePlus size={13} /><span>Add to chat</span></button>
+    </div> : null}
+  </span>;
 }
 
 /** Shows short messages over the preview; each fades after a few seconds. */
@@ -576,7 +599,7 @@ function usePreviewToasts() {
   const show = useCallback((toast: Omit<PreviewToast, "id">) => {
     const id = nextId.current++;
     setToasts((current) => [...current, { ...toast, id }].slice(-TOAST_LIMIT));
-    timers.current.set(id, setTimeout(() => dismiss(id), toast.targetNodeId || toast.tone === "error" ? TOAST_LONG_MS : TOAST_MS));
+    timers.current.set(id, setTimeout(() => dismiss(id), toast.action ? TOAST_ACTION_MS : toast.targetNodeId || toast.tone === "error" ? TOAST_LONG_MS : TOAST_MS));
   }, [dismiss]);
 
   useEffect(() => {
@@ -607,6 +630,7 @@ function PreviewToasts({ toasts, onOpenNode, onDismiss }: {
       return <p key={toast.id} className={`playable-preview-toast is-${toast.tone}`} role={toast.tone === "error" ? "alert" : undefined}>
         <Icon size={12} />
         <span title={toast.text}>{toast.text}</span>
+        {toast.action ? <button type="button" onClick={() => { onDismiss(toast.id); toast.action!.run(); }}>{toast.action.label}</button> : null}
         {toast.targetNodeId ? <button type="button" onClick={() => { onDismiss(toast.id); onOpenNode(toast.targetNodeId!); }}>Open</button> : null}
         <button type="button" className="playable-preview-toast-close" aria-label="Dismiss" onClick={() => onDismiss(toast.id)}><X size={11} /></button>
       </p>;

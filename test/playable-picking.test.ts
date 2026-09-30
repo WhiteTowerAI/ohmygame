@@ -106,6 +106,18 @@ describe("describePlayablePick", () => {
     expect(describePlayablePick([element("p", {}, surface), surface])?.signal).toBeUndefined();
   });
 
+  it("marks images, videos, and data-media slots as media", () => {
+    const surface = element("div", { "data-playable-surface": "menu" });
+    const backdrop = element("div", { "data-media": "backdrop" }, surface);
+    const image = element("img", {}, surface);
+    const text = element("p", {}, surface);
+
+    expect(describePlayablePick([backdrop, surface])).toMatchObject({ media: true, mediaSlot: "backdrop" });
+    expect(describePlayablePick([image, surface])).toMatchObject({ media: true });
+    expect(describePlayablePick([image, surface])?.mediaSlot).toBeUndefined();
+    expect(describePlayablePick([text, surface])?.media).toBeUndefined();
+  });
+
   it("ignores a path without a surface and a click on the surface itself", () => {
     const surface = element("div", { "data-playable-surface": "menu" });
 

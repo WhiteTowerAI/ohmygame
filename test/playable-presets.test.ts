@@ -55,10 +55,23 @@ describe("Playable Presets", () => {
 /** Just enough DOM for playScene: elements with children, attributes, and listeners. */
 class FakeElement {
   children: FakeElement[] = [];
+  parentElement?: FakeElement;
   listeners = new Map<string, () => void>();
   [key: string]: unknown;
-  constructor(readonly tagName: string) {}
-  append(...children: FakeElement[]) { this.children.push(...children); }
+  constructor(readonly tagName: string, readonly attributes: Record<string, string> = {}) {}
+  append(...children: FakeElement[]) {
+    for (const child of children) child.parentElement = this;
+    this.children.push(...children);
+  }
+  getAttribute(name: string) { return this.attributes[name] ?? null; }
+  querySelector(selector: string): FakeElement | null {
+    for (const child of this.children) {
+      if (selector === '[data-media="backdrop"]' && child.attributes["data-media"] === "backdrop") return child;
+      const found = child.querySelector(selector);
+      if (found) return found;
+    }
+    return null;
+  }
   addEventListener(type: string, listener: () => void) { this.listeners.set(type, listener); }
   removeEventListener(type: string) { this.listeners.delete(type); }
   remove() { this.removed = true; }
@@ -67,12 +80,17 @@ class FakeElement {
   pause() { this.paused = true; }
 }
 
-async function mountScene(options: Record<string, unknown>) {
+/** Mounts a Scene whose background has the given attributes, as the editor writes them. */
+async function mountScene(attributes: Record<string, string>) {
   const source = PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]!;
   const { playScene } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
   const previous = globalThis.document;
   globalThis.document = { createElement: (tag: string) => new FakeElement(tag) } as unknown as Document;
-  const root = new FakeElement("main");
+  const root = new FakeElement("root");
+  const scene = new FakeElement("main");
+  const backdrop = new FakeElement("div", { "data-media": "backdrop", ...attributes });
+  scene.append(backdrop);
+  root.append(scene);
   const emitted: string[] = [];
   const context = {
     root,
@@ -80,39 +98,41 @@ async function mountScene(options: Record<string, unknown>) {
     navigation: { emit: async (signal: string) => { emitted.push(signal); } },
   };
   try {
-    const cleanup = playScene(context, options) as () => void;
-    const figure = root.children[0]!;
-    return { figure, emitted, cleanup, skip: figure.children.at(-1)! };
+    const cleanup = playScene(context, { signal: "next" }) as () => void;
+    return { scene, backdrop, emitted, cleanup, skip: scene.children.at(-1)! };
   } finally {
     globalThis.document = previous;
   }
 }
 
 describe("playScene", () => {
-  it("plays a video and emits the Signal once when it ends or is skipped", async () => {
-    const { figure, emitted, skip, cleanup } = await mountScene({ signal: "next", assetId: "opening" });
-    const video = figure.children[0]!;
+  it("plays the background video and emits the Signal once when it ends or is skipped", async () => {
+    const { backdrop, emitted, skip, cleanup } = await mountScene({ "data-asset": "opening", "data-type": "video" });
+    const video = backdrop.children[0]!;
     expect(video).toMatchObject({ tagName: "video", src: "blob:opening" });
+    expect(video.loop).toBeUndefined();
     expect(skip.textContent).toBe("Skip");
     video.listeners.get("ended")!();
     skip.listeners.get("click")!();
     expect(emitted).toEqual(["next"]);
     cleanup();
     expect(video.paused).toBe(true);
-    expect(figure.removed).toBe(true);
+    expect(video.removed).toBe(true);
+    expect(skip.removed).toBe(true);
   });
 
-  it("shows an image the player continues past", async () => {
-    const { figure, emitted, skip } = await mountScene({ signal: "next", assetId: "still", type: "image" });
-    expect(figure.children[0]).toMatchObject({ tagName: "img", src: "blob:still" });
+  it("shows a background image the player continues past", async () => {
+    const { backdrop, emitted, skip } = await mountScene({ "data-asset": "still", "data-type": "image" });
+    expect(backdrop.children[0]).toMatchObject({ tagName: "img", src: "blob:still" });
     expect(skip.textContent).toBe("Continue");
     skip.listeners.get("click")!();
     expect(emitted).toEqual(["next"]);
   });
 
-  it("asks for media when the Scene has none yet", async () => {
-    const { figure, skip } = await mountScene({ signal: "next" });
-    expect(figure.children[0]).toMatchObject({ tagName: "p", textContent: "Add a video or an image to this Scene." });
+  it("asks for media when the background is empty", async () => {
+    const { scene, backdrop, skip } = await mountScene({});
+    expect(backdrop.children).toEqual([]);
+    expect(scene.children[1]).toMatchObject({ tagName: "p", className: "scene-empty", textContent: "Add a video or an image" });
     expect(skip.textContent).toBe("Continue");
   });
 });

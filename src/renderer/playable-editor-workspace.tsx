@@ -81,6 +81,7 @@ import {
 import { playableNodeById } from "../shared/playable-graph.js";
 import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
+import { playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
 import {
   addPlayableNodeAsset,
   playableEdgeId,
@@ -108,7 +109,7 @@ import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
-import { PlayableNodeWorkbench, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
+import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
 import { requestPlaytestStart } from "./playable-playtest-drawer.js";
@@ -267,6 +268,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setWorkspaceView("canvas");
     openNode(nodeId);
   }), [projectId]);
+
+  // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
+  const [backdrop, setBackdrop] = useState<"missing" | "set">();
+  const openedHtml = openedNode?.source.html;
+  useEffect(() => {
+    setBackdrop(undefined);
+    if (!openedHtml) return;
+    let disposed = false;
+    void getWorkspaceFile(projectId, openedHtml).then((file) => {
+      if (!disposed) setBackdrop(file.content !== undefined && !file.truncated ? playableBackdrop(file.content) : undefined);
+    }, () => undefined);
+    return () => { disposed = true; };
+  }, [projectId, openedHtml, workspaceRevision, codeRevision]);
 
   // An undo or an Agent edit can remove the open Node; go back to the canvas.
   useEffect(() => {
@@ -607,6 +621,27 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       : graph;
     await writeGraph(next, { [location.file]: html });
     return true;
+  }
+
+  /**
+   * Declares a video or image and shows it as the Node's background. The
+   * Asset it replaces stays declared, since other code may still use it.
+   * Resolves with a way to put the background back, or undefined when the
+   * Node's HTML has no single background to set.
+   */
+  async function writeBackdrop(nodeId: string, asset: PlayableAssetRequest): Promise<(() => Promise<void>) | undefined> {
+    const graph = codebase?.graph;
+    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!graph || !node || (asset.type !== "image" && asset.type !== "video")) return undefined;
+    const path = node.source.html;
+    const file = await getWorkspaceFile(projectId, path);
+    if (file.content === undefined || file.truncated) return undefined;
+    const before = file.content;
+    const declared = addPlayableNodeAsset(graph, nodeId, asset);
+    const html = setPlayableBackdrop(before, declared.assetId, asset.type);
+    if (html === undefined) return undefined;
+    await writeGraph(declared.graph, { [path]: html });
+    return () => writeGraph(graph, { [path]: before });
   }
 
   function openNode(nodeId: string): void {
@@ -1025,6 +1060,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           await writeGraph(graph);
           return assetId;
         }}
+        onSetBackdrop={(asset) => writeBackdrop(openedNode.id, asset)}
+        {...(backdrop ? { backdrop } : {})}
         onPlayFromHere={(start) => void startPlaytest(start)}
         onChatContextChange={onChatContextChange}
       /> : null}

@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { playableElementContext, playableNodeContext, playableNodeReferences } from "../src/shared/playable-chat-context.js";
+import { playableAssetContext, playableElementContext, playableNodeContext, playableNodeReferences } from "../src/shared/playable-chat-context.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable chat context", () => {
+  it("describes media added from the preview by its declared Asset", () => {
+    const context = playableAssetContext("menu", "dusk", { name: "dusk.webp", type: "image" });
+    expect(context).toMatchObject({ kind: "playable-asset", label: "dusk.webp" });
+    expect(context.text).toContain('declared on the Node as Asset "dusk"');
+    expect(context.text).toContain('context.assets.url("dusk")');
+  });
+
   it("describes an open Node with its sources, Signals, and Assets", () => {
     const context = playableNodeContext(createNodeGraphFixture(), "menu");
 

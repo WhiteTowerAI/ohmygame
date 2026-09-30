@@ -60,6 +60,21 @@ export function playableDrawingContext(nodeId: string, strokes: number): PromptC
 }
 
 /**
+ * An image or video the user added from a preview. The editor has declared
+ * it on the Node; the user's message says where it goes.
+ */
+export function playableAssetContext(nodeId: string, assetId: string, asset: { name: string; type: string }): PromptContext {
+  return {
+    kind: "playable-asset",
+    label: asset.name.slice(0, 200),
+    text: [
+      `The user added the ${asset.type} "${asset.name}" from the preview of Node "${nodeId}". It is declared on the Node as Asset "${assetId}"; show it with context.assets.url("${assetId}").`,
+      "The message says where it goes. When an element is picked with it, it goes there. To make it the background, set data-asset and data-type on the Node's `.backdrop` element instead of replacing it.",
+    ].join("\n"),
+  };
+}
+
+/**
  * The chat request for a text edit that cannot be written back to surface
  * HTML, such as text a script sets or a shared component draws.
  */
