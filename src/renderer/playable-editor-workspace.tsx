@@ -126,7 +126,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [workspaceView, setWorkspaceView] = useState<"canvas" | "code">("canvas");
   const [codeRevision, setCodeRevision] = useState(0);
   const [fileRequest, setFileRequest] = useState(openFileRequest);
-  const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
@@ -204,7 +203,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   useEffect(() => {
     if (!openFileRequest) return;
-    setSelectedId(undefined);
     setOpenedNodeId(undefined);
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
@@ -304,7 +302,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (options.fromDisk) queuedCodebase.current = JSON.stringify(applied);
     observeHistory(applied);
     setSelectedEdgeId(undefined);
-    setSelectedId((current) => current && graphNodes.some((node) => node.id === current) ? current : undefined);
   }
 
   function updateHistoryControls(): void {
@@ -492,7 +489,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Selects a connection, as clicking its line does. */
   function selectEdge(edgeId: string): void {
     setCanvasContextMenu(undefined);
-    setSelectedId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
     setSelectedEdgeId(edgeId);
   }
@@ -601,7 +597,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
-    setSelectedId(nodeId);
     setOpenedNodeId(nodeId);
   }
 
@@ -629,12 +624,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
     setNodes((current) => current.filter((node) => !removed.has(node.id)));
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
-    setSelectedId((current) => current && removed.has(current) ? undefined : current);
     setSelectedEdgeId(undefined);
   }
 
   function clearSelection(): void {
-    setSelectedId(undefined);
     setSelectedEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
@@ -651,13 +644,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       await save(codebase);
       pushUndoSnapshot(codebase);
       redoHistory.current = [];
-      const added = await addPlayableNode(projectId, {
+      await addPlayableNode(projectId, {
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
         position: snapCanvasPosition(position),
       });
       applyCodebase(await getNodeCodebase(projectId), { fromDisk: true });
-      setSelectedId(added.id);
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
@@ -704,7 +696,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       });
       setNodes(nextNodes);
       observeHistory(next);
-      setSelectedId(id);
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
@@ -896,13 +887,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
-                onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedId(undefined); }}
-                onNodeClick={(_event, node) => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); setSelectedId(node.id); }}
+                onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)}
+                onNodeClick={() => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); }}
                 onNodeDoubleClick={(_event, node) => openNode(node.id)}
                 onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
                 onNodeContextMenu={(_event, node) => {
                   setSelectedEdgeId(undefined);
-                  setSelectedId(node.id);
                   setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
                 }}
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}

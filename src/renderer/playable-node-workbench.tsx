@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Brush,
   Check,
-  Clipboard,
   Image,
   InfoCircle,
   LoaderCircle,

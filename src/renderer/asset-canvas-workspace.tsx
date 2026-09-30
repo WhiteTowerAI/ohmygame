@@ -1,24 +1,15 @@
 import {
   ArrowUp,
   Box,
-  ChevronLeft,
   ChevronRight,
-  CircleStop,
-  Clapperboard,
   Clipboard,
-  Code2,
   Copy,
-  Download,
   FileText,
-  Flag,
   Film,
   Folder,
   Image as ImageIcon,
-  GitBranch,
-  GripVertical,
   House,
   LoaderCircle,
-  Layers3,
   Monitor,
   Music2,
   Pause,
@@ -26,21 +17,17 @@ import {
   Play,
   Plus,
   Search,
-  Share2,
   Square,
-  Settings,
   Trash2,
   Upload,
   Undo2,
   Redo2,
-  UserRound,
   Volume2,
   VolumeX,
-  Wrench,
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Handle,
@@ -93,7 +80,6 @@ import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.j
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
-import { HighlightedCode } from "./highlighted-code.js";
 import { ModelPreview } from "./model-preview.js";
 import { viewportRatio } from "../shared/canvas-formats.js";
 import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
@@ -103,16 +89,11 @@ import "@xyflow/react/dist/style.css";
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
-const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
 const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
-const STORY_CANVAS_MEDIA_STYLE = {
-  "--story-media-width": "var(--story-canvas-stage-width, 440px)",
-  "--story-media-height": "var(--story-canvas-stage-height, 248px)",
-} as CSSProperties;
 type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset"> };
 interface CanvasNodeCreationLeaf {
   label: string;
@@ -259,7 +240,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [viewport, setViewport] = useState({ width: 1280, height: 720 });
   const [nodes, setNodes] = useState<AssetCanvasFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [selectedId, setSelectedId] = useState<string>();
   const [editorLayout, setEditorLayout] = useState<AssetCanvasEditorLayout>({
     version: 1,
     nodes: {},
@@ -287,7 +267,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const latestCanvas = useRef<AssetCanvasDocument | undefined>(undefined);
   const queuedCanvas = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
-  const nodeClickTimer = useRef<number | undefined>(undefined);
   const initialNodeRequest = useRef({ nodeId: initialNodeId, onHandled: onInitialNodeHandled });
   const editorUndoHistory = useRef<AssetCanvasDocument[]>([]);
   const editorRedoHistory = useRef<AssetCanvasDocument[]>([]);
@@ -320,9 +299,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       setNodes(loadedNodes.map((node) => ({ ...node, selected: node.id === initialNode?.id })));
       if (request.nodeId) {
         request.onHandled?.();
-      }
-      if (initialNode) {
-        setSelectedId(initialNode.id);
       }
       const loadedLayout = story.editorLayout ?? { version: 1 as const, nodes: {}, viewport: { x: 64, y: 32, zoom: 1 }, view: "canvas" as const };
       const normalizedLayout = loadedLayout;
@@ -632,7 +608,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
-  const selectedNode = nodes.find((node) => node.id === selectedId);
   const contextMenuNode = canvasContextMenu?.kind === "node" ? nodes.find((node) => node.id === canvasContextMenu.nodeId) : undefined;
   const contextMenuNodeMissing = canvasContextMenu?.kind === "node" && !contextMenuNode;
   const canInsertCopiedNode = Boolean(copiedNode);
@@ -646,7 +621,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }): void {
     const node = { ...createFlowNode(type, position, imageModels, videoModels, defaultTextModel), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
-    setSelectedId(node.id);
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration">, position: { x: number; y: number }): void {
@@ -660,7 +634,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       data: { assetId: asset.id, mediaType: asset.mediaType, contentType: asset.contentType, assetDuration: asset.duration, name: asset.name },
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
-    setSelectedId(node.id);
   }
 
   async function uploadAssetFile(file: File): Promise<LibraryAsset> {
@@ -689,15 +662,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
-  function updateSelected(data: AssetCanvasFlowData, removedHandle?: string | string[]): void {
-    if (!selectedId) return;
-    setNodes((current) => current.map((node) => node.id === selectedId ? { ...node, data } : node));
-    if (removedHandle) {
-      const removed = new Set(Array.isArray(removedHandle) ? removedHandle : [removedHandle]);
-      setEdges((current) => current.filter((edge) => edge.source !== selectedId || !removed.has(edge.sourceHandle ?? OUTPUT_HANDLE)));
-    }
-  }
-
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
     addNode(item.action.type, position);
   }
@@ -706,7 +670,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     const duplicate = { ...toFlowNode(duplicateAssetCanvasNode(source, position), imageModels, videoModels), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), duplicate]);
     setSelectedAssetEdgeId(undefined);
-    setSelectedId(duplicate.id);
   }
 
   function copyCanvasNode(nodeId: string): void {
@@ -727,15 +690,9 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     if (!removedIds.size) return;
     setNodes((current) => removeNodesAndReferences(current, removedIds));
     setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)));
-    if (removedIds.has(selectedId ?? "")) setSelectedId(undefined);
-  }
-
-  function deleteSelected(): void {
-    if (selectedNode) removeCanvasNodes(new Set([selectedNode.id]));
   }
 
   function clearSelection(): void {
-    setSelectedId(undefined);
     setSelectedAssetEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
@@ -1063,10 +1020,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     setNodes(next.nodes.map((node) => toFlowNode(node, imageModels, videoModels)));
     setEdges(next.edges);
     setEditorLayout(next.editorLayout);
-    setSelectedId((current) => current && next.nodes.some((node) => node.id === current) ? current : undefined);
   }
 
-  const creationGroups = canvasCreationGroups();
   return (
     <section className="viewer-pane interactive-drama-workspace" aria-label="Asset Canvas workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
       <header className="interactive-drama-header window-drag-handle">
@@ -1110,29 +1065,11 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
-              onEdgeClick={(_event, edge) => {
-                setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined);
-                setSelectedId(undefined);
-              }}
-              onNodeClick={(_event, node) => {
-                setCanvasContextMenu(undefined);
-                window.clearTimeout(nodeClickTimer.current);
-                nodeClickTimer.current = window.setTimeout(() => {
-                  setSelectedAssetEdgeId(undefined);
-                  setSelectedId(node.id);
-                }, 180);
-              }}
-              onNodeDoubleClick={(_event, node) => {
-                setCanvasContextMenu(undefined);
-                window.clearTimeout(nodeClickTimer.current);
-                setSelectedAssetEdgeId(undefined);
-                setSelectedId(node.id);
-              }}
-              onPaneClick={() => { setCanvasContextMenu(undefined); window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
+              onEdgeClick={(_event, edge) => setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined)}
+              onNodeClick={() => { setCanvasContextMenu(undefined); setSelectedAssetEdgeId(undefined); }}
+              onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
-                window.clearTimeout(nodeClickTimer.current);
                 setSelectedAssetEdgeId(undefined);
-                setSelectedId(node.id);
                 setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
               }}
               onNodesDelete={(deleted) => {
@@ -1722,10 +1659,6 @@ function AssetCanvasAssetPicker({ title, assets, onClose, onSelect }: {
   );
 }
 
-function InspectorField({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="story-inspector-field"><span>{label}</span>{children}</label>;
-}
-
 function AssetCanvasAddControl({
   libraryAssets,
   importing,
@@ -2218,10 +2151,6 @@ function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {
   return type === "image" || type === "video";
 }
 
-function isInlineNodeType(type: AssetCanvasNodeType): type is "text" | "image" | "video" | "model-3d" | "asset" {
-  return type === "text" || type === "asset" || type === "model-3d" || isMediaNodeType(type);
-}
-
 function isImageFlowSource(node: AssetCanvasFlowNode | undefined): boolean {
   return node?.type === "image" || (node?.type === "asset" && node.data.mediaType === "image");
 }
@@ -2231,10 +2160,6 @@ function isSupportedImageReferenceSource(node: AssetCanvasFlowNode, libraryAsset
   if (node.type !== "asset" || node.data.mediaType !== "image") return false;
   const contentType = libraryAssets.find((asset) => asset.id === node.data.assetId)?.contentType;
   return contentType === "image/png" || contentType === "image/jpeg" || contentType === "image/webp";
-}
-
-function isVideoFlowSource(node: AssetCanvasFlowNode | undefined): boolean {
-  return node?.type === "video" || (node?.type === "asset" && node.data.mediaType === "video");
 }
 
 function videoReferenceType(node: AssetCanvasFlowNode | undefined, libraryAssets: LibraryAsset[]): VideoGenerationReference["type"] | undefined {
