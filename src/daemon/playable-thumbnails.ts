@@ -16,7 +16,7 @@ export class PlayableThumbnailError extends Error {
   override readonly name = "PlayableThumbnailError";
 }
 
-export function isPlayableThumbnailHash(value: unknown): value is string {
+function isPlayableThumbnailHash(value: unknown): value is string {
   return typeof value === "string" && HASH_PATTERN.test(value);
 }
 

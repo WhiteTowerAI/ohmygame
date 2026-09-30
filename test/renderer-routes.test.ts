@@ -60,12 +60,8 @@ describe("renderer routes", () => {
   });
 
   it("parses and formats playtest routes", () => {
-    expect(parseAppRoute("#/playtest/project%201/chapter%201")).toEqual({
-      page: "playtest",
-      projectId: "project 1",
-      chapterId: "chapter 1",
-    });
-    expect(playtestHash("project 1", "chapter 1")).toBe("#/playtest/project%201/chapter%201");
+    expect(parseAppRoute("#/playtest/project%201")).toEqual({ page: "playtest", projectId: "project 1" });
+    expect(playtestHash("project 1")).toBe("#/playtest/project%201");
   });
 
   it("parses the Node thumbnail route", () => {
@@ -91,7 +87,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/games")).toEqual({ page: "home" });
     expect(parseAppRoute("#/assets")).toEqual({ page: "home" });
     expect(parseAppRoute("#/community/assets")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/playtest/project/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/playtest/%/chapter")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/playtest/project/extra")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/playtest/%")).toEqual({ page: "home" });
   });
 });

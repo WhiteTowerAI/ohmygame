@@ -54,16 +54,8 @@ export interface PlayableAssetRequest extends PlayableAssetDefinition {
   name: string;
 }
 
-/** Graph edits the editor makes to a Node's Signals. */
-export interface PlayableSignalEdits {
-  onSignalLabel: (surfaceId: string, signalId: string, label: string) => void;
-  /** `undefined` disconnects the Signal; `mode` defaults to the edge's current one. */
-  onSignalTarget: (surfaceId: string, signalId: string, targetNodeId: string | undefined, mode?: PlayableNavigationMode) => void;
-  /** Marks an Exit as navigation, like Home, or back to part of the story. */
-  onSignalRole: (surfaceId: string, signalId: string, navigation: boolean) => void;
-  /** Puts a request in the chat prompt, such as creating the Scene an Exit should open. */
-  onAskAgent?: (text: string) => void;
-}
+/** Connects a Signal to a Node; `undefined` disconnects it, and `mode` defaults to the edge's current one. */
+type SignalTarget = (surfaceId: string, signalId: string, targetNodeId: string | undefined, mode?: PlayableNavigationMode) => void;
 
 /** A Playtest that starts at a Scene instead of the saved game, with a new game's values. */
 export interface PlaytestStart {
@@ -121,7 +113,6 @@ export function PlayableNodeWorkbench({
   onSetBackdrop,
   backdrop,
   onPlayFromHere,
-  onSnapshot,
   onChatContextChange,
 }: {
   projectId: string;
@@ -148,10 +139,11 @@ export function PlayableNodeWorkbench({
   backdrop?: "missing" | "set";
   /** Opens a Playtest that starts at this Scene. */
   onPlayFromHere?: (start: PlaytestStart) => void;
-  /** Receives the preview's Runtime snapshots; undefined when a new session starts. */
-  onSnapshot?: (snapshot: NodeRuntimeSnapshot | undefined) => void;
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
-} & Pick<PlayableSignalEdits, "onSignalTarget" | "onAskAgent">) {
+  onSignalTarget: SignalTarget;
+  /** Puts a request in the chat prompt, such as creating the Scene an Exit should open. */
+  onAskAgent?: (text: string) => void;
+}) {
   const runtime = usePlayablePreviewRuntime(projectId, revision);
   const [session, setSession] = useState(0);
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
@@ -169,7 +161,6 @@ export function PlayableNodeWorkbench({
   useEffect(() => {
     setSnapshot(undefined);
     setDiagnostics([]);
-    onSnapshot?.(undefined);
   }, [runtime.definition, node.id, session]);
 
   useEffect(() => {
@@ -218,10 +209,6 @@ export function PlayableNodeWorkbench({
     onChange: onChatContextChange,
   });
 
-  const reportSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
-    setSnapshot(next);
-    onSnapshot?.(next);
-  }, [onSnapshot]);
   const onDiagnostic = useCallback((message: string) => {
     setDiagnostics((current) => [...current.slice(-19), { message, at: new Date().toISOString() }]);
   }, []);
@@ -335,7 +322,7 @@ export function PlayableNodeWorkbench({
       onPick={onPick}
       onTextEdit={onTextEdit}
       onPickCancel={onPickCancel}
-      onSnapshot={reportSnapshot}
+      onSnapshot={setSnapshot}
       onDiagnostic={onDiagnostic}
     /> : <div className={`playable-workbench-stage-state${runtime.error ? " is-error" : ""}`} role={runtime.error ? "alert" : undefined}>
       {runtime.error ?? "Loading preview..."}
@@ -653,7 +640,7 @@ function collectPreviewIssues(
 function PreviewIssues({ graph, issues, onSignalTarget, onAskAgent }: {
   graph: NodeGraph;
   issues: readonly PreviewIssue[];
-  onSignalTarget?: PlayableSignalEdits["onSignalTarget"];
+  onSignalTarget?: SignalTarget;
   onAskAgent?: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -737,7 +724,7 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
   useEffect(() => {
     let disposed = false;
     void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error("This project has no graph.json.");
+      if (!result.available) throw new Error("This project has no Scenes yet.");
       const key = playableRuntimeKey(result.definition);
       if (key === runtimeKey.current) {
         if (!disposed) setRuntime((current) => ({ ...current, error: undefined }));

@@ -22,7 +22,7 @@ import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
-import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -103,7 +103,7 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
-      storyViewport: {
+      viewport: {
         type: "object",
         additionalProperties: false,
         required: ["width", "height"],
@@ -937,11 +937,11 @@ export function createApp(options: AppOptions = {}) {
       if (request.body?.templateId && request.body.type !== "interactive-drama") {
         return reply.code(400).send({ error: "Project templates require a matching project type" });
       }
-      if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
+      if (request.body?.viewport && request.body.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "A viewport requires an Interactive Drama project" });
       }
-      if (request.body?.storyViewport && request.body.templateId) {
-        return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
+      if (request.body?.viewport && request.body.templateId) {
+        return reply.code(400).send({ error: "Interactive Drama templates define their own viewport" });
       }
       if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
         const project = await createInteractiveDramaStarterProject(
@@ -957,7 +957,7 @@ export function createApp(options: AppOptions = {}) {
         try {
           await createNodeCodebase(
             project.workspacePath,
-            createPlayableStarterCodebase(project.name, request.body?.storyViewport ?? { width: 1280, height: 720 }),
+            createPlayableStarterCodebase(project.name, request.body?.viewport ?? { width: 1280, height: 720 }),
           );
         } catch (cause) {
           await projects.delete(project.id);
@@ -1113,8 +1113,6 @@ export function createApp(options: AppOptions = {}) {
       id: preset.id,
       label: preset.label,
       summary: preset.summary,
-      brief: preset.brief,
-      signals: preset.signals.map((signal) => signal.id),
     })),
   }));
 
@@ -1439,7 +1437,7 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : cause instanceof ProjectStoryReferenceError ? 409 : 500).send({ error });
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : cause instanceof ProjectLibraryReferenceError ? 409 : 500).send({ error });
     }
   });
 

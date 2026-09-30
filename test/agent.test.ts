@@ -50,8 +50,8 @@ describe("compatibleRuntimeModel", () => {
 
 describe("Pi skills", () => {
   it("loads global and plugin skills consistently for every project type", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-workspace-"));
-    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-dir-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-workspace-"));
+    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-dir-"));
     const skillDirectory = path.join(agentDir, "skills", "review");
     await mkdir(skillDirectory, { recursive: true });
     await writeFile(path.join(skillDirectory, "SKILL.md"), "---\nname: review\ndescription: Review code.\n---\n");

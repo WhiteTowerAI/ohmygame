@@ -64,9 +64,9 @@ describe("daemon", () => {
     expect(invalid.json().error).toContain("graph.json is not valid JSON");
   });
 
-  it("accepts a custom story viewport only for blank Interactive Drama projects", async () => {
+  it("accepts a custom viewport only for blank Interactive Drama projects", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-viewport-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-viewport-")),
       interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
     });
     apps.push(app);
@@ -76,7 +76,7 @@ describe("daemon", () => {
       url: "/projects",
       payload: {
         type: "interactive-drama",
-        storyViewport: { width: 720, height: 1280 },
+        viewport: { width: 720, height: 1280 },
       },
     });
     const webProject = await app.inject({
@@ -84,7 +84,7 @@ describe("daemon", () => {
       url: "/projects",
       payload: {
         type: "web-game",
-        storyViewport: { width: 1280, height: 720 },
+        viewport: { width: 1280, height: 720 },
       },
     });
     const template = await app.inject({
@@ -93,7 +93,7 @@ describe("daemon", () => {
       payload: {
         type: "interactive-drama",
         templateId: "night-train",
-        storyViewport: { width: 720, height: 1280 },
+        viewport: { width: 720, height: 1280 },
       },
     });
     const invalid = await app.inject({
@@ -101,7 +101,7 @@ describe("daemon", () => {
       url: "/projects",
       payload: {
         type: "interactive-drama",
-        storyViewport: { width: 100, height: 720 },
+        viewport: { width: 100, height: 720 },
       },
     });
 
@@ -431,15 +431,12 @@ describe("daemon", () => {
     expect(updated.graph.assets.opening).toBeUndefined();
   });
 
-  it("materializes a Library asset once and checks unused Story projects without creating a document", async () => {
+  it("materializes a Library asset once", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-materialize-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     const target = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Target" } })).json();
-    const story = (await app.inject({
-      method: "POST", url: "/projects", payload: { name: "Story", type: "interactive-drama" },
-    })).json();
     await writeFile(path.join(source.workspacePath, "sprite.png"), "image bytes");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
 
@@ -455,14 +452,13 @@ describe("daemon", () => {
     expect(missing.statusCode).toBe(404);
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
     expect(blocked.statusCode).toBe(409);
-    await expect(readFile(path.join(story.workspacePath, "story.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("blocks Library deletion when an Interactive Drama document cannot be verified", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-old-story-")) });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-broken-graph-")) });
     apps.push(app);
-    const storyProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
-    await writeFile(path.join(storyProject.workspacePath, "graph.json"), JSON.stringify({ version: 1, nodes: "broken" }));
+    const dramaProject = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama" } })).json();
+    await writeFile(path.join(dramaProject.workspacePath, "graph.json"), JSON.stringify({ version: 1, nodes: "broken" }));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
@@ -681,7 +677,7 @@ describe("daemon", () => {
 
   it("exposes the shared Plugins and Skills to Interactive Drama conversations", async () => {
     const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-story-capabilities-api-")),
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-drama-capabilities-api-")),
       createSession: async () => ({
         messages: [],
         prompt: async () => {},
@@ -1584,7 +1580,7 @@ describe("Playable Nodes projects", () => {
     const response = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Nodes", type: "interactive-drama", storyViewport: { width: 720, height: 1280 } },
+      payload: { name: "Nodes", type: "interactive-drama", viewport: { width: 720, height: 1280 } },
     });
 
     expect(response.statusCode).toBe(201);
@@ -1596,7 +1592,6 @@ describe("Playable Nodes projects", () => {
       nodes: [{ id: "start", signals: [{ id: "next", label: "Next" }] }],
       edges: [],
     });
-    expect(await readdir(response.json().workspacePath)).not.toContain("story.json");
     const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
     expect(runtime).toMatchObject({ available: true, definition: { graph: { entryNodeId: "start" } } });
   });
@@ -1806,7 +1801,7 @@ describe("Asset Canvas projects", () => {
     return app;
   }
 
-  it("stores Asset Canvas documents in canvas.json, not story.json", async () => {
+  it("stores Asset Canvas documents in canvas.json", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
 
@@ -1821,13 +1816,12 @@ describe("Asset Canvas projects", () => {
 
     const files = await readdir(project.workspacePath);
     expect(files).toContain("canvas.json");
-    expect(files).not.toContain("story.json");
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json().nodes).toEqual([
       expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
     ]);
   });
 
-  it("rejects canvas documents with Story nodes", async () => {
+  it("rejects canvas documents with unknown node types", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-invalid-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
     const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();

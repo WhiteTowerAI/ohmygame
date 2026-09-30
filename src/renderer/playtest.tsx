@@ -31,7 +31,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     setStart(takePlaytestStart(projectId));
     history.current.reset();
     void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error("This project has no graph.json.");
+      if (!result.available) throw new Error("This project has no Scenes yet.");
       const assets = await loadPlayableAssets(projectId, result.definition.graph);
       if (disposed) return;
       document.title = `${result.definition.graph.title} - Playtest`;

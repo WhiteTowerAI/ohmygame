@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findCanvasAlignmentGuides } from "../src/renderer/story-canvas-alignment.js";
+import { findCanvasAlignmentGuides } from "../src/renderer/canvas-alignment.js";
 
-describe("story canvas alignment guides", () => {
+describe("canvas alignment guides", () => {
   it("reports exact center alignment without changing node positions", () => {
     const active = { id: "active", position: { x: 104, y: 80 }, alignmentFrame: { x: 104, y: 80, width: 80, height: 40 } };
     const candidate = { id: "candidate", position: { x: 64, y: 200 }, alignmentFrame: { x: 64, y: 200, width: 160, height: 40 } };

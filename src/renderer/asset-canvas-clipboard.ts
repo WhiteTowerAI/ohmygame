@@ -1,10 +1,10 @@
 import type { AssetCanvasNode } from "../shared/contracts.js";
-import { STORY_CANVAS_GRID_SIZE } from "./asset-canvas-alignment.js";
+import { CANVAS_GRID_SIZE } from "./canvas-alignment.js";
 
-export function snapAssetCanvasPosition(position: { x: number; y: number }): { x: number; y: number } {
+export function snapCanvasPosition(position: { x: number; y: number }): { x: number; y: number } {
   return {
-    x: Math.round(position.x / STORY_CANVAS_GRID_SIZE) * STORY_CANVAS_GRID_SIZE,
-    y: Math.round(position.y / STORY_CANVAS_GRID_SIZE) * STORY_CANVAS_GRID_SIZE,
+    x: Math.round(position.x / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
+    y: Math.round(position.y / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
   };
 }
 
@@ -16,7 +16,7 @@ export function duplicateAssetCanvasNode(
   const duplicate = {
     ...structuredClone(node),
     id,
-    position: snapAssetCanvasPosition(position),
+    position: snapCanvasPosition(position),
   };
   if (duplicate.type === "image") {
     duplicate.data.promptSource = undefined;

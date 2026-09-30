@@ -22,7 +22,7 @@ export type AppRoute =
   | { page: "community" }
   | { page: "settings"; section: SettingsSection }
   | { page: "game"; gameId: string }
-  | { page: "playtest"; projectId: string; chapterId: string }
+  | { page: "playtest"; projectId: string }
   | { page: "thumbnail"; projectId: string; nodeId: string }
   | { page: "project"; projectId: string; conversationId?: string };
 
@@ -44,14 +44,10 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "home" };
     }
   }
-  const playtestMatch = /^#\/playtest\/([^/]+)\/([^/]+)$/.exec(hash);
-  if (playtestMatch?.[1] && playtestMatch[2]) {
+  const playtestMatch = /^#\/playtest\/([^/]+)$/.exec(hash);
+  if (playtestMatch?.[1]) {
     try {
-      return {
-        page: "playtest",
-        projectId: decodeURIComponent(playtestMatch[1]),
-        chapterId: decodeURIComponent(playtestMatch[2]),
-      };
+      return { page: "playtest", projectId: decodeURIComponent(playtestMatch[1]) };
     } catch {
       return { page: "home" };
     }
@@ -111,6 +107,6 @@ export function communityHash(): string {
   return "#/community/games";
 }
 
-export function playtestHash(projectId: string, chapterId: string): string {
-  return `#/playtest/${encodeURIComponent(projectId)}/${encodeURIComponent(chapterId)}`;
+export function playtestHash(projectId: string): string {
+  return `#/playtest/${encodeURIComponent(projectId)}`;
 }

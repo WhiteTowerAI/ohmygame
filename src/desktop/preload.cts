@@ -31,8 +31,8 @@ if (process.isMainFrame) {
     captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport) as Promise<boolean>,
     finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,
-    openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) =>
-      ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId, viewport) as Promise<void>,
+    openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
+      ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
     openPlayableNode: (projectId: string, nodeId: string) =>
       ipcRenderer.invoke("ohmygame:open-playable-node", projectId, nodeId) as Promise<void>,
     onOpenPlayableNode: (listener: (projectId: string, nodeId: string) => void) => {

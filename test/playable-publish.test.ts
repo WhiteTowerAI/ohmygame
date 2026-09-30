@@ -105,7 +105,6 @@ describe("Published Player", () => {
     expect(files.get("assets/playable-sandbox.js")?.toString()).toBe(
       "window.sandbox = true",
     );
-    expect(files.has("story.json")).toBe(false);
   });
 
   it("deduplicates identical Asset content while retaining stable IDs", async () => {

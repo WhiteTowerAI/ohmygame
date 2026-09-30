@@ -21,8 +21,8 @@ interface NodeBounds {
   bottom: number;
 }
 
-export const STORY_CANVAS_GRID_SIZE = 10;
-const ALIGNMENT_THRESHOLD = STORY_CANVAS_GRID_SIZE / 2;
+export const CANVAS_GRID_SIZE = 10;
+const ALIGNMENT_THRESHOLD = CANVAS_GRID_SIZE / 2;
 const VERTICAL_ANCHORS = ["left", "centerX", "right"] as const;
 const HORIZONTAL_ANCHORS = ["top", "centerY", "bottom"] as const;
 type VerticalAnchor = (typeof VERTICAL_ANCHORS)[number];

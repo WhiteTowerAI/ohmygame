@@ -33,7 +33,7 @@ interface ProjectMetadata {
   publication?: PublicationState;
 }
 
-export class ProjectStoryReferenceError extends Error {}
+export class ProjectLibraryReferenceError extends Error {}
 
 export class ProjectWorkspaceError extends Error {}
 
@@ -519,7 +519,7 @@ export class ProjectManager {
             asset.source.kind === "library" && asset.source.assetId === assetId
           ));
         } catch (cause) {
-          throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
         }
       }
       if (referenced) {
@@ -532,7 +532,7 @@ export class ProjectManager {
         try {
           document = await readAssetCanvasCodebase(project.workspacePath);
         } catch (cause) {
-          throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
         }
         if (document.nodes.some((node) => (
           (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||

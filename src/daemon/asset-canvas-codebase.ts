@@ -21,7 +21,7 @@ This workspace is an OhMyGame Asset Canvas. It is not an Interactive Drama runti
 - Read \`schemas/asset-canvas.schema.json\` before editing canvas data.
 - Keep node IDs stable and keep the layout Node IDs exactly synchronized with \`canvas.json\`.
 - Edges describe generation references, not game navigation.
-- Do not add Playable Nodes, Story nodes, runtime surfaces, or a game loop to this workspace.
+- Do not add Playable Nodes, runtime surfaces, or a game loop to this workspace.
 `;
 
 export async function readAssetCanvasCodebase(workspacePath: string): Promise<AssetCanvasDocument> {

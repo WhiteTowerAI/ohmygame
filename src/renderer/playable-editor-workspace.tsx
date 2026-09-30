@@ -62,11 +62,11 @@ import {
 } from "@xyflow/react";
 import {
   findCanvasAlignmentGuides,
-  STORY_CANVAS_GRID_SIZE,
+  CANVAS_GRID_SIZE,
   type CanvasAlignmentGuides,
   type CanvasAlignmentNode,
-} from "./story-canvas-alignment.js";
-import { snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
+} from "./canvas-alignment.js";
+import { snapCanvasPosition } from "./asset-canvas-clipboard.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
@@ -93,7 +93,7 @@ import {
   type PlayableProjectValidationIssue,
   type PlayableThumbnailManifest,
 } from "../shared/playable-editor.js";
-import { storyViewportRatio } from "../shared/story-formats.js";
+import { viewportRatio } from "../shared/canvas-formats.js";
 import {
   addPlayableNode,
   buildInteractiveDrama,
@@ -105,11 +105,11 @@ import {
   listPlayableThumbnails,
   updateNodeCodebase,
 } from "./api.js";
-import { StoryCanvasSettingsDialog } from "./story-canvas-settings-dialog.js";
+import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
-import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
+import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
 import { requestPlaytestStart } from "./playable-playtest.js";
@@ -124,15 +124,13 @@ const PLAYABLE_EDGE_OPTIONS = {
   style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
 };
-const SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
+const SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
 const CARD_STYLE = {
   "--story-media-width": "var(--story-canvas-stage-width, 440px)",
   "--story-media-height": "var(--story-canvas-stage-height, 248px)",
 } as CSSProperties;
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const HISTORY_LIMIT = 50;
-/** Playtest routes still carry a chapter segment; a graph project has one player. */
-const PLAYTEST_CHAPTER_ID = "playable";
 
 type InteractionMode = "pointer" | "pan";
 export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
@@ -181,7 +179,7 @@ const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 /**
  * The editor for a Playable Nodes project: one canvas of Nodes, one edge per
- * Signal. Opened instead of the story editor when the project has a graph.json.
+ * Signal.
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
@@ -578,13 +576,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
   }
 
-  /** Edits an Exit of a Node from its Workbench. */
-  const signalEdits: PlayableSignalEdits = {
-    onSignalLabel: (surfaceId, signalId, label) => { if (codebase) applyGraph(setPlayableSignalLabel(codebase.graph, surfaceId, signalId, label)); },
-    onSignalTarget: (surfaceId, signalId, target, mode) => { if (codebase) applyGraph(setPlayableSignalTarget(codebase.graph, surfaceId, signalId, target, mode)); },
-    onSignalRole: (surfaceId, signalId, navigation) => { if (codebase) applyGraph(setPlayableSignalRole(codebase.graph, surfaceId, signalId, navigation)); },
-    ...(onAskAgent ? { onAskAgent } : {}),
-  };
+  function setSignalTarget(surfaceId: string, signalId: string, target: string | undefined, mode?: PlayableNavigationMode): void {
+    if (codebase) applyGraph(setPlayableSignalTarget(codebase.graph, surfaceId, signalId, target, mode));
+  }
 
   function setEdgeMode(edgeId: string, mode: PlayableNavigationMode): void {
     setEdges((current) => current.map((edge) => edge.id === edgeId
@@ -744,7 +738,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       kind,
       nodeId,
       screenPosition: { x: event.clientX, y: event.clientY },
-      flowPosition: snapStoryCanvasPosition(flowPosition),
+      flowPosition: snapCanvasPosition(flowPosition),
     });
   }
 
@@ -769,7 +763,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const added = await addPlayableNode(projectId, {
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
-        position: snapStoryCanvasPosition(position),
+        position: snapCanvasPosition(position),
       });
       applyCodebase(await getNodeCodebase(projectId), { fromDisk: true });
       setSelectedId(added.id);
@@ -805,7 +799,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const source = nodeSourcePaths(id);
       const nextNodes = [
         ...nodes.map((node) => node.selected ? { ...node, selected: false } : node),
-        createFlowNode({ ...structuredClone(copy.node), id, source }, snapStoryCanvasPosition(position)),
+        createFlowNode({ ...structuredClone(copy.node), id, source }, snapCanvasPosition(position)),
       ];
       const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, workspaceView);
       queuedCodebase.current = JSON.stringify(next);
@@ -851,9 +845,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       await save(codebase);
       if (start) requestPlaytestStart(projectId, start);
       if (window.ohMyGameDesktop) {
-        await window.ohMyGameDesktop.openPlaytest(projectId, PLAYTEST_CHAPTER_ID, codebase.graph.viewport);
+        await window.ohMyGameDesktop.openPlaytest(projectId, codebase.graph.viewport);
       } else {
-        window.open(new URL(playtestHash(projectId, PLAYTEST_CHAPTER_ID), window.location.href).href, "ohmygame-playtest");
+        window.open(new URL(playtestHash(projectId), window.location.href).href, "ohmygame-playtest");
       }
     } catch (cause) {
       setNotice(errorMessage(cause));
@@ -950,7 +944,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <div className="interactive-drama-project-tools">
           <PlayableProjectMenu
             disabled={phase !== "ready"}
-            screenSize={storyViewportRatio(playerViewport)}
+            screenSize={viewportRatio(playerViewport)}
             exporting={building}
             canExport={!agentBusy && !publishing && !building}
             technical={technical}
@@ -989,7 +983,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
         <div className="interactive-drama-canvas" ref={canvas}>
-          {phase === "loading" ? <div className="story-canvas-state">Loading graph...</div> : null}
+          {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
@@ -1059,7 +1053,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             edge={selectedEdge}
             graph={codebase.graph}
             onChangeMode={(mode) => setEdgeMode(selectedEdge.id, mode)}
-            onChangeNavigation={(navigation) => { if (selectedEdge.sourceHandle) signalEdits.onSignalRole(selectedEdge.source, selectedEdge.sourceHandle, navigation); }}
+            onChangeNavigation={(navigation) => { if (selectedEdge.sourceHandle) if (codebase) applyGraph(setPlayableSignalRole(codebase.graph, selectedEdge.source, selectedEdge.sourceHandle, navigation)); }}
             onDelete={() => { setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setSelectedEdgeId(undefined); }}
             onClose={() => setSelectedEdgeId(undefined)}
           /> : null}
@@ -1101,7 +1095,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setOpenedNodeId(undefined)}
         onOpenNode={openNode}
         onRename={(title) => renameNode(openedNode.id, title)}
-        onSignalTarget={signalEdits.onSignalTarget}
+        onSignalTarget={setSignalTarget}
         {...(onAskAgent ? { onAskAgent } : {})}
         {...(onSendToAgent ? { onSendToAgent } : {})}
         onWriteText={writeText}
@@ -1121,7 +1115,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         descriptions={graphMeta.variables}
         onClose={() => setVariablesOpen(false)}
       /> : null}
-      {canvasSettingsOpen ? <StoryCanvasSettingsDialog
+      {canvasSettingsOpen ? <CanvasSettingsDialog
         viewport={playerViewport}
         hasContent={nodes.length > 0}
         onClose={() => setCanvasSettingsOpen(false)}

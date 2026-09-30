@@ -78,7 +78,7 @@ declare global {
       captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }) => Promise<boolean>;
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
       finishNodeThumbnail?: (captured: boolean) => Promise<void>;
-      openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
+      openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */

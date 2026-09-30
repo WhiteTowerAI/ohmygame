@@ -223,20 +223,10 @@ export interface AssetCanvasDocument {
   edges: AssetCanvasEdge[];
 }
 
-export interface StoryPlayerConfig {
-  title: string;
-  /** Logical pixel dimensions shared by every runtime player surface. */
-  viewport: {
-    width: number;
-    height: number;
-  };
-  theme: {
-    accentColor: string;
-    textColor: string;
-    font: "sans" | "serif";
-  };
-  videoFit: "contain" | "cover";
-  choicePosition: "center" | "bottom";
+/** Logical pixel size of a game screen. */
+export interface Viewport {
+  width: number;
+  height: number;
 }
 
 export interface ConversationSummary {
@@ -496,7 +486,7 @@ export interface CreateProjectRequest {
   name?: string;
   type?: ProjectType;
   templateId?: "night-train";
-  storyViewport?: StoryPlayerConfig["viewport"];
+  viewport?: Viewport;
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
 }

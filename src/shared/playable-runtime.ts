@@ -921,26 +921,6 @@ export class MemoryPlayableSaveStore implements PlayableSaveStore {
   }
 }
 
-export function localStoragePlayableSaveStore(
-  storage: Storage,
-  key: string,
-): PlayableSaveStore {
-  return {
-    async load() {
-      const value = storage.getItem(key);
-      if (value === null) return undefined;
-      try {
-        return JSON.parse(value) as unknown;
-      } catch {
-        return undefined;
-      }
-    },
-    async save(save) {
-      storage.setItem(key, JSON.stringify(save));
-    },
-  };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

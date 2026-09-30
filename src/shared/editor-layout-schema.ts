@@ -1,4 +1,4 @@
-/** JSON Schema for the persisted editor/layout.json file. Story/layout ID correspondence remains a runtime validation. */
+/** JSON Schema for the persisted editor/layout.json file. Graph/layout ID correspondence is checked at runtime. */
 export const EDITOR_LAYOUT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",

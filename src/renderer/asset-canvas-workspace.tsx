@@ -68,8 +68,8 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
 } from "@xyflow/react";
-import { findCanvasAlignmentGuides, STORY_CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./asset-canvas-alignment.js";
-import { duplicateAssetCanvasNode, snapAssetCanvasPosition } from "./asset-canvas-clipboard.js";
+import { findCanvasAlignmentGuides, CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./canvas-alignment.js";
+import { duplicateAssetCanvasNode, snapCanvasPosition } from "./asset-canvas-clipboard.js";
 import {
   type AssetCanvasDocument,
   type AssetCanvasEditorLayout,
@@ -107,8 +107,8 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { ModelPreview } from "./model-preview.js";
-import { storyViewportRatio } from "../shared/story-formats.js";
-import { AssetCanvasSettingsDialog } from "./asset-canvas-settings-dialog.js";
+import { viewportRatio } from "../shared/canvas-formats.js";
+import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
@@ -123,7 +123,7 @@ const STORY_EDGE_OPTIONS = {
 };
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
-const STORY_CANVAS_SNAP_GRID: [number, number] = [STORY_CANVAS_GRID_SIZE, STORY_CANVAS_GRID_SIZE];
+const STORY_CANVAS_SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
 const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
 const MEDIA_NODE_MAX_WIDTH = 440;
@@ -754,7 +754,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     const source = nodes.find((node) => node.id === nodeId);
     if (!source) return;
     const canonical = toAssetCanvasNode(source);
-    insertNodeCopy(canonical, { x: source.position.x + STORY_CANVAS_GRID_SIZE * 2, y: source.position.y + STORY_CANVAS_GRID_SIZE * 2 });
+    insertNodeCopy(canonical, { x: source.position.x + CANVAS_GRID_SIZE * 2, y: source.position.y + CANVAS_GRID_SIZE * 2 });
   }
 
   function removeCanvasNodes(requestedIds: ReadonlySet<string>): void {
@@ -777,7 +777,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       kind,
       nodeId,
       screenPosition: { x: event.clientX, y: event.clientY },
-      flowPosition: snapAssetCanvasPosition(flowPosition),
+      flowPosition: snapCanvasPosition(flowPosition),
     });
   }
 
@@ -1122,7 +1122,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
           {chatOnRight && onHome ? (
             <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
-          <button type="button" title="Canvas format" onClick={() => setCanvasSettingsOpen(true)}><Monitor size={14} /><span>{storyViewportRatio(playerViewport)}</span></button>
+          <button type="button" title="Canvas format" onClick={() => setCanvasSettingsOpen(true)}><Monitor size={14} /><span>{viewportRatio(playerViewport)}</span></button>
         </div>
         <div className="interactive-drama-header-actions">
           {chatOnRight && chatCollapsed && onToggleChat ? (
@@ -1247,7 +1247,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
         </div>
       </div>
-      {canvasSettingsOpen ? <AssetCanvasSettingsDialog viewport={viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={setViewport} /> : null}
+      {canvasSettingsOpen ? <CanvasSettingsDialog viewport={viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={setViewport} /> : null}
     </section>
   );
 }

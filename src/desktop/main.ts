@@ -177,9 +177,9 @@ handle("ohmygame:set-agent-playtest-visible", (event, visible: unknown): Playtes
   }
   return agentPlaytests.setVisible(visible);
 });
-handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown, viewport: unknown) => {
+handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
-  if (!validRouteId(projectId) || !validRouteId(chapterId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
+  if (!validRouteId(projectId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
   const size = fitPlaytestContentSize(viewport);
   const aspectRatio = viewport.width / viewport.height;
   const current = playtestWindows.get(projectId);
@@ -198,7 +198,7 @@ handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: un
     preloadPath: path.join(moduleDirectory, "preload.cjs"),
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
-    rendererHash: `#/playtest/${encodeURIComponent(projectId)}/${encodeURIComponent(chapterId)}`,
+    rendererHash: `#/playtest/${encodeURIComponent(projectId)}`,
     contentSize: size,
     aspectRatio,
     minWidth: Math.max(1, Math.round(size.width / 2)),

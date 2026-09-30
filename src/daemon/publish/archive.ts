@@ -98,17 +98,15 @@ async function publishStartupDirectory(project: ProjectState): Promise<string> {
 }
 
 async function prepareInteractiveDrama(project: ProjectState, library?: AssetLibrary, playerDirectory?: string): Promise<string> {
-  if (!library || !playerDirectory || !await exists(path.join(playerDirectory, "index.html"))) {
-    throw new PublishError("Interactive Drama Player is not built. Run npm run build:player first.");
-  }
+  if (!library || !playerDirectory) throw new PublishError("The Published Player is not available.");
+  await assertNodePlayerBuilt(playerDirectory);
   let playable: NodePlayerDefinition | undefined;
   try {
     playable = await buildPlayableProject(project.workspacePath, "publish");
   } catch (cause) {
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
-  if (!playable) throw new PublishError("Interactive Drama graph.json is missing");
-  await assertNodePlayerBuilt(playerDirectory);
+  if (!playable) throw new PublishError("This project has no graph.json.");
   return preparePlayableProject(project, playable, library, playerDirectory);
 }
 

@@ -1,8 +1,8 @@
-import type { StoryPlayerConfig } from "./contracts.js";
+import type { Viewport } from "./contracts.js";
 
-export type StoryViewport = StoryPlayerConfig["viewport"];
+export type { Viewport };
 
-export const STORY_FORMAT_PRESETS = [
+export const CANVAS_FORMAT_PRESETS = [
   {
     id: "landscape",
     label: "Landscape",
@@ -25,31 +25,31 @@ export const STORY_FORMAT_PRESETS = [
   id: string;
   label: string;
   ratio: string;
-  viewport: StoryViewport;
+  viewport: Viewport;
 }[];
 
-export type StoryFormatPresetId = (typeof STORY_FORMAT_PRESETS)[number]["id"];
+export type CanvasFormatPresetId = (typeof CANVAS_FORMAT_PRESETS)[number]["id"];
 
-export function storyFormatPreset(id: StoryFormatPresetId) {
-  return STORY_FORMAT_PRESETS.find((preset) => preset.id === id)!;
+export function canvasFormatPreset(id: CanvasFormatPresetId) {
+  return CANVAS_FORMAT_PRESETS.find((preset) => preset.id === id)!;
 }
 
-export function storyFormatForViewport(viewport: StoryViewport) {
-  return STORY_FORMAT_PRESETS.find(
+export function canvasFormatForViewport(viewport: Viewport) {
+  return CANVAS_FORMAT_PRESETS.find(
     (preset) =>
       preset.viewport.width === viewport.width &&
       preset.viewport.height === viewport.height,
   );
 }
 
-export function storyViewportRatio(viewport: StoryViewport): string {
+export function viewportRatio(viewport: Viewport): string {
   const divisor = greatestCommonDivisor(viewport.width, viewport.height);
   return `${viewport.width / divisor}:${viewport.height / divisor}`;
 }
 
-export function storyFormatSummary(viewport: StoryViewport): string {
-  const preset = storyFormatForViewport(viewport);
-  return `${preset?.label ?? "Custom"} ${storyViewportRatio(viewport)} · ${viewport.width} x ${viewport.height}`;
+export function canvasFormatSummary(viewport: Viewport): string {
+  const preset = canvasFormatForViewport(viewport);
+  return `${preset?.label ?? "Custom"} ${viewportRatio(viewport)} · ${viewport.width} x ${viewport.height}`;
 }
 
 function greatestCommonDivisor(left: number, right: number): number {

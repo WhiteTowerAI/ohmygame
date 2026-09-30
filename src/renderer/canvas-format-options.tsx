@@ -1,16 +1,16 @@
 import {
-  STORY_FORMAT_PRESETS,
-  type StoryFormatPresetId,
-} from "../shared/story-formats.js";
+  CANVAS_FORMAT_PRESETS,
+  type CanvasFormatPresetId,
+} from "../shared/canvas-formats.js";
 
-export function StoryFormatOptions({
+export function CanvasFormatOptions({
   value,
   disabled = false,
   onChange,
 }: {
-  value?: StoryFormatPresetId;
+  value?: CanvasFormatPresetId;
   disabled?: boolean;
-  onChange: (value: StoryFormatPresetId) => void;
+  onChange: (value: CanvasFormatPresetId) => void;
 }) {
   return (
     <div
@@ -18,7 +18,7 @@ export function StoryFormatOptions({
       role="radiogroup"
       aria-label="Canvas format"
     >
-      {STORY_FORMAT_PRESETS.map((preset) => (
+      {CANVAS_FORMAT_PRESETS.map((preset) => (
         <button
           className={preset.id === value ? "is-active" : undefined}
           type="button"

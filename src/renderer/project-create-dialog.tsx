@@ -4,8 +4,8 @@ import type { CreateProjectRequest, ProjectState, ProjectType } from "../shared/
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { createProject } from "./api.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
-import { storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
-import { StoryFormatOptions } from "./story-format-options.js";
+import { canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
+import { CanvasFormatOptions } from "./canvas-format-options.js";
 
 export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
   initialType?: ProjectType;
@@ -24,7 +24,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const [workspacePath, setWorkspacePath] = useState<string>();
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [templateId, setTemplateId] = useState<CreateProjectRequest["templateId"]>();
-  const [storyFormat, setStoryFormat] = useState<StoryFormatPresetId>("landscape");
+  const [canvasFormat, setCanvasFormat] = useState<CanvasFormatPresetId>("landscape");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   creatingRef.current = creating;
@@ -65,7 +65,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
         name: name.trim() || (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type)),
         type,
         ...(type === "interactive-drama" && templateId ? { templateId } : {}),
-        ...(type === "interactive-drama" && !templateId ? { storyViewport: storyFormatPreset(storyFormat).viewport } : {}),
+        ...(type === "interactive-drama" && !templateId ? { viewport: canvasFormatPreset(canvasFormat).viewport } : {}),
         ...(workspacePath ? { workspacePath } : {}),
       });
       onCreated(project);
@@ -152,7 +152,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
               </fieldset>
               {!templateId ? <fieldset className="project-create-format">
                 <legend>Canvas format</legend>
-                <StoryFormatOptions value={storyFormat} disabled={creating} onChange={setStoryFormat} />
+                <CanvasFormatOptions value={canvasFormat} disabled={creating} onChange={setCanvasFormat} />
               </fieldset> : null}
             </>
           ) : null}

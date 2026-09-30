@@ -4,7 +4,7 @@ import { createAssetCanvasStarterDocument, validateAssetCanvasDocument } from ".
 import { recentAssetCanvasProjects } from "../src/renderer/asset-canvas-home.js";
 
 describe("Asset Canvas home", () => {
-  it("creates a valid one-node story for every quick start", () => {
+  it("creates a valid one-node canvas for every quick start", () => {
     for (const type of ["image", "video", "model-3d"] as const) {
       const imageModel = type === "image" ? { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } : undefined;
       const { document, nodeId } = createAssetCanvasStarterDocument(type, imageModel);

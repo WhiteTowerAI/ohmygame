@@ -30,9 +30,6 @@ export interface PlayablePresetSummary {
   label: string;
   /** One line for the author. */
   summary: string;
-  /** Instructions for the Agent; not shown to the author. */
-  brief: string;
-  signals: string[];
 }
 
 export interface PlayableAddedNode {

@@ -5733,21 +5733,12 @@ button {
   overflow: hidden;
   background: var(--canvas);
 }
-.story-node-workbench.has-timeline {
-  grid-template-rows: minmax(0, 1fr) 216px;
-}
 .story-node-workbench-stage {
   position: relative;
   display: grid;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-}
-.story-node-workbench.has-inspector .story-node-workbench-stage {
-  grid-template-columns: minmax(0, 1fr) 5px var(
-      --story-workbench-inspector-width,
-      340px
-    );
 }
 .story-node-workbench-preview {
   min-width: 0;
@@ -5756,10 +5747,6 @@ button {
 .story-node-workbench-preview > * {
   width: 100%;
   height: 100%;
-}
-.story-node-workbench.is-resizing-inspector {
-  cursor: col-resize;
-  user-select: none;
 }
 .story-workbench-preview {
   position: relative;
@@ -5817,10 +5804,6 @@ button {
   padding: 0 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-}
-
-.interactive-drama-header.has-inspector {
-  padding-right: calc(var(--story-inspector-width, 420px) + 12px);
 }
 
 .interactive-drama-workspace-switch {
@@ -5959,15 +5942,6 @@ button {
   min-width: 0;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
-}
-
-.interactive-drama-body.has-inspector {
-  grid-template-columns: minmax(0, 1fr) var(--story-inspector-width, 420px);
-}
-
-.interactive-drama-body.is-resizing-inspector {
-  cursor: col-resize;
-  user-select: none;
 }
 
 .interactive-drama-canvas .react-flow {
@@ -6843,68 +6817,10 @@ button {
   min-height: 27px;
 }
 
-.story-inspector {
-  position: relative;
-  z-index: 5;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  margin-top: -50px;
-  height: calc(100% + 50px);
-}
-
-.story-inspector > header {
-  display: flex;
-  min-height: 58px;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 12px 10px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.story-inspector > header div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.story-inspector > header span,
 .story-inspector-field > span {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
-}
-
-.story-inspector > header strong {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.story-inspector > header button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.story-inspector > header button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
 }
 
 .story-inspector-field {
@@ -7123,30 +7039,6 @@ button {
   .story-video-picker {
     max-height: calc(100dvh - 16px);
   }
-}
-.story-inspector > footer {
-  padding: 12px 14px;
-  border-top: 1px solid var(--border);
-}
-
-.story-inspector > footer button {
-  display: flex;
-  width: 100%;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.story-inspector > footer button:hover {
-  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
-  color: var(--danger);
 }
 
 .story-canvas-pointer .react-flow__pane {
@@ -7448,10 +7340,6 @@ button {
 
   .interactive-drama-action span {
     display: none;
-  }
-
-  .interactive-drama-body.has-inspector {
-    grid-template-columns: minmax(0, 1fr) min(360px, 46cqw);
   }
 }
 
@@ -13678,17 +13566,6 @@ button {
 .interactive-drama-project-tools > button:disabled {
   cursor: default;
   opacity: 0.5;
-}
-.playable-workbench-sample {
-  cursor: default;
-}
-.playable-workbench-sample select {
-  max-width: 120px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 10px;
 }
 
 /* Over the Playtest game: Replay on hover, and a note when something breaks. Always dark. */

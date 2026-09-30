@@ -1,32 +1,32 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { StoryViewport } from "../shared/story-formats.js";
+import type { Viewport } from "../shared/canvas-formats.js";
 import {
-  storyFormatForViewport,
-  storyFormatPreset,
-  storyFormatSummary,
-  type StoryFormatPresetId,
-} from "../shared/story-formats.js";
+  canvasFormatForViewport,
+  canvasFormatPreset,
+  canvasFormatSummary,
+  type CanvasFormatPresetId,
+} from "../shared/canvas-formats.js";
 import { X } from "./icons.js";
-import { AssetCanvasFormatOptions } from "./asset-canvas-format-options.js";
+import { CanvasFormatOptions } from "./canvas-format-options.js";
 
-export function AssetCanvasSettingsDialog({
+export function CanvasSettingsDialog({
   viewport,
   hasContent,
   onClose,
   onChange,
 }: {
-  viewport: StoryViewport;
+  viewport: Viewport;
   hasContent: boolean;
   onClose: () => void;
-  onChange: (viewport: StoryViewport) => void;
+  onChange: (viewport: Viewport) => void;
 }) {
   const titleId = useId();
   const dialog = useRef<HTMLElement>(null);
-  const [selection, setSelection] = useState<StoryFormatPresetId | undefined>(
-    () => storyFormatForViewport(viewport)?.id,
+  const [selection, setSelection] = useState<CanvasFormatPresetId | undefined>(
+    () => canvasFormatForViewport(viewport)?.id,
   );
   const selectedViewport = selection
-    ? storyFormatPreset(selection).viewport
+    ? canvasFormatPreset(selection).viewport
     : viewport;
   const changed =
     selectedViewport.width !== viewport.width ||
@@ -78,14 +78,14 @@ export function AssetCanvasSettingsDialog({
         <header>
           <div>
             <h2 id={titleId}>Canvas format</h2>
-            <p>{storyFormatSummary(viewport)}</p>
+            <p>{canvasFormatSummary(viewport)}</p>
           </div>
           <button type="button" aria-label="Close" onClick={onClose}>
             <X size={16} />
           </button>
         </header>
         <div className="story-canvas-settings-content">
-          <AssetCanvasFormatOptions value={selection} onChange={setSelection} />
+          <CanvasFormatOptions value={selection} onChange={setSelection} />
           {changed && hasContent ? (
             <p className="story-format-warning">
               Existing UI and media are not reframed automatically. Review every
