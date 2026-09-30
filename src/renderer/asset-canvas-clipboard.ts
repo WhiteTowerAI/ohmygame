@@ -1,12 +1,5 @@
 import type { AssetCanvasNode } from "../shared/contracts.js";
-import { CANVAS_GRID_SIZE } from "./canvas-alignment.js";
-
-export function snapCanvasPosition(position: { x: number; y: number }): { x: number; y: number } {
-  return {
-    x: Math.round(position.x / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
-    y: Math.round(position.y / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
-  };
-}
+import { snapCanvasPosition } from "./canvas-alignment.js";
 
 export function duplicateAssetCanvasNode(
   node: AssetCanvasNode,

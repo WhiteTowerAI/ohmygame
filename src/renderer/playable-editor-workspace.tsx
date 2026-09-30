@@ -7,15 +7,12 @@ import {
   Copy,
   Download,
   Flag,
-  Hand,
   House,
   InfoCircle,
   LoaderCircle,
   Maximize,
   Box,
-  Minus,
   Monitor,
-  MousePointer2,
   PanelToggle,
   Play,
   Plus,
@@ -39,18 +36,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  Background,
-  BackgroundVariant,
   Handle,
-  MarkerType,
-  Panel,
   Position,
-  ReactFlow,
-  ViewportPortal,
   applyEdgeChanges,
   applyNodeChanges,
-  useReactFlow,
-  useViewport,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -58,15 +47,9 @@ import {
   type NodeChange,
   type NodeProps,
   type NodeTypes,
-  type ReactFlowInstance,
 } from "@xyflow/react";
-import {
-  findCanvasAlignmentGuides,
-  CANVAS_GRID_SIZE,
-  type CanvasAlignmentGuides,
-  type CanvasAlignmentNode,
-} from "./canvas-alignment.js";
-import { snapCanvasPosition } from "./asset-canvas-clipboard.js";
+import { snapCanvasPosition } from "./canvas-alignment.js";
+import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
@@ -117,14 +100,6 @@ import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js"
 import type { PlayableChatState } from "./playable-chat.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 2;
-const EDGE_COLOR = "var(--story-edge-color)";
-const PLAYABLE_EDGE_OPTIONS = {
-  style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
-  markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
-};
-const SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
 const CARD_STYLE = {
   "--story-media-width": "var(--story-canvas-stage-width, 440px)",
   "--story-media-height": "var(--story-canvas-stage-height, 248px)",
@@ -132,7 +107,6 @@ const CARD_STYLE = {
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const HISTORY_LIMIT = 50;
 
-type InteractionMode = "pointer" | "pan";
 export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
 /** Object type, not an interface, so React Flow accepts it as node data. */
 export type PlayableFlowData = {
@@ -150,12 +124,6 @@ export type PlayableFlowData = {
   coverAsset?: PlayableAssetDefinition;
 };
 export type PlayableFlowNode = Node<PlayableFlowData, "playable">;
-type CanvasContextMenuState = {
-  kind: "pane" | "node";
-  nodeId?: string;
-  screenPosition: { x: number; y: number };
-  flowPosition: { x: number; y: number };
-};
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
 interface HistoryEntry {
   codebase: NodeCodebase;
@@ -220,8 +188,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
-  const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
@@ -234,8 +200,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
-  const canvas = useRef<HTMLDivElement>(null);
-  const reactFlow = useRef<ReactFlowInstance<PlayableFlowNode>>(null);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
@@ -513,12 +477,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     if (workspaceView === "code") return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      const undo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
-      const redo = (event.metaKey || event.ctrlKey) && ((event.shiftKey && key === "z") || (!event.metaKey && key === "y"));
-      if (event.altKey || (!undo && !redo) || isTextEntry(event.target)) return;
+      const step = undoShortcut(event);
+      if (!step || isTextEntry(event.target)) return;
       event.preventDefault();
-      void (redo ? redoEditorChange() : undoEditorChange())?.catch(() => {});
+      void (step === "redo" ? redoEditorChange() : undoEditorChange())?.catch(() => {});
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -728,18 +690,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
     setSelectedId((current) => current && removed.has(current) ? undefined : current);
     setSelectedEdgeId(undefined);
-  }
-
-  function openCanvasContextMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
-    event.preventDefault();
-    const flowPosition = reactFlow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    if (!flowPosition) return;
-    setCanvasContextMenu({
-      kind,
-      nodeId,
-      screenPosition: { x: event.clientX, y: event.clientY },
-      flowPosition: snapCanvasPosition(flowPosition),
-    });
   }
 
   function clearSelection(): void {
@@ -982,39 +932,25 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas" ref={canvas}>
+        <div className="interactive-drama-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
-              <ReactFlow<PlayableFlowNode>
-                className={`story-canvas story-canvas-${interactionMode}`}
+              <EditorCanvas<PlayableFlowNode>
                 nodes={renderedNodes}
                 edges={renderedEdges}
                 nodeTypes={PLAYABLE_NODE_TYPES}
-                onInit={(instance) => { reactFlow.current = instance; }}
-                defaultEdgeOptions={PLAYABLE_EDGE_OPTIONS}
-                connectionLineStyle={PLAYABLE_EDGE_OPTIONS.style}
-                minZoom={MIN_ZOOM}
-                maxZoom={MAX_ZOOM}
-                snapToGrid
-                snapGrid={SNAP_GRID}
-                nodesDraggable={interactionMode === "pointer"}
-                elementsSelectable={interactionMode === "pointer"}
-                selectionOnDrag={interactionMode === "pointer"}
-                panOnDrag={interactionMode === "pan" ? true : [1, 2]}
-                panOnScroll
-                zoomOnScroll={false}
-                zoomOnPinch
-                zoomOnDoubleClick={false}
+                addControl={<PlayableAddControl
+                  presets={presets}
+                  busy={writing}
+                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
+                />}
+                onOpenMenu={setCanvasContextMenu}
                 deleteKeyCode={openedNode ? null : ["Backspace", "Delete"]}
                 onNodesChange={onNodesChange}
-                onNodeDragStart={() => { setCanvasContextMenu(undefined); setAlignmentGuides(undefined); beginHistoryGesture(); }}
-                onNodeDrag={(_event, node) => {
-                  const [active, ...candidates] = alignmentNodesFromDom([node, ...renderedNodes]);
-                  setAlignmentGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
-                }}
-                onNodeDragStop={() => { setAlignmentGuides(undefined); finishHistoryGesture(); }}
+                onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
+                onNodeDragStop={finishHistoryGesture}
                 onMoveStart={() => setCanvasContextMenu(undefined)}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
@@ -1023,30 +959,15 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onNodeClick={(_event, node) => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); setSelectedId(node.id); }}
                 onNodeDoubleClick={(_event, node) => openNode(node.id)}
                 onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
-                onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
-                onNodeContextMenu={(event, node) => {
+                onNodeContextMenu={(_event, node) => {
                   setSelectedEdgeId(undefined);
                   setSelectedId(node.id);
                   setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
-                  openCanvasContextMenu(event, "node", node.id);
                 }}
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
                 isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
-                proOptions={{ hideAttribution: true }}
                 defaultViewport={editorLayout.viewport}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
-                <PlayableAlignmentGuides guides={alignmentGuides} />
-                <ZoomControls />
-                <PlayableCanvasToolbar
-                  mode={interactionMode}
-                  canvas={canvas}
-                  presets={presets}
-                  busy={writing}
-                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
-                  onModeChange={setInteractionMode}
-                />
-              </ReactFlow>
+              />
             </PlayableCanvasContext.Provider>
           ) : null}
           {selectedEdge && phase === "ready" && codebase ? <PlayableEdgeInspector
@@ -1399,56 +1320,30 @@ function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, techn
   </>;
 }
 
-function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChange }: {
-  mode: InteractionMode;
-  canvas: React.RefObject<HTMLDivElement | null>;
+function PlayableAddControl({ presets, busy, onAdd }: {
   presets: readonly PlayablePresetSummary[];
   busy: boolean;
   onAdd: (presetId: string, position: { x: number; y: number }) => void;
-  onModeChange: (mode: InteractionMode) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
-  const { fitView, getNodes, screenToFlowPosition, setViewport } = useReactFlow();
+  const canvasCenter = useCanvasCenter();
   const closeAdd = useCallback(() => setAddOpen(false), []);
 
-  async function fitCanvas(): Promise<void> {
-    if (getNodes().length === 0) {
-      await setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
-      return;
-    }
-    await fitView({ padding: 0.2, duration: 200 });
-  }
-
-  function placementPosition(): { x: number; y: number } | undefined {
-    const bounds = canvas.current?.getBoundingClientRect();
-    if (!bounds) return undefined;
-    return screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 });
-  }
-
-  return (
-    <Panel className="story-canvas-toolbar" position="bottom-center">
-      <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
-        {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
-      </button>
-      {addOpen ? createPortal(<PlayableTemplateDialog
-        presets={presets}
-        busy={busy}
-        onClose={closeAdd}
-        onChoose={(presetId) => {
-          const position = placementPosition();
-          if (position) onAdd(presetId, position);
-          setAddOpen(false);
-        }}
-      />, document.body) : null}
-      <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => onModeChange("pointer")}>
-        <MousePointer2 size={18} />
-      </button>
-      <button className={mode === "pan" ? "is-active" : undefined} type="button" title="Pan canvas" aria-label="Pan canvas" aria-pressed={mode === "pan"} onClick={() => onModeChange("pan")}>
-        <Hand size={18} />
-      </button>
-      <button type="button" title="Fit view" aria-label="Fit view" onClick={() => void fitCanvas()}><Maximize size={18} /></button>
-    </Panel>
-  );
+  return <>
+    <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
+      {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
+    </button>
+    {addOpen ? createPortal(<PlayableTemplateDialog
+      presets={presets}
+      busy={busy}
+      onClose={closeAdd}
+      onChoose={(presetId) => {
+        const position = canvasCenter();
+        if (position) onAdd(presetId, position);
+        setAddOpen(false);
+      }}
+    />, document.body) : null}
+  </>;
 }
 
 function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
@@ -1470,49 +1365,11 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
   onSetEntry: () => void;
   onDelete: () => void;
 }) {
-  const root = useRef<HTMLDivElement>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [position, setPosition] = useState(menu.screenPosition);
-  const opensLeft = menu.screenPosition.x > window.innerWidth - 600;
-  const opensUp = menu.screenPosition.y > window.innerHeight / 2;
-
-  useLayoutEffect(() => {
-    const bounds = root.current?.getBoundingClientRect();
-    if (!bounds) return;
-    setPosition({
-      x: Math.max(6, Math.min(menu.screenPosition.x, window.innerWidth - bounds.width - 6)),
-      y: Math.max(6, Math.min(menu.screenPosition.y, window.innerHeight - bounds.height - 6)),
-    });
-    root.current?.focus();
-  }, [menu.screenPosition.x, menu.screenPosition.y]);
-
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as globalThis.Node)) onClose();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose]);
-
   const run = (action: () => unknown) => { action(); onClose(); };
 
-  return createPortal(
-    <div
-      ref={root}
-      className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
-      role="menu"
-      aria-label={menu.kind === "pane" ? "Canvas actions" : "Scene actions"}
-      tabIndex={-1}
-      style={{ left: position.x, top: position.y }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
+  return (
+    <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? "Canvas actions" : "Scene actions"} onClose={onClose}>
       {menu.kind === "pane" ? <>
         <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>Undo</span></button>
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
@@ -1539,74 +1396,7 @@ function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, 
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Start Scene" : "Set as Start"}</span></button>
         <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
       </>}
-    </div>,
-    document.body,
-  );
-}
-
-function PlayableAlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
-  const { zoom } = useViewport();
-  if (!guides) return null;
-  const lineWidth = 1 / zoom;
-  return <ViewportPortal>
-    {guides.vertical.map((guide) => <div
-      key={`vertical:${guide.x}`}
-      className="story-canvas-alignment-guide is-vertical"
-      data-axis="vertical"
-      style={{ left: guide.x - lineWidth / 2, top: guide.from, width: lineWidth, height: guide.to - guide.from }}
-    />)}
-    {guides.horizontal.map((guide) => <div
-      key={`horizontal:${guide.y}`}
-      className="story-canvas-alignment-guide is-horizontal"
-      data-axis="horizontal"
-      style={{ left: guide.from, top: guide.y - lineWidth / 2, width: guide.to - guide.from, height: lineWidth }}
-    />)}
-  </ViewportPortal>;
-}
-
-function alignmentNodesFromDom<T extends { id: string; position: { x: number; y: number } }>(nodes: readonly T[]): CanvasAlignmentNode[] {
-  const zoom = canvasViewportZoom();
-  const roots = new Map([...document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")]
-    .map((element) => [element.dataset.id!, element] as const));
-  return nodes.map((node) => {
-    const root = roots.get(node.id);
-    const frame = root?.querySelector<HTMLElement>("[data-alignment-frame]");
-    if (!root || !frame) return node;
-    const rootRect = root.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    return {
-      ...node,
-      alignmentFrame: {
-        x: node.position.x + (frameRect.left - rootRect.left) / zoom,
-        y: node.position.y + (frameRect.top - rootRect.top) / zoom,
-        width: frameRect.width / zoom,
-        height: frameRect.height / zoom,
-      },
-    };
-  });
-}
-
-function canvasViewportZoom(): number {
-  const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
-  const transform = viewport ? getComputedStyle(viewport).transform : "none";
-  if (transform === "none") return 1;
-  try {
-    const zoom = new DOMMatrixReadOnly(transform).a;
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function ZoomControls() {
-  const { zoomIn, zoomOut, zoomTo } = useReactFlow();
-  const { zoom } = useViewport();
-  return (
-    <Panel className="story-canvas-zoom" position="bottom-left">
-      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title="Reset zoom" onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </Panel>
+    </CanvasContextMenu>
   );
 }
 
@@ -1699,11 +1489,6 @@ export function nodeIdForIssuePath(path: string, nodes: readonly PlayableFlowNod
     || path === node.data.node.source.css
     || path === node.data.node.source.javascript
     || path.startsWith(`nodes/${node.id}/`))?.id;
-}
-
-function isTextEntry(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.isContentEditable || target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));
 }
 
 function errorMessage(error: unknown): string {

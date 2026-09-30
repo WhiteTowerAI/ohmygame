@@ -16,15 +16,11 @@ import {
   Image as ImageIcon,
   GitBranch,
   GripVertical,
-  Hand,
   House,
   LoaderCircle,
   Layers3,
-  Maximize,
-  Minus,
   Monitor,
   Music2,
-  MousePointer2,
   Pause,
   PanelToggle,
   Play,
@@ -44,21 +40,13 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import {
-  Background,
-  BackgroundVariant,
   Handle,
-  MarkerType,
-  Panel,
   Position,
-  ReactFlow,
-  ViewportPortal,
   applyEdgeChanges,
   applyNodeChanges,
-  useReactFlow,
-  useViewport,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -66,10 +54,10 @@ import {
   type NodeChange,
   type NodeProps,
   type NodeTypes,
-  type ReactFlowInstance,
 } from "@xyflow/react";
-import { findCanvasAlignmentGuides, CANVAS_GRID_SIZE, type CanvasAlignmentGuides, type CanvasAlignmentNode } from "./canvas-alignment.js";
-import { duplicateAssetCanvasNode, snapCanvasPosition } from "./asset-canvas-clipboard.js";
+import { CANVAS_GRID_SIZE } from "./canvas-alignment.js";
+import { duplicateAssetCanvasNode } from "./asset-canvas-clipboard.js";
+import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
   type AssetCanvasDocument,
   type AssetCanvasEditorLayout,
@@ -112,18 +100,8 @@ import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 2;
-const STORY_EDGE_COLOR = "var(--story-edge-color)";
-const STORY_EDGE_WIDTH = 1.5;
-
-const STORY_EDGE_OPTIONS = {
-  style: { stroke: STORY_EDGE_COLOR, strokeWidth: STORY_EDGE_WIDTH },
-  markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: STORY_EDGE_COLOR },
-};
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
-const STORY_CANVAS_SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
 const STORY_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,.mov,.mp3,.wav";
 const STORY_VISUAL_ASSET_ACCEPT = "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mov";
 const MEDIA_NODE_MAX_WIDTH = 440;
@@ -135,7 +113,6 @@ const STORY_CANVAS_MEDIA_STYLE = {
   "--story-media-width": "var(--story-canvas-stage-width, 440px)",
   "--story-media-height": "var(--story-canvas-stage-height, 248px)",
 } as CSSProperties;
-type InteractionMode = "pointer" | "pan";
 type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset"> };
 interface CanvasNodeCreationLeaf {
   label: string;
@@ -158,12 +135,6 @@ interface CanvasNodeCreationGroup {
   label: string;
   items: CanvasNodeCreationItem[];
 }
-type CanvasContextMenuState = {
-  kind: "pane" | "node";
-  screenPosition: { x: number; y: number };
-  flowPosition: { x: number; y: number };
-  nodeId?: string;
-};
 
 const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
   {
@@ -296,8 +267,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     view: "canvas",
   });
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
-  const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<AssetCanvasNode>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
@@ -315,8 +284,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [importingAssets, setImportingAssets] = useState(false);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
-  const canvas = useRef<HTMLDivElement>(null);
-  const reactFlow = useRef<ReactFlowInstance<AssetCanvasFlowNode>>(null);
   const latestCanvas = useRef<AssetCanvasDocument | undefined>(undefined);
   const queuedCanvas = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
@@ -537,12 +504,10 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      const undo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
-      const redo = (event.metaKey || event.ctrlKey) && ((event.shiftKey && key === "z") || (!event.metaKey && key === "y"));
-      if (event.altKey || (!undo && !redo)) return;
+      const step = undoShortcut(event);
+      if (!step || isTextEntry(event.target)) return;
       event.preventDefault();
-      if (redo) redoEditorChange();
+      if (step === "redo") redoEditorChange();
       else undoEditorChange();
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -767,18 +732,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
 
   function deleteSelected(): void {
     if (selectedNode) removeCanvasNodes(new Set([selectedNode.id]));
-  }
-
-  function openCanvasContextMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
-    event.preventDefault();
-    const flowPosition = reactFlow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    if (!flowPosition) return;
-    setCanvasContextMenu({
-      kind,
-      nodeId,
-      screenPosition: { x: event.clientX, y: event.clientY },
-      flowPosition: snapCanvasPosition(flowPosition),
-    });
   }
 
   function clearSelection(): void {
@@ -1133,41 +1086,26 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
         </div>
       </header>
       <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas" ref={canvas}>
+        <div className="interactive-drama-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading canvas...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
-            <ReactFlow<AssetCanvasFlowNode>
-              className={`story-canvas story-canvas-${interactionMode}`}
+            <EditorCanvas<AssetCanvasFlowNode>
               nodes={renderedNodes}
               edges={[...edges, ...assetEdges]}
               nodeTypes={STORY_NODE_TYPES}
-              onInit={(instance) => { reactFlow.current = instance; }}
-              defaultEdgeOptions={STORY_EDGE_OPTIONS}
-              connectionLineStyle={STORY_EDGE_OPTIONS.style}
-              minZoom={MIN_ZOOM}
-              maxZoom={MAX_ZOOM}
-              snapToGrid
-              snapGrid={STORY_CANVAS_SNAP_GRID}
-              nodesDraggable={interactionMode === "pointer"}
-              elementsSelectable={interactionMode === "pointer"}
-              selectionOnDrag={interactionMode === "pointer"}
-              panOnDrag={interactionMode === "pan" ? true : [1, 2]}
-              panOnScroll
-              zoomOnScroll={false}
-              zoomOnPinch
-              zoomOnDoubleClick={false}
+              addControl={<AssetCanvasAddControl
+                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
+                importing={importingAssets}
+                onAdd={addNode}
+                onAddAsset={addAssetNode}
+                onUpload={(file, position) => void importAssetFile(file, position)}
+              />}
+              onOpenMenu={setCanvasContextMenu}
               deleteKeyCode={["Backspace", "Delete"]}
               onNodesChange={onNodesChange}
-              onNodeDragStart={() => { setCanvasContextMenu(undefined); setAlignmentGuides(undefined); beginHistoryGesture(); }}
-              onNodeDrag={(_event, node) => {
-                const [active, ...candidates] = alignmentNodesFromDom([
-                  node,
-                  ...renderedNodes,
-                ]);
-                setAlignmentGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
-              }}
-              onNodeDragStop={() => { setAlignmentGuides(undefined); finishHistoryGesture(); }}
+              onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
+              onNodeDragStop={finishHistoryGesture}
               onMoveStart={() => setCanvasContextMenu(undefined)}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -1191,13 +1129,11 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
                 setSelectedId(node.id);
               }}
               onPaneClick={() => { setCanvasContextMenu(undefined); window.clearTimeout(nodeClickTimer.current); clearSelection(); }}
-              onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
-              onNodeContextMenu={(event, node) => {
+              onNodeContextMenu={(_event, node) => {
                 window.clearTimeout(nodeClickTimer.current);
                 setSelectedAssetEdgeId(undefined);
                 setSelectedId(node.id);
                 setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
-                openCanvasContextMenu(event, "node", node.id);
               }}
               onNodesDelete={(deleted) => {
                 removeCanvasNodes(new Set(deleted.map((node) => node.id)));
@@ -1207,24 +1143,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
                 const source = nodes.find((node) => node.id === connection.source);
                 return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels));
               }}
-              proOptions={{ hideAttribution: true }}
               defaultViewport={editorLayout.viewport}
-            >
-              <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
-              <AssetCanvasAlignmentGuides guides={alignmentGuides} />
-              <ZoomControls />
-              <CanvasToolbar
-                mode={interactionMode}
-                canvas={canvas}
-                libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
-                importing={importingAssets}
-                reserveInspector={false}
-                onAdd={addNode}
-                onAddAsset={addAssetNode}
-                onUpload={(file, position) => void importAssetFile(file, position)}
-                onModeChange={setInteractionMode}
-              />
-            </ReactFlow>
+            />
           ) : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
             menu={canvasContextMenu}
@@ -1806,26 +1726,18 @@ function InspectorField({ label, children }: { label: string; children: React.Re
   return <label className="story-inspector-field"><span>{label}</span>{children}</label>;
 }
 
-function CanvasToolbar({
-  mode,
-  canvas,
+function AssetCanvasAddControl({
   libraryAssets,
   importing,
-  reserveInspector,
   onAdd,
   onAddAsset,
   onUpload,
-  onModeChange,
 }: {
-  mode: InteractionMode;
-  canvas: React.RefObject<HTMLDivElement | null>;
   libraryAssets: LibraryAsset[];
   importing: boolean;
-  reserveInspector: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (file: File, position: { x: number; y: number }) => void;
-  onModeChange: (mode: InteractionMode) => void;
 }) {
   const creationGroups = canvasCreationGroups();
   const [addOpen, setAddOpen] = useState(false);
@@ -1833,7 +1745,7 @@ function CanvasToolbar({
   const [libraryOpen, setLibraryOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
-  const { fitView, getNodes, screenToFlowPosition, setViewport } = useReactFlow();
+  const placementPosition = useCanvasCenter();
 
   useEffect(() => {
     if (!addOpen) return;
@@ -1853,21 +1765,6 @@ function CanvasToolbar({
     };
   }, [addOpen]);
 
-  async function fitCanvas(): Promise<void> {
-    if (getNodes().length === 0) {
-      await setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
-      return;
-    }
-    await fitView({ padding: 0.2, duration: 200 });
-  }
-
-  function placementPosition(): { x: number; y: number } | undefined {
-    const bounds = canvas.current?.getBoundingClientRect();
-    if (!bounds) return undefined;
-    const availableWidth = Math.max(0, bounds.width - (reserveInspector ? 300 : 0));
-    return screenToFlowPosition({ x: bounds.left + availableWidth / 2, y: bounds.top + bounds.height / 2 });
-  }
-
   function addItem(item: CanvasNodeCreationLeaf): void {
     const position = placementPosition();
     if (!position) return;
@@ -1875,8 +1772,7 @@ function CanvasToolbar({
     setAddOpen(false);
   }
 
-  return (
-    <Panel className="story-canvas-toolbar" position="bottom-center">
+  return <>
       <div ref={addMenu} className="story-add-node">
         {addOpen ? (
           <div className="story-add-node-menu-shell">
@@ -1922,20 +1818,12 @@ function CanvasToolbar({
           <Plus size={18} />
         </button>
       </div>
-      <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => onModeChange("pointer")}>
-        <MousePointer2 size={18} />
-      </button>
-      <button className={mode === "pan" ? "is-active" : undefined} type="button" title="Pan canvas" aria-label="Pan canvas" aria-pressed={mode === "pan"} onClick={() => onModeChange("pan")}>
-        <Hand size={18} />
-      </button>
-      <button type="button" title="Fit view" aria-label="Fit view" onClick={() => void fitCanvas()}><Maximize size={18} /></button>
       {libraryOpen ? <AssetCanvasAssetPicker title="Add from Library" assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);
       }} /> : null}
-    </Panel>
-  );
+  </>;
 }
 
 function AssetCanvasContextMenu({
@@ -1974,55 +1862,16 @@ function AssetCanvasContextMenu({
   onDelete: () => void;
 }) {
   const creationGroups = canvasCreationGroups();
-  const root = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
-  const [position, setPosition] = useState(menu.screenPosition);
-  const opensLeft = menu.screenPosition.x > window.innerWidth - 600;
-  const opensUp = menu.screenPosition.y > window.innerHeight / 2;
-
-  useLayoutEffect(() => {
-    const bounds = root.current?.getBoundingClientRect();
-    if (!bounds) return;
-    setPosition({
-      x: Math.max(6, Math.min(menu.screenPosition.x, window.innerWidth - bounds.width - 6)),
-      y: Math.max(6, Math.min(menu.screenPosition.y, window.innerHeight - bounds.height - 6)),
-    });
-    root.current?.focus();
-  }, [menu.screenPosition.x, menu.screenPosition.y]);
-
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as globalThis.Node)) onClose();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    const closeOnResize = () => onClose();
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", closeOnResize);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", closeOnResize);
-    };
-  }, [onClose]);
-
   const run = (action: () => unknown) => {
     action();
     onClose();
   };
 
-  return createPortal(
-    <div
-      ref={root}
-      className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
-      role="menu"
-      aria-label={menu.kind === "pane" ? "Canvas actions" : "Node actions"}
-      tabIndex={-1}
-      style={{ left: position.x, top: position.y }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
+  return (
+    <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? "Canvas actions" : "Node actions"} onClose={onClose}>
       {menu.kind === "pane" ? <>
         <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>Undo</span></button>
         <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
@@ -2071,74 +1920,7 @@ function AssetCanvasContextMenu({
         <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
       </>}
-    </div>,
-    document.body,
-  );
-}
-
-function AssetCanvasAlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
-  const { zoom } = useViewport();
-  if (!guides) return null;
-  const lineWidth = 1 / zoom;
-  return <ViewportPortal>
-    {guides.vertical.map((guide) => <div
-      key={`vertical:${guide.x}`}
-      className="story-canvas-alignment-guide is-vertical"
-      data-axis="vertical"
-      style={{ left: guide.x - lineWidth / 2, top: guide.from, width: lineWidth, height: guide.to - guide.from }}
-    />)}
-    {guides.horizontal.map((guide) => <div
-      key={`horizontal:${guide.y}`}
-      className="story-canvas-alignment-guide is-horizontal"
-      data-axis="horizontal"
-      style={{ left: guide.from, top: guide.y - lineWidth / 2, width: guide.to - guide.from, height: lineWidth }}
-    />)}
-  </ViewportPortal>;
-}
-
-function alignmentNodesFromDom<T extends { id: string; position: { x: number; y: number } }>(nodes: readonly T[]): CanvasAlignmentNode[] {
-  const zoom = canvasViewportZoom();
-  const roots = new Map([...document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")]
-    .map((element) => [element.dataset.id!, element] as const));
-  return nodes.map((node) => {
-    const root = roots.get(node.id);
-    const frame = root?.querySelector<HTMLElement>("[data-alignment-frame]");
-    if (!root || !frame) return node;
-    const rootRect = root.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    return {
-      ...node,
-      alignmentFrame: {
-        x: node.position.x + (frameRect.left - rootRect.left) / zoom,
-        y: node.position.y + (frameRect.top - rootRect.top) / zoom,
-        width: frameRect.width / zoom,
-        height: frameRect.height / zoom,
-      },
-    };
-  });
-}
-
-function canvasViewportZoom(): number {
-  const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
-  const transform = viewport ? getComputedStyle(viewport).transform : "none";
-  if (transform === "none") return 1;
-  try {
-    const zoom = new DOMMatrixReadOnly(transform).a;
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function ZoomControls() {
-  const { zoomIn, zoomOut, zoomTo } = useReactFlow();
-  const { zoom } = useViewport();
-  return (
-    <Panel className="story-canvas-zoom" position="bottom-left">
-      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title="Reset zoom" onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </Panel>
+    </CanvasContextMenu>
   );
 }
 

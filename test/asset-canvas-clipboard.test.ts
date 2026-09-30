@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AssetCanvasNode } from "../src/shared/contracts.js";
-import { duplicateAssetCanvasNode, snapCanvasPosition } from "../src/renderer/asset-canvas-clipboard.js";
+import { duplicateAssetCanvasNode } from "../src/renderer/asset-canvas-clipboard.js";
 
 describe("Asset Canvas clipboard", () => {
-  it("snaps pasted nodes to the canvas grid", () => {
-    expect(snapCanvasPosition({ x: 104, y: 196 })).toEqual({ x: 100, y: 200 });
-  });
-
   it("duplicates canonical node data with a new identity and position", () => {
     const source: AssetCanvasNode = {
       id: "text",
