@@ -10,7 +10,6 @@ import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import { createStoryDocument } from "../shared/story.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -94,8 +93,6 @@ export interface AppOptions {
   interactiveDramaExamplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
-  /** Development flag: create new Interactive Drama projects as Playable Nodes. */
-  playableNodes?: boolean;
 }
 
 const createProjectSchema = {
@@ -491,7 +488,6 @@ const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
-  const playableNodes = options.playableNodes ?? process.env.OHMYGAME_DEV_PLAYABLE_NODES === "1";
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
   const events = new RuntimeEventBus();
   const library = new AssetLibrary(dataDirectory);
@@ -953,12 +949,11 @@ export function createApp(options: AppOptions = {}) {
           projects,
           request.body.name,
           request.body.workspacePath,
-          playableNodes ? "playable" : "story",
         );
         return reply.code(201).send(project);
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
-      if (project.type === "interactive-drama" && playableNodes) {
+      if (project.type === "interactive-drama") {
         try {
           await createNodeCodebase(
             project.workspacePath,
@@ -968,10 +963,6 @@ export function createApp(options: AppOptions = {}) {
           await projects.delete(project.id);
           throw cause;
         }
-      } else if (project.type === "interactive-drama" && request.body?.storyViewport) {
-        const story = createStoryDocument();
-        story.player.viewport = request.body.storyViewport;
-        await projects.setStory(project.id, story);
       }
       return reply.code(201).send(project);
     } catch (cause) {
