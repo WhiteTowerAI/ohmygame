@@ -54,12 +54,10 @@ function BreadcrumbTitle({ value, onCommit }: { value: string; onCommit: (value:
 }
 
 /** Scales a fixed-size stage to fit its frame while keeping the viewport ratio. */
-export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, actions, overlay, children }: {
+export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, overlay, children }: {
   ariaLabel: string;
   viewport: { width: number; height: number };
   stageClassName?: string;
-  /** Controls shown in the preview header, after the label. */
-  actions?: ReactNode;
   /** Floats over the preview frame, such as a tool bar. */
   overlay?: ReactNode;
   children: ReactNode;
@@ -81,7 +79,6 @@ export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, actions,
   }, [viewport.height, viewport.width]);
 
   return <section className="story-workbench-preview" aria-label={ariaLabel}>
-    <header><strong>Live Preview</strong>{actions ? <div className="story-workbench-preview-actions">{actions}</div> : null}</header>
     <div ref={frame} className="story-workbench-preview-frame">
       <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
         {children}

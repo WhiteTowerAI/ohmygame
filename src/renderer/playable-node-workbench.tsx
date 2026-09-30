@@ -260,16 +260,16 @@ export function PlayableNodeWorkbench({
   const canSetBackdrop = Boolean(backdrop && onSetBackdrop);
   const chooser = useMediaChooser((asset, target) => void addMedia(asset, target), (text) => showToast({ tone: "error", text }));
 
-  const actions = <>
-    <button type="button" className="playable-workbench-tool" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={13} /><span>Replay</span></button>
-    {onPlayFromHere ? <button type="button" className="playable-workbench-tool" title="Playtest the game from this Scene" aria-label="Play from here" onClick={() => onPlayFromHere({ nodeId: node.id })}><Play size={12} fill="currentColor" /><span>Play from here</span></button> : null}
-  </>;
+  // In the header, where the canvas has Playtest.
+  const actions = <div className="story-node-editor-actions">
+    <button type="button" className="icon-button pane-header-action" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={14} /></button>
+    {onPlayFromHere ? <button type="button" className="interactive-drama-action" title="Playtest the game from this Scene" onClick={() => onPlayFromHere({ nodeId: node.id })}><Play size={14} fill="currentColor" /><span>Play from here</span></button> : null}
+  </div>;
 
   const previewPane = <WorkbenchPreview
     ariaLabel={`${node.title} live preview`}
     viewport={graph.viewport}
     stageClassName={`playable-workbench-stage is-tool-${tool}`}
-    actions={actions}
     overlay={<>
       <PreviewToolbar
         tool={tool}
@@ -323,6 +323,7 @@ export function PlayableNodeWorkbench({
   return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
     <header className="story-node-editor-header window-drag-handle">
       <WorkbenchBreadcrumb label={node.title} onClose={onClose} onRename={onRename} />
+      {actions}
     </header>
     <div className="story-node-workbench playable-node-workbench">
       <div className="story-node-workbench-stage">
