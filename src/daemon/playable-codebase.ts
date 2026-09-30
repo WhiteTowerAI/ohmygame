@@ -5,6 +5,7 @@ import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../shared/playable-graph-schema.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import {
+  fitPlayableLayout,
   isNodeEditorLayout,
   playableLayoutMatchesGraph,
   type NodeCodebase,
@@ -48,7 +49,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
-- Keep IDs and source paths stable when editing existing objects. Keep \`editor/layout.json\` synchronized with the exact Node IDs in \`graph.json\`.
+- Keep IDs and source paths stable when editing existing objects. You do not need to edit \`editor/layout.json\`; the editor places new Nodes.
 - Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
 
 ## Words the editor uses
@@ -159,10 +160,10 @@ export async function readNodeCodebase(
       readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE),
       readJson(path.join(workspacePath, LAYOUT_FILE), LAYOUT_FILE),
     ]);
-    const codebase = {
-      graph: graphValue as NodeGraph,
-      editorLayout: layoutValue as NodeEditorLayout,
-    };
+    const graph = graphValue as NodeGraph;
+    const layout = layoutValue as NodeEditorLayout;
+    if (!isNodeEditorLayout(layout)) throw new Error("Invalid editor/layout.json.");
+    const codebase = { graph, editorLayout: fitPlayableLayout(graph, layout) };
     await validateCodebase(workspacePath, codebase, true);
     return codebase;
   });

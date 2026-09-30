@@ -171,9 +171,11 @@ describe("Playable codebase", () => {
       path.join(mismatchedLayout, "editor/layout.json"),
       `${JSON.stringify(layout)}\n`,
     );
-    await expect(readNodeCodebase(mismatchedLayout)).rejects.toThrow(
-      "Node IDs must exactly match",
-    );
+    // A Node added without a position is placed, and a removed Node's position is dropped.
+    await expect(readNodeCodebase(mismatchedLayout)).resolves.toMatchObject({
+      editorLayout: { nodes: { start: { x: 80, y: 180 } } },
+    });
+    expect((await readNodeCodebase(mismatchedLayout)).editorLayout.nodes).not.toHaveProperty("other");
   });
 
   it("updates graph and layout together and rejects invalid changes without writing", async () => {

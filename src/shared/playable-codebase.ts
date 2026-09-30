@@ -38,3 +38,41 @@ export function playableLayoutMatchesGraph(
     layoutIds.every((id) => graphIds.has(id))
   );
 }
+
+const COLUMN_WIDTH = 340;
+const ROW_HEIGHT = 260;
+const COLUMNS = 4;
+
+/** The next grid slot that no Node occupies. */
+export function freePlayablePosition(layout: NodeEditorLayout): { x: number; y: number } {
+  const taken = new Set(
+    Object.values(layout.nodes).map((position) => `${position.x}:${position.y}`),
+  );
+  for (let slot = 0; ; slot += 1) {
+    const candidate = {
+      x: 80 + (slot % COLUMNS) * COLUMN_WIDTH,
+      y: 180 + Math.floor(slot / COLUMNS) * ROW_HEIGHT,
+    };
+    if (!taken.has(`${candidate.x}:${candidate.y}`)) return candidate;
+  }
+}
+
+/**
+ * Fits the layout to the graph: a Node the Agent added without a position
+ * gets a free one, and positions of removed Nodes are dropped.
+ */
+export function fitPlayableLayout(
+  graph: NodeGraph,
+  layout: NodeEditorLayout,
+): NodeEditorLayout {
+  if (playableLayoutMatchesGraph(graph, layout)) return layout;
+  const fitted: NodeEditorLayout = { ...layout, nodes: {} };
+  for (const node of graph.nodes) {
+    const position = layout.nodes[node.id];
+    if (position) fitted.nodes[node.id] = position;
+  }
+  for (const node of graph.nodes) {
+    fitted.nodes[node.id] ??= freePlayablePosition(fitted);
+  }
+  return fitted;
+}

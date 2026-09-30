@@ -112,7 +112,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>
           <h2 id="library-delete-title">Delete asset everywhere?</h2>
           <p><strong>{fileName(deleteTarget.asset.path)}</strong> is used by {deleteTarget.references.length === 1 ? "this project" : `${deleteTarget.references.length} projects`}.</p>
-          <p className="library-delete-warning">Deleting it will remove the related project files and Scene clips. This cannot be undone.</p>
+          <p className="library-delete-warning">Deleting it removes it from these projects. Code that still uses it will need a new asset. This cannot be undone.</p>
           <ul>{deleteTarget.references.map((reference) => <li key={reference.id}>{reference.name}</li>)}</ul>
           {actionError ? <p className="library-delete-error" role="alert">{actionError}</p> : null}
           <footer><button type="button" autoFocus disabled={deleting} onClick={() => setDeleteTarget(undefined)}>Cancel</button><button className="library-action-delete" type="button" disabled={deleting} onClick={() => void confirmForceDelete()}>{deleting ? "Deleting..." : "Delete everywhere"}</button></footer>
