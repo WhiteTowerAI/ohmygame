@@ -12,7 +12,6 @@ import {
   playableEdgeId,
   setPlayableSignalLabel,
   setPlayableSignalRole,
-  setPlayableSignalTarget,
 } from "../src/shared/playable-editor.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
@@ -64,28 +63,6 @@ describe("Playable editor graph changes", () => {
     expect(setPlayableSignalLabel(graph, "menu", "start", "   ")).toBe(graph);
   });
 
-  it("points a Signal at a new target, keeping its Edge ID and mode", () => {
-    const graph = createNodeGraphFixture();
-    const retargeted = setPlayableSignalTarget(graph, "menu", "inspect", "lobby");
-
-    expect(retargeted.edges.filter((edge) => edge.source.signal === "inspect")).toEqual([{
-      id: "inspect-archive",
-      source: { nodeId: "menu", signal: "inspect" },
-      targetNodeId: "lobby",
-      mode: "push",
-    }]);
-    const disconnected = setPlayableSignalTarget(graph, "menu", "start", undefined);
-    expect(disconnected.edges.some((edge) => edge.source.signal === "start")).toBe(false);
-    const reconnected = setPlayableSignalTarget(disconnected, "menu", "start", "archive");
-    expect(reconnected.edges).toContainEqual({
-      id: "menu-start",
-      source: { nodeId: "menu", signal: "start" },
-      targetNodeId: "archive",
-      mode: "replace",
-    });
-    expect(setPlayableSignalTarget(graph, "menu", "start", "missing").edges.some((edge) => edge.source.signal === "start")).toBe(false);
-  });
-
   it("derives readable, unique Asset IDs", () => {
     expect(playableAssetId("Rainy Street.PNG", new Set())).toBe("rainy-street");
     expect(playableAssetId("_bg.webp", new Set(["bg"]))).toBe("bg-2");
@@ -135,7 +112,7 @@ describe("Playable editor graph changes", () => {
     const renamed = setPlayableSignalLabel({ ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) }, "menu", "start", "Go");
 
     expect(playableRuntimeKey({ ...definition, graph: renamed, graphSignature: "b" })).toBe(playableRuntimeKey(definition));
-    const retargeted = setPlayableSignalTarget(graph, "menu", "start", "archive");
+    const retargeted = { ...graph, edges: graph.edges.map((edge) => edge.source.signal === "start" ? { ...edge, targetNodeId: "archive" } : edge) };
     expect(playableRuntimeKey({ ...definition, graph: retargeted })).not.toBe(playableRuntimeKey(definition));
   });
 
@@ -167,14 +144,9 @@ describe("Playable editor graph changes", () => {
 
 describe("Playable project editing", () => {
   it("gives new edges IDs that graph.json accepts", () => {
-    const graph = createNodeGraphFixture();
-    const connected = setPlayableSignalTarget(graph, "archive", "missing-signal", "menu");
     expect(playableEdgeId([], "menu", "start")).toBe("menu-start");
     expect(playableEdgeId([{ id: "menu-start" }], "menu", "start")).toBe("menu-start-2");
-    const disconnected = setPlayableSignalTarget(graph, "menu", "start", undefined);
-    const reconnected = setPlayableSignalTarget(disconnected, "menu", "start", "archive");
-    expect(reconnected.edges.find((edge) => edge.source.signal === "start")?.id).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
-    expect(connected.edges.some((edge) => edge.id.includes(":"))).toBe(false);
+    expect(playableEdgeId([], "archive", "missing-signal")).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
   });
 
   it("edits the Signals a shared component emits on the Node that shows it", () => {
@@ -182,11 +154,6 @@ describe("Playable project editing", () => {
     const renamed = setPlayableSignalLabel(graph, "lobby", "home", "Menu");
     expect(renamed.nodes.find((node) => node.id === "lobby")?.signals.find((signal) => signal.id === "home")?.label).toBe("Menu");
     expect(renamed.nodes.find((node) => node.id === "archive")?.signals.find((signal) => signal.id === "home")?.label).toBe("Home");
-    const retargeted = setPlayableSignalTarget(graph, "lobby", "home", "archive", "push");
-    expect(retargeted.edges.find((edge) => edge.source.nodeId === "lobby" && edge.source.signal === "home"))
-      .toMatchObject({ targetNodeId: "archive", mode: "push" });
-    expect(retargeted.edges.find((edge) => edge.source.nodeId === "archive" && edge.source.signal === "home"))
-      .toMatchObject({ targetNodeId: "menu", mode: "replace" });
   });
 
 });

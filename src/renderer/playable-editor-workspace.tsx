@@ -41,7 +41,6 @@ import {
   setPlayableSignalLabel,
   setPlayableSignalRole,
   playableThumbnailHash,
-  setPlayableSignalTarget,
   type PlayablePresetSummary,
   type PlayableProjectValidationIssue,
   type PlayableThumbnailManifest,
@@ -476,10 +475,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
   }
 
-  function setSignalTarget(surfaceId: string, signalId: string, target: string | undefined, mode?: PlayableNavigationMode): void {
-    if (codebase) applyGraph(setPlayableSignalTarget(codebase.graph, surfaceId, signalId, target, mode));
-  }
-
   function setEdgeMode(edgeId: string, mode: PlayableNavigationMode): void {
     setEdges((current) => current.map((edge) => edge.id === edgeId
       ? { ...toFlowEdge({ ...toPlayableEdge(edge)!, mode }), selected: edge.selected }
@@ -574,24 +569,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
    * Resolves with a way to put the background back, or undefined when the
    * Node's HTML has no single background to set.
    */
-  async function writeBackdrop(nodeId: string, asset: PlayableAssetRequest): Promise<(() => Promise<void>) | undefined> {
+  async function writeBackdrop(nodeId: string, asset: PlayableAssetRequest): Promise<boolean> {
     const graph = codebase?.graph;
     const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!graph || !node || (asset.type !== "image" && asset.type !== "video")) return undefined;
+    if (!graph || !node || (asset.type !== "image" && asset.type !== "video")) return false;
     const path = node.source.html;
     const file = await getWorkspaceFile(projectId, path);
-    if (file.content === undefined || file.truncated) return undefined;
+    if (file.content === undefined || file.truncated) return false;
     const before = file.content;
     const declared = addPlayableNodeAsset(graph, nodeId, asset);
     const html = setPlayableBackdrop(before, declared.assetId, asset.type);
-    if (html === undefined) return undefined;
-    const entry = await writeSources(declared.graph, { [path]: html }, { [path]: before });
-    return async () => {
-      if (!entry || undoHistory.current.at(-1) !== entry || historyPendingBase.current) {
-        throw new Error("the Scene has changed since. Use Undo on the canvas to step back");
-      }
-      await undoEditorChange();
-    };
+    if (html === undefined) return false;
+    await writeSources(declared.graph, { [path]: html }, { [path]: before });
+    return true;
   }
 
   function openNode(nodeId: string): void {
@@ -947,7 +937,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setOpenedNodeId(undefined)}
         onOpenNode={openNode}
         onRename={(title) => renameNode(openedNode.id, title)}
-        onSignalTarget={setSignalTarget}
         {...(onAskAgent ? { onAskAgent } : {})}
         {...(onSendToAgent ? { onSendToAgent } : {})}
         onWriteText={writeText}
