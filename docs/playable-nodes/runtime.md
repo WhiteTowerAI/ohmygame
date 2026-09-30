@@ -1,8 +1,6 @@
 # Runtime
 
-This document is the contract between node content and the Node Runtime. It
-is derived from the runtime design on the `feat/interactive-drama-improvements`
-branch and corrects it where the implementation and the text disagreed.
+This document is the contract between node content and the Node Runtime.
 
 ## Scope
 
@@ -296,7 +294,8 @@ One save slot:
 ## Host tooling
 
 These capabilities exist for the editor and the Agent. Node code cannot see
-or call them, and the Published Player does not enable them.
+or call them, and a published game does not enable them. The Published
+Player exposes the playtest bridge only for a draft built for `game_use`.
 
 ### Preview policy
 

@@ -71,5 +71,4 @@ editor's words.
 | [agent.md](agent.md)         | What the Agent is given, its rules, and its tools    | Draft  |
 | [roadmap.md](roadmap.md)     | Old editor inventory, PR sequence, and migration     | Draft  |
 
-Read them in this order. `runtime.md` supersedes `docs/playable-nodes.md` on
-the `feat/interactive-drama-improvements` branch.
+Read them in this order.

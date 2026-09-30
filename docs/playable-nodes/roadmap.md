@@ -125,13 +125,15 @@ path (a development flag) creates `graph.json` projects.
     chat, canvas with one node card, Signal ports, edges, Entry badge, add
     from Preset, context menu, clipboard.
 11. `feat(editor): add node workbench` — Workbench with live preview, preview
-    bar, and inspector (title, Signals, Assets, State used).
+    bar, and inspector (title, Signals, Assets, State used). The simplification
+    pass later removed the inspector.
 12. `feat(editor): add node thumbnails` — background captures of every Node
     cached in `.ohmygame/thumbnails/`, stale and failed markers, Asset and
     title fallbacks.
 13. `feat(editor): add project state and style panels` — State and Style
     panels over the canvas and inside Workbenches.
-14. `feat(editor): add playtest debug drawer` — current node with Open in
+14. `feat(editor): add playtest debug drawer` (later replaced by **Ask AI to
+    fix**; the Agent reads the debug record) — current node with Open in
     editor, back stack, Signals, State changes, errors, and start from a
     chosen node and State.
 15. `feat(agent): add playable nodes context and tools` — editor context in

@@ -405,7 +405,8 @@ Thumbnails are screenshots of the real Scene, never a separate rendering.
 - The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
-  the display's pixel density, up to 1280 pixels wide.
+  the display's pixel density, up to 1280 pixels wide. The hidden window
+  runs Scene code, so it may only capture and report its result.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
@@ -481,9 +482,9 @@ review below comes after the MVP
   summary bar.
 - The summary bar offers **Keep** and **Undo turn**. Undo restores the
   checkpoint. Continuing to edit implicitly keeps the change.
-- New Scenes without a position in `editor/layout.json` are placed by the
-  editor to the right of the Scene whose Exit leads to them, avoiding
-  overlaps. The Agent does not need to compute layout.
+- New Scenes without a position in `editor/layout.json` are placed in the
+  next free grid slot when the project is read, and positions of removed
+  Scenes are dropped. The Agent does not need to compute layout.
 
 ### Asset versions
 

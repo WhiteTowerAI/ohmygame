@@ -167,7 +167,7 @@ node ShadowRoots, so the snapshot's text is what the screen shows.
 Its `gameState` is the Playtest debug record: current node,
 back stack, recent Signals and whether an edge followed them, State, State
 changes, errors, and save status. The bridge `reset` action starts a new game
-without the save. `act` drives real input; `capture` returns a screenshot.
+without the save. Only drafts expose the bridge; a published game does not. `act` drives real input; `capture` returns a screenshot.
 
 A typical verification: open the draft, reset, play to the changed node,
 perform the interaction, confirm the expected Signal and target in
