@@ -113,9 +113,9 @@ anything.
 
 ## Scene Workbench
 
-Opening a Scene shows its Workbench: a large live preview with a tool bar
-floating over it, and the preview's activity below. Every Scene gets the same
-Workbench. There is no inspector: the Agent changes the Scene, the author
+Opening a Scene shows its Workbench: a live preview that fills the page, with
+a tool bar, short messages, and popovers floating over it. Every Scene gets
+the same Workbench. There is no inspector: the Agent changes the Scene, the author
 points at, edits, or draws on the preview to say what to change, and
 **Open code** is the way to read it.
 
@@ -124,15 +124,14 @@ points at, edits, or draws on the preview to say what to change, and
 │ Scenes / [Title]            Replay · Start with… · Play from here │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
+│             ( "Enter club" → Club lobby  [Open] )            │
+│                                                              │
 │                        Live preview                          │
 │                  (real Runtime, real assets)                 │
 │                                                              │
-│             ┌──────────────────────────────────┐             │
-│             │ ▶ Play · ⌖ Select · T Text · ✎ Draw │             │
-│             └──────────────────────────────────┘             │
-├──────────────────────────────────────────────────────────────┤
-│ Activity: issues · Exits that go nowhere · Exits taken ·     │
-│ changes made from the preview · Variables used               │
+│      ┌──────────────────────────────────┐ ┌──────────┐       │
+│      │ ▶ Play · ⌖ Select · T Text · ✎ Draw │ │ 2 issues │       │
+│      └──────────────────────────────────┘ └──────────┘       │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -141,15 +140,16 @@ The title is edited in place in the breadcrumb (Enter keeps it, Esc reverts).
 ### Live preview
 
 The preview runs the Scene in the real Node Runtime. It is interactive:
-clicking "进入俱乐部" in the preview takes the `enter-club` Exit, and the
-preview shows the Exit taken and the Scene it would open instead of leaving
-the Scene.
+clicking "进入俱乐部" in the preview takes the `enter-club` Exit. Instead of
+leaving the Scene, a short message over the preview names the Exit and the
+Scene it would open, with **Open** to go there; it fades after a few seconds.
+Back, Replay, and Continue show the same way.
 
 The header offers:
 
 - **Replay** to play the Scene again from the start;
-- **Start with…** to choose the Variables this preview starts with (preview
-  state), for example to see the archive after eight completed rounds;
+- **Start with…**, a popover to choose the Variables this preview starts
+  with (preview state), for example to see the archive after eight completed rounds;
 - **Play from here** to open Playtest at this Scene with the chosen
   Variables.
 
@@ -159,32 +159,33 @@ The tool bar at the bottom of the preview decides what the pointer does. Esc
 always returns to **Play**.
 
 - **Play** plays the Scene.
-- **Select** picks an element for the chat. Shift-, ⌘- or Ctrl-click picks
-  more, or removes one already picked. A picked image or video can be
-  replaced from the Library, by uploading a file, or by asking the Agent to
-  generate one; the asset is declared on the Scene and the Agent is asked to
+- **Select** picks an element for the chat; the picks show as chips in the
+  composer. Shift-, ⌘- or Ctrl-click picks more, or removes one already
+  picked. A picked image or video gets a small bar next to it to replace it
+  from the Library, by uploading a file, or by asking the Agent to generate
+  one; the asset is declared on the Scene and the Agent is asked to
   show it there.
 - **Text** edits text in place. Enter keeps the change, Esc discards it.
   When the element was written in the Scene's HTML and holds only text, the
-  change is written straight to that file, and an Exit whose name was that
-  text is renamed too. Otherwise (text set by a script, or mixed content)
-  the change is sent to the Agent, and the activity shows it is working.
+  change is written straight to that file, an Exit whose name was that text
+  is renamed too, and a short message confirms it. Otherwise (text set by a
+  script, or mixed content) the change is sent to the Agent, and the chat
+  shows it working.
 - **Draw** draws freehand over the preview. The drawing is sent with the next
   chat message, on a screenshot of the preview.
 
 There is no comment tool: saying what to change in the chat, with picks or a
 drawing attached, does the same job.
 
-### Activity
+### Issues and Variables
 
-Below the preview:
+Nothing shows while the Scene is fine. When it has problems, an **N issues**
+badge appears beside the tool bar; it opens a list of the Scene's issues,
+errors from the preview, and Exits that go nowhere, each Exit with
+**Connect…** and **Ask AI to create it**.
 
-- the Scene's issues;
-- its Exits that go nowhere, each with **Connect…** and **Ask AI to create
-  it**;
-- the Exits taken and errors from recent previews;
-- changes made from the preview (text saved, requests sent to the Agent);
-- the Variables this Scene read or changed, with current values.
+The **Variables** panel shows the preview's values now and recent changes,
+and marks the Variables the open Scene reads or changes.
 
 There are no type-specific forms. What used to be a Choice's options or a
 Scene's duration now lives in the Scene's own content and is changed by
@@ -200,8 +201,8 @@ screenshot of the preview with the picks outlined and the drawing on it.
 Removing a chip leaves it out of the message; the chips clear once sent. The
 conversation shows only the chip labels; the Agent receives the full context.
 The Agent edits the Scene's files; the preview reloads when the change is
-saved; new or removed Exits appear in the activity and on the canvas
-immediately.
+saved; new or removed Exits appear on the canvas immediately, and an Exit
+that goes nowhere shows up under the issues badge.
 
 Typical requests:
 

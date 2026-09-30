@@ -218,6 +218,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [openedNodeId, setOpenedNodeId] = useState<string>();
   const [projectPanel, setProjectPanel] = useState<"state">();
   const [liveState, setLiveState] = useState<PlayableLiveState>();
+  const [stateAccess, setStateAccess] = useState<NodeRuntimeSnapshot["stateAccess"]>();
   const stateHistory = useRef(new PlayableStateHistory());
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
@@ -263,19 +264,20 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const openedNode = workspaceView === "canvas" && phase === "ready"
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
-  const liveSource = openedNode?.title;
 
   /** Keeps the State panel's live values in step with the open Workbench preview. */
   const onPreviewSnapshot = useCallback((snapshot: NodeRuntimeSnapshot | undefined) => {
     if (!snapshot) {
       stateHistory.current.reset();
       setLiveState(undefined);
+      setStateAccess(undefined);
       return;
     }
     stateHistory.current.record(snapshot);
     setLiveState((current) => current?.state === snapshot.state && current.changes === stateHistory.current.changes
       ? current
       : { state: snapshot.state, changes: stateHistory.current.changes, source: "" });
+    setStateAccess(snapshot.stateAccess);
   }, []);
 
   // A Playtest window asks the editor to open the Node it is showing.
@@ -1040,7 +1042,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setOpenedNodeId(undefined)}
         onOpenNode={openNode}
         onOpenSource={() => openFile(openedNode.source.html)}
-        agentBusy={agentBusy}
         onRename={(title) => renameNode(openedNode.id, title)}
         onSignalTarget={signalEdits.onSignalTarget}
         {...(onAskAgent ? { onAskAgent } : {})}
@@ -1058,7 +1059,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       /> : null}
       {projectPanel === "state" && graphMeta ? <PlayableStatePanel
         initialState={graphMeta.initialState}
-        live={liveState && liveSource ? { ...liveState, source: liveSource } : undefined}
+        live={liveState && openedNode ? {
+          ...liveState,
+          source: openedNode.title,
+          ...(stateAccess?.[openedNode.id] ? { access: stateAccess[openedNode.id] } : {}),
+        } : undefined}
         onChange={(initialState) => setGraphMeta((current) => current ? { ...current, initialState } : current)}
         onClose={() => setProjectPanel(undefined)}
       /> : null}

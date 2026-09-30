@@ -23,6 +23,8 @@ export interface PlayableLiveState {
   changes: readonly PlayableStateChange[];
   /** Whose preview the values come from, such as a Scene title. */
   source: string;
+  /** The Variables that Scene read and changed; `"*"` in `read` means all of them. */
+  access?: { read: readonly string[]; wrote: readonly string[] };
 }
 
 function ProjectPanel({ label, icon, onClose, children }: {
@@ -62,10 +64,11 @@ export function PlayableStatePanel({ initialState, live, onChange, onClose }: {
   const keys = Object.keys(initialState);
   const recent = live ? live.changes.slice(-RECENT_CHANGES).reverse() : [];
   const changedKeys = new Set(recent.map((change) => change.key));
+  const usage = (key: string) => live?.access?.wrote.includes(key) ? "wrote" : live?.access?.read.includes(key) ? "read" : undefined;
   return <ProjectPanel label="Variables" icon={<Box size={14} />} onClose={onClose}>
     <p className="playable-project-panel-hint">
       What the game remembers, such as a score or an item the player found. Every Scene can read and change them; the AI adds one when a Scene needs it.
-      {live ? <> "Now" shows the <b>{live.source}</b> preview.</> : " Open a Scene to see their values now."}
+      {live ? <> "Now" shows the <b>{live.source}</b> preview{live.access?.read.includes("*") ? ", which reads every Variable" : ""}.</> : " Open a Scene to see their values now."}
     </p>
     {keys.length ? <div className={`playable-state-table${live ? " has-live" : ""}${technical ? " has-type" : ""}`} role="table" aria-label="Variables">
       <div className="playable-state-table-head" role="row">
@@ -78,8 +81,11 @@ export function PlayableStatePanel({ initialState, live, onChange, onClose }: {
       {keys.map((key) => {
         const initial = initialState[key]!;
         const liveValue = live?.state[key];
+        const used = usage(key);
         return <div className={`playable-state-table-row${changedKeys.has(key) ? " is-changed" : ""}`} role="row" key={key}>
-          <code role="cell" title={key}>{key}</code>
+          <code role="cell" title={used ? `${key}: ${used === "wrote" ? "changed" : "read"} by ${live!.source}` : key}>
+            {key}{used ? <span className={`playable-state-used is-${used}`} aria-label={used === "wrote" ? "changed by this Scene" : "read by this Scene"}>{used === "wrote" ? "changes" : "reads"}</span> : null}
+          </code>
           {technical ? <span role="cell" className="playable-state-type">{playableStateType(initial)}</span> : null}
           <div role="cell" className="playable-state-initial">
             {initial === null

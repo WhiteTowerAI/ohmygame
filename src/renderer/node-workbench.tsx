@@ -133,17 +133,15 @@ export function NodeWorkbenchLayout({ className, preview, inspector, timeline }:
 }
 
 /** Scales a fixed-size stage to fit its frame while keeping the viewport ratio. */
-export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, stageClassName, actions, overlay, footer, children }: {
+export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, stageClassName, actions, overlay, children }: {
   label?: string;
   ariaLabel: string;
   viewport: { width: number; height: number };
   stageClassName?: string;
   /** Controls shown in the preview header, after the label. */
   actions?: ReactNode;
-  /** Floats over the bottom of the preview frame, such as a tool bar. */
+  /** Floats over the preview frame, such as a tool bar. */
   overlay?: ReactNode;
-  /** Content below the preview frame, such as recent Signals and errors. */
-  footer?: ReactNode;
   children: ReactNode;
 }) {
   const frame = useRef<HTMLDivElement>(null);
@@ -162,7 +160,7 @@ export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, 
     return () => observer.disconnect();
   }, [viewport.height, viewport.width]);
 
-  return <section className={`story-workbench-preview${footer ? " has-footer" : ""}`} aria-label={ariaLabel}>
+  return <section className="story-workbench-preview" aria-label={ariaLabel}>
     <header><strong>{label}</strong>{actions ? <div className="story-workbench-preview-actions">{actions}</div> : null}<span>{viewport.width} x {viewport.height}</span></header>
     <div ref={frame} className="story-workbench-preview-frame">
       <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
@@ -170,7 +168,6 @@ export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, 
       </div>
       {overlay}
     </div>
-    {footer ? <div className="story-workbench-preview-footer">{footer}</div> : null}
   </section>;
 }
 

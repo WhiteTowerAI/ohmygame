@@ -14982,30 +14982,14 @@ button {
 }
 
 /* Playable Node Workbench: the shared preview with a preview bar
-   (Replay, Start with, Play from here), preview tools, and activity. */
-.story-workbench-preview.has-footer {
-  grid-template-rows: 42px minmax(0, 1fr) auto;
-}
+   (Replay, Start with, Play from here) and tools, toasts, and popovers
+   floating over it. */
 .story-workbench-preview-actions {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 4px;
   margin-right: auto;
-}
-.story-workbench-preview-footer {
-  display: grid;
-  max-height: 176px;
-  min-height: 0;
-  gap: 8px;
-  overflow-y: auto;
-  padding-top: 10px;
-}
-/* Picks and activity come and go while the author clicks the preview; a
-   fixed height keeps the preview from moving under the pointer. */
-.playable-workbench-page .story-workbench-preview-footer {
-  height: 176px;
-  align-content: start;
 }
 .playable-workbench-tool {
   display: inline-flex;
@@ -15075,66 +15059,6 @@ button {
 .playable-workbench-menu {
   min-width: 180px;
 }
-.playable-workbench-activity {
-  display: grid;
-  gap: 4px;
-}
-.playable-workbench-activity p {
-  display: grid;
-  min-width: 0;
-  min-height: 26px;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 10px;
-}
-.playable-workbench-activity p > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-activity p > svg {
-  color: var(--text-muted);
-}
-.playable-workbench-activity p.is-error,
-.playable-workbench-activity p.is-error > svg {
-  color: var(--danger);
-}
-.playable-workbench-activity p.is-warning {
-  grid-template-columns: 14px minmax(0, 1fr) auto auto;
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-}
-.playable-workbench-activity p.is-warning > svg {
-  color: var(--warning);
-}
-.playable-workbench-activity p.is-warning select {
-  max-width: 120px;
-  height: 20px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-  font-size: 9px;
-}
-.playable-workbench-activity p.is-warning button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.playable-workbench-activity p.is-empty {
-  grid-template-columns: minmax(0, 1fr);
-  border-style: dashed;
-  background: transparent;
-  color: var(--text-faint);
-}
-.playable-workbench-activity button,
 .playable-workbench-state header button {
   height: 20px;
   padding: 0 7px;
@@ -15146,7 +15070,6 @@ button {
   font-size: 9px;
   cursor: pointer;
 }
-.playable-workbench-activity button:hover,
 .playable-workbench-state header button:hover:not(:disabled) {
   border-color: var(--border-strong);
   background: var(--surface-hover);
@@ -15225,79 +15148,6 @@ button {
 .playable-workbench-state-row.is-invalid input {
   border-color: var(--danger);
 }
-.playable-workbench-pick {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: 14px auto minmax(0, 1fr) 22px 22px;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 4px 3px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 10px;
-}
-.playable-workbench-pick > span,
-.playable-workbench-pick > small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-pick > small {
-  color: var(--text-faint);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
-}
-.playable-workbench-pick > button {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.playable-workbench-pick > button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.playable-workbench-picks {
-  display: grid;
-  gap: 4px;
-}
-.playable-workbench-picks > header {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 10px;
-}
-.playable-workbench-picks > header strong {
-  color: var(--text);
-  font-weight: 600;
-}
-.playable-workbench-picks > header span {
-  overflow: hidden;
-  color: var(--text-faint);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-picks > header button {
-  height: 20px;
-  margin-left: auto;
-  padding: 0 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 9px;
-}
 .playable-workbench-pick-actions {
   display: flex;
   min-width: 0;
@@ -15330,25 +15180,6 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.playable-workbench-activity p.is-note > svg {
-  color: var(--accent);
-}
-.playable-workbench-activity p.is-note.is-error > svg {
-  color: var(--danger);
-}
-.playable-workbench-activity p.playable-workbench-variables {
-  grid-template-columns: 14px minmax(0, 1fr);
-  border-style: dashed;
-  background: transparent;
-  color: var(--text-muted);
-}
-.playable-workbench-variables code {
-  color: var(--text);
-}
-.playable-workbench-variables .is-write code {
-  color: var(--accent);
-}
-
 /* Preview tools: Play, Select, Text, Draw, floating over the preview. */
 .playable-preview-toolbar {
   position: absolute;
@@ -15414,7 +15245,201 @@ button {
   font-size: 10px;
   white-space: nowrap;
 }
-.story-workbench-preview-frame.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer) {
+/* Beside the tools: the Scene's issues, only when there are any. */
+.playable-preview-issues {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 8px);
+  pointer-events: auto;
+}
+.playable-preview-toolbar button.playable-preview-issues-badge {
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+}
+.playable-preview-toolbar button.playable-preview-issues-badge.is-warning {
+  color: var(--warning);
+}
+.playable-preview-toolbar button.playable-preview-issues-badge.is-error {
+  color: var(--danger);
+}
+
+/* Popovers over the preview: Start with… under the preview bar, and the
+   issues above their badge. */
+.playable-preview-popover {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 32%);
+  pointer-events: auto;
+}
+.playable-preview-popover.is-start {
+  top: 8px;
+  left: 8px;
+  width: min(380px, calc(100% - 16px));
+  max-height: calc(100% - 72px);
+}
+.playable-preview-popover > .playable-workbench-state {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.playable-preview-popover.is-issues {
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: 380px;
+  max-height: 320px;
+}
+.playable-preview-popover.is-issues p {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  font-size: 10px;
+  white-space: normal;
+}
+.playable-preview-popover.is-issues p.is-warning {
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+}
+.playable-preview-popover.is-issues p.is-error,
+.playable-preview-popover.is-issues p.is-error > svg {
+  color: var(--danger);
+}
+.playable-preview-popover.is-issues p.is-warning > svg {
+  color: var(--warning);
+}
+.playable-preview-popover.is-issues p > span {
+  overflow-wrap: anywhere;
+}
+.playable-preview-popover.is-issues :is(select, button) {
+  display: inline-flex;
+  max-width: 120px;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+}
+.playable-preview-popover.is-issues button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+/* Short messages over the top of the preview; each fades by itself. */
+.playable-preview-toasts {
+  position: absolute;
+  z-index: 5;
+  top: 10px;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: min(460px, calc(100% - 24px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.playable-preview-toast {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+  color: var(--text);
+  font-size: 10px;
+  pointer-events: auto;
+  animation: playable-preview-toast-in 160ms ease-out;
+}
+.playable-preview-toast > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playable-preview-toast > svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.playable-preview-toast:is(.is-saved, .is-asked) > svg {
+  color: var(--accent);
+}
+.playable-preview-toast.is-warning > svg {
+  color: var(--warning);
+}
+.playable-preview-toast.is-error,
+.playable-preview-toast.is-error > svg {
+  color: var(--danger);
+}
+.playable-preview-toast button {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+}
+.playable-preview-toast button:hover {
+  background: var(--surface-hover);
+}
+.playable-preview-toast button.playable-preview-toast-close {
+  display: inline-grid;
+  width: 20px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+@keyframes playable-preview-toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .playable-preview-toast { animation: none; }
+}
+
+/* Replace a picked image or video, next to it in the preview. */
+.playable-media-actions {
+  position: absolute;
+  z-index: 3;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+}
+.playable-media-actions.is-below {
+  transform: translate(-50%, 6px);
+}
+.playable-media-actions.is-inside {
+  transform: translate(-50%, -8px);
+}
+
+.story-workbench-preview-frame.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer, .playable-preview-toasts, .playable-preview-popover, .playable-media-actions) {
   visibility: hidden;
 }
 .playable-drawing-layer {
@@ -15604,6 +15629,19 @@ button {
   padding: 3px 4px;
   border-radius: 5px;
   transition: background 0.3s;
+}
+.playable-state-used {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 8px;
+}
+.playable-state-used.is-wrote {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
 }
 .playable-state-table-row.is-changed {
   background: color-mix(in srgb, var(--accent) 14%, transparent);

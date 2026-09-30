@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
@@ -51,7 +51,9 @@ import { loadPlayableAssets } from "./playable-assets.js";
 import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableStroke } from "./playable-chat.js";
 
 const ASSET_UPLOAD_ACCEPT = ".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm";
-const ACTIVITY_LIMIT = 6;
+const TOAST_LIMIT = 3;
+const TOAST_MS = 3500;
+const TOAST_LONG_MS = 6000;
 const PICK_LIMIT = 8;
 const MEDIA_TAGS = new Set(["img", "video", "picture"]);
 
@@ -88,18 +90,25 @@ export interface PreviewRuntime {
  */
 export type PreviewTool = "play" | "select" | "text" | "draw";
 
-/** A change made from the preview, shown with the preview's activity. */
-interface PreviewNote {
-  at: string;
+/** A short message over the preview: an Exit taken, or a change made from the preview. */
+interface PreviewToast {
+  id: number;
   text: string;
-  /** `asked` waits for the AI. */
-  status: "saved" | "asked" | "failed";
+  tone: "info" | "saved" | "asked" | "warning" | "error";
+  /** A Scene the message offers to open. */
+  targetNodeId?: string;
 }
+
+/** Something in the Scene that needs the author: an error, or an Exit that goes nowhere. */
+type PreviewIssue =
+  | { kind: "error"; key: string; text: string }
+  | { kind: "unconnected"; key: string; surfaceId: string; signal: string; label: string; sourceTitle: string };
 
 /**
  * One Node's Workbench: a live preview that reports navigation instead of
  * leaving the Node, with tools to point at, edit, and draw on it. There is no
  * inspector; the AI changes the Node, and "Open code" is the way to read it.
+ * Everything else floats over the preview, so it keeps the whole height.
  */
 export function PlayableNodeWorkbench({
   projectId,
@@ -107,7 +116,6 @@ export function PlayableNodeWorkbench({
   graph,
   issues,
   revision,
-  agentBusy = false,
   onClose,
   onOpenNode,
   onOpenSource,
@@ -128,7 +136,6 @@ export function PlayableNodeWorkbench({
   issues: readonly PlayableProjectValidationIssue[];
   /** Changes whenever the project's files were saved, so the preview reloads. */
   revision: number;
-  agentBusy?: boolean;
   onClose: () => void;
   onOpenNode: (nodeId: string) => void;
   onOpenSource: () => void;
@@ -144,7 +151,7 @@ export function PlayableNodeWorkbench({
   /** Receives the preview's Runtime snapshots; undefined when a new session starts. */
   onSnapshot?: (snapshot: NodeRuntimeSnapshot | undefined) => void;
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
-  /** Project tools shown in the header, such as the State panel toggle. */
+  /** Project tools shown in the header, such as the Variables panel toggle. */
   headerActions?: ReactNode;
 } & Pick<PlayableSignalEdits, "onSignalTarget" | "onAskAgent">) {
   const runtime = usePlayablePreviewRuntime(projectId, revision);
@@ -156,11 +163,15 @@ export function PlayableNodeWorkbench({
   const [tool, setTool] = useState<PreviewTool>("play");
   const [picks, setPicks] = useState<PlayablePickResult[]>([]);
   const [strokes, setStrokes] = useState<PlayableStroke[]>([]);
-  const [notes, setNotes] = useState<PreviewNote[]>([]);
   const [storage] = useState(createMemoryStorage);
+  const { toasts, show: showToast, dismiss: dismissToast } = usePreviewToasts();
   const page = useRef<HTMLElement>(null);
+  const startButton = useRef<HTMLButtonElement>(null);
+  const startPanel = useRef<HTMLDivElement>(null);
+  const seenReport = useRef("");
+  useDismiss(stateOpen, [startButton, startPanel], () => setStateOpen(false));
 
-  // Any new session starts with a clean activity log.
+  // Any new session starts with no errors and no Exits taken.
   useEffect(() => {
     setSnapshot(undefined);
     setDiagnostics([]);
@@ -171,7 +182,6 @@ export function PlayableNodeWorkbench({
     setTool("play");
     setPicks([]);
     setStrokes([]);
-    setNotes([]);
   }, [node.id]);
 
   // Esc puts the pointer back to playing. The preview frame reports its own Esc.
@@ -184,6 +194,18 @@ export function PlayableNodeWorkbench({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [tool]);
+
+  // Each Exit the preview takes shows up once, instead of changing the Scene.
+  useEffect(() => {
+    if (!snapshot) {
+      seenReport.current = "";
+      return;
+    }
+    for (const report of snapshot.reports) {
+      if (report.at > seenReport.current) showToast(reportToast(graph, report));
+    }
+    seenReport.current = snapshot.reports.at(-1)?.at ?? seenReport.current;
+  }, [graph, showToast, snapshot]);
 
   const removePick = useCallback((key: string) => setPicks((current) => current.filter((pick) => playablePickKey(pick) !== key)), []);
   usePlayableChatReport({
@@ -214,27 +236,24 @@ export function PlayableNodeWorkbench({
     });
   }, []);
   const onPickCancel = useCallback(() => setTool("play"), []);
-  const note = useCallback((text: string, status: PreviewNote["status"]) => {
-    setNotes((current) => [...current.slice(-9), { at: new Date().toISOString(), text, status }]);
-  }, []);
 
   /** Asks the AI now, or puts the request in the chat prompt when it cannot be sent. */
   const askAgent = useCallback(async (text: string, contexts: PromptContext[], summary: string): Promise<void> => {
-    if (onSendToAgent && await onSendToAgent(text, contexts)) return note(summary, "asked");
+    if (onSendToAgent && await onSendToAgent(text, contexts)) return showToast({ tone: "asked", text: `${summary}: asked the AI` });
     if (onAskAgent) {
       onAskAgent(text);
-      return note(`${summary} — in the chat, ready to send`, "saved");
+      return showToast({ tone: "saved", text: `${summary}: in the chat, ready to send` });
     }
-    note(`Could not ask the AI: ${summary}`, "failed");
-  }, [note, onAskAgent, onSendToAgent]);
+    showToast({ tone: "error", text: `Could not ask the AI: ${summary}` });
+  }, [onAskAgent, onSendToAgent, showToast]);
 
   const onTextEdit = useCallback((edit: PlayableTextEdit) => {
     if (edit.before === edit.after) return;
     void (async () => {
-      if (edit.inPlace && await onWriteText(edit).catch(() => false)) return note(`Text changed to "${edit.after}"`, "saved");
+      if (edit.inPlace && await onWriteText(edit).catch(() => false)) return showToast({ tone: "saved", text: `Text changed to "${edit.after}"` });
       await askAgent(playableTextEditRequest(edit.before, edit.after), [playableElementContext(edit.pick)], `Changing "${edit.before}" to "${edit.after}"`);
     })();
-  }, [askAgent, note, onWriteText]);
+  }, [askAgent, onWriteText, showToast]);
 
   const replaceMedia = useCallback(async (pick: PlayablePickResult, asset: PlayableAssetRequest) => {
     try {
@@ -245,9 +264,9 @@ export function PlayableNodeWorkbench({
         `Replacing <${pick.tag}> with ${asset.name}`,
       );
     } catch (cause) {
-      note(`Could not add ${asset.name}: ${errorMessage(cause)}`, "failed");
+      showToast({ tone: "error", text: `Could not add ${asset.name}: ${errorMessage(cause)}` });
     }
-  }, [askAgent, note, onAddAsset]);
+  }, [askAgent, onAddAsset, showToast]);
 
   const preview: PlayablePreviewOptions = {
     policy: "report",
@@ -258,36 +277,14 @@ export function PlayableNodeWorkbench({
   const nodeIssues = issues.filter((issue) => issue.surfaceId === node.id
     || issue.path.startsWith(`nodes/${node.id}/`)
     || Object.values(node.source).includes(issue.path));
+  const previewIssues = collectPreviewIssues(graph, node, nodeIssues, runtime.error, snapshot, diagnostics);
   const ready = Boolean(runtime.definition && runtime.assets);
+  const mediaPicks = tool === "draw" ? [] : picks.filter((pick) => MEDIA_TAGS.has(pick.tag));
 
   const actions = <>
     <button type="button" className="playable-workbench-tool" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={13} /><span>Replay</span></button>
-    <button type="button" className={`playable-workbench-tool${stateOpen ? " is-active" : ""}`} title="Choose the Variables this preview starts with" aria-pressed={stateOpen} onClick={() => setStateOpen((open) => !open)}><Box size={13} /><span>Start with…{overrides ? ` (${overrides})` : ""}</span></button>
+    <button ref={startButton} type="button" className={`playable-workbench-tool${stateOpen || overrides ? " is-active" : ""}`} title="Choose the Variables this preview starts with" aria-expanded={stateOpen} aria-haspopup="dialog" onClick={() => setStateOpen((open) => !open)}><Box size={13} /><span>Start with…{overrides ? ` (${overrides})` : ""}</span></button>
     {onPlayFromHere ? <button type="button" className="playable-workbench-tool" title="Playtest the game from this Scene" aria-label="Play from here" onClick={() => onPlayFromHere({ nodeId: node.id, state: previewState })}><Play size={12} fill="currentColor" /><span>Play from here</span></button> : null}
-  </>;
-
-  const footer = <>
-    {stateOpen ? <PreviewStateEditor initialState={graph.initialState} previewState={previewState} onChange={setPreviewState} /> : null}
-    {picks.length ? <PickedElements
-      picks={picks}
-      onRemove={removePick}
-      onClear={() => setPicks([])}
-      onReplaceMedia={(pick, asset) => void replaceMedia(pick, asset)}
-      {...(onAskAgent ? { onGenerateMedia: (pick: PlayablePickResult) => onAskAgent(askToGenerateMedia(pick)) } : {})}
-    /> : null}
-    <PreviewActivity
-      graph={graph}
-      node={node}
-      issues={nodeIssues}
-      snapshot={snapshot}
-      diagnostics={diagnostics}
-      notes={notes}
-      agentBusy={agentBusy}
-      buildError={runtime.error}
-      onOpenNode={onOpenNode}
-      onSignalTarget={onSignalTarget}
-      onAskAgent={onAskAgent}
-    />
   </>;
 
   const previewPane = <WorkbenchPreview
@@ -295,16 +292,23 @@ export function PlayableNodeWorkbench({
     viewport={graph.viewport}
     stageClassName={`playable-workbench-stage is-tool-${tool}`}
     actions={actions}
-    overlay={<PreviewToolbar
-      tool={tool}
-      disabled={!ready}
-      strokes={strokes.length}
-      picks={picks.length}
-      onTool={setTool}
-      onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
-      onClearStrokes={() => setStrokes([])}
-    />}
-    footer={footer}
+    overlay={<>
+      {stateOpen ? <div ref={startPanel} className="playable-preview-popover is-start" role="dialog" aria-label="Start with">
+        <PreviewStateEditor initialState={graph.initialState} previewState={previewState} onChange={setPreviewState} />
+      </div> : null}
+      <PreviewToolbar
+        tool={tool}
+        disabled={!ready}
+        strokes={strokes.length}
+        picks={picks.length}
+        onTool={setTool}
+        onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
+        onClearStrokes={() => setStrokes([])}
+      >
+        <PreviewIssues graph={graph} issues={previewIssues} onSignalTarget={onSignalTarget} onAskAgent={onAskAgent} />
+      </PreviewToolbar>
+      <PreviewToasts toasts={toasts} onOpenNode={onOpenNode} onDismiss={dismissToast} />
+    </>}
   >
     {runtime.definition && runtime.assets ? <NodePlayer
       key={session}
@@ -328,6 +332,13 @@ export function PlayableNodeWorkbench({
       drawing={tool === "draw"}
       onStroke={(stroke) => setStrokes((current) => [...current, stroke])}
     /> : null}
+    {mediaPicks.map((pick) => <PickedMediaActions
+      key={playablePickKey(pick)}
+      pick={pick}
+      viewport={graph.viewport}
+      onReplace={(asset) => void replaceMedia(pick, asset)}
+      {...(onAskAgent ? { onGenerate: () => onAskAgent(askToGenerateMedia(pick)) } : {})}
+    />)}
   </WorkbenchPreview>;
 
   return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
@@ -480,8 +491,8 @@ const TOOL_HINTS: Record<Exclude<PreviewTool, "play">, string> = {
   draw: "Draw, then say what you want in the chat · Esc to play",
 };
 
-/** Floats over the bottom of the preview. */
-export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes }: {
+/** Floats over the bottom of the preview; `children` sit beside the tools, such as the issues badge. */
+export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, children }: {
   tool: PreviewTool;
   disabled: boolean;
   strokes: number;
@@ -489,6 +500,7 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
   onTool: (tool: PreviewTool) => void;
   onUndoStroke: () => void;
   onClearStrokes: () => void;
+  children?: ReactNode;
 }) {
   return <div className="playable-preview-toolbar">
     {tool !== "play" ? <p className="playable-preview-toolbar-hint">{TOOL_HINTS[tool]}{tool === "select" && picks ? ` · ${picks} picked` : ""}</p> : null}
@@ -508,8 +520,10 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
         <button type="button" title="Clear the drawing" aria-label="Clear drawing" onClick={onClearStrokes}><Trash2 size={14} /></button>
       </> : null}
     </div>
+    {children}
   </div>;
 }
+
 
 /**
  * Freehand strokes over the preview, in project viewport pixels. Strokes stay
@@ -562,37 +576,27 @@ export function DrawingLayer({ viewport, strokes, drawing, onStroke }: {
   </svg>;
 }
 
-/** The elements the next chat message is about. Images and video can be replaced. */
-export function PickedElements({ picks, onRemove, onClear, onReplaceMedia, onGenerateMedia }: {
-  picks: readonly PlayablePickResult[];
-  onRemove: (key: string) => void;
-  onClear: () => void;
-  onReplaceMedia: (pick: PlayablePickResult, asset: PlayableAssetRequest) => void;
-  onGenerateMedia?: (pick: PlayablePickResult) => void;
+/**
+ * Over a picked image or video: replace it from the Library, a file, or by
+ * asking the AI. `pick.box` is in project viewport pixels, so the bar is
+ * placed in percentages of the stage: under the element, or inside its
+ * bottom edge when there is no room below, as for a full-screen background.
+ */
+function PickedMediaActions({ pick, viewport, onReplace, onGenerate }: {
+  pick: PlayablePickResult;
+  viewport: { width: number; height: number };
+  onReplace: (asset: PlayableAssetRequest) => void;
+  onGenerate?: () => void;
 }) {
-  return <div className="playable-workbench-picks" aria-label="Picked for the chat">
-    <header>
-      <strong>{picks.length === 1 ? "1 thing picked" : `${picks.length} things picked`}</strong>
-      <span>Say what to change in the chat.</span>
-      {picks.length > 1 ? <button type="button" onClick={onClear}>Clear</button> : null}
-    </header>
-    {picks.map((pick) => {
-      const key = playablePickKey(pick);
-      return <PickedElement key={key} pick={pick} onClear={() => onRemove(key)}>
-        {MEDIA_TAGS.has(pick.tag) ? <MediaReplaceActions pick={pick} onReplace={(asset) => onReplaceMedia(pick, asset)} onGenerate={onGenerateMedia ? () => onGenerateMedia(pick) : undefined} /> : null}
-      </PickedElement>;
-    })}
-  </div>;
-}
-
-export function PickedElement({ pick, onClear, children }: { pick: PlayablePickResult; onClear: () => void; children?: ReactNode }) {
-  const reference = `${pick.nodeId} ${pick.source ?? pick.cssPath}`;
-  return <div className="playable-workbench-pick">
-    <MousePointer2 size={12} />
-    <span title={pick.cssPath}><code>&lt;{pick.tag}&gt;</code>{pick.text ? ` "${pick.text}"` : ""}</span>
-    {children ?? <small title={reference}>{pick.source ?? pick.cssPath}</small>}
-    <button type="button" title="Copy reference" aria-label="Copy element reference" onClick={() => void navigator.clipboard?.writeText(reference)}><Clipboard size={12} /></button>
-    <button type="button" title="Remove" aria-label="Remove picked element" onClick={onClear}><X size={12} /></button>
+  const { x, y, width, height } = pick.box;
+  const center = Math.min(Math.max((x + width / 2) / viewport.width, 0.15), 0.85);
+  const bottom = Math.min(y + height, viewport.height);
+  const below = bottom < viewport.height * 0.88;
+  const style = below
+    ? { left: `${center * 100}%`, top: `${(bottom / viewport.height) * 100}%` }
+    : { left: `${center * 100}%`, bottom: `${Math.max(0, 1 - bottom / viewport.height) * 100}%` };
+  return <div className={`playable-media-actions${below ? " is-below" : " is-inside"}`} style={style} role="group" aria-label={`Replace <${pick.tag}>`}>
+    <MediaReplaceActions pick={pick} onReplace={onReplace} {...(onGenerate ? { onGenerate } : {})} />
   </div>;
 }
 
@@ -648,117 +652,186 @@ export function askToGenerateMedia(pick: PlayablePickResult): string {
   return `Make a new ${pick.tag === "video" ? "video" : "image"} for the picked <${pick.tag}> and use it there instead: `;
 }
 
-type ActivityItem =
-  | { kind: "report"; at: string; text: string; targetNodeId?: string }
-  | { kind: "unconnected"; at: string; surfaceId: string; signal: string; label: string; sourceTitle: string }
-  | { kind: "error"; at: string; text: string }
-  | { kind: "note"; at: string; text: string; status: PreviewNote["status"] };
+/** Shows short messages over the preview; each fades after a few seconds. */
+function usePreviewToasts() {
+  const [toasts, setToasts] = useState<PreviewToast[]>([]);
+  const nextId = useRef(0);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
-/**
- * Below the preview: the Scene's problems and Exits that go nowhere (with a
- * way to connect them), then what the preview did instead of navigating,
- * the changes made from the preview, and the Variables the Scene used.
- */
-export function PreviewActivity({ graph, node, issues = [], snapshot, diagnostics, notes = [], agentBusy = false, buildError, onOpenNode, onSignalTarget, onAskAgent }: {
-  graph: NodeGraph;
-  node?: PlayableNode;
-  issues?: readonly PlayableProjectValidationIssue[];
-  snapshot?: NodeRuntimeSnapshot;
-  diagnostics: readonly { message: string; at: string }[];
-  notes?: readonly PreviewNote[];
-  agentBusy?: boolean;
-  buildError?: string;
+  const dismiss = useCallback((id: number) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+  const show = useCallback((toast: Omit<PreviewToast, "id">) => {
+    const id = nextId.current++;
+    setToasts((current) => [...current, { ...toast, id }].slice(-TOAST_LIMIT));
+    timers.current.set(id, setTimeout(() => dismiss(id), toast.targetNodeId || toast.tone === "error" ? TOAST_LONG_MS : TOAST_MS));
+  }, [dismiss]);
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach(clearTimeout);
+  }, []);
+
+  return { toasts, show, dismiss };
+}
+
+const TOAST_ICONS: Record<PreviewToast["tone"], IconComponent> = {
+  info: ArrowRight,
+  saved: Check,
+  asked: Sparkles,
+  warning: InfoCircle,
+  error: InfoCircle,
+};
+
+/** The top of the preview: what the preview did instead of navigating, and changes made from it. */
+function PreviewToasts({ toasts, onOpenNode, onDismiss }: {
+  toasts: readonly PreviewToast[];
   onOpenNode: (nodeId: string) => void;
-  onSignalTarget?: PlayableSignalEdits["onSignalTarget"];
-  onAskAgent?: (text: string) => void;
+  onDismiss: (id: number) => void;
 }) {
-  const titleOf = (nodeId?: string) => graph.nodes.find((candidate) => candidate.id === nodeId)?.title ?? nodeId;
-  const connected = (surfaceId: string, signal: string) => graph.edges.some((edge) =>
-    edge.source.nodeId === surfaceId && edge.source.signal === signal);
-  // The Scene's own Exits that go nowhere come first, used or not.
-  const openExits: ActivityItem[] = (node?.signals ?? [])
-    .filter((signal) => !connected(node!.id, signal.id))
-    .map((signal) => ({ kind: "unconnected", at: "", surfaceId: node!.id, signal: signal.id, label: signal.label || signal.id, sourceTitle: node!.title }));
-  const items: ActivityItem[] = [
-    ...(snapshot?.reports ?? []).map((report): ActivityItem => {
-      if (report.kind === "signal") {
-        const label = playableNodeById(graph, report.nodeId)?.signals.find((signal) => signal.id === report.signal)?.label ?? report.signal;
-        if (!report.targetNodeId) {
-          return { kind: "unconnected", at: report.at, surfaceId: report.nodeId, signal: report.signal, label, sourceTitle: titleOf(report.nodeId) ?? report.nodeId };
-        }
-        return {
-          kind: "report",
-          at: report.at,
-          text: `"${label}" → ${titleOf(report.targetNodeId)}${report.mode === "push" ? " · can go back" : ""}`,
-          targetNodeId: report.targetNodeId,
-        };
-      }
-      if (report.kind === "back") return { kind: "report", at: report.at, text: report.targetNodeId ? `Back → ${titleOf(report.targetNodeId)}` : "Back, but there is nowhere to go back to", targetNodeId: report.targetNodeId };
-      return { kind: "report", at: report.at, text: `${report.kind === "restart" ? "Replay" : "Continue"} → ${titleOf(report.targetNodeId)}`, targetNodeId: report.targetNodeId };
-    }),
-    ...(snapshot?.errors ?? []).map((error): ActivityItem => ({ kind: "error", at: error.at, text: error.nodeId ? `${titleOf(error.nodeId)}: ${error.message}` : error.message })),
-    ...diagnostics.map((diagnostic): ActivityItem => ({ kind: "error", at: diagnostic.at, text: diagnostic.message })),
-    ...notes.map((item): ActivityItem => ({ kind: "note", ...item })),
-  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, ACTIVITY_LIMIT);
-  // Diagnostics can repeat a runtime error, and a player can press one
-  // unconnected Exit many times; show each once. An Exit connected since it
-  // was used no longer needs a warning.
-  const seen = new Set<string>();
-  const unique = [...openExits, ...items].filter((item) => {
-    if (item.kind === "unconnected" && connected(item.surfaceId, item.signal)) return false;
-    const key = item.kind === "unconnected" ? `unconnected:${item.surfaceId}:${item.signal}` : `${item.kind}:${item.at}:${item.text}`;
-    return !seen.has(key) && Boolean(seen.add(key));
-  });
-
-  return <div className="playable-workbench-activity" aria-label="What happened in the preview" aria-live="polite">
-    {buildError ? <p className="is-error" role="alert"><InfoCircle size={12} /><span>{buildError}</span></p> : null}
-    {issues.map((issue, index) => <p key={`issue:${index}:${issue.message}`} className="is-error" role="alert"><InfoCircle size={12} /><span title={issue.message}>{issue.message}</span></p>)}
-    {unique.map((item, index) => {
-      if (item.kind === "unconnected") {
-        return <p key={`unconnected:${item.surfaceId}:${item.signal}`} className="is-warning">
-          <InfoCircle size={12} />
-          <span title={`"${item.label}" in ${item.sourceTitle}`}>"{item.label}" doesn't go anywhere yet</span>
-          {onSignalTarget ? <select aria-label={`Connect "${item.label}" to a Scene`} value="" onChange={(event) => { if (event.target.value) onSignalTarget(item.surfaceId, item.signal, event.target.value); }}>
-            <option value="">Connect…</option>
-            {graph.nodes.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
-          </select> : null}
-          {onAskAgent ? <button type="button" title="Ask the AI to create the Scene this exit should open" onClick={() => onAskAgent(askToCreateTarget(item.label, item.sourceTitle))}><Sparkles size={11} /><span>Ask AI to create it</span></button> : null}
-        </p>;
-      }
-      if (item.kind === "note") {
-        const working = item.status === "asked" && agentBusy;
-        return <p key={`${item.at}:${index}`} className={`is-note${item.status === "failed" ? " is-error" : ""}`}>
-          {working ? <LoaderCircle className="spin" size={12} /> : item.status === "failed" ? <InfoCircle size={12} /> : item.status === "asked" ? <Sparkles size={12} /> : <Check size={12} />}
-          <span title={item.text}>{item.text}{working ? " — the AI is on it" : ""}</span>
-        </p>;
-      }
-      return <p key={`${item.at}:${index}`} className={item.kind === "error" ? "is-error" : undefined}>
-        {item.kind === "error" ? <InfoCircle size={12} /> : <ArrowRight size={12} />}
-        <span title={item.text}>{item.text}</span>
-        {item.kind === "report" && item.targetNodeId ? <button type="button" onClick={() => onOpenNode(item.targetNodeId!)}>Open</button> : null}
+  return <div className="playable-preview-toasts" aria-live="polite" aria-label="What happened in the preview">
+    {toasts.map((toast) => {
+      const Icon = TOAST_ICONS[toast.tone];
+      return <p key={toast.id} className={`playable-preview-toast is-${toast.tone}`} role={toast.tone === "error" ? "alert" : undefined}>
+        <Icon size={12} />
+        <span title={toast.text}>{toast.text}</span>
+        {toast.targetNodeId ? <button type="button" onClick={() => { onDismiss(toast.id); onOpenNode(toast.targetNodeId!); }}>Open</button> : null}
+        <button type="button" className="playable-preview-toast-close" aria-label="Dismiss" onClick={() => onDismiss(toast.id)}><X size={11} /></button>
       </p>;
     })}
-    {node ? <VariablesUsed nodeId={node.id} snapshot={snapshot} /> : null}
-    {!buildError && !issues.length && !unique.length ? <p className="is-empty"><span>Try the preview. Exits you use show up here instead of changing the Scene.</span></p> : null}
   </div>;
 }
 
-/** The Variables this Scene read or changed in the preview, with their values now. */
-function VariablesUsed({ nodeId, snapshot }: { nodeId: string; snapshot?: NodeRuntimeSnapshot }) {
-  const access = snapshot?.stateAccess[nodeId];
-  const readsAll = Boolean(access?.read.includes("*"));
-  const explicit = [...new Set([...(access?.read ?? []), ...(access?.wrote ?? [])])].filter((key) => key !== "*");
-  const keys = explicit.length || !readsAll ? explicit : Object.keys(snapshot?.state ?? {});
-  if (!keys.length) return null;
-  return <p className="playable-workbench-variables" aria-label="Variables used">
-    <Box size={12} />
-    <span>
-      {readsAll ? "Reads every Variable: " : "Variables: "}
-      {keys.map((key, index) => <span key={key} className={access?.wrote.includes(key) ? "is-write" : undefined} title={access?.wrote.includes(key) ? "Changed by this Scene" : "Read by this Scene"}>
-        {index ? ", " : ""}<code>{key}</code> {JSON.stringify(snapshot?.state[key] ?? null)}
-      </span>)}
-    </span>
-  </p>;
+/** What one navigation report says: the Exit taken and where it would go. */
+function reportToast(graph: NodeGraph, report: NodeRuntimeSnapshot["reports"][number]): Omit<PreviewToast, "id"> {
+  const titleOf = (nodeId: string) => playableNodeById(graph, nodeId)?.title ?? nodeId;
+  const target = report.targetNodeId ? { targetNodeId: report.targetNodeId } : {};
+  if (report.kind === "signal") {
+    const label = playableNodeById(graph, report.nodeId)?.signals.find((signal) => signal.id === report.signal)?.label || report.signal;
+    if (!report.targetNodeId) return { tone: "warning", text: `"${label}" doesn't go anywhere yet` };
+    return { tone: "info", text: `"${label}" → ${titleOf(report.targetNodeId)}${report.mode === "push" ? " · can go back" : ""}`, ...target };
+  }
+  if (report.kind === "back") {
+    return report.targetNodeId
+      ? { tone: "info", text: `Back → ${titleOf(report.targetNodeId)}`, ...target }
+      : { tone: "warning", text: "Back, but there is nowhere to go back to" };
+  }
+  return { tone: "info", text: `${report.kind === "restart" ? "Replay" : "Continue"} → ${titleOf(report.targetNodeId)}`, ...target };
+}
+
+/**
+ * What needs the author in this Scene: the build error, project issues, errors
+ * in the preview, and Exits that go nowhere, each once. An Exit connected
+ * since it was used no longer counts.
+ */
+function collectPreviewIssues(
+  graph: NodeGraph,
+  node: PlayableNode,
+  issues: readonly PlayableProjectValidationIssue[],
+  buildError: string | undefined,
+  snapshot: NodeRuntimeSnapshot | undefined,
+  diagnostics: readonly { message: string }[],
+): PreviewIssue[] {
+  const connected = (surfaceId: string, signal: string) => graph.edges.some((edge) =>
+    edge.source.nodeId === surfaceId && edge.source.signal === signal);
+  const titleOf = (nodeId: string) => playableNodeById(graph, nodeId)?.title ?? nodeId;
+  const errors = [
+    ...(buildError ? [buildError] : []),
+    ...issues.map((issue) => issue.message),
+    ...(snapshot?.errors ?? []).map((error) => error.nodeId && error.nodeId !== node.id ? `${titleOf(error.nodeId)}: ${error.message}` : error.message),
+    ...diagnostics.map((diagnostic) => diagnostic.message),
+  ];
+  const exits = [
+    ...node.signals.map((signal) => ({ surfaceId: node.id, signal: signal.id, label: signal.label || signal.id })),
+    ...(snapshot?.reports ?? []).flatMap((report) => report.kind === "signal" && !report.targetNodeId ? [{
+      surfaceId: report.nodeId,
+      signal: report.signal,
+      label: playableNodeById(graph, report.nodeId)?.signals.find((signal) => signal.id === report.signal)?.label || report.signal,
+    }] : []),
+  ].filter((exit) => !connected(exit.surfaceId, exit.signal));
+  const all: PreviewIssue[] = [
+    ...errors.map((text): PreviewIssue => ({ kind: "error", key: `error:${text}`, text })),
+    ...exits.map((exit): PreviewIssue => ({ kind: "unconnected", key: `unconnected:${exit.surfaceId}:${exit.signal}`, ...exit, sourceTitle: titleOf(exit.surfaceId) })),
+  ];
+  const seen = new Set<string>();
+  return all.filter((issue) => !seen.has(issue.key) && Boolean(seen.add(issue.key)));
+}
+
+/**
+ * Nothing while the Scene is fine. Otherwise a badge beside the preview
+ * tools that opens the issues, with a way to connect each Exit that goes
+ * nowhere or ask the AI to create its Scene.
+ */
+function PreviewIssues({ graph, issues, onSignalTarget, onAskAgent }: {
+  graph: NodeGraph;
+  issues: readonly PreviewIssue[];
+  onSignalTarget?: PlayableSignalEdits["onSignalTarget"];
+  onAskAgent?: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useDismiss(open, [button, panel], () => setOpen(false));
+  useEffect(() => { if (!issues.length) setOpen(false); }, [issues.length]);
+  if (!issues.length) return null;
+  const errors = issues.some((issue) => issue.kind === "error");
+
+  return <div className="playable-preview-issues">
+    <button
+      ref={button}
+      type="button"
+      className={`playable-preview-issues-badge${errors ? " is-error" : " is-warning"}`}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      onClick={() => setOpen((current) => !current)}
+    ><InfoCircle size={13} /><span>{issues.length} {issues.length === 1 ? "issue" : "issues"}</span></button>
+    {open ? <div ref={panel} className="playable-preview-popover is-issues" role="dialog" aria-label="Issues">
+      {issues.map((issue) => issue.kind === "error"
+        ? <p key={issue.key} className="is-error"><InfoCircle size={12} /><span title={issue.text}>{issue.text}</span></p>
+        : <p key={issue.key} className="is-warning">
+          <InfoCircle size={12} />
+          <span title={`"${issue.label}" in ${issue.sourceTitle}`}>"{issue.label}" doesn't go anywhere yet</span>
+          {onSignalTarget ? <select aria-label={`Connect "${issue.label}" to a Scene`} value="" onChange={(event) => { if (event.target.value) onSignalTarget(issue.surfaceId, issue.signal, event.target.value); }}>
+            <option value="">Connect…</option>
+            {graph.nodes.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
+          </select> : null}
+          {onAskAgent ? <button type="button" title="Ask the AI to create the Scene this exit should open" onClick={() => { setOpen(false); onAskAgent(askToCreateTarget(issue.label, issue.sourceTitle)); }}><Sparkles size={11} /><span>Ask AI to create it</span></button> : null}
+        </p>)}
+    </div> : null}
+  </div>;
+}
+
+/**
+ * Calls `onDismiss` on Escape or a press outside the given elements while
+ * `open`. A press in the preview frame reaches only the frame, so the window
+ * losing focus to it counts as outside too.
+ */
+function useDismiss(open: boolean, inside: readonly RefObject<HTMLElement | null>[], onDismiss: () => void): void {
+  const latest = useRef({ inside, onDismiss });
+  latest.current = { inside, onDismiss };
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as globalThis.Node;
+      if (!latest.current.inside.some((ref) => ref.current?.contains(target))) latest.current.onDismiss();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      latest.current.onDismiss();
+    };
+    const onBlur = () => latest.current.onDismiss();
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [open]);
 }
 
 /** The chat request behind "Ask AI to create it". */
