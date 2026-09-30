@@ -248,7 +248,13 @@ export function PlayableNodeWorkbench({
   const onTextEdit = useCallback((edit: PlayableTextEdit) => {
     if (edit.before === edit.after) return;
     void (async () => {
-      if (edit.inPlace && await onWriteText(edit).catch(() => false)) return showToast({ tone: "saved", text: `Text changed to "${edit.after}"` });
+      if (edit.inPlace) {
+        try {
+          if (await onWriteText(edit)) return showToast({ tone: "saved", text: `Text changed to "${edit.after}"` });
+        } catch (cause) {
+          return showToast({ tone: "error", text: `Could not change the text: ${errorMessage(cause)}` });
+        }
+      }
       await askAgent(playableTextEditRequest(edit.before, edit.after), [playableElementContext(edit.pick)], `Changing "${edit.before}" to "${edit.after}"`);
     })();
   }, [askAgent, onWriteText, showToast]);

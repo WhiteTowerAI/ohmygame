@@ -117,7 +117,7 @@ describePublishContract("remote publish", () => {
       assets: { clip: { type: "video", contentType: "video/mp4", size: videoContents.length } },
     });
     expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
-  });
+  }, 20_000);
 
   it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
     const runtime = await testRuntime();

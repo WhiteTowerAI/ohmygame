@@ -158,6 +158,12 @@ type CanvasContextMenuState = {
   screenPosition: { x: number; y: number };
   flowPosition: { x: number; y: number };
 };
+/** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
+interface HistoryEntry {
+  codebase: NodeCodebase;
+  sources?: Record<string, string>;
+}
+
 interface CopiedPlayableNode {
   node: PlayableNode;
   /** Workspace-relative path to file contents, so a copy is a real copy. */
@@ -235,8 +241,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
-  const undoHistory = useRef<NodeCodebase[]>([]);
-  const redoHistory = useRef<NodeCodebase[]>([]);
+  const undoHistory = useRef<HistoryEntry[]>([]);
+  const redoHistory = useRef<HistoryEntry[]>([]);
+  /** What the editor last wrote to each source file it changed, for undo to swap back. */
+  const writtenSources = useRef<Record<string, string>>({});
   const historyObserved = useRef<NodeCodebase | undefined>(undefined);
   const historyObservedJson = useRef<string | undefined>(undefined);
   const historyPendingBase = useRef<NodeCodebase | undefined>(undefined);
@@ -304,6 +312,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     window.clearTimeout(historyTimer.current);
     undoHistory.current = [];
     redoHistory.current = [];
+    writtenSources.current = {};
     historyObserved.current = undefined;
     historyObservedJson.current = undefined;
     historyPendingBase.current = undefined;
@@ -404,9 +413,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     historyObservedJson.current = JSON.stringify(next);
   }
 
-  function pushUndoSnapshot(snapshot: NodeCodebase): void {
-    undoHistory.current.push(structuredClone(snapshot));
+  function pushUndoSnapshot(snapshot: NodeCodebase, sources?: Record<string, string>): HistoryEntry {
+    const entry: HistoryEntry = { codebase: structuredClone(snapshot), ...(sources ? { sources } : {}) };
+    undoHistory.current.push(entry);
     if (undoHistory.current.length > HISTORY_LIMIT) undoHistory.current.shift();
+    return entry;
   }
 
   function commitPendingHistory(): void {
@@ -419,27 +430,44 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     updateHistoryControls();
   }
 
-  function undoEditorChange(): boolean {
-    if (!codebase) return false;
-    window.clearTimeout(historyTimer.current);
-    historyTimer.current = undefined;
-    const next = historyPendingBase.current ?? undoHistory.current.pop();
-    if (!next) return false;
-    historyPendingBase.current = undefined;
-    redoHistory.current.push(structuredClone(codebase));
-    applyCodebase(next);
+  /**
+   * Puts the editor back to a history entry, and the source files it names
+   * back to what they held then. The entry for the other stack keeps what
+   * the files hold now, so the step can be taken again.
+   */
+  function restoreHistory(entry: HistoryEntry, current: NodeCodebase): { entry: HistoryEntry; saved: Promise<void> } {
+    const sources = entry.sources;
+    const reverse: HistoryEntry = { codebase: structuredClone(current) };
+    if (sources) {
+      reverse.sources = Object.fromEntries(Object.keys(sources).map((path) => [path, writtenSources.current[path] ?? ""]));
+      writtenSources.current = { ...writtenSources.current, ...sources };
+    }
+    applyCodebase(entry.codebase);
+    const saved = sources ? save({ ...entry.codebase, sources }) : Promise.resolve();
     updateHistoryControls();
-    return true;
+    return { entry: reverse, saved };
   }
 
-  function redoEditorChange(): boolean {
-    if (!codebase || historyPendingBase.current) return false;
+  function undoEditorChange(): Promise<void> | undefined {
+    if (!codebase) return undefined;
+    window.clearTimeout(historyTimer.current);
+    historyTimer.current = undefined;
+    const pending = historyPendingBase.current;
+    const next = pending ? { codebase: pending } : undoHistory.current.pop();
+    if (!next) return undefined;
+    historyPendingBase.current = undefined;
+    const restored = restoreHistory(next, codebase);
+    redoHistory.current.push(restored.entry);
+    return restored.saved;
+  }
+
+  function redoEditorChange(): Promise<void> | undefined {
+    if (!codebase || historyPendingBase.current) return undefined;
     const next = redoHistory.current.pop();
-    if (!next) return false;
-    pushUndoSnapshot(codebase);
-    applyCodebase(next);
-    updateHistoryControls();
-    return true;
+    if (!next) return undefined;
+    const restored = restoreHistory(next, codebase);
+    undoHistory.current.push(restored.entry);
+    return restored.saved;
   }
 
   function beginHistoryGesture(): void {
@@ -492,8 +520,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const redo = (event.metaKey || event.ctrlKey) && ((event.shiftKey && key === "z") || (!event.metaKey && key === "y"));
       if (event.altKey || (!undo && !redo) || isTextEntry(event.target)) return;
       event.preventDefault();
-      if (redo) redoEditorChange();
-      else undoEditorChange();
+      void (redo ? redoEditorChange() : undoEditorChange())?.catch(() => {});
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -511,7 +538,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       () => { setNotice(undefined); setCodeRevision((revision) => revision + 1); },
       (error) => {
         if (queuedCodebase.current === serialized) queuedCodebase.current = undefined;
-        setNotice(`Could not save the graph: ${errorMessage(error)}`);
+        setNotice(`Could not save your changes: ${errorMessage(error)}`);
       },
     );
     return operation;
@@ -596,11 +623,35 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     }));
   }
 
-  /** Adopts a graph and saves it now, with any sources, instead of on the next autosave. */
-  async function writeGraph(graph: NodeGraph, sources?: Record<string, string>): Promise<void> {
+  /** Adopts a graph and saves it now, instead of on the next autosave. */
+  async function writeGraph(graph: NodeGraph): Promise<void> {
     if (!codebase) return;
     applyGraph(graph);
-    await save({ graph, editorLayout: codebase.editorLayout, ...(sources ? { sources } : {}) });
+    await save({ graph, editorLayout: codebase.editorLayout });
+  }
+
+  /**
+   * Adopts a graph and writes source files with it as one undoable step.
+   * `before` holds what the files held, for undo to put back.
+   */
+  async function writeSources(graph: NodeGraph, sources: Record<string, string>, before: Record<string, string>): Promise<HistoryEntry | undefined> {
+    if (!codebase) return undefined;
+    commitPendingHistory();
+    // The base stops the graph change from being recorded as a separate step.
+    const base = structuredClone(codebase);
+    historyGestureBase.current = base;
+    try {
+      applyGraph(graph);
+      await save({ graph, editorLayout: codebase.editorLayout, sources });
+    } finally {
+      if (historyGestureBase.current === base) historyGestureBase.current = undefined;
+    }
+    writtenSources.current = { ...writtenSources.current, ...sources };
+    const entry = pushUndoSnapshot(base, before);
+    redoHistory.current = [];
+    if (latestCodebase.current) observeHistory(latestCodebase.current);
+    updateHistoryControls();
+    return entry;
   }
 
   /**
@@ -613,13 +664,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     const node = graph?.nodes.find((candidate) => candidate.id === edit.pick.nodeId);
     if (!graph || !location || !node || node.source.html !== location.file) return false;
     const file = await getWorkspaceFile(projectId, location.file);
-    const html = file.content === undefined || file.truncated ? undefined : replacePlayableElementText(file.content, location, edit.before, edit.after);
-    if (html === undefined) return false;
+    const before = file.truncated ? undefined : file.content;
+    const html = before === undefined ? undefined : replacePlayableElementText(before, location, edit.before, edit.after);
+    if (before === undefined || html === undefined) return false;
     const signal = node.signals.find((candidate) => candidate.id === edit.pick.signal);
     const next = signal && signal.label.trim() === edit.before.trim()
       ? setPlayableSignalLabel(graph, node.id, signal.id, edit.after.trim())
       : graph;
-    await writeGraph(next, { [location.file]: html });
+    await writeSources(next, { [location.file]: html }, { [location.file]: before });
     return true;
   }
 
@@ -640,8 +692,13 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     const declared = addPlayableNodeAsset(graph, nodeId, asset);
     const html = setPlayableBackdrop(before, declared.assetId, asset.type);
     if (html === undefined) return undefined;
-    await writeGraph(declared.graph, { [path]: html });
-    return () => writeGraph(graph, { [path]: before });
+    const entry = await writeSources(declared.graph, { [path]: html }, { [path]: before });
+    return async () => {
+      if (!entry || undoHistory.current.at(-1) !== entry || historyPendingBase.current) {
+        throw new Error("the Scene has changed since. Use Undo on the canvas to step back");
+      }
+      await undoEditorChange();
+    };
   }
 
   function openNode(nodeId: string): void {
@@ -956,7 +1013,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 zoomOnScroll={false}
                 zoomOnPinch
                 zoomOnDoubleClick={false}
-                deleteKeyCode={["Backspace", "Delete"]}
+                deleteKeyCode={openedNode ? null : ["Backspace", "Delete"]}
                 onNodesChange={onNodesChange}
                 onNodeDragStart={() => { setCanvasContextMenu(undefined); setAlignmentGuides(undefined); beginHistoryGesture(); }}
                 onNodeDrag={(_event, node) => {
@@ -1015,8 +1072,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             busy={writing}
             isEntry={canvasContextMenu.nodeId === graphMeta?.entryNodeId}
             onClose={() => setCanvasContextMenu(undefined)}
-            onUndo={undoEditorChange}
-            onRedo={redoEditorChange}
+            onUndo={() => void undoEditorChange()?.catch(() => {})}
+            onRedo={() => void redoEditorChange()?.catch(() => {})}
             onPaste={() => { if (copiedNode) void insertNodeCopy(copiedNode, canvasContextMenu.flowPosition); }}
             onAdd={(presetId) => void addNodeFromPreset(presetId, canvasContextMenu.flowPosition)}
             onOpen={() => { if (canvasContextMenu.nodeId) openNode(canvasContextMenu.nodeId); }}
@@ -1058,6 +1115,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onPlayFromHere={(start) => void startPlaytest(start)}
         onChatContextChange={onChatContextChange}
       /> : null}
+      {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}
       {variablesOpen && graphMeta && workspaceView === "canvas" && !openedNodeId ? <PlayableVariablesPanel
         initialState={graphMeta.initialState}
         descriptions={graphMeta.variables}

@@ -6034,6 +6034,12 @@ button {
   transform: translateX(-50%);
 }
 
+/* The Workbench covers the canvas, so its save errors sit above it. */
+.story-save-notice.is-over-workbench {
+  z-index: 30;
+  top: 56px;
+}
+
 .story-play-issue {
   position: absolute;
   z-index: 5;
