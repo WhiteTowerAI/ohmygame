@@ -26,6 +26,17 @@ const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
 /** Hidden Node thumbnail windows by WebContents ID. */
 const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void }>();
 let nodeThumbnailQueue: Promise<unknown> = Promise.resolve();
+/** Thumbnail windows run Node code, so they may only capture and report. */
+const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail"]);
+
+function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (nodeThumbnails.has(event.sender.id) && !NODE_THUMBNAIL_CHANNELS.has(channel)) {
+      throw new Error("Invalid thumbnail request");
+    }
+    return listener(event, ...args);
+  });
+}
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
 });
@@ -69,14 +80,14 @@ function executeFile(command: string, args: string[]): Promise<void> {
   });
 }
 
-ipcMain.handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
+handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
   if (typeof url !== "string" || !isOAuthAuthorizationUrl(url)) throw new Error("Invalid OAuth authorization URL");
   await shell.openExternal(url);
 });
-ipcMain.handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
-ipcMain.handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
-ipcMain.handle("ohmygame:cancel-auth", () => oauth.cancel());
-ipcMain.handle("ohmygame:set-appearance", (event, appearance: unknown) => {
+handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
+handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
+handle("ohmygame:cancel-auth", () => oauth.cancel());
+handle("ohmygame:set-appearance", (event, appearance: unknown) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow || senderWindow.isDestroyed()) throw new Error("Invalid appearance source");
   if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
@@ -84,7 +95,7 @@ ipcMain.handle("ohmygame:set-appearance", (event, appearance: unknown) => {
   }
   nativeTheme.themeSource = appearance;
 });
-ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
+handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/directory`, {
@@ -96,7 +107,7 @@ ipcMain.handle("ohmygame:browse-plugin-directory", async (event, pluginId: unkno
   const error = await shell.openPath(result.path);
   if (error) throw new Error(error);
 });
-ipcMain.handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath: unknown, mode: unknown = "default") => {
+handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath: unknown, mode: unknown = "default") => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid file open source");
   if (!validRouteId(projectId) || typeof filePath !== "string" || !filePath || filePath.length > 1_000 ||
     typeof mode !== "string" || !PROJECT_FILE_OPEN_MODES.includes(mode as ProjectFileOpenMode) || !daemon) {
@@ -110,7 +121,7 @@ ipcMain.handle("ohmygame:open-project-file", async (event, projectId: unknown, f
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid project file path");
   await openProjectFile(result.path, mode as ProjectFileOpenMode);
 });
-ipcMain.handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
+handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
   if (!validRouteId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
     throw new Error("Invalid Plugin Skill");
@@ -123,12 +134,12 @@ ipcMain.handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, 
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
 });
-ipcMain.handle("ohmygame:select-plugin-directory", async (event) => {
+handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
   const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle("ohmygame:select-project-directory", async (event) => {
+handle("ohmygame:select-project-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "Select project workspace",
@@ -137,7 +148,7 @@ ipcMain.handle("ohmygame:select-project-directory", async (event) => {
   });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
+handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   const window = mainWindow && event.sender === mainWindow.webContents
     ? mainWindow
     : nodeThumbnails.get(event.sender.id)?.window;
@@ -145,7 +156,7 @@ ipcMain.handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   const bounds = captureBounds(rectangle, window.getContentBounds());
   return window.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
-ipcMain.handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown) => {
+handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
   if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport)) throw new Error("Invalid thumbnail target");
   // One hidden window at a time keeps background captures cheap.
@@ -153,20 +164,20 @@ ipcMain.handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, no
   nodeThumbnailQueue = capture.catch(() => {});
   return capture;
 });
-ipcMain.handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
+handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
   nodeThumbnails.get(event.sender.id)?.finish(captured === true);
 });
-ipcMain.handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
+handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid Agent playtest source");
   return agentPlaytests.watchState();
 });
-ipcMain.handle("ohmygame:set-agent-playtest-visible", (event, visible: unknown): PlaytestWatchState => {
+handle("ohmygame:set-agent-playtest-visible", (event, visible: unknown): PlaytestWatchState => {
   if (!mainWindow || event.sender !== mainWindow.webContents || typeof visible !== "boolean") {
     throw new Error("Invalid Agent playtest visibility");
   }
   return agentPlaytests.setVisible(visible);
 });
-ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown, viewport: unknown) => {
+handle("ohmygame:open-playtest", async (event, projectId: unknown, chapterId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
   if (!validRouteId(projectId) || !validRouteId(chapterId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
   const size = fitPlaytestContentSize(viewport);
@@ -209,7 +220,7 @@ ipcMain.handle("ohmygame:open-playtest", async (event, projectId: unknown, chapt
     throw error;
   }
 });
-ipcMain.handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: unknown) => {
+handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: unknown) => {
   if (!validRouteId(projectId) || !validRouteId(nodeId)) throw new Error("Invalid Node target");
   const playtest = await playtestWindows.get(projectId);
   if (!playtest || playtest.isDestroyed() || event.sender !== playtest.webContents) throw new Error("Invalid Node source");
@@ -218,10 +229,10 @@ ipcMain.handle("ohmygame:open-playable-node", async (event, projectId: unknown, 
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 });
-ipcMain.handle("ohmygame:update-state", () => updater?.state() ?? null);
-ipcMain.handle("ohmygame:check-for-update", () => updater?.check());
-ipcMain.handle("ohmygame:download-update", () => updater?.download());
-ipcMain.handle("ohmygame:install-update", () => updater?.install());
+handle("ohmygame:update-state", () => updater?.state() ?? null);
+handle("ohmygame:check-for-update", () => updater?.check());
+handle("ohmygame:download-update", () => updater?.download());
+handle("ohmygame:install-update", () => updater?.install());
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
