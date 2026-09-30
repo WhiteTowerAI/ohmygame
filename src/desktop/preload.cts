@@ -28,8 +28,18 @@ if (process.isMainFrame) {
     selectProjectDirectory: () => ipcRenderer.invoke("ohmygame:select-project-directory") as Promise<string | undefined>,
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
-    openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) =>
-      ipcRenderer.invoke("ohmygame:open-playtest", projectId, chapterId, viewport) as Promise<void>,
+    captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }) =>
+      ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport) as Promise<boolean>,
+    finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,
+    openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
+      ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
+    openPlayableNode: (projectId: string, nodeId: string) =>
+      ipcRenderer.invoke("ohmygame:open-playable-node", projectId, nodeId) as Promise<void>,
+    onOpenPlayableNode: (listener: (projectId: string, nodeId: string) => void) => {
+      const callback = (_event: Electron.IpcRendererEvent, projectId: string, nodeId: string) => listener(projectId, nodeId);
+      ipcRenderer.on("ohmygame:open-playable-node", callback);
+      return () => ipcRenderer.removeListener("ohmygame:open-playable-node", callback);
+    },
     agentPlaytests: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:agent-playtest-state") as Promise<PlaytestWatchState>,
       setVisible: (visible: boolean) => ipcRenderer.invoke("ohmygame:set-agent-playtest-visible", visible) as Promise<PlaytestWatchState>,

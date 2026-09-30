@@ -1,4 +1,4 @@
-import { SendArrow, Square } from "./icons.js";
+import { SendArrow, Square, X } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { AttachmentPickerButton, AttachmentStrip, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
@@ -9,7 +9,7 @@ import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
-import type { ChatReference } from "./chat-reference.js";
+import { PromptContextIcon, type ChatContextChip, type ChatReference } from "./chat-reference.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
@@ -48,7 +48,12 @@ interface ComposerProps {
   onEditPending: (item: PendingPrompt) => Promise<boolean>;
   reference?: ChatReference;
   onClearReference?: () => void;
+  /** Editor context the next message carries, such as the open Node. */
+  contexts?: ChatContextChip[];
+  onRemoveContext?: (key: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Text an editor asks to put in the prompt, such as "Ask AI to create it"; a new `id` inserts it again. */
+  promptRequest?: { text: string; id: number };
 }
 
 export interface ComposerDraft {
@@ -86,7 +91,10 @@ export function Composer({
   onEditPending,
   reference,
   onClearReference,
+  contexts = [],
+  onRemoveContext,
   onDirtyChange,
+  promptRequest,
 }: ComposerProps) {
   const initialSkill = parseSkillInvocation(initialDraft?.prompt ?? "");
   const initialPlugin = extractLeadingPluginMention(initialSkill?.prompt ?? initialDraft?.prompt ?? "", initialDraft?.mentions ?? []);
@@ -130,6 +138,16 @@ export function Composer({
     });
     onInitialDraftHandled?.();
   }, []);
+  useEffect(() => {
+    if (!promptRequest) return;
+    const next = prompt.trim() ? `${prompt.trimEnd()}\n${promptRequest.text}` : promptRequest.text;
+    setPrompt(next);
+    setMentionCursor(next.length);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(next.length, next.length);
+    });
+  }, [promptRequest?.id]);
   useEffect(() => {
     if (!mentionKey) setDismissedMention(undefined);
   }, [mentionKey]);
@@ -445,6 +463,14 @@ export function Composer({
           </>
         )}
         content={<>
+          {contexts.length ? <div className="composer-contexts" aria-label="Context for the next message">
+            {contexts.map((context) => <div className={`composer-context is-${context.kind}`} key={context.key} title={context.detail ?? context.label}>
+              <PromptContextIcon kind={context.kind} />
+              <span>{context.label}</span>
+              {context.detail ? <small>{context.detail}</small> : null}
+              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={`Remove ${context.label} from the message`}><X size={11} /></button>
+            </div>)}
+          </div> : null}
           {reference ? <div className="composer-reference">
             <div className="composer-reference-label">Selected text</div>
             <div className="composer-reference-text">{reference.text}</div>

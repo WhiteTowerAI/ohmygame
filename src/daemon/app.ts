@@ -4,13 +4,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
-import Fastify from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type StoryDocument, type StoryTextGenerationRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import { createStoryDocument } from "../shared/story.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -19,9 +18,11 @@ import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateCreativeText } from "./text-generation.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { PlayableDraftServer } from "./playable-draft-server.js";
+import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
-import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectStoryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
+import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -51,6 +52,24 @@ import type { GameRuntimeAdapter } from "../shared/playtest.js";
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
+import { buildPlayableProject, validatePlayableProject } from "./playable-project.js";
+import {
+  createNodeCodebase,
+  createPlayableStarterCodebase,
+  NodeCodebaseError,
+  readNodeCodebase,
+  writeNodeCodebase,
+} from "./playable-codebase.js";
+import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
+import { addPlayableNode, type AddPlayableNodeRequest } from "./playable-add-node.js";
+import { PLAYABLE_PRESETS } from "./playable-presets.js";
+import {
+  listPlayableThumbnails,
+  PlayableThumbnailError,
+  readGraphNodeIds,
+  readPlayableThumbnail,
+  writePlayableThumbnail,
+} from "./playable-thumbnails.js";
 
 export interface AppOptions {
   dataDirectory?: string;
@@ -84,7 +103,7 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
-      storyViewport: {
+      viewport: {
         type: "object",
         additionalProperties: false,
         required: ["width", "height"],
@@ -249,6 +268,20 @@ const promptSchema = {
           properties: {
             type: { const: "workspace-file" },
             path: { type: "string", minLength: 1, maxLength: 1_000 },
+          },
+        },
+      },
+      contexts: {
+        type: "array",
+        maxItems: 12,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "label", "text"],
+          properties: {
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset"] },
+            label: { type: "string", minLength: 1, maxLength: 200 },
+            text: { type: "string", minLength: 1, maxLength: 16_000 },
           },
         },
       },
@@ -463,6 +496,7 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
+  const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
@@ -572,9 +606,11 @@ export function createApp(options: AppOptions = {}) {
             driver: options.playtestDriver,
             resolveOpenTarget: async () => ({
               runtime: "web",
-              url: project.preview.status === "ready" && project.preview.url
-                ? project.preview.url
-                : await previews.start(project),
+              url: project.type === "interactive-drama"
+                ? await playableDrafts.open(project)
+                : project.preview.status === "ready" && project.preview.url
+                  ? project.preview.url
+                  : await previews.start(project),
             }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
@@ -901,11 +937,11 @@ export function createApp(options: AppOptions = {}) {
       if (request.body?.templateId && request.body.type !== "interactive-drama") {
         return reply.code(400).send({ error: "Project templates require a matching project type" });
       }
-      if (request.body?.storyViewport && request.body.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "Story viewport requires an Interactive Drama project" });
+      if (request.body?.viewport && request.body.type !== "interactive-drama") {
+        return reply.code(400).send({ error: "A viewport requires an Interactive Drama project" });
       }
-      if (request.body?.storyViewport && request.body.templateId) {
-        return reply.code(400).send({ error: "Interactive Drama templates define their own story viewport" });
+      if (request.body?.viewport && request.body.templateId) {
+        return reply.code(400).send({ error: "Interactive Drama templates define their own viewport" });
       }
       if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
         const project = await createInteractiveDramaStarterProject(
@@ -917,35 +953,43 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(201).send(project);
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
-      if (project.type === "interactive-drama" && request.body?.storyViewport) {
-        const story = createStoryDocument();
-        story.player.viewport = request.body.storyViewport;
-        await projects.setStory(project.id, story);
+      if (project.type === "interactive-drama") {
+        try {
+          await createNodeCodebase(
+            project.workspacePath,
+            createPlayableStarterCodebase(project.name, request.body?.viewport ?? { width: 1280, height: 720 }),
+          );
+        } catch (cause) {
+          await projects.delete(project.id);
+          throw cause;
+        }
       }
       return reply.code(201).send(project);
     } catch (cause) {
-      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      if (cause instanceof ProjectWorkspaceError || cause instanceof NodeCodebaseError) {
+        return reply.code(400).send({ error: cause.message });
+      }
       throw cause;
     }
   });
 
   app.get("/projects", async () => projects.list());
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/story", async (request, reply) => {
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/asset-canvas", async (request, reply) => {
     try {
-      return await projects.story(request.params.projectId);
+      return await projects.assetCanvas(request.params.projectId);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
     }
   });
 
-  app.put<{ Params: { projectId: string }; Body: StoryDocument }>("/projects/:projectId/story", {
+  app.put<{ Params: { projectId: string }; Body: AssetCanvasDocument }>("/projects/:projectId/asset-canvas", {
     schema: { body: { type: "object" } },
     bodyLimit: 1_000_000,
   }, async (request, reply) => {
     try {
-      await projects.setStory(request.params.projectId, request.body);
+      await projects.setAssetCanvas(request.params.projectId, request.body);
       return reply.code(204).send();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -953,49 +997,209 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { projectId: string }; Body: StoryTextGenerationRequest }>(
-    "/projects/:projectId/story/text/generate",
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node Runtime requires an Interactive Drama project" });
+    try {
+      const definition = await buildPlayableProject(project.workspacePath);
+      return definition ? { available: true, definition } : { available: false };
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.get<{ Params: { projectId: string }; Querystring: { mode?: "draft" | "publish" } }>(
+    "/projects/:projectId/playable/validation",
     {
       schema: {
-        body: {
+        querystring: {
           type: "object",
           additionalProperties: false,
-          required: ["instruction"],
-          properties: {
-            instruction: { type: "string", minLength: 1, maxLength: 12_000 },
-            model: {
-              type: "object",
-              additionalProperties: false,
-              required: ["provider", "id"],
-              properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } },
-            },
-          },
+          properties: { mode: { enum: ["draft", "publish"] } },
         },
       },
-      bodyLimit: 32_000,
     },
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "Story documents require an Interactive Drama project" });
-      }
-      const runtime = await getModelRuntime();
-      const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
-      const provider = settings.getDefaultProvider();
-      const id = settings.getDefaultModel();
-      const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
-      if (!selected) return reply.code(409).send({ error: "No language model is configured" });
-      const model = runtime.getModel(selected.provider, selected.id);
-      if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
-      try {
-        const text = await generateCreativeText(runtime, selected, request.body.instruction);
-        if (!text) return reply.code(502).send({ error: "The language model returned no text" });
-        return { text, model: selected };
-      } catch (cause) {
-        return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
-      }
+      if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable validation requires an Interactive Drama project" });
+      return validatePlayableProject(project.workspacePath, request.query.mode ?? "draft");
     },
+  );
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/codebase", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    try {
+      return await readNodeCodebase(project.workspacePath);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.put<{ Params: { projectId: string }; Body: NodeCodebaseUpdate }>("/projects/:projectId/playable/codebase", {
+    schema: { body: { type: "object" } },
+    bodyLimit: 1_000_000,
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    try {
+      await writeNodeCodebase(project.workspacePath, request.body);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    try {
+      await projects.touch(project.id);
+    } catch {
+      return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
+    }
+    return reply.code(204).send();
+  });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/thumbnails", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return { thumbnails: await listPlayableThumbnails(project.workspacePath) };
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.get<{ Params: { projectId: string; nodeId: string } }>("/projects/:projectId/playable/thumbnails/:nodeId", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      const image = await readPlayableThumbnail(project.workspacePath, request.params.nodeId);
+      if (!image) return reply.code(404).send({ error: "Thumbnail not found" });
+      reply.header("content-type", "image/webp");
+      reply.header("cache-control", "no-store");
+      reply.header("x-content-type-options", "nosniff");
+      return reply.send(image);
+    } catch (cause) {
+      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.put<{ Params: { projectId: string; nodeId: string }; Querystring: { hash: string }; Body: Buffer }>("/projects/:projectId/playable/thumbnails/:nodeId", {
+    schema: {
+      querystring: {
+        type: "object",
+        additionalProperties: false,
+        required: ["hash"],
+        properties: { hash: { type: "string", maxLength: 64 } },
+      },
+    },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node thumbnails require an Interactive Drama project" });
+    if (!isWebp(request.body)) return reply.code(400).send({ error: "A Node thumbnail must be a WebP image" });
+    try {
+      const nodeIds = await readGraphNodeIds(project.workspacePath);
+      return await writePlayableThumbnail(project.workspacePath, request.params.nodeId, request.query.hash, request.body, nodeIds);
+    } catch (cause) {
+      if (cause instanceof PlayableThumbnailError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.get("/playable/presets", async () => ({
+    presets: PLAYABLE_PRESETS.map((preset) => ({
+      id: preset.id,
+      label: preset.label,
+      summary: preset.summary,
+    })),
+  }));
+
+  app.post<{ Params: { projectId: string }; Body: AddPlayableNodeRequest }>("/projects/:projectId/playable/nodes", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["preset", "id"],
+        properties: {
+          preset: { type: "string", maxLength: 60 },
+          id: { type: "string", minLength: 1, maxLength: 60 },
+          title: { type: "string", maxLength: 120 },
+          position: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x", "y"],
+            properties: { x: { type: "number" }, y: { type: "number" } },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable Nodes require an Interactive Drama project" });
+    let result;
+    try {
+      result = await addPlayableNode(project.workspacePath, request.body);
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+    try {
+      await projects.touch(project.id);
+    } catch {
+      return reply.code(500).send({ error: "The Node was created, but project metadata could not be updated" });
+    }
+    return result;
+  });
+
+  const textGenerationOptions = {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        required: ["instruction"],
+        properties: {
+          instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          model: {
+            type: "object",
+            additionalProperties: false,
+            required: ["provider", "id"],
+            properties: { provider: { type: "string", minLength: 1, maxLength: 100 }, id: { type: "string", minLength: 1, maxLength: 200 } },
+          },
+        },
+      },
+    },
+    bodyLimit: 32_000,
+  };
+
+  const generateText = (projectType: ProjectType, error: string) => async (request: FastifyRequest<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>, reply: FastifyReply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (project.type !== projectType) {
+      return reply.code(400).send({ error });
+    }
+    const runtime = await getModelRuntime();
+    const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
+    const provider = settings.getDefaultProvider();
+    const id = settings.getDefaultModel();
+    const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
+    if (!selected) return reply.code(409).send({ error: "No language model is configured" });
+    const model = runtime.getModel(selected.provider, selected.id);
+    if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
+    try {
+      const text = await generateCreativeText(runtime, selected, request.body.instruction);
+      if (!text) return reply.code(502).send({ error: "The language model returned no text" });
+      return { text, model: selected };
+    } catch (cause) {
+      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  };
+
+  app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
+    "/projects/:projectId/asset-canvas/text/generate",
+    textGenerationOptions,
+    generateText("asset-canvas", "Text generation requires an Asset Canvas project"),
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
@@ -1233,7 +1437,7 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : cause instanceof ProjectStoryReferenceError ? 409 : 500).send({ error });
+      return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : cause instanceof ProjectLibraryReferenceError ? 409 : 500).send({ error });
     }
   });
 
@@ -1800,7 +2004,7 @@ export function createApp(options: AppOptions = {}) {
           request.body.mode ?? "normal",
           mentions,
           undefined,
-          attachments.promptContext(project, resolvedAttachments),
+          `${attachments.promptContext(project, resolvedAttachments)}${promptContextBlock(request.body.contexts ?? [])}`,
           attachments.conversationAttachments(resolvedAttachments),
         );
       } catch (cause) {
@@ -2138,6 +2342,7 @@ export function createApp(options: AppOptions = {}) {
     await agents.close();
     await previews.stopAll();
     await artifacts.close();
+    await playableDrafts.close();
   });
   return app;
 }

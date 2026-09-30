@@ -1,7 +1,7 @@
 import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
-import type { AssetCanvasStarter } from "../shared/story.js";
+import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { createAssetCanvasQuickStart } from "./asset-canvas-quick-start.js";

@@ -12,7 +12,7 @@ import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./projec
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
-import { STORY_FORMAT_PRESETS, storyFormatPreset, type StoryFormatPresetId } from "../shared/story-formats.js";
+import { CANVAS_FORMAT_PRESETS, canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
@@ -38,7 +38,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
-  const [storyFormat, setStoryFormat] = useState<StoryFormatPresetId>("landscape");
+  const [canvasFormat, setCanvasFormat] = useState<CanvasFormatPresetId>("landscape");
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
@@ -83,7 +83,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       const project = await createProject({
         type: projectType,
         ...(projectType === "interactive-drama"
-          ? { storyViewport: storyFormatPreset(storyFormat).viewport }
+          ? { viewport: canvasFormatPreset(canvasFormat).viewport }
           : {}),
       });
       const conversation = await createConversation(project.id);
@@ -259,7 +259,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
             {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} options={projectTypes} onChange={onProjectTypeChange} /> : null}
-            {projectType === "interactive-drama" ? <StoryFormatSelector disabled={creating} value={storyFormat} onChange={setStoryFormat} /> : null}
+            {projectType === "interactive-drama" ? <CanvasFormatSelector disabled={creating} value={canvasFormat} onChange={setCanvasFormat} /> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
           </>
         )}
@@ -280,21 +280,21 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   );
 }
 
-function StoryFormatSelector({
+function CanvasFormatSelector({
   value,
   disabled,
   onChange,
 }: {
-  value: StoryFormatPresetId;
+  value: CanvasFormatPresetId;
   disabled?: boolean;
-  onChange: (value: StoryFormatPresetId) => void;
+  onChange: (value: CanvasFormatPresetId) => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const current = storyFormatPreset(value);
+  const current = canvasFormatPreset(value);
 
   useEffect(() => {
     if (!open) return;
@@ -363,7 +363,7 @@ function StoryFormatSelector({
             items[nextIndex]?.focus();
           }}
         >
-          {STORY_FORMAT_PRESETS.map((preset) => {
+          {CANVAS_FORMAT_PRESETS.map((preset) => {
             const selected = preset.id === value;
             return (
               <button

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
-const IGNORED_DIRECTORIES = new Set([".data", ".git", "build", "dist", "node_modules", "out"]);
+const IGNORED_DIRECTORIES = new Set([".data", ".git", ".ohmygame", "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
 const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaType"]>; contentType: string }> = {
   ".avif": { mediaType: "image", contentType: "image/avif" },

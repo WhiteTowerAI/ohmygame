@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState, StoryDocument, StoryNodePresentation } from "../shared/contracts.js";
+import type { AssetCanvasDocument, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
-import { createStoryDocument, isStoryDocument, sceneDurationForMedia } from "../shared/story.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
-import { ensureStoryCodebaseInstructions, readStoryCodebase, writeStoryCodebase } from "./story-codebase.js";
+import { validateNodeGraph } from "../shared/playable-graph-validation.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
+import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
+import { ASSET_CANVAS_FILE, createAssetCanvasCodebase, readAssetCanvasCodebase, writeAssetCanvasCodebase } from "./asset-canvas-codebase.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -31,7 +33,7 @@ interface ProjectMetadata {
   publication?: PublicationState;
 }
 
-export class ProjectStoryReferenceError extends Error {}
+export class ProjectLibraryReferenceError extends Error {}
 
 export class ProjectWorkspaceError extends Error {}
 
@@ -55,7 +57,7 @@ export interface ProjectRunSettings {
 }
 
 const PROJECT_COVER_FILE = "cover.webp";
-const STORY_FILE = "story.json";
+const PLAYABLE_GRAPH_FILE = "graph.json";
 const WEB_GAME_AGENT_INSTRUCTIONS = `# Web Game Project
 
 This workspace is the source of truth for an OhMyGame browser game.
@@ -474,32 +476,33 @@ export class ProjectManager {
     }
   }
 
-  async story(id: string): Promise<StoryDocument> {
+  async assetCanvas(id: string): Promise<AssetCanvasDocument> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
-    const destination = path.join(project.workspacePath, STORY_FILE);
+    if (project.type !== "asset-canvas") throw new Error("Canvas documents require an Asset Canvas project");
+    const destination = path.join(project.workspacePath, ASSET_CANVAS_FILE);
     try {
-      const story = await readStoryCodebase(project.workspacePath);
-      await ensureStoryCodebaseInstructions(project.workspacePath);
-      return story;
+      return await readAssetCanvasCodebase(project.workspacePath);
     } catch (error) {
       const fileError = error as NodeJS.ErrnoException;
-      if (fileError.code !== "ENOENT" || path.resolve(String(fileError.path)) !== path.resolve(destination)) {
+      const layoutDestination = path.join(project.workspacePath, "editor", "layout.json");
+      const missingCanvas = fileError.code === "ENOENT" && path.resolve(String(fileError.path)) === path.resolve(destination);
+      const missingLayout = fileError.code === "ENOENT" && path.resolve(String(fileError.path)) === path.resolve(layoutDestination);
+      if (fileError.code !== "ENOENT" || (!missingCanvas && !missingLayout)) {
         throw error;
       }
-      const story = createStoryDocument();
-      await writeStoryCodebase(project.workspacePath, story);
-      return story;
+      // A new project has neither file. A single missing file indicates a corrupt or
+      // partially written codebase and must not silently overwrite the other file.
+      if (await exists(destination) || await exists(layoutDestination)) throw error;
+      return createAssetCanvasCodebase(project.workspacePath);
     }
   }
 
-  async setStory(id: string, story: StoryDocument): Promise<void> {
+  async setAssetCanvas(id: string, document: AssetCanvasDocument): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "interactive-drama" && project.type !== "asset-canvas") throw new Error("Story documents require a canvas project");
-    if (!isStoryDocument(story)) throw new Error("Invalid story document");
-    await writeStoryCodebase(project.workspacePath, story, { preserveExistingSources: true });
+    if (project.type !== "asset-canvas") throw new Error("Canvas documents require an Asset Canvas project");
+    await writeAssetCanvasCodebase(project.workspacePath, document);
     await this.touch(id);
   }
 
@@ -508,24 +511,36 @@ export class ProjectManager {
     for (const project of this.#projects.values()) {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
-      if (Object.values(metadata.libraryAssets).includes(assetId)) {
+      let referenced = Object.values(metadata.libraryAssets).includes(assetId);
+      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        try {
+          const graph = await readNodeGraphForReferences(project.workspacePath);
+          referenced ||= Object.values(graph.assets).some((asset) => (
+            asset.source.kind === "library" && asset.source.assetId === assetId
+          ));
+        } catch (cause) {
+          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      if (referenced) {
         references.push(project);
         continue;
       }
-      if (project.type !== "interactive-drama" && project.type !== "asset-canvas") continue;
-      if (!await exists(path.join(project.workspacePath, STORY_FILE))) continue;
-      let story: StoryDocument;
-      try {
-        story = await readStoryCodebase(project.workspacePath);
-      } catch (cause) {
-        throw new ProjectStoryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      if (project.type === "asset-canvas") {
+        if (!await exists(path.join(project.workspacePath, ASSET_CANVAS_FILE))) continue;
+        let document: AssetCanvasDocument;
+        try {
+          document = await readAssetCanvasCodebase(project.workspacePath);
+        } catch (cause) {
+          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+        if (document.nodes.some((node) => (
+          (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
+          (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
+          (node.type === "model-3d" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
+          ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "asset") && node.data.assetId === assetId)
+        ))) references.push(project);
       }
-      if (story.chapter.nodes.some((node) => (
-        ((node.type === "open-ui" || node.type === "scene" || node.type === "interaction" || node.type === "choice" || node.type === "ending") && node.data.presentation.media.items.some((item) => item.source.type === "library" && item.source.assetId === assetId)) ||
-        (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-        (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
-        ((node.type === "image" || node.type === "video" || node.type === "asset") && node.data.assetId === assetId)
-      ))) references.push(project);
     }
     return references;
   }
@@ -542,56 +557,28 @@ export class ProjectManager {
           await this.#writeAssetMetadata(project.id, () => deleteAssetMetadata(project.workspacePath, assetPath));
         }
       }
-      if (project.type !== "interactive-drama") continue;
-      const current = await readStoryCodebase(project.workspacePath);
-      const chapter = current.chapter;
-      const removedNodeIds = new Set(chapter.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
-      const story: StoryDocument = {
-        ...current,
-        chapter: {
-          ...chapter,
-          nodes: chapter.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
-            if (node.type === "open-ui") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "scene") {
-              const presentation = removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds);
-              const durationMs = sceneDurationForMedia(presentation.media.items, node.data.durationMs);
-              const { durationMs: _durationMs, ...data } = node.data;
-              return { ...node, data: { ...data, ...(durationMs === undefined ? {} : { durationMs }), presentation } };
-            }
-            if (node.type === "interaction") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "choice") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "ending") return { ...node, data: { ...node.data, presentation: removePresentationAssetReferences(node.data.presentation, assetId, removedNodeIds) } };
-            if (node.type === "image") {
-              const images = node.data.images.filter((image) =>
-                (image.type !== "library" || image.assetId !== assetId) &&
-                (image.type !== "node" || !removedNodeIds.has(image.nodeId)));
-              if (node.data.assetId === assetId) {
-                const { assetId: _, ...data } = node.data;
-                return { ...node, data: { ...data, images } };
-              }
-              if (images.length === node.data.images.length) return node;
-              return { ...node, data: { ...node.data, images } };
-            }
-            if (node.type === "video") {
-              const references = node.data.references.filter((reference) =>
-                (reference.type !== "library" || reference.assetId !== assetId) &&
-                (reference.type !== "node" || !removedNodeIds.has(reference.nodeId)));
-              if (node.data.assetId === assetId) {
-                const { assetId: _, ...data } = node.data;
-                return { ...node, data: { ...data, references } };
-              }
-              if (references.length === node.data.references.length) return node;
-              return {
-                ...node,
-                data: { ...node.data, references },
-              };
-            }
-            return node;
-          }),
-        },
-      };
-      await writeStoryCodebase(project.workspacePath, story);
-      await this.touch(project.id);
+      if (project.type === "asset-canvas") {
+        if (!await exists(path.join(project.workspacePath, ASSET_CANVAS_FILE))) continue;
+        await writeAssetCanvasCodebase(project.workspacePath, removeAssetCanvasReferences(await readAssetCanvasCodebase(project.workspacePath), assetId));
+        await this.touch(project.id);
+        continue;
+      }
+      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        const graph = await readNodeGraphForReferences(project.workspacePath);
+        const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
+          asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
+        )));
+        if (removedIds.size > 0) {
+          const codebase = await readNodeCodebase(project.workspacePath);
+          for (const id of removedIds) delete codebase.graph.assets[id];
+          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
+            ...node,
+            assets: node.assets.filter((id) => !removedIds.has(id)),
+          }));
+          await writeNodeCodebase(project.workspacePath, codebase);
+          await this.touch(project.id);
+        }
+      }
     }
   }
 
@@ -657,15 +644,38 @@ export class ProjectManager {
 
 }
 
-function removePresentationAssetReferences(presentation: StoryNodePresentation, assetId: string, removedNodeIds: ReadonlySet<string>): StoryNodePresentation {
+function removeAssetCanvasReferences(current: AssetCanvasDocument, assetId: string): AssetCanvasDocument {
+  const removedNodeIds = new Set(current.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
+  const keepReference = (reference: { type: "library"; assetId: string } | { type: "node"; nodeId: string }) =>
+    (reference.type !== "library" || reference.assetId !== assetId) &&
+    (reference.type !== "node" || !removedNodeIds.has(reference.nodeId));
   return {
-    ...presentation,
-    media: {
-      items: presentation.media.items.filter((item) =>
-        (item.source.type !== "library" || item.source.assetId !== assetId) &&
-        (item.source.type !== "node" || !removedNodeIds.has(item.source.nodeId))),
+    ...current,
+    editorLayout: {
+      ...current.editorLayout,
+      nodes: Object.fromEntries(Object.entries(current.editorLayout.nodes).filter(([id]) => !removedNodeIds.has(id))),
     },
-  };
+    edges: current.edges.filter((edge) => !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target)),
+    nodes: current.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
+      if (node.type === "image" || node.type === "model-3d") {
+        const images = node.data.images.filter(keepReference);
+        if (node.data.assetId === assetId) {
+          const { assetId: _, ...data } = node.data;
+          return { ...node, data: { ...data, images } };
+        }
+        return images.length === node.data.images.length ? node : { ...node, data: { ...node.data, images } };
+      }
+      if (node.type === "video") {
+        const references = node.data.references.filter(keepReference);
+        if (node.data.assetId === assetId) {
+          const { assetId: _, ...data } = node.data;
+          return { ...node, data: { ...data, references } };
+        }
+        return references.length === node.data.references.length ? node : { ...node, data: { ...node.data, references } };
+      }
+      return node;
+    }),
+  } as AssetCanvasDocument;
 }
 
 function projectCoverPath(projectDirectory: string): string {
@@ -903,6 +913,23 @@ async function exists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function readNodeGraphForReferences(workspacePath: string): Promise<NodeGraph> {
+  const file = path.join(workspacePath, PLAYABLE_GRAPH_FILE);
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(file, "utf8")) as unknown;
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new Error("graph.json is not valid JSON.");
+    throw cause;
+  }
+  const validation = validateNodeGraph(value, { mode: "draft" });
+  if (!validation.ok) {
+    const issue = validation.issues[0]!;
+    throw new Error(`${issue.path}: ${issue.message}`);
+  }
+  return value as NodeGraph;
 }
 
 async function isDirectory(target: string): Promise<boolean> {

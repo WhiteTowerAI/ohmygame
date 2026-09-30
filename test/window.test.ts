@@ -81,16 +81,16 @@ describe("desktop window", () => {
       runtime: { url: "http://127.0.0.1:43110", token: "token" },
       preloadPath: "/tmp/preload.cjs",
       rendererUrl: "http://127.0.0.1:43120",
-      rendererHash: "#/playtest/project/chapter",
+      rendererHash: "#/playtest/project",
     });
     const window = electron.windows[0] as {
       loadURL: ReturnType<typeof vi.fn>;
       onNavigate?: (event: { preventDefault(): void }, url: string) => void;
     };
 
-    expect(window.loadURL).toHaveBeenCalledWith("http://127.0.0.1:43120/#/playtest/project/chapter");
+    expect(window.loadURL).toHaveBeenCalledWith("http://127.0.0.1:43120/#/playtest/project");
     const navigation = { preventDefault: vi.fn() };
-    window.onNavigate?.(navigation, "http://127.0.0.1:43120/#/playtest/project/chapter");
+    window.onNavigate?.(navigation, "http://127.0.0.1:43120/#/playtest/project");
     expect(navigation.preventDefault).not.toHaveBeenCalled();
   });
 

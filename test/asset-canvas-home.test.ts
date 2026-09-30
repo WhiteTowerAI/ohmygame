@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
-import { createAssetCanvasStarterStory, isStoryDocument } from "../src/shared/story.js";
+import { createAssetCanvasStarterDocument, validateAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { recentAssetCanvasProjects } from "../src/renderer/asset-canvas-home.js";
 
 describe("Asset Canvas home", () => {
-  it("creates a valid one-node story for every quick start", () => {
+  it("creates a valid one-node canvas for every quick start", () => {
     for (const type of ["image", "video", "model-3d"] as const) {
       const imageModel = type === "image" ? { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } : undefined;
-      const { story, nodeId } = createAssetCanvasStarterStory(type, imageModel);
+      const { document, nodeId } = createAssetCanvasStarterDocument(type, imageModel);
 
-      expect(story.chapter.nodes).toHaveLength(1);
-      expect(story.chapter.nodes[0]).toMatchObject({ id: nodeId, type, position: { x: 96, y: 96 } });
-      if (type === "video") expect(story.chapter.nodes[0]).toMatchObject({ data: { prompt: "", resolution: "720p", aspectRatio: "adaptive", duration: 6 } });
-      expect(story.editorLayout.nodes[nodeId]).toEqual({ x: 96, y: 96 });
-      expect(isStoryDocument(story)).toBe(true);
+      expect(document.nodes).toHaveLength(1);
+      expect(document.nodes[0]).toMatchObject({ id: nodeId, type, position: { x: 96, y: 96 } });
+      if (type === "video") expect(document.nodes[0]).toMatchObject({ data: { prompt: "", resolution: "720p", aspectRatio: "adaptive", duration: 6 } });
+      expect(document.editorLayout.nodes[nodeId]).toEqual({ x: 96, y: 96 });
+      expect(() => validateAssetCanvasDocument(document)).not.toThrow();
     }
   });
 

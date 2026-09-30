@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,8 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
 import { PUBLISH_GAME_COVER_PATH } from "../src/shared/publish-v1.js";
-import { DEFAULT_SCENE_SURFACE_FILES } from "../src/shared/story.js";
-import { createPlayableStoryDocument } from "./story-fixture.js";
+import { createNodeGraphFixture, writePlayableFixtureWorkspace } from "./playable-fixture.js";
 
 const token = "test-publisher-token";
 const apps: FastifyInstance[] = [];
@@ -99,16 +98,7 @@ describePublishContract("remote publish", () => {
       headers: { "content-type": "application/octet-stream" },
       payload: videoContents,
     })).json();
-    const story = createPlayableStoryDocument();
-    const chapter = story.chapter;
-    chapter.nodes.push({ id: "scene", type: "scene", position: { x: 200, y: 0 }, data: { title: "Opening", presentation: { media: { items: [{ id: "clip", type: "video", source: { type: "library", assetId: video.id } }] }, surface: { files: structuredClone(DEFAULT_SCENE_SURFACE_FILES) } } } });
-    const openUi = chapter.nodes.find((node: { type: string }) => node.type === "open-ui");
-    const ending = chapter.nodes.find((node: { type: string }) => node.type === "ending");
-    if (!openUi || !ending) throw new Error("Playable story fixture is incomplete");
-    chapter.edges = chapter.edges.filter((edge) => edge.source !== openUi.id || edge.sourceHandle === "story-map");
-    chapter.edges.push({ id: "open-scene", source: openUi.id, target: "scene" }, { id: "scene-ending", source: "scene", target: ending.id });
-    syncStoryLayout(story);
-    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    await writePublishableGraph(project.workspacePath, video.id);
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
     expect(built.statusCode).toBe(200);
@@ -118,28 +108,21 @@ describePublishContract("remote publish", () => {
     expect(published.statusCode, published.body).toBe(201);
     const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
     expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
-    expect(await readFile(path.join(output, "scene-surface.html"), "utf8")).toContain("ohmygame:scene-surface");
-    const publishedStory = JSON.parse(await readFile(path.join(output, "story.json"), "utf8"));
-    const persistedStory = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}/story` })).json();
-    const { editorLayout: _editorLayout, ...runtimeStory } = persistedStory;
-    expect(publishedStory).toEqual(runtimeStory);
-    expect(publishedStory.editorLayout).toBeUndefined();
-    expect(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"))).toMatchObject({
+    expect(await readFile(path.join(output, "playable-sandbox.html"), "utf8")).toContain("Playable sandbox");
+    const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({
       version: 1,
-      story: "story.json",
+      runtime: "playable-nodes",
       scope: `published:${project.id}`,
-      assets: {
-        [video.id]: `./assets/media/${video.id}.mp4`,
-      },
+      assets: { clip: { type: "video", contentType: "video/mp4", size: videoContents.length } },
     });
-    expect(await readFile(path.join(output, "assets", "media", `${video.id}.mp4`))).toEqual(videoContents);
-  });
+    expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
+  }, 20_000);
 
   it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
-    const story = createPlayableStoryDocument();
-    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/story`, payload: story })).statusCode).toBe(204);
+    await writePublishableGraph(project.workspacePath);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
@@ -452,8 +435,17 @@ describePublishContract("remote publish", () => {
   });
 });
 
-function syncStoryLayout(story: ReturnType<typeof createPlayableStoryDocument>): void {
-  story.editorLayout.nodes = Object.fromEntries(story.chapter.nodes.map((node) => [node.id, node.position] as const));
+/** The Ash Club fixture, whose Signals are all connected, with an optional Library video. */
+async function writePublishableGraph(workspacePath: string, clipAssetId?: string): Promise<void> {
+  const graph = createNodeGraphFixture();
+  delete graph.assets.theme;
+  for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
+  if (clipAssetId) {
+    graph.assets.clip = { type: "video", source: { kind: "library", assetId: clipAssetId } };
+    graph.nodes[0]!.assets.push("clip");
+  }
+  await rm(path.join(workspacePath, "nodes"), { recursive: true, force: true });
+  await writePlayableFixtureWorkspace(workspacePath, graph);
 }
 
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
@@ -468,7 +460,9 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   const playerDirectory = await temporary("ohmygame-player-");
   await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
   await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
-  await writeFile(path.join(playerDirectory, "scene-surface.html"), "ohmygame:scene-surface");
+  await mkdir(path.join(playerDirectory, "assets"), { recursive: true });
+  await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "Playable sandbox");
+  await writeFile(path.join(playerDirectory, "assets", "playable-sandbox.js"), "window.sandbox = true");
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("ohmygame-daemon-"),
     publishApiUrl: apiUrl,

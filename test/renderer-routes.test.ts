@@ -60,12 +60,18 @@ describe("renderer routes", () => {
   });
 
   it("parses and formats playtest routes", () => {
-    expect(parseAppRoute("#/playtest/project%201/chapter%201")).toEqual({
-      page: "playtest",
+    expect(parseAppRoute("#/playtest/project%201")).toEqual({ page: "playtest", projectId: "project 1" });
+    expect(playtestHash("project 1")).toBe("#/playtest/project%201");
+  });
+
+  it("parses the Node thumbnail route", () => {
+    expect(parseAppRoute("#/thumbnail/project%201/night.carriage")).toEqual({
+      page: "thumbnail",
       projectId: "project 1",
-      chapterId: "chapter 1",
+      nodeId: "night.carriage",
     });
-    expect(playtestHash("project 1", "chapter 1")).toBe("#/playtest/project%201/chapter%201");
+    expect(parseAppRoute("#/thumbnail/project/")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/thumbnail/%/node")).toEqual({ page: "home" });
   });
 
   it("rejects malformed project routes", () => {
@@ -81,7 +87,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/games")).toEqual({ page: "home" });
     expect(parseAppRoute("#/assets")).toEqual({ page: "home" });
     expect(parseAppRoute("#/community/assets")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/playtest/project/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/playtest/%/chapter")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/playtest/project/extra")).toEqual({ page: "home" });
+    expect(parseAppRoute("#/playtest/%")).toEqual({ page: "home" });
   });
 });

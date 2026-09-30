@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
+import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -49,8 +50,8 @@ describe("compatibleRuntimeModel", () => {
 
 describe("Pi skills", () => {
   it("loads global and plugin skills consistently for every project type", async () => {
-    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-workspace-"));
-    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-story-agent-dir-"));
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-workspace-"));
+    const agentDir = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-dir-"));
     const skillDirectory = path.join(agentDir, "skills", "review");
     await mkdir(skillDirectory, { recursive: true });
     await writeFile(path.join(skillDirectory, "SKILL.md"), "---\nname: review\ndescription: Review code.\n---\n");
@@ -99,6 +100,19 @@ describe("conversationItems", () => {
     ] as never, false);
 
     expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Inspect this", attachments: files })]);
+  });
+
+  it("hides editor context and shows its labels", () => {
+    const block = promptContextBlock([{ kind: "playable-node", label: "Lobby", text: "The user has Node \"lobby\" open." }]);
+    const items = conversationItems([
+      sessionMessage("user", {
+        role: "user",
+        content: `Make this warmer\n\n<local-attachments>\n{"files":[]}\n</local-attachments>${block}`,
+        timestamp: 1,
+      }),
+    ] as never, false);
+
+    expect(items).toEqual([expect.objectContaining({ type: "userMessage", text: "Make this warmer", contexts: [{ kind: "playable-node", label: "Lobby" }] })]);
   });
 
   it("restores attachment metadata from a structured session entry", () => {

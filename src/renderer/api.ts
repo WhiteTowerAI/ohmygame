@@ -23,9 +23,9 @@ import {
   type ProjectPackageManager,
   type ProjectFileOpenMode,
   type ProjectState,
-  type StoryDocument,
-  type StoryTextGenerationRequest,
-  type StoryTextGenerationResponse,
+  type AssetCanvasDocument,
+  type AssetCanvasTextGenerationRequest,
+  type AssetCanvasTextGenerationResponse,
   type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
   type PublishResult,
@@ -39,6 +39,7 @@ import {
   type PromptAttachment,
   type PluginMention,
   type PromptMode,
+  type PromptContext,
   type PromptReference,
   type PromptResponse,
   type WorkspaceFile,
@@ -46,6 +47,9 @@ import {
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
+import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
+import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
+import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
@@ -70,7 +74,15 @@ declare global {
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
-      openPlaytest: (projectId: string, chapterId: string, viewport: { width: number; height: number }) => Promise<void>;
+      /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
+      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }) => Promise<boolean>;
+      /** Called by the hidden thumbnail window once its capture is stored or failed. */
+      finishNodeThumbnail?: (captured: boolean) => Promise<void>;
+      openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
+      /** Called from a Playtest window: shows the Node in the main window's editor. */
+      openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
+      /** Called in the main window when a Playtest asks to open a Node. */
+      onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
@@ -341,16 +353,76 @@ export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
 }
 
-export async function getStory(projectId: string): Promise<StoryDocument> {
-  return request(`/projects/${projectId}/story`);
+export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
+  return request(`/projects/${projectId}/playable`);
 }
 
-export async function updateStory(projectId: string, story: StoryDocument): Promise<void> {
-  await request(`/projects/${projectId}/story`, { method: "PUT", body: JSON.stringify(story) });
+export async function getNodeCodebase(projectId: string): Promise<NodeCodebase> {
+  return request(`/projects/${projectId}/playable/codebase`);
 }
 
-export async function generateStoryText(projectId: string, input: StoryTextGenerationRequest): Promise<StoryTextGenerationResponse> {
-  return request(`/projects/${projectId}/story/text/generate`, { method: "POST", body: JSON.stringify(input) });
+export async function getPlayableValidation(
+  projectId: string,
+  mode: "draft" | "publish" = "draft",
+): Promise<PlayableProjectValidation> {
+  return request(`/projects/${projectId}/playable/validation?mode=${mode}`);
+}
+
+export async function listPlayablePresets(): Promise<{ presets: PlayablePresetSummary[] }> {
+  return request("/playable/presets");
+}
+
+export async function addPlayableNode(
+  projectId: string,
+  body: { preset: string; id: string; title?: string; position?: { x: number; y: number } },
+): Promise<PlayableAddedNode> {
+  return request(`/projects/${projectId}/playable/nodes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listPlayableThumbnails(projectId: string): Promise<PlayableThumbnailManifest> {
+  const { thumbnails } = await request<{ thumbnails: PlayableThumbnailManifest }>(`/projects/${projectId}/playable/thumbnails`);
+  return thumbnails;
+}
+
+export async function getPlayableThumbnail(projectId: string, nodeId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob): Promise<void> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}?hash=${encodeURIComponent(hash)}`), {
+    method: "PUT",
+    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    body: image,
+  });
+  if (!response.ok) throw await responseError(response);
+}
+
+export async function updateNodeCodebase(
+  projectId: string,
+  codebase: NodeCodebaseUpdate,
+): Promise<void> {
+  await request(`/projects/${projectId}/playable/codebase`, {
+    method: "PUT",
+    body: JSON.stringify(codebase),
+  });
+}
+
+export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocument> {
+  return request(`/projects/${projectId}/asset-canvas`);
+}
+
+export async function updateAssetCanvas(projectId: string, document: AssetCanvasDocument): Promise<void> {
+  await request(`/projects/${projectId}/asset-canvas`, { method: "PUT", body: JSON.stringify(document) });
+}
+
+export async function generateAssetCanvasText(projectId: string, input: AssetCanvasTextGenerationRequest): Promise<AssetCanvasTextGenerationResponse> {
+  return request(`/projects/${projectId}/asset-canvas/text/generate`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {
@@ -508,10 +580,11 @@ export async function sendPrompt(
   mode: PromptMode = "normal",
   mentions: PluginMention[] = [],
   attachments: PromptAttachment[] = [],
+  contexts: PromptContext[] = [],
 ): Promise<PromptResponse> {
   return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}) }),
+    body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}), ...(contexts.length ? { contexts } : {}) }),
   });
 }
 
