@@ -1,4 +1,4 @@
-import { Box, MousePointer2, SendArrow, Square, X } from "./icons.js";
+import { SendArrow, Square, X } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { AttachmentPickerButton, AttachmentStrip, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
@@ -9,7 +9,7 @@ import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
-import type { ChatContextChip, ChatReference } from "./chat-reference.js";
+import { PromptContextIcon, type ChatContextChip, type ChatReference } from "./chat-reference.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
@@ -50,7 +50,7 @@ interface ComposerProps {
   onClearReference?: () => void;
   /** Editor context the next message carries, such as the open Node. */
   contexts?: ChatContextChip[];
-  onRemoveContext?: (kind: ChatContextChip["kind"]) => void;
+  onRemoveContext?: (key: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
   /** Text an editor asks to put in the prompt, such as "Ask AI to create it"; a new `id` inserts it again. */
   promptRequest?: { text: string; id: number };
@@ -464,11 +464,11 @@ export function Composer({
         )}
         content={<>
           {contexts.length ? <div className="composer-contexts" aria-label="Context for the next message">
-            {contexts.map((context) => <div className={`composer-context is-${context.kind}`} key={context.kind} title={context.detail ?? context.label}>
-              {context.kind === "playable-element" ? <MousePointer2 size={12} /> : <Box size={12} />}
+            {contexts.map((context) => <div className={`composer-context is-${context.kind}`} key={context.key} title={context.detail ?? context.label}>
+              <PromptContextIcon kind={context.kind} />
               <span>{context.label}</span>
               {context.detail ? <small>{context.detail}</small> : null}
-              <button type="button" onClick={() => onRemoveContext?.(context.kind)} aria-label={`Remove ${context.label} from the message`}><X size={11} /></button>
+              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={`Remove ${context.label} from the message`}><X size={11} /></button>
             </div>)}
           </div> : null}
           {reference ? <div className="composer-reference">

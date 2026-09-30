@@ -1,5 +1,4 @@
 import {
-  Box,
   Check,
   ChevronRight,
   Copy,
@@ -9,7 +8,6 @@ import {
   Image,
   Layers3,
   LoaderCircle,
-  MousePointer2,
   Pencil,
   Plug,
   Search,
@@ -30,6 +28,7 @@ import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
 import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
+import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 
@@ -292,7 +291,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
 function UserContexts({ contexts }: { contexts: PromptContextLabel[] }) {
   return <div className="user-message-contexts" aria-label="Editor context">
     {contexts.map((context, index) => <div className="user-message-context" key={`${context.kind}:${index}`} title={context.label}>
-      {context.kind === "playable-element" ? <MousePointer2 size={12} /> : <Box size={12} />}
+      <PromptContextIcon kind={context.kind} />
       <span>{context.label}</span>
     </div>)}
   </div>;

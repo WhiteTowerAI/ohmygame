@@ -2,6 +2,7 @@ import {
   isPlayableHostMessage,
   type PlayableFrameMessage,
   type PlayableHostMessage,
+  type PlayablePreviewTool,
 } from "../shared/playable-player-protocol.js";
 import {
   NodeRuntime,
@@ -20,7 +21,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     return;
   }
   if (event.data.kind === "ohmygame:playable:pick-start") {
-    startPicking(event.data.instanceId);
+    startPicking(event.data.instanceId, event.data.tool);
     return;
   }
   if (event.data.kind === "ohmygame:playable:pick-cancel") {
@@ -95,14 +96,15 @@ async function startSession(
   }
 }
 
-function startPicking(instanceId: string): void {
+function startPicking(instanceId: string, tool: PlayablePreviewTool): void {
   const current = session;
   // Picking is an authoring tool; published sessions never enable it.
   if (current?.instanceId !== instanceId || !current.preview) return;
-  current.host.startPicking(
-    (pick) => post({ kind: "ohmygame:playable:picked", instanceId, pick }),
-    () => post({ kind: "ohmygame:playable:pick-cancelled", instanceId }),
-  );
+  current.host.startPicking(tool, {
+    onPick: (pick, additive) => post({ kind: "ohmygame:playable:picked", instanceId, pick, additive }),
+    onTextEdit: (edit) => post({ kind: "ohmygame:playable:text-edited", instanceId, edit }),
+    onCancel: () => post({ kind: "ohmygame:playable:pick-cancelled", instanceId }),
+  });
 }
 
 async function disposeSession(): Promise<void> {

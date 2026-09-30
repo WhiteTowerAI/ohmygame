@@ -50,6 +50,23 @@ export function playableElementContext(pick: PlayablePickResult): PromptContext 
   };
 }
 
+/** A drawing the user made over a preview; the attached screenshot shows it. */
+export function playableDrawingContext(nodeId: string, strokes: number): PromptContext {
+  return {
+    kind: "playable-drawing",
+    label: strokes === 1 ? "Drawing" : `Drawing (${strokes} strokes)`,
+    text: `The user drew on the preview of Node "${nodeId}". The attached screenshot shows the drawing in orange, over the preview; it marks what the message is about.`,
+  };
+}
+
+/**
+ * The chat request for a text edit that cannot be written back to surface
+ * HTML, such as text a script sets or a shared component draws.
+ */
+export function playableTextEditRequest(before: string, after: string): string {
+  return `In the preview I changed the text "${before}" to "${after}". Make that change in the source, wherever the text comes from.`;
+}
+
 function sourceFiles(source: NodeSource): string[] {
   return [source.html, source.css, source.javascript].filter(Boolean);
 }

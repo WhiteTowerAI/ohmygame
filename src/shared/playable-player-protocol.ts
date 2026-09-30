@@ -30,6 +30,24 @@ export interface PlayablePreviewOptions {
   previewState?: JsonObject;
 }
 
+/**
+ * An authoring tool that takes over the preview's input: `select` picks
+ * elements to talk about, `text` edits an element's text in place.
+ */
+export type PlayablePreviewTool = "select" | "text";
+
+/** Text the author typed over an element in the preview. */
+export interface PlayableTextEdit {
+  pick: PlayablePickResult;
+  before: string;
+  after: string;
+  /**
+   * The element was written in surface HTML and holds only text, so the edit
+   * can go straight back to its source. Otherwise the Agent makes it.
+   */
+  inPlace: boolean;
+}
+
 export interface PlayableAssetTransfer {
   contentType: string;
   bytes: ArrayBuffer;
@@ -50,7 +68,7 @@ export type PlayableHostMessage =
       requestId: string;
       error?: string;
     }
-  | { kind: "ohmygame:playable:pick-start"; instanceId: string }
+  | { kind: "ohmygame:playable:pick-start"; instanceId: string; tool: PlayablePreviewTool }
   | { kind: "ohmygame:playable:pick-cancel"; instanceId: string };
 
 export type PlayableFrameMessage =
@@ -79,6 +97,13 @@ export type PlayableFrameMessage =
       kind: "ohmygame:playable:picked";
       instanceId: string;
       pick: PlayablePickResult;
+      /** Added to the current selection (a modifier key was held) instead of replacing it. */
+      additive: boolean;
+    }
+  | {
+      kind: "ohmygame:playable:text-edited";
+      instanceId: string;
+      edit: PlayableTextEdit;
     }
   | { kind: "ohmygame:playable:pick-cancelled"; instanceId: string };
 
@@ -98,11 +123,9 @@ export function isPlayableHostMessage(
       (value.preview === undefined || isRecord(value.preview))
     );
   }
-  if (
-    value.kind === "ohmygame:playable:pick-start" ||
-    value.kind === "ohmygame:playable:pick-cancel"
-  )
-    return true;
+  if (value.kind === "ohmygame:playable:pick-start")
+    return value.tool === "select" || value.tool === "text";
+  if (value.kind === "ohmygame:playable:pick-cancel") return true;
   return (
     value.kind === "ohmygame:playable:save-result" &&
     typeof value.requestId === "string" &&
@@ -123,7 +146,16 @@ export function isPlayableFrameMessage(
     return typeof value.requestId === "string" && isRecord(value.save);
   if (value.kind === "ohmygame:playable:snapshot")
     return isRecord(value.snapshot);
-  if (value.kind === "ohmygame:playable:picked") return isRecord(value.pick);
+  if (value.kind === "ohmygame:playable:picked")
+    return isRecord(value.pick) && typeof value.additive === "boolean";
+  if (value.kind === "ohmygame:playable:text-edited")
+    return (
+      isRecord(value.edit) &&
+      isRecord(value.edit.pick) &&
+      typeof value.edit.before === "string" &&
+      typeof value.edit.after === "string" &&
+      typeof value.edit.inPlace === "boolean"
+    );
   if (value.kind === "ohmygame:playable:pick-cancelled") return true;
   return (
     (value.kind === "ohmygame:playable:error" ||

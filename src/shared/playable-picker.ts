@@ -6,6 +6,8 @@ export interface PlayablePickResult {
   source?: string;
   /** CSS path from the surface's shadow root to the element. */
   cssPath: string;
+  /** The Signal named by the nearest `data-signal` attribute, such as an Exit button's. */
+  signal?: string;
   tag: string;
   text: string;
   /** Bounding box in the sandbox frame's CSS pixels. */
@@ -14,6 +16,7 @@ export interface PlayablePickResult {
 
 const TEXT_EXCERPT_LIMIT = 120;
 const SURFACE_ATTRIBUTE = "data-playable-surface";
+const SIGNAL_ATTRIBUTE = "data-signal";
 
 /** The subset of Element used by the picker, so path logic runs without a DOM. */
 export interface PickableElement {
@@ -46,11 +49,15 @@ export function describePlayablePick(
   const source = inside
     .map((element) => element.getAttribute(PLAYABLE_SOURCE_ATTRIBUTE))
     .find((value): value is string => value !== null);
+  const signal = inside
+    .map((element) => element.getAttribute(SIGNAL_ATTRIBUTE))
+    .find((value): value is string => Boolean(value));
   const rect = target.getBoundingClientRect();
   return {
     nodeId: surface.getAttribute(SURFACE_ATTRIBUTE)!,
     ...(source ? { source } : {}),
     cssPath: playableCssPath(target),
+    ...(signal ? { signal } : {}),
     tag: target.tagName.toLowerCase(),
     text: excerpt(target.textContent ?? ""),
     box: {

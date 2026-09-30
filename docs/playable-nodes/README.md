@@ -58,7 +58,7 @@ editor's words.
 | Start with…              | Preview state                                  |
 | Template                 | Preset                                         |
 | Replay                   | Restart                                        |
-| Point at…                | Pick element                                   |
+| Select                   | Pick element                                   |
 | History                  | Back stack (shown only with technical details) |
 
 ## Documents

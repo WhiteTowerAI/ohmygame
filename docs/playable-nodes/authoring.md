@@ -113,59 +113,78 @@ anything.
 
 ## Scene Workbench
 
-Opening a Scene shows its Workbench. It reuses the current
-`NodeWorkbenchLayout`: a large preview and a resizable, collapsible
-inspector. Every Scene gets the same Workbench.
+Opening a Scene shows its Workbench: a large live preview with a tool bar
+floating over it, and the preview's activity below. Every Scene gets the same
+Workbench. There is no inspector: the Agent changes the Scene, the author
+points at, edits, or draws on the preview to say what to change, and
+**Open code** is the way to read it.
 
 ```text
-┌────────────────────────────────────────────┬─────────────────┐
-│                                            │ Title           │
-│                                            │                 │
-│              Live preview                  │ Exits           │
-│        (real Runtime, real assets)         │  Start → Lobby  │
-│                                            │  Archive → …    │
-│                                            │                 │
-│                                            │ Assets          │
-│                                            │  [img] [video]  │
-├────────────────────────────────────────────┤                 │
-│ Preview bar: Replay · Start with… ·        │ Variables used  │
-│ Point at… · Play from here                 │                 │
-└────────────────────────────────────────────┴─────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Scenes / [Title]            Replay · Start with… · Play from here │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                        Live preview                          │
+│                  (real Runtime, real assets)                 │
+│                                                              │
+│             ┌──────────────────────────────────┐             │
+│             │ ▶ Play · ⌖ Select · T Text · ✎ Draw │             │
+│             └──────────────────────────────────┘             │
+├──────────────────────────────────────────────────────────────┤
+│ Activity: issues · Exits that go nowhere · Exits taken ·     │
+│ changes made from the preview · Variables used               │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+The title is edited in place in the breadcrumb (Enter keeps it, Esc reverts).
 
 ### Live preview
 
 The preview runs the Scene in the real Node Runtime. It is interactive:
 clicking "进入俱乐部" in the preview takes the `enter-club` Exit, and the
 preview shows the Exit taken and the Scene it would open instead of leaving
-the Scene. An Exit that is not connected shows `"进入俱乐部" doesn't go
-anywhere yet` with **Connect…** and **Ask AI to create it**.
+the Scene.
 
-The preview bar offers:
+The header offers:
 
 - **Replay** to play the Scene again from the start;
 - **Start with…** to choose the Variables this preview starts with (preview
   state), for example to see the archive after eight completed rounds;
-- **Point at…** to point at part of the preview and refer to it in chat;
 - **Play from here** to open Playtest at this Scene with the chosen
   Variables.
 
-Below the preview, the Exits taken and errors from this Scene are listed.
+### Preview tools
 
-### Inspector
+The tool bar at the bottom of the preview decides what the pointer does. Esc
+always returns to **Play**.
 
-The inspector contains only things every Scene has:
+- **Play** plays the Scene.
+- **Select** picks an element for the chat. Shift-, ⌘- or Ctrl-click picks
+  more, or removes one already picked. A picked image or video can be
+  replaced from the Library, by uploading a file, or by asking the Agent to
+  generate one; the asset is declared on the Scene and the Agent is asked to
+  show it there.
+- **Text** edits text in place. Enter keeps the change, Esc discards it.
+  When the element was written in the Scene's HTML and holds only text, the
+  change is written straight to that file, and an Exit whose name was that
+  text is renamed too. Otherwise (text set by a script, or mixed content)
+  the change is sent to the Agent, and the activity shows it is working.
+- **Draw** draws freehand over the preview. The drawing is sent with the next
+  chat message, on a screenshot of the preview.
 
-- **Title**, the editor-facing name.
-- **Exits**: each Exit, its name, the Scene it opens, and **Allow Back**.
-  Authors can rename Exits, retarget them, and jump to the target. The Agent
-  adds Exits when it builds interactions that leave the Scene.
-- **Assets**: the assets this Scene declares, with thumbnails and
-  missing-file status (and stable IDs with technical details). Authors can
-  add assets from the Library, upload a file, or ask the Agent to generate
-  one for this Scene (see [Asset Canvas](#relationship-with-asset-canvas)).
-- **Variables used**: the Variables this Scene read or changed in recent
-  previews, with current values.
+There is no comment tool: saying what to change in the chat, with picks or a
+drawing attached, does the same job.
+
+### Activity
+
+Below the preview:
+
+- the Scene's issues;
+- its Exits that go nowhere, each with **Connect…** and **Ask AI to create
+  it**;
+- the Exits taken and errors from recent previews;
+- changes made from the preview (text saved, requests sent to the Agent);
+- the Variables this Scene read or changed, with current values.
 
 There are no type-specific forms. What used to be a Choice's options or a
 Scene's duration now lives in the Scene's own content and is changed by
@@ -173,14 +192,15 @@ describing the change.
 
 ### Talking to the Agent about a Scene
 
-When a Scene is open, the composer shows it as a chip, and the
-next message carries it as context: its ID, source files, Signals and their
-targets, and declared assets. An element chosen with **Point at…** adds a
-second chip, and the message carries its description and a screenshot of the
-preview with the element outlined. Removing a chip leaves it out of the
-message. The conversation shows only the chip labels; the Agent receives the
-full context. The Agent edits the Scene's files; the preview reloads when the
-change is saved; new or removed Exits appear on the inspector and canvas
+When a Scene is open, the composer shows it as a chip, and the next message
+carries it as context: its ID, source files, Signals and their targets, and
+declared assets. Each element picked with **Select** adds a chip, and a
+drawing adds one more. The message carries their descriptions and one
+screenshot of the preview with the picks outlined and the drawing on it.
+Removing a chip leaves it out of the message; the chips clear once sent. The
+conversation shows only the chip labels; the Agent receives the full context.
+The Agent edits the Scene's files; the preview reloads when the change is
+saved; new or removed Exits appear in the activity and on the canvas
 immediately.
 
 Typical requests:
@@ -188,9 +208,9 @@ Typical requests:
 - "Make the right page an index of three cases; choosing one changes the left
   page."
 - "Show the number of completed rounds on the left page."
-- Pointing at "打开博弈笔记" and saying "this should lead to a new notes
+- Picking "打开博弈笔记" and saying "this should lead to a new notes
   Scene".
-- Pointing at a title and saying "use the pixel typeface from the main
+- Picking a title and saying "use the pixel typeface from the main
   menu".
 
 Small edits use the same loop. Direct text editing inside the preview is a
@@ -286,8 +306,8 @@ short:
    one Library asset, and Scenes use only the project Asset ID. **Replace**
    re-points that ID at a better Library asset, which updates every Scene that
    uses it without changing code.
-2. **Media from the Workbench.** The Scene inspector can pick from the
-   Library, upload, or ask the Agent for a single generation for this Scene.
+2. **Media from the Workbench.** A picked image or video can be replaced from
+   the Library, by upload, or by asking the Agent for a single generation.
    Complex generation opens the asset in Asset Canvas and returns to the Scene
    afterwards.
 3. **Where used.** Asset Canvas can show which Scenes use an asset. This can
@@ -302,8 +322,8 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | ----------------------------------------------------- | --------------------------------------------------------------------- |
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
 | Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
-| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Keep as the single Workbench for every Scene                          |
-| Library asset picker and upload                       | Keep in the Assets section of the inspector                           |
+| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
+| Library asset picker and upload                       | Keep, to replace a picked image or video                              |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
 | Variables dialog                                      | Becomes the Variables (Project State) panel                           |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
@@ -366,24 +386,30 @@ Thumbnails are screenshots of the real Scene, never a separate rendering.
 
 The same capture is attached to Agent requests about that Scene.
 
-### Element picking
+### Element picking and text editing
 
-Element picking (**Point at…**) is editor tooling implemented by the sandbox
-host, not by node code, and it is disabled in the Published Player.
+Picking (**Select**) and in-place editing (**Text**) are editor tooling
+implemented by the sandbox host, not by node code, and they are disabled in
+the Published Player.
 
-1. **Point at…** puts the preview into pick mode. The sandbox host draws a
-   hover outline inside the node's surface and blocks node input.
-2. Clicking returns a **picked element** description: node ID, source
-   location when known, CSS path within the node root, tag, visible text
-   excerpt, and bounding box.
+1. **Select** or **Text** puts the preview into pick mode. The sandbox host
+   draws a hover outline inside the node's surface and blocks node input.
+2. With **Select**, clicking returns a **picked element** description: node
+   ID, source location when known, CSS path within the node root, tag,
+   visible text excerpt, bounding box, and the Exit (`data-signal`) it
+   belongs to. Shift-, ⌘- or Ctrl-click adds it to the picks.
 3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
    attribute to every element written in the node's HTML. Elements created by
    JavaScript have no such attribute; the description then relies on text,
    path, and screenshot, and the Agent finds the element in source.
-4. The picked element appears as a chip in the chat composer, like the
-   current selected-text reference, and is sent with the next message
-   together with a screenshot of the preview with the element outlined. The
-   chip clears once sent.
+4. With **Text**, clicking makes the element editable. On Enter the host
+   reports the text before and after, and whether the element holds only text
+   and came from the node's HTML. The editor then replaces that element's
+   text in the source file, only if the file still reads the old text;
+   anything else goes to the Agent.
+5. Picks and a drawing appear as chips in the chat composer and are sent with
+   the next message together with one screenshot of the preview. The chips
+   clear once sent.
 
 ### Cinematic scenes
 

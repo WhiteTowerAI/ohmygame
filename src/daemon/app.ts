@@ -282,7 +282,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },

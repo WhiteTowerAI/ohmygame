@@ -15,7 +15,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
@@ -396,7 +396,7 @@ export function ProjectShell({
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
   const playableSurface = playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
-  const chatContexts = [playableSurface?.chip, playableChat?.element?.chip].filter((chip) => chip !== undefined);
+  const chatContexts = [playableSurface?.chip, ...(playableChat?.attachments ?? []).map((attachment) => attachment.chip)].filter((chip) => chip !== undefined);
 
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -404,14 +404,32 @@ export function ProjectShell({
     dispatch({ type: "notice", message: undefined });
     try {
       const surface = playableSurface;
-      const element = playableChat?.element;
-      const elementImage = element ? await element.capture().catch(() => undefined) : undefined;
-      const contexts = [surface?.context, element?.context].filter((context) => context !== undefined);
-      const sentImages = elementImage ? [...images, elementImage] : images;
+      const previewContexts = playableChat?.attachments ?? [];
+      const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
+      const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
+      const sentImages = previewImage ? [...images, previewImage] : images;
       await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, surface?.references ?? [], sentImages, mode, mentions, attachments, contexts);
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
-      if (element) playableChat?.clearElement();
+      if (previewContexts.length) playableChat?.clearAttachments();
+      return true;
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  /**
+   * Sends a request the editor wrote, such as a text edit it cannot make
+   * itself, with the open Node as context. Picks stay for the user's message.
+   */
+  async function sendEditorRequest(text: string, contexts: PromptContext[]): Promise<boolean> {
+    if (!project || !conversation || state.connection !== "open") return false;
+    followTimeline.current = true;
+    const surface = playableChat?.surface;
+    try {
+      await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
+      setAgentCollapsed(false);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -774,9 +792,9 @@ export function ProjectShell({
             reference={chatReference}
             onClearReference={() => setChatReference(undefined)}
             contexts={chatContexts}
-            onRemoveContext={(kind) => {
-              if (kind === "playable-element") playableChat?.clearElement();
-              else setDismissedSurface(playableChat?.surface?.key);
+            onRemoveContext={(key) => {
+              if (key === playableChat?.surface?.key) setDismissedSurface(key);
+              else playableChat?.removeAttachment(key);
             }}
             onDirtyChange={setComposerDirty}
             promptRequest={promptRequest}
@@ -864,6 +882,7 @@ export function ProjectShell({
           setAgentCollapsed(false);
           setPromptRequest({ text, id: Date.now() });
         }}
+        onSendToAgent={sendEditorRequest}
       /> : <InteractiveDramaWorkspace
         project={project}
         initialNodeId={initialCanvasNodeId}

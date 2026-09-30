@@ -96,6 +96,16 @@ describe("describePlayablePick", () => {
     });
   });
 
+  it("names the Signal of the nearest data-signal element", () => {
+    const surface = element("div", { "data-playable-surface": "menu" });
+    const button = element("button", { "data-signal": "start" }, surface);
+    const label = element("span", {}, button, "Start");
+
+    expect(describePlayablePick([label, button, surface])).toMatchObject({ signal: "start", tag: "span" });
+    expect(describePlayablePick([surface.children[0]!, surface])?.signal).toBe("start");
+    expect(describePlayablePick([element("p", {}, surface), surface])?.signal).toBeUndefined();
+  });
+
   it("ignores a path without a surface and a click on the surface itself", () => {
     const surface = element("div", { "data-playable-surface": "menu" });
 
@@ -118,8 +128,14 @@ describe("describePlayablePick", () => {
 describe("pick protocol messages", () => {
   it("accepts pick messages in both directions", () => {
     expect(
-      isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a" }),
+      isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a", tool: "text" }),
     ).toBe(true);
+    expect(
+      isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a" }),
+    ).toBe(false);
+    expect(
+      isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a", tool: "draw" }),
+    ).toBe(false);
     expect(
       isPlayableHostMessage({ kind: "ohmygame:playable:pick-cancel", instanceId: "a" }),
     ).toBe(true);
@@ -128,8 +144,30 @@ describe("pick protocol messages", () => {
         kind: "ohmygame:playable:picked",
         instanceId: "a",
         pick: { nodeId: "menu" },
+        additive: true,
       }),
     ).toBe(true);
+    expect(
+      isPlayableFrameMessage({
+        kind: "ohmygame:playable:picked",
+        instanceId: "a",
+        pick: { nodeId: "menu" },
+      }),
+    ).toBe(false);
+    expect(
+      isPlayableFrameMessage({
+        kind: "ohmygame:playable:text-edited",
+        instanceId: "a",
+        edit: { pick: { nodeId: "menu" }, before: "Start", after: "Begin", inPlace: true },
+      }),
+    ).toBe(true);
+    expect(
+      isPlayableFrameMessage({
+        kind: "ohmygame:playable:text-edited",
+        instanceId: "a",
+        edit: { pick: { nodeId: "menu" }, before: "Start", after: "Begin" },
+      }),
+    ).toBe(false);
     expect(
       isPlayableFrameMessage({
         kind: "ohmygame:playable:pick-cancelled",

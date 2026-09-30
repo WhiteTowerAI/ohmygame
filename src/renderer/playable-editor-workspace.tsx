@@ -67,8 +67,8 @@ import {
   type CanvasAlignmentNode,
 } from "./story-canvas-alignment.js";
 import { snapStoryCanvasPosition } from "./story-canvas-clipboard.js";
-import type { ProjectState } from "../shared/contracts.js";
-import type { NodeCodebase, NodeEditorLayout } from "../shared/playable-codebase.js";
+import type { ProjectState, PromptContext } from "../shared/contracts.js";
+import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
   type NodeSource,
@@ -79,10 +79,10 @@ import {
   type PlayableSignal,
 } from "../shared/playable-nodes.js";
 import { playableNodeById } from "../shared/playable-graph.js";
-import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
+import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
+import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
 import {
   addPlayableNodeAsset,
-  removePlayableNodeAsset,
   playableEdgeId,
   setPlayableSignalLabel,
   setPlayableSignalRole,
@@ -179,7 +179,7 @@ const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
@@ -194,6 +194,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
   /** Puts a request in the chat prompt. */
   onAskAgent?: (text: string) => void;
+  /** Sends a request to the AI now, with the open Node as context. */
+  onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
   const projectId = project.id;
   const technical = useTechnicalDetails();
@@ -504,7 +506,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [codebase, workspaceView]);
 
-  const save = useCallback((next: NodeCodebase): Promise<void> => {
+  const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
     if (serialized === queuedCodebase.current) return saveChain.current;
     queuedCodebase.current = serialized;
@@ -599,6 +601,33 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const flow = toFlowEdge(edge);
       return current.find((candidate) => candidate.id === edge.id)?.selected ? { ...flow, selected: true } : flow;
     }));
+  }
+
+  /** Adopts a graph and saves it now, with any sources, instead of on the next autosave. */
+  async function writeGraph(graph: NodeGraph, sources?: Record<string, string>): Promise<void> {
+    if (!codebase) return;
+    applyGraph(graph);
+    await save({ graph, editorLayout: codebase.editorLayout, ...(sources ? { sources } : {}) });
+  }
+
+  /**
+   * Writes a text edit from the preview back to the surface HTML that holds
+   * it, and renames the Exit it labels. False when it cannot be done in place.
+   */
+  async function writeText(edit: PlayableTextEdit): Promise<boolean> {
+    const graph = codebase?.graph;
+    const location = edit.pick.source ? parsePlayableSourceLocation(edit.pick.source) : undefined;
+    const node = graph?.nodes.find((candidate) => candidate.id === edit.pick.nodeId);
+    if (!graph || !location || !node || node.source.html !== location.file) return false;
+    const file = await getWorkspaceFile(projectId, location.file);
+    const html = file.content === undefined || file.truncated ? undefined : replacePlayableElementText(file.content, location, edit.before, edit.after);
+    if (html === undefined) return false;
+    const signal = node.signals.find((candidate) => candidate.id === edit.pick.signal);
+    const next = signal && signal.label.trim() === edit.before.trim()
+      ? setPlayableSignalLabel(graph, node.id, signal.id, edit.after.trim())
+      : graph;
+    await writeGraph(next, { [location.file]: html });
+    return true;
   }
 
   function openNode(nodeId: string): void {
@@ -1011,10 +1040,17 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setOpenedNodeId(undefined)}
         onOpenNode={openNode}
         onOpenSource={() => openFile(openedNode.source.html)}
+        agentBusy={agentBusy}
         onRename={(title) => renameNode(openedNode.id, title)}
-        {...signalEdits}
-        onAddAsset={(asset) => applyGraph(addPlayableNodeAsset(codebase.graph, openedNode.id, asset).graph)}
-        onRemoveAsset={(assetId) => applyGraph(removePlayableNodeAsset(codebase.graph, openedNode.id, assetId))}
+        onSignalTarget={signalEdits.onSignalTarget}
+        {...(onAskAgent ? { onAskAgent } : {})}
+        {...(onSendToAgent ? { onSendToAgent } : {})}
+        onWriteText={writeText}
+        onAddAsset={async (asset) => {
+          const { graph, assetId } = addPlayableNodeAsset(codebase.graph, openedNode.id, asset);
+          await writeGraph(graph);
+          return assetId;
+        }}
         onPlayFromHere={(start) => void startPlaytest(start)}
         onSnapshot={onPreviewSnapshot}
         onChatContextChange={onChatContextChange}

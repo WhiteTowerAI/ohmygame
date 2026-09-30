@@ -10,6 +10,8 @@ import type {
   PlayableAssetTransfer,
   PlayableFrameMessage,
   PlayablePreviewOptions,
+  PlayablePreviewTool,
+  PlayableTextEdit,
   NodePlayerDefinition,
 } from "../shared/playable-player-protocol.js";
 import { isPlayableFrameMessage } from "../shared/playable-player-protocol.js";
@@ -27,10 +29,12 @@ export interface NodePlayerProps {
   storage?: Storage;
   /** Authoring preview options; omit in the Published Player. */
   preview?: PlayablePreviewOptions;
-  /** Enables element picking; requires `preview`. */
-  picking?: boolean;
-  onPick?: (pick: PlayablePickResult) => void;
-  /** Called when picking ends without a pick (Escape in the frame). */
+  /** Hands the preview's input to an authoring tool; requires `preview`. */
+  tool?: PlayablePreviewTool;
+  /** `additive` asks to add the element to the selection instead of replacing it. */
+  onPick?: (pick: PlayablePickResult, additive: boolean) => void;
+  onTextEdit?: (edit: PlayableTextEdit) => void;
+  /** Called when the author leaves the tool (Escape in the frame). */
   onPickCancel?: () => void;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
@@ -44,8 +48,9 @@ export function NodePlayer({
   frameUrl = "./playable-sandbox.html",
   storage = window.localStorage,
   preview,
-  picking = false,
+  tool,
   onPick,
+  onTextEdit,
   onPickCancel,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
@@ -80,7 +85,9 @@ export function NodePlayer({
       } else if (message.kind === "ohmygame:playable:error") {
         setError(message.error);
       } else if (message.kind === "ohmygame:playable:picked") {
-        onPick?.(message.pick);
+        onPick?.(message.pick, message.additive);
+      } else if (message.kind === "ohmygame:playable:text-edited") {
+        onTextEdit?.(message.edit);
       } else if (message.kind === "ohmygame:playable:pick-cancelled") {
         onPickCancel?.();
       } else {
@@ -89,21 +96,18 @@ export function NodePlayer({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onPickCancel, onSnapshot, saveKey, storage]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onPickCancel, onSnapshot, saveKey, storage]);
 
-  const pickingEnabled = picking && preview !== undefined;
+  const activeTool = preview !== undefined ? tool : undefined;
   useEffect(() => {
     if (!ready) return;
     iframe.current?.contentWindow?.postMessage(
-      {
-        kind: pickingEnabled
-          ? "ohmygame:playable:pick-start"
-          : "ohmygame:playable:pick-cancel",
-        instanceId,
-      },
+      activeTool
+        ? { kind: "ohmygame:playable:pick-start", instanceId, tool: activeTool }
+        : { kind: "ohmygame:playable:pick-cancel", instanceId },
       "*",
     );
-  }, [instanceId, pickingEnabled, ready]);
+  }, [instanceId, activeTool, ready]);
 
   const initialize = async () => {
     const target = iframe.current?.contentWindow;

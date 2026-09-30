@@ -11,8 +11,47 @@ import { readMediaFileDuration } from "./video-reference-files.js";
  * breadcrumb back to the canvas, a large preview with a resizable, collapsible
  * inspector, a scaled preview frame, and the Library picker.
  */
-export function WorkbenchBreadcrumb({ label, onClose }: { label: string; onClose: () => void }) {
-  return <nav className="story-node-editor-breadcrumb" aria-label="Breadcrumb"><button type="button" onClick={onClose}>Canvas</button><ChevronRight size={12} aria-hidden="true" /><strong>{label}</strong></nav>;
+export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
+  label: string;
+  onClose: () => void;
+  /** Makes the label an editable title. */
+  onRename?: (label: string) => void;
+}) {
+  return <nav className="story-node-editor-breadcrumb" aria-label="Breadcrumb">
+    <button type="button" onClick={onClose}>Canvas</button>
+    <ChevronRight size={12} aria-hidden="true" />
+    {onRename ? <BreadcrumbTitle value={label} onCommit={onRename} /> : <strong>{label}</strong>}
+  </nav>;
+}
+
+function BreadcrumbTitle({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  // Esc blurs too; the blur that follows must not save the discarded draft.
+  const cancelled = useRef(false);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (!cancelled.current && next && next !== value) onCommit(next);
+    else setDraft(value);
+    cancelled.current = false;
+  };
+  return <input
+    className="story-node-editor-breadcrumb-title"
+    aria-label="Title"
+    title="Rename"
+    value={draft}
+    maxLength={120}
+    spellCheck={false}
+    onChange={(event) => setDraft(event.target.value)}
+    onBlur={commit}
+    onKeyDown={(event) => {
+      if (event.key === "Enter") event.currentTarget.blur();
+      if (event.key === "Escape") {
+        cancelled.current = true;
+        event.currentTarget.blur();
+      }
+    }}
+  />;
 }
 
 export function NodeWorkbenchLayout({ className, preview, inspector, timeline }: {
@@ -94,13 +133,15 @@ export function NodeWorkbenchLayout({ className, preview, inspector, timeline }:
 }
 
 /** Scales a fixed-size stage to fit its frame while keeping the viewport ratio. */
-export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, stageClassName, actions, footer, children }: {
+export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, stageClassName, actions, overlay, footer, children }: {
   label?: string;
   ariaLabel: string;
   viewport: { width: number; height: number };
   stageClassName?: string;
   /** Controls shown in the preview header, after the label. */
   actions?: ReactNode;
+  /** Floats over the bottom of the preview frame, such as a tool bar. */
+  overlay?: ReactNode;
   /** Content below the preview frame, such as recent Signals and errors. */
   footer?: ReactNode;
   children: ReactNode;
@@ -127,6 +168,7 @@ export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, 
       <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
         {children}
       </div>
+      {overlay}
     </div>
     {footer ? <div className="story-workbench-preview-footer">{footer}</div> : null}
   </section>;
