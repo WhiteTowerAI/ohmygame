@@ -39,7 +39,7 @@ describe("Playable project build", () => {
     expect(first?.graphSignature).toHaveLength(64);
   });
 
-  it("changes the signature when authored source changes", async () => {
+  it("keeps the signature when only authored source changes", async () => {
     const workspace = await temporaryWorkspace();
     await writePlayableFixtureWorkspace(workspace);
     const first = await buildPlayableProject(workspace);
@@ -50,7 +50,8 @@ describe("Playable project build", () => {
     );
     const second = await buildPlayableProject(workspace);
 
-    expect(second?.graphSignature).not.toBe(first?.graphSignature);
+    expect(second?.compiled).not.toEqual(first?.compiled);
+    expect(second?.graphSignature).toBe(first?.graphSignature);
   });
 
   it("validates compiled surfaces against the authored graph", async () => {

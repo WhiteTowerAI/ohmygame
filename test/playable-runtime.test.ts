@@ -404,7 +404,7 @@ describe("Node Runtime", () => {
       }),
     });
     await incompatible.runtime.start();
-    expect(incompatible.runtime.snapshot().save.present).toBe(false);
+    expect(incompatible.runtime.snapshot().save).toEqual({ present: false, incompatible: true });
     await expect(
       nodeContext(incompatible.host, "menu").session.continue(),
     ).rejects.toMatchObject({ code: "no-save" });

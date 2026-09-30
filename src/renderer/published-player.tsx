@@ -5,7 +5,7 @@ import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { isPublishedNodeManifest, type PublishedNodeManifest } from "../shared/playable-publish.js";
+import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeManifest } from "../shared/playable-publish.js";
 import { NodePlayer } from "./playable-player.js";
 import "./playable-player.css";
 
@@ -63,7 +63,7 @@ function PublishedNodePlayer({ manifest }: { manifest: PublishedNodeManifest }) 
 
   const saveKey = `ohmygame:playable:${manifest.scope}`;
   const [session, setSession] = useState(0);
-  const onSnapshot = usePlaytestBridge(state.loading || "error" in state ? undefined : state.definition, () => {
+  const onSnapshot = usePlaytestBridge(manifest, state.loading || "error" in state ? undefined : state.definition, () => {
     window.localStorage.removeItem(saveKey);
     setSession((value) => value + 1);
   });
@@ -80,16 +80,18 @@ function PublishedNodePlayer({ manifest }: { manifest: PublishedNodeManifest }) 
 }
 
 /**
- * When an agent plays the project through game_use, the page exposes the
+ * When an agent plays a draft through game_use, the page exposes the
  * Runtime's debug record as the playtest bridge: the current Node, back
  * stack, followed Signals, State changes, and errors. `reset()` starts a new
- * game without the save.
+ * game without the save. A published game never exposes it.
  */
 function usePlaytestBridge(
+  manifest: PublishedNodeManifest,
   definition: NodePlayerDefinition | undefined,
   reset: () => void,
 ): ((snapshot: NodeRuntimeSnapshot) => void) | undefined {
-  const enabled = useMemo(() => new URLSearchParams(window.location.search).get("ohmygamePlaytest") === "1", []);
+  const enabled = useMemo(() => manifest.scope.startsWith(PLAYTEST_SCOPE_PREFIX)
+    && new URLSearchParams(window.location.search).get("ohmygamePlaytest") === "1", [manifest]);
   const latest = useRef<NodeRuntimeSnapshot | undefined>(undefined);
   const history = useRef(new PlayableStateHistory());
   const resetRef = useRef(reset);

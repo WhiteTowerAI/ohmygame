@@ -11,10 +11,10 @@ import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../share
 import type { AssetLibrary } from "../asset-library.js";
 import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { resolveStartupDirectory } from "../projects.js";
-import { buildPlayableProject } from "../playable-project.js";
+import { buildPlayableProject, nodeGraphSignature } from "../playable-project.js";
 import { isCompiledNodeGraph } from "../../shared/playable-compiled.js";
 import type { NodePlayerDefinition } from "../../shared/playable-player-protocol.js";
-import { isPublishedNodeManifest, type PublishedNodeAsset, type PublishedNodeManifest } from "../../shared/playable-publish.js";
+import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeAsset, type PublishedNodeManifest } from "../../shared/playable-publish.js";
 import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 
@@ -80,7 +80,7 @@ export class ArtifactBuilder {
       throw new PublishError(`The project does not build: ${cause instanceof Error ? cause.message : String(cause)}. Run playable_check for every issue.`);
     }
     if (!definition) throw new PublishError("This project has no graph.json.");
-    return preparePlayableProject(project, definition, this.library, this.playerDirectory, `playtest:${project.id}`);
+    return preparePlayableProject(project, definition, this.library, this.playerDirectory, `${PLAYTEST_SCOPE_PREFIX}${project.id}`);
   }
 
   async close(): Promise<void> {
@@ -198,12 +198,9 @@ export async function validatePlayablePublishDirectory(directory: string): Promi
   } catch {
     throw new PublishError("Published Node definition is not valid JSON.");
   }
-  const actualSignature = createHash("sha256")
-    .update(JSON.stringify({ graph: definition.graph, compiled: definition.compiled }))
-    .digest("hex");
   if (definition.version !== 1 || !isNodeGraph(definition.graph) ||
     !isCompiledNodeGraph(definition.compiled, definition.graph) ||
-    definition.graphSignature !== actualSignature || definition.graphSignature !== manifest.graphSignature) {
+    definition.graphSignature !== nodeGraphSignature(definition.graph) || definition.graphSignature !== manifest.graphSignature) {
     throw new PublishError("Published Node definition does not match its manifest.");
   }
   const graphAssets = Object.entries(definition.graph?.assets ?? {}).sort(([left], [right]) => left.localeCompare(right));

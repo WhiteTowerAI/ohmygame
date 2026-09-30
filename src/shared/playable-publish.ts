@@ -12,6 +12,9 @@ export interface PublishedNodeAsset extends PublishedNodeFile {
   size: number;
 }
 
+/** The scope of an agent playtest draft; only drafts enable the playtest bridge. */
+export const PLAYTEST_SCOPE_PREFIX = "playtest:";
+
 export interface PublishedNodeManifest {
   version: 1;
   runtime: "playable-nodes";

@@ -138,7 +138,8 @@ export interface NodeRuntimeSnapshot {
   reports: NodeRuntimeNavigationReport[];
   stateAccess: Record<string, NodeRuntimeStateAccess>;
   errors: NodeRuntimeErrorRecord[];
-  save: { present: boolean; savedAt?: string };
+  /** `incompatible` when a save exists but belongs to another version of the graph. */
+  save: { present: boolean; savedAt?: string; incompatible?: true };
 }
 
 const HISTORY_LIMIT = 20;
@@ -186,6 +187,7 @@ export class NodeRuntime {
   readonly #graphSignature: string;
   readonly #surfaceHost: PlayableSurfaceHost;
   readonly #saveStore: PlayableSaveStore;
+  #incompatibleSave = false;
   readonly #assetUrls: Readonly<Record<string, string>>;
   readonly #now: () => Date;
   readonly #onError: (error: unknown) => void;
@@ -267,7 +269,9 @@ export class NodeRuntime {
 
   async #performStart(): Promise<void> {
     try {
-      this.#cachedSave = this.#parseSave(await this.#saveStore.load());
+      const stored = await this.#saveStore.load();
+      this.#cachedSave = this.#parseSave(stored);
+      this.#incompatibleSave = stored !== undefined && stored !== null && !this.#cachedSave;
       this.#assertNotDisposed();
       this.#started = true;
       this.#activeNode = await this.#mountNode(this.#navigation.currentNodeId);
@@ -300,7 +304,7 @@ export class NodeRuntime {
       errors: this.#errors.map((entry) => ({ ...entry })),
       save: this.#cachedSave
         ? { present: true, savedAt: this.#cachedSave.savedAt }
-        : { present: false },
+        : { present: false, ...(this.#incompatibleSave ? { incompatible: true as const } : {}) },
     };
   }
 
@@ -551,7 +555,7 @@ export class NodeRuntime {
       try {
         return operation(...args);
       } catch (cause) {
-        this.#recordError(cause, token.surfaceId);
+        this.#reportError(cause, token.surfaceId);
         throw cause;
       }
     };
@@ -565,15 +569,16 @@ export class NodeRuntime {
       try {
         await operation(...args);
       } catch (cause) {
-        this.#recordError(cause, token.surfaceId);
+        this.#reportError(cause, token.surfaceId);
         throw cause;
       }
     };
   }
 
-  #recordError(error: unknown, nodeId?: string): void {
+  /** False when the error was already recorded. */
+  #recordError(error: unknown, nodeId?: string): boolean {
     if (typeof error === "object" && error !== null) {
-      if (this.#recordedErrors.has(error)) return;
+      if (this.#recordedErrors.has(error)) return false;
       this.#recordedErrors.add(error);
     }
     const code =
@@ -590,6 +595,7 @@ export class NodeRuntime {
       },
     ].slice(-HISTORY_LIMIT);
     this.#changed();
+    return true;
   }
 
   #recordStateAccess(
@@ -769,6 +775,7 @@ export class NodeRuntime {
     const write = async () => {
       await this.#saveStore.save(save);
       this.#cachedSave = save;
+      this.#incompatibleSave = false;
       this.#changed();
     };
     this.#saveQueue = this.#saveQueue.then(write, write);
@@ -863,7 +870,7 @@ export class NodeRuntime {
   }
 
   #reportError(error: unknown, nodeId?: string): void {
-    this.#recordError(error, nodeId);
+    if (!this.#recordError(error, nodeId)) return;
     try {
       this.#onError(error);
     } catch {

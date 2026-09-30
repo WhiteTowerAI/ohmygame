@@ -86,10 +86,12 @@ export async function validatePlayableProject(
       }],
     };
   }
-  const graphSignature = createHash("sha256")
-    .update(JSON.stringify({ graph, compiled }))
-    .digest("hex");
-  return { ok: true, issues: [], definition: { version: 1, graph, compiled, graphSignature } };
+  return { ok: true, issues: [], definition: { version: 1, graph, compiled, graphSignature: nodeGraphSignature(graph) } };
+}
+
+// Saves are keyed to the graph, so a code-only edit keeps the playtest save.
+export function nodeGraphSignature(graph: NodeGraph): string {
+  return createHash("sha256").update(JSON.stringify(graph)).digest("hex");
 }
 
 function escapePointer(value: string): string {

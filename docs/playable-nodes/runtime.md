@@ -289,8 +289,9 @@ One save slot:
   leaving the current node. A menu starts a new game with `reset()` then its
   `start` Signal.
 - `restart()` resets and enters `entryNodeId`.
-- `continue()` restores the save. A save whose `graphSignature` no longer
-  matches is reported as incompatible rather than loaded partially.
+- `continue()` restores the save. `graphSignature` hashes `graph.json`, so a
+  code-only edit keeps the save. A save whose signature no longer matches is
+  reported as incompatible (`save.incompatible`) rather than loaded partially.
 
 ## Host tooling
 
