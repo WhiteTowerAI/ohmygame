@@ -112,7 +112,7 @@ import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
-import { requestPlaytestStart } from "./playable-playtest-drawer.js";
+import { requestPlaytestStart } from "./playable-playtest.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";

@@ -164,7 +164,7 @@ under an unguessable path, and opens it in the Playtest window.
 
 Snapshots read text and interactive elements inside the Player's frames and
 node ShadowRoots, so the snapshot's text is what the screen shows.
-Its `gameState` is the debug record the Playtest drawer shows: current node,
+Its `gameState` is the Playtest debug record: current node,
 back stack, recent Signals and whether an edge followed them, State, State
 changes, errors, and save status. The bridge `reset` action starts a new game
 without the save. `act` drives real input; `capture` returns a screenshot.

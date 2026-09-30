@@ -15573,293 +15573,76 @@ button {
   font-size: 10px;
 }
 
-/* Playtest debug drawer. The Playtest window is dark in both themes. */
-.playable-playtest-drawer,
-.playable-playtest-drawer-toggle {
-  --surface: #15171b;
-  --surface-raised: #1d2025;
-  --surface-hover: #262a31;
-  --border: rgb(255 255 255 / 12%);
-  --border-strong: rgb(255 255 255 / 26%);
-  --text: #eceef2;
-  --text-muted: #aeb2ba;
-  --text-faint: #7d828c;
-  --accent: #e8b563;
-  --danger: #ff7b72;
+/* Over the Playtest game: Replay on hover, and a note when something breaks. Always dark. */
+.playable-playtest-replay,
+.playable-playtest-problem {
   position: fixed;
   z-index: 10;
-  right: 12px;
-  bottom: 12px;
-  border: 1px solid var(--border);
-  background: rgb(12 13 16 / 92%);
-  color: var(--text);
+  border: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(12 13 16 / 88%);
+  color: #eceef2;
   font-family: Inter, system-ui, sans-serif;
   font-size: 11px;
   backdrop-filter: blur(12px);
   app-region: no-drag;
 }
-.playable-playtest-drawer-toggle {
-  display: flex;
-  max-width: 260px;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 8px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.playable-playtest-drawer-toggle span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-playtest-drawer-toggle b {
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--danger);
-  color: #16080a;
-  font-size: 9px;
-}
-.playable-playtest-drawer {
+.playable-playtest-replay {
+  top: 12px;
+  right: 12px;
   display: grid;
-  width: min(360px, calc(100vw - 24px));
-  max-height: calc(100vh - 56px);
-  gap: 10px;
-  overflow-y: auto;
-  padding: 10px 12px 12px;
-  border-radius: 8px;
-}
-.playable-playtest-drawer > header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.playable-playtest-drawer > header strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-.playable-playtest-drawer > header span {
-  color: var(--text-muted);
-}
-.playable-playtest-drawer > header span.is-error {
-  color: var(--danger);
-}
-.playable-playtest-drawer > header .playable-playtest-custom {
-  overflow: hidden;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-playtest-drawer > header button {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
   place-items: center;
   padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
+  border-radius: 8px;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-.playable-playtest-drawer > header button:first-of-type {
-  margin-left: auto;
+/* Shown only while the pointer is near the top corner; the ::before widens that area. */
+.playable-playtest-replay:is(:hover, :focus-visible) {
+  opacity: 1;
 }
-.playable-playtest-drawer > header button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
+.playable-playtest-replay::before {
+  position: absolute;
+  inset: -24px -12px -24px -60px;
+  content: "";
 }
-.playable-playtest-drawer section {
-  display: grid;
+.playable-playtest-problem {
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  transform: translateX(-50%);
+}
+.playable-playtest-problem > svg {
+  flex: 0 0 auto;
+  color: #ff7b72;
+}
+.playable-playtest-problem button {
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
-}
-.playable-playtest-drawer h3 {
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.playable-playtest-current {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-.playable-playtest-current strong {
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-playtest-current code {
-  color: var(--text-faint);
-  font-size: 10px;
-}
-.playable-playtest-current button,
-.playable-playtest-start button {
-  display: inline-flex;
-  height: 22px;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-  white-space: nowrap;
-}
-.playable-playtest-current button:hover,
-.playable-playtest-start button:hover {
-  border-color: var(--border-strong);
-}
-.playable-playtest-backstack {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  color: var(--text-muted);
-}
-.playable-playtest-backstack > span:first-child {
-  color: var(--text-faint);
-}
-.playable-playtest-backstack > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.playable-playtest-backstack em,
-.playable-playtest-empty {
-  margin: 0;
-  color: var(--text-faint);
-  font-style: normal;
-}
-.playable-playtest-list {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.playable-playtest-list li {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-}
-.playable-playtest-list li > :is(span, code) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-playtest-list li > span:last-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.playable-playtest-list li code {
-  color: var(--text);
-}
-.playable-playtest-list li small {
-  color: var(--text-faint);
-}
-.playable-playtest-list li.is-warning > span:last-child {
-  color: var(--accent);
-}
-.playable-playtest-list.is-errors li {
-  grid-template-columns: 12px minmax(0, 1fr);
-  align-items: start;
-  color: var(--danger);
-}
-.playable-playtest-list.is-errors li > span {
-  white-space: normal;
-}
-.playable-playtest-drawer details summary {
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.playable-playtest-state {
-  display: grid;
-  gap: 2px;
-  margin: 6px 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-}
-.playable-playtest-state > div {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
-}
-.playable-playtest-state :is(dt, dd) {
-  overflow: hidden;
-  margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-playtest-state dd {
-  color: var(--text-muted);
-}
-.playable-playtest-section-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-.playable-playtest-section-toggle:hover {
-  color: var(--text);
-}
-.playable-playtest-start {
-  display: grid;
-  gap: 8px;
-}
-.playable-playtest-start > label {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-}
-.playable-playtest-start select {
   height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #aeb2ba;
   font: inherit;
-  font-size: 10px;
+  cursor: pointer;
 }
-.playable-playtest-start > p {
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 10px;
+.playable-playtest-problem button:hover {
+  background: #262a31;
+  color: #eceef2;
 }
-.playable-playtest-start-actions {
-  display: flex;
-  gap: 6px;
-}
-.playable-playtest-start-actions button {
-  margin-left: 0;
-}
-.playable-playtest-start button.is-primary {
-  border-color: transparent;
-  background: var(--accent);
+.playable-playtest-problem button.is-primary {
+  padding: 0 10px;
+  background: #e8b563;
   color: #1b1408;
+  font-weight: 600;
 }

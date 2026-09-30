@@ -62,6 +62,7 @@ import { useAuth } from "./auth.js";
 import { readChatLayout, type ChatLayout } from "./chat-layout.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PublishDetails } from "./publish-dialog.js";
+import { usePlaytestAskRequests } from "./playable-playtest.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -118,6 +119,11 @@ export function ProjectShell({
   const [dismissedSurface, setDismissedSurface] = useState<string>();
   const [composerDirty, setComposerDirty] = useState(false);
   const [promptRequest, setPromptRequest] = useState<{ text: string; id: number }>();
+  // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
+  usePlaytestAskRequests(state.project?.id, (text) => {
+    setAgentCollapsed(false);
+    setPromptRequest({ text, id: Date.now() });
+  });
   const modelCatalog = useAgentModels();
   const effectiveModel = preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);

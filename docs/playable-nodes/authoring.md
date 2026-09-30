@@ -298,20 +298,18 @@ the wrong way.
 Playtest runs the real Runtime from the saved game or the Start Scene, or
 from a chosen Scene with a new game (**Play from here** in a
 Workbench). A chosen start runs without saving, so the saved game is
-untouched. It keeps the current Playtest entry point and adds a compact
-debug drawer, which collapses to a pill showing the current Scene and the
-error count:
+untouched.
 
-- current Scene, with **Open in editor**, which focuses the editor window and
-  opens that Scene's Workbench;
-- **History** (back stack), with technical details;
-- Exits taken and where they led;
-- **State** changes and values, with technical details;
-- Runtime and build errors;
-- **Play from a Scene…**.
+The Playtest window shows only the game. The author plays it as a player;
+reading the game's inner state is the Agent's work, not theirs. Replay
+appears when the pointer reaches the top-right corner. When something
+breaks, a short note says so and offers **Ask AI to fix**, which brings the
+editor forward on that Scene and fills the chat with where the player was,
+the Exits they took, and the errors, ready to send.
 
-The same information is available to the Agent in serializable form, so it
-can verify a flow it just built.
+The Agent reads the full record (current Scene, back stack, Exits taken,
+State, errors, save) in serializable form, so it can verify a flow it just
+built.
 
 ## Relationship with Asset Canvas
 
@@ -356,7 +354,7 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
 | `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
 | Library asset picker and upload                       | Keep, behind the preview toolbar's Media menu                         |
-| Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
+| Playtest entry point                                  | Keep, driven by the Node Runtime, with Ask AI to fix on errors        |
 | Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
 | Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and Scene content                    |
