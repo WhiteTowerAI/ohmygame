@@ -7,7 +7,7 @@ import {
   uniqueNodeId,
   type GraphMeta,
   type PlayableFlowNode,
-} from "../src/renderer/playable-editor-workspace.js";
+} from "../src/renderer/playable-flow.js";
 import type { NodeEditorLayout } from "../src/shared/playable-codebase.js";
 import type { PlayableEdge, PlayableNode } from "../src/shared/playable-nodes.js";
 
@@ -109,6 +109,6 @@ describe("playable canvas serialization", () => {
     const nodes = [flowNode(playableNode("start"), { x: 0, y: 0 })];
     expect(nodeIdForIssuePath("nodes/start/node.js", nodes)).toBe("start");
     expect(nodeIdForIssuePath("nodes/start/extra/helper.js", nodes)).toBe("start");
-    expect(nodeIdForIssuePath("shell/index.html", nodes)).toBeUndefined();
+    expect(nodeIdForIssuePath("shared/components/menu.js", nodes)).toBeUndefined();
   });
 });
