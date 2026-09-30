@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Brush,
   Check,
-  Clipboard,
   Image,
   InfoCircle,
   LoaderCircle,
@@ -41,6 +40,7 @@ import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPr
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableMediaAttachment, type PlayableStroke } from "./playable-chat.js";
+import { isTextEntry } from "./editor-canvas.js";
 
 const ASSET_UPLOAD_ACCEPT = ".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm";
 const TOAST_LIMIT = 3;
@@ -741,11 +741,6 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
   }, [projectId, revision]);
 
   return runtime;
-}
-
-function isTextEntry(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));
 }
 
 function errorMessage(error: unknown): string {

@@ -22,6 +22,13 @@ interface NodeBounds {
 }
 
 export const CANVAS_GRID_SIZE = 10;
+
+export function snapCanvasPosition(position: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: Math.round(position.x / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
+    y: Math.round(position.y / CANVAS_GRID_SIZE) * CANVAS_GRID_SIZE,
+  };
+}
 const ALIGNMENT_THRESHOLD = CANVAS_GRID_SIZE / 2;
 const VERTICAL_ANCHORS = ["left", "centerX", "right"] as const;
 const HORIZONTAL_ANCHORS = ["top", "centerY", "bottom"] as const;

@@ -1,84 +1,37 @@
 import {
-  ArrowRight,
-  ChevronDown,
   Clapperboard,
-  Clipboard,
   Code2,
-  Copy,
-  Download,
-  Flag,
-  Hand,
   House,
-  InfoCircle,
   LoaderCircle,
-  Maximize,
-  Box,
-  Minus,
-  Monitor,
-  MousePointer2,
   PanelToggle,
   Play,
-  Plus,
-  Redo2,
   Share2,
-  Settings,
-  Trash2,
-  Undo2,
-  X,
 } from "./icons.js";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from "react";
-import { createPortal } from "react-dom";
 import {
-  Background,
-  BackgroundVariant,
-  Handle,
-  MarkerType,
-  Panel,
-  Position,
-  ReactFlow,
-  ViewportPortal,
   applyEdgeChanges,
   applyNodeChanges,
-  useReactFlow,
-  useViewport,
   type Connection,
   type Edge,
   type EdgeChange,
-  type Node,
   type NodeChange,
-  type NodeProps,
-  type NodeTypes,
-  type ReactFlowInstance,
 } from "@xyflow/react";
-import {
-  findCanvasAlignmentGuides,
-  CANVAS_GRID_SIZE,
-  type CanvasAlignmentGuides,
-  type CanvasAlignmentNode,
-} from "./canvas-alignment.js";
-import { snapCanvasPosition } from "./asset-canvas-clipboard.js";
+import { snapCanvasPosition } from "./canvas-alignment.js";
+import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
-  type NodeSource,
-  type PlayableEdge,
   type PlayableNavigationMode,
-  type PlayableAssetDefinition,
   type PlayableNode,
-  type PlayableSignal,
 } from "../shared/playable-nodes.js";
-import { playableNodeById } from "../shared/playable-graph.js";
 import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
 import { playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
@@ -98,7 +51,6 @@ import {
   addPlayableNode,
   buildInteractiveDrama,
   getNodeCodebase,
-  getPlayableThumbnail,
   getPlayableValidation,
   getWorkspaceFile,
   listPlayablePresets,
@@ -111,51 +63,17 @@ import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
-import { PlayableTemplateDialog } from "./playable-template-dialog.js";
 import { requestPlaytestStart } from "./playable-playtest.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
 import type { PlayableChatState } from "./playable-chat.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, toPlayableEdge, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
+import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
+import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, PlayableProjectMenu } from "./playable-canvas-menus.js";
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 2;
-const EDGE_COLOR = "var(--story-edge-color)";
-const PLAYABLE_EDGE_OPTIONS = {
-  style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
-  markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
-};
-const SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
-const CARD_STYLE = {
-  "--story-media-width": "var(--story-canvas-stage-width, 440px)",
-  "--story-media-height": "var(--story-canvas-stage-height, 248px)",
-} as CSSProperties;
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
+
 const HISTORY_LIMIT = 50;
 
-type InteractionMode = "pointer" | "pan";
-export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
-/** Object type, not an interface, so React Flow accepts it as node data. */
-export type PlayableFlowData = {
-  node: PlayableNode;
-  entry: boolean;
-  /** Compiler and graph issues that belong to this Node. */
-  issues: string[];
-  /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
-  connected: Record<string, { edgeId: string; target: string; selected: boolean }>;
-  /** The Node does not compile; its card keeps its last good thumbnail, dimmed. */
-  failed: boolean;
-  /** The cached screenshot of the Node, and whether its source changed since. */
-  thumbnail?: { capturedAt: string; stale: boolean };
-  /** Shown instead of a thumbnail before the Node was ever previewed. */
-  coverAsset?: PlayableAssetDefinition;
-};
-export type PlayableFlowNode = Node<PlayableFlowData, "playable">;
-type CanvasContextMenuState = {
-  kind: "pane" | "node";
-  nodeId?: string;
-  screenPosition: { x: number; y: number };
-  flowPosition: { x: number; y: number };
-};
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
 interface HistoryEntry {
   codebase: NodeCodebase;
@@ -167,15 +85,6 @@ interface CopiedPlayableNode {
   /** Workspace-relative path to file contents, so a copy is a real copy. */
   sources: Record<string, string>;
 }
-
-const PlayableCanvasContext = createContext<{
-  projectId: string;
-  technical: boolean;
-  onRenameNode: (nodeId: string, title: string) => void;
-  /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
-  onSelectEdge: (edgeId: string) => void;
-} | undefined>(undefined);
-const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 /**
  * The editor for a Playable Nodes project: one canvas of Nodes, one edge per
@@ -217,11 +126,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [workspaceView, setWorkspaceView] = useState<"canvas" | "code">("canvas");
   const [codeRevision, setCodeRevision] = useState(0);
   const [fileRequest, setFileRequest] = useState(openFileRequest);
-  const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
-  const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
@@ -234,8 +140,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
-  const canvas = useRef<HTMLDivElement>(null);
-  const reactFlow = useRef<ReactFlowInstance<PlayableFlowNode>>(null);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
@@ -299,7 +203,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   useEffect(() => {
     if (!openFileRequest) return;
-    setSelectedId(undefined);
     setOpenedNodeId(undefined);
     setWorkspaceView("code");
   }, [openFileRequest?.id]);
@@ -399,7 +302,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (options.fromDisk) queuedCodebase.current = JSON.stringify(applied);
     observeHistory(applied);
     setSelectedEdgeId(undefined);
-    setSelectedId((current) => current && graphNodes.some((node) => node.id === current) ? current : undefined);
   }
 
   function updateHistoryControls(): void {
@@ -513,12 +415,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     if (workspaceView === "code") return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      const undo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
-      const redo = (event.metaKey || event.ctrlKey) && ((event.shiftKey && key === "z") || (!event.metaKey && key === "y"));
-      if (event.altKey || (!undo && !redo) || isTextEntry(event.target)) return;
+      const step = undoShortcut(event);
+      if (!step || isTextEntry(event.target)) return;
       event.preventDefault();
-      void (redo ? redoEditorChange() : undoEditorChange())?.catch(() => {});
+      void (step === "redo" ? redoEditorChange() : undoEditorChange())?.catch(() => {});
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -589,7 +489,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Selects a connection, as clicking its line does. */
   function selectEdge(edgeId: string): void {
     setCanvasContextMenu(undefined);
-    setSelectedId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
     setSelectedEdgeId(edgeId);
   }
@@ -698,7 +597,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
-    setSelectedId(nodeId);
     setOpenedNodeId(nodeId);
   }
 
@@ -726,24 +624,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
     setNodes((current) => current.filter((node) => !removed.has(node.id)));
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
-    setSelectedId((current) => current && removed.has(current) ? undefined : current);
     setSelectedEdgeId(undefined);
   }
 
-  function openCanvasContextMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
-    event.preventDefault();
-    const flowPosition = reactFlow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    if (!flowPosition) return;
-    setCanvasContextMenu({
-      kind,
-      nodeId,
-      screenPosition: { x: event.clientX, y: event.clientY },
-      flowPosition: snapCanvasPosition(flowPosition),
-    });
-  }
-
   function clearSelection(): void {
-    setSelectedId(undefined);
     setSelectedEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
@@ -760,13 +644,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       await save(codebase);
       pushUndoSnapshot(codebase);
       redoHistory.current = [];
-      const added = await addPlayableNode(projectId, {
+      await addPlayableNode(projectId, {
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
         position: snapCanvasPosition(position),
       });
       applyCodebase(await getNodeCodebase(projectId), { fromDisk: true });
-      setSelectedId(added.id);
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
@@ -813,7 +696,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       });
       setNodes(nextNodes);
       observeHistory(next);
-      setSelectedId(id);
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
@@ -982,71 +864,41 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas" ref={canvas}>
+        <div className="interactive-drama-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
-              <ReactFlow<PlayableFlowNode>
-                className={`story-canvas story-canvas-${interactionMode}`}
+              <EditorCanvas<PlayableFlowNode>
                 nodes={renderedNodes}
                 edges={renderedEdges}
                 nodeTypes={PLAYABLE_NODE_TYPES}
-                onInit={(instance) => { reactFlow.current = instance; }}
-                defaultEdgeOptions={PLAYABLE_EDGE_OPTIONS}
-                connectionLineStyle={PLAYABLE_EDGE_OPTIONS.style}
-                minZoom={MIN_ZOOM}
-                maxZoom={MAX_ZOOM}
-                snapToGrid
-                snapGrid={SNAP_GRID}
-                nodesDraggable={interactionMode === "pointer"}
-                elementsSelectable={interactionMode === "pointer"}
-                selectionOnDrag={interactionMode === "pointer"}
-                panOnDrag={interactionMode === "pan" ? true : [1, 2]}
-                panOnScroll
-                zoomOnScroll={false}
-                zoomOnPinch
-                zoomOnDoubleClick={false}
+                addControl={<PlayableAddControl
+                  presets={presets}
+                  busy={writing}
+                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
+                />}
+                onOpenMenu={setCanvasContextMenu}
                 deleteKeyCode={openedNode ? null : ["Backspace", "Delete"]}
                 onNodesChange={onNodesChange}
-                onNodeDragStart={() => { setCanvasContextMenu(undefined); setAlignmentGuides(undefined); beginHistoryGesture(); }}
-                onNodeDrag={(_event, node) => {
-                  const [active, ...candidates] = alignmentNodesFromDom([node, ...renderedNodes]);
-                  setAlignmentGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
-                }}
-                onNodeDragStop={() => { setAlignmentGuides(undefined); finishHistoryGesture(); }}
+                onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
+                onNodeDragStop={finishHistoryGesture}
                 onMoveStart={() => setCanvasContextMenu(undefined)}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
-                onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedId(undefined); }}
-                onNodeClick={(_event, node) => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); setSelectedId(node.id); }}
+                onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)}
+                onNodeClick={() => { setCanvasContextMenu(undefined); setSelectedEdgeId(undefined); }}
                 onNodeDoubleClick={(_event, node) => openNode(node.id)}
                 onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
-                onPaneContextMenu={(event) => openCanvasContextMenu(event, "pane")}
-                onNodeContextMenu={(event, node) => {
+                onNodeContextMenu={(_event, node) => {
                   setSelectedEdgeId(undefined);
-                  setSelectedId(node.id);
                   setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
-                  openCanvasContextMenu(event, "node", node.id);
                 }}
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
                 isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
-                proOptions={{ hideAttribution: true }}
                 defaultViewport={editorLayout.viewport}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
-                <PlayableAlignmentGuides guides={alignmentGuides} />
-                <ZoomControls />
-                <PlayableCanvasToolbar
-                  mode={interactionMode}
-                  canvas={canvas}
-                  presets={presets}
-                  busy={writing}
-                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
-                  onModeChange={setInteractionMode}
-                />
-              </ReactFlow>
+              />
             </PlayableCanvasContext.Provider>
           ) : null}
           {selectedEdge && phase === "ready" && codebase ? <PlayableEdgeInspector
@@ -1126,588 +978,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   );
 }
 
-function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
-  const canvas = useContext(PlayableCanvasContext);
-  const { node, entry, issues, connected, failed, thumbnail, coverAsset } = data;
-  return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
-    <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-    <div className="story-media-node-label story-scene-node-label">
-      <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
-      <div className="playable-node-badges">
-        {entry ? <span className="playable-node-badge is-entry" title="The player starts here"><Flag size={11} /><span>Start</span></span> : null}
-      </div>
-    </div>
-    <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
-      <PlayableNodePicture projectId={canvas?.projectId} technical={Boolean(canvas?.technical)} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
-      {thumbnail?.stale && !failed ? <span className="playable-node-stale" title="The Scene changed since this picture was taken.">Stale</span> : null}
-      {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
-    </div>
-    <PlayableSignalOutputs signals={node.signals} connected={connected} technical={Boolean(canvas?.technical)} onSelectEdge={canvas?.onSelectEdge} />
-  </div>;
-}
-
-/**
- * What a Node card shows: the Node's last thumbnail, else its first image
- * Asset, else a neutral card with its title.
- */
-function PlayableNodePicture({ projectId, technical, node, thumbnail, coverAsset }: {
-  projectId?: string;
-  technical: boolean;
-  node: PlayableNode;
-  thumbnail?: { capturedAt: string };
-  coverAsset?: PlayableAssetDefinition;
-}) {
-  const captured = usePlayableThumbnailUrl(thumbnail ? projectId : undefined, node.id, thumbnail?.capturedAt);
-  const source = coverAsset?.source;
-  const cover = useWorkspaceAssetUrl(
-    !captured && source?.kind === "workspace" ? projectId : undefined,
-    source?.kind === "workspace" ? source.path : "",
-    0,
-    !captured && source?.kind === "library" ? source.assetId : undefined,
-  );
-  const url = captured ?? cover.url;
-  if (url) return <img className={`playable-node-picture${captured ? "" : " is-asset"}`} src={url} alt="" draggable={false} />;
-  return <div className="playable-node-summary">
-    <strong>{node.title}</strong>
-    {technical ? <small>{node.id}</small> : null}
-  </div>;
-}
-
-/** Keeps showing the previous screenshot until a newer one has loaded. */
-function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, capturedAt: string | undefined): string | undefined {
-  const [url, setUrl] = useState<string>();
-  const current = useRef<string | undefined>(undefined);
-  const show = useCallback((next: string | undefined) => {
-    if (current.current) URL.revokeObjectURL(current.current);
-    current.current = next;
-    setUrl(next);
-  }, []);
-  useEffect(() => () => { if (current.current) URL.revokeObjectURL(current.current); }, []);
-  useEffect(() => {
-    if (!projectId || !capturedAt) {
-      show(undefined);
-      return;
-    }
-    let disposed = false;
-    void getPlayableThumbnail(projectId, nodeId).then((blob) => {
-      if (!disposed) show(blob ? URL.createObjectURL(blob) : undefined);
-    }).catch(() => {});
-    return () => { disposed = true; };
-  }, [projectId, nodeId, capturedAt, show]);
-  return url;
-}
-
-/**
- * A Scene card's Exits, each with the port its connection leaves from and,
- * when the Agent wrote one, the condition it is taken on. A navigation Exit's
- * line is not drawn; the row names its target instead, and clicking the name
- * selects the connection.
- */
-function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: {
-  signals: readonly PlayableSignal[];
-  connected: PlayableFlowData["connected"];
-  technical: boolean;
-  onSelectEdge?: (edgeId: string) => void;
-}) {
-  if (!signals.length) return <div className="story-node-outputs playable-node-outputs-empty"><span>No exits yet</span></div>;
-  return <div className="story-node-outputs">{signals.map((signal) => {
-    const route = connected[signal.id];
-    const name = signal.label || signal.id;
-    return <div className={`story-node-output${route ? "" : " is-unconnected"}`} key={signal.id}>
-      <span className="story-node-output-label" title={route
-        ? technical ? `${signal.label} (${signal.id})` : signal.label
-        : `"${name}" doesn't go anywhere yet. Drag from here to a Scene.`}>{name}</span>
-      {signal.when ? <span className="playable-node-output-when" title={`Taken ${signal.when}`}>{signal.when}</span> : null}
-      <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />
-      {route && signal.role === "navigation" ? <button
-        type="button"
-        className={`playable-node-output-target nodrag nopan${route.selected ? " is-selected" : ""}`}
-        title={`"${name}" goes to ${route.target}`}
-        onClick={(event) => {
-          // The row is inside the card, so the click would also select the Scene.
-          event.stopPropagation();
-          onSelectEdge?.(route.edgeId);
-        }}
-      ><ArrowRight size={10} /><span>{route.target}</span></button> : null}
-    </div>;
-  })}</div>;
-}
-
-function InlinePlayableTitle({ nodeId, value, onRename }: {
-  nodeId: string;
-  value: string;
-  onRename?: (nodeId: string, title: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const input = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!editing) return;
-    input.current?.focus();
-    input.current?.select();
-  }, [editing]);
-
-  useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [editing, value]);
-
-  if (!editing || !onRename) return <strong onDoubleClick={(event) => {
-    if (!onRename) return;
-    event.stopPropagation();
-    setDraft(value);
-    setEditing(true);
-  }}>{value}</strong>;
-
-  const commit = () => {
-    const next = draft.trim();
-    if (next) onRename(nodeId, next);
-    setEditing(false);
-  };
-  return <input
-    ref={input}
-    className="story-node-title-input"
-    value={draft}
-    maxLength={120}
-    aria-label="Scene title"
-    onChange={(event) => setDraft(event.target.value)}
-    onBlur={commit}
-    onPointerDown={(event) => event.stopPropagation()}
-    onClick={(event) => event.stopPropagation()}
-    onDoubleClick={(event) => event.stopPropagation()}
-    onKeyDown={(event) => {
-      event.stopPropagation();
-      if (event.key === "Enter") commit();
-      if (event.key === "Escape") { setDraft(value); setEditing(false); }
-    }}
-  />;
-}
-
-/**
- * An Exit's connection carries one decision: whether the player can come back
- * (the engine's `push`) or the next Scene takes over (`replace`). It also
- * shows whether the Exit is navigation, whose line the canvas does not draw.
- */
-function PlayableEdgeInspector({ edge, graph, onChangeMode, onChangeNavigation, onDelete, onClose }: {
-  edge: Edge;
-  graph: NodeGraph;
-  onChangeMode: (mode: PlayableNavigationMode) => void;
-  onChangeNavigation: (navigation: boolean) => void;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  const titleOf = (nodeId: string) => graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
-  const signal = playableNodeById(graph, edge.source)?.signals.find((candidate) => candidate.id === edge.sourceHandle);
-  const mode: PlayableNavigationMode = edge.data?.mode === "push" ? "push" : "replace";
-  return <aside className="playable-edge-inspector" aria-label="Exit">
-    <header>
-      <div>
-        <strong>{signal?.label || edge.sourceHandle}</strong>
-        <small>{titleOf(edge.source)} → {titleOf(edge.target)}</small>
-      </div>
-      <button type="button" aria-label="Close" onClick={onClose}><X size={14} /></button>
-    </header>
-    <label className="playable-edge-back">
-      <input type="checkbox" checked={mode === "push"} onChange={(event) => onChangeMode(event.target.checked ? "push" : "replace")} />
-      <span><strong>Allow Back</strong><small>The player can return to {titleOf(edge.source)} from {titleOf(edge.target)}.</small></span>
-    </label>
-    <label className="playable-edge-back">
-      <input type="checkbox" checked={signal?.role === "navigation"} onChange={(event) => onChangeNavigation(event.target.checked)} />
-      <span><strong>Navigation</strong><small>A way around the game, like Home. The canvas names {titleOf(edge.target)} on the Exit instead of drawing a line.</small></span>
-    </label>
-    <button className="playable-edge-delete" type="button" onClick={onDelete}><Trash2 size={13} /><span>Remove connection</span></button>
-  </aside>;
-}
-
-/**
- * Project-wide things that are not on the canvas: screen size, the Variables, Export, and whether engine details show.
- */
-function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, technical, variablesOpen, onScreenSize, onVariables, onExport, onTechnicalChange }: {
-  disabled: boolean;
-  screenSize: string;
-  variablesOpen: boolean;
-  onVariables: () => void;
-  exporting: boolean;
-  canExport: boolean;
-  technical: boolean;
-  onScreenSize: () => void;
-  onExport: () => void;
-  onTechnicalChange: (on: boolean) => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number }>();
-
-  useLayoutEffect(() => {
-    if (position) menu.current?.focus();
-  }, [position]);
-
-  useEffect(() => {
-    if (!position) return;
-    const close = () => setPosition(undefined);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as globalThis.Node;
-      if (!menu.current?.contains(target) && !button.current?.contains(target)) close();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", close);
-    };
-  }, [position]);
-
-  const run = (action: () => void) => { setPosition(undefined); action(); };
-
-  return <>
-    <button
-      ref={button}
-      type="button"
-      className={position || variablesOpen ? "is-active" : undefined}
-      title="Project settings"
-      aria-haspopup="menu"
-      aria-expanded={Boolean(position)}
-      disabled={disabled}
-      onClick={() => {
-        if (position) return setPosition(undefined);
-        const bounds = button.current?.getBoundingClientRect();
-        if (bounds) setPosition({ top: bounds.bottom + 4, left: bounds.left });
-      }}
-    ><Settings size={14} /><span>Project</span><ChevronDown size={12} /></button>
-    {position ? createPortal(<div
-      ref={menu}
-      className="story-canvas-context-menu playable-project-menu"
-      role="menu"
-      aria-label="Project"
-      tabIndex={-1}
-      style={{ top: position.top, left: position.left }}
-    >
-      <button type="button" role="menuitem" onClick={() => run(onScreenSize)}><Monitor size={15} /><span>Screen size</span><small>{screenSize}</small></button>
-      <button type="button" role="menuitemcheckbox" aria-checked={variablesOpen} title="What the game remembers between Scenes" onClick={() => run(onVariables)}><Box size={15} /><span>Variables</span></button>
-      <div className="playable-project-menu-separator" role="separator" />
-      <button type="button" role="menuitem" disabled={!canExport} onClick={() => run(onExport)}>
-        {exporting ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}<span>{exporting ? "Exporting" : "Export"}</span>
-      </button>
-      <div className="playable-project-menu-separator" role="separator" />
-      <button type="button" role="menuitemcheckbox" aria-checked={technical} title="Show IDs, file paths, types, and the Code view" onClick={() => onTechnicalChange(!technical)}>
-        <Code2 size={15} /><span>Show technical details</span><small>{technical ? "✓" : ""}</small>
-      </button>
-    </div>, document.body) : null}
-  </>;
-}
-
-function PlayableCanvasToolbar({ mode, canvas, presets, busy, onAdd, onModeChange }: {
-  mode: InteractionMode;
-  canvas: React.RefObject<HTMLDivElement | null>;
-  presets: readonly PlayablePresetSummary[];
-  busy: boolean;
-  onAdd: (presetId: string, position: { x: number; y: number }) => void;
-  onModeChange: (mode: InteractionMode) => void;
-}) {
-  const [addOpen, setAddOpen] = useState(false);
-  const { fitView, getNodes, screenToFlowPosition, setViewport } = useReactFlow();
-  const closeAdd = useCallback(() => setAddOpen(false), []);
-
-  async function fitCanvas(): Promise<void> {
-    if (getNodes().length === 0) {
-      await setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
-      return;
-    }
-    await fitView({ padding: 0.2, duration: 200 });
-  }
-
-  function placementPosition(): { x: number; y: number } | undefined {
-    const bounds = canvas.current?.getBoundingClientRect();
-    if (!bounds) return undefined;
-    return screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 });
-  }
-
-  return (
-    <Panel className="story-canvas-toolbar" position="bottom-center">
-      <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
-        {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
-      </button>
-      {addOpen ? createPortal(<PlayableTemplateDialog
-        presets={presets}
-        busy={busy}
-        onClose={closeAdd}
-        onChoose={(presetId) => {
-          const position = placementPosition();
-          if (position) onAdd(presetId, position);
-          setAddOpen(false);
-        }}
-      />, document.body) : null}
-      <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => onModeChange("pointer")}>
-        <MousePointer2 size={18} />
-      </button>
-      <button className={mode === "pan" ? "is-active" : undefined} type="button" title="Pan canvas" aria-label="Pan canvas" aria-pressed={mode === "pan"} onClick={() => onModeChange("pan")}>
-        <Hand size={18} />
-      </button>
-      <button type="button" title="Fit view" aria-label="Fit view" onClick={() => void fitCanvas()}><Maximize size={18} /></button>
-    </Panel>
-  );
-}
-
-function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
-  menu: CanvasContextMenuState;
-  presets: readonly PlayablePresetSummary[];
-  canUndo: boolean;
-  canRedo: boolean;
-  canPaste: boolean;
-  busy: boolean;
-  isEntry: boolean;
-  onClose: () => void;
-  onUndo: () => unknown;
-  onRedo: () => unknown;
-  onPaste: () => void;
-  onAdd: (presetId: string) => void;
-  onOpen: () => void;
-  onCopy: () => void;
-  onDuplicate: () => void;
-  onSetEntry: () => void;
-  onDelete: () => void;
-}) {
-  const root = useRef<HTMLDivElement>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [position, setPosition] = useState(menu.screenPosition);
-  const opensLeft = menu.screenPosition.x > window.innerWidth - 600;
-  const opensUp = menu.screenPosition.y > window.innerHeight / 2;
-
-  useLayoutEffect(() => {
-    const bounds = root.current?.getBoundingClientRect();
-    if (!bounds) return;
-    setPosition({
-      x: Math.max(6, Math.min(menu.screenPosition.x, window.innerWidth - bounds.width - 6)),
-      y: Math.max(6, Math.min(menu.screenPosition.y, window.innerHeight - bounds.height - 6)),
-    });
-    root.current?.focus();
-  }, [menu.screenPosition.x, menu.screenPosition.y]);
-
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as globalThis.Node)) onClose();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose]);
-
-  const run = (action: () => unknown) => { action(); onClose(); };
-
-  return createPortal(
-    <div
-      ref={root}
-      className={`story-canvas-context-menu${opensLeft ? " opens-left" : ""}${opensUp ? " opens-up" : ""}`}
-      role="menu"
-      aria-label={menu.kind === "pane" ? "Canvas actions" : "Scene actions"}
-      tabIndex={-1}
-      style={{ left: position.x, top: position.y }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      {menu.kind === "pane" ? <>
-        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>Undo</span></button>
-        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
-        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>Paste</span></button>
-        <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add Scene</span></button>
-          {addOpen ? <div className="story-canvas-context-add-menu">
-            <div className="story-canvas-context-submenu" role="menu" aria-label="Add Scene">
-              {presets.map((preset) => <button
-                type="button"
-                role="menuitem"
-                key={preset.id}
-                disabled={busy}
-                title={preset.summary}
-                onClick={() => run(() => onAdd(preset.id))}
-              ><Clapperboard size={15} /><span>{preset.label}</span></button>)}
-            </div>
-          </div> : null}
-        </div>
-      </> : <>
-        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>Open</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy Scene</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
-        <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Start Scene" : "Set as Start"}</span></button>
-        <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
-      </>}
-    </div>,
-    document.body,
-  );
-}
-
-function PlayableAlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
-  const { zoom } = useViewport();
-  if (!guides) return null;
-  const lineWidth = 1 / zoom;
-  return <ViewportPortal>
-    {guides.vertical.map((guide) => <div
-      key={`vertical:${guide.x}`}
-      className="story-canvas-alignment-guide is-vertical"
-      data-axis="vertical"
-      style={{ left: guide.x - lineWidth / 2, top: guide.from, width: lineWidth, height: guide.to - guide.from }}
-    />)}
-    {guides.horizontal.map((guide) => <div
-      key={`horizontal:${guide.y}`}
-      className="story-canvas-alignment-guide is-horizontal"
-      data-axis="horizontal"
-      style={{ left: guide.from, top: guide.y - lineWidth / 2, width: guide.to - guide.from, height: lineWidth }}
-    />)}
-  </ViewportPortal>;
-}
-
-function alignmentNodesFromDom<T extends { id: string; position: { x: number; y: number } }>(nodes: readonly T[]): CanvasAlignmentNode[] {
-  const zoom = canvasViewportZoom();
-  const roots = new Map([...document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")]
-    .map((element) => [element.dataset.id!, element] as const));
-  return nodes.map((node) => {
-    const root = roots.get(node.id);
-    const frame = root?.querySelector<HTMLElement>("[data-alignment-frame]");
-    if (!root || !frame) return node;
-    const rootRect = root.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    return {
-      ...node,
-      alignmentFrame: {
-        x: node.position.x + (frameRect.left - rootRect.left) / zoom,
-        y: node.position.y + (frameRect.top - rootRect.top) / zoom,
-        width: frameRect.width / zoom,
-        height: frameRect.height / zoom,
-      },
-    };
-  });
-}
-
-function canvasViewportZoom(): number {
-  const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
-  const transform = viewport ? getComputedStyle(viewport).transform : "none";
-  if (transform === "none") return 1;
-  try {
-    const zoom = new DOMMatrixReadOnly(transform).a;
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function ZoomControls() {
-  const { zoomIn, zoomOut, zoomTo } = useReactFlow();
-  const { zoom } = useViewport();
-  return (
-    <Panel className="story-canvas-zoom" position="bottom-left">
-      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title="Reset zoom" onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </Panel>
-  );
-}
-
-/** The single place the editor turns canvas state back into files on disk. */
-export function buildCodebase(
-  meta: GraphMeta,
-  nodes: readonly PlayableFlowNode[],
-  edges: readonly Edge[],
-  layout: NodeEditorLayout,
-  view: "canvas" | "code",
-): NodeCodebase {
-  return {
-    graph: {
-      ...meta,
-      nodes: nodes.map((node) => node.data.node),
-      edges: edges.flatMap((edge) => toPlayableEdge(edge) ?? []),
-    },
-    editorLayout: {
-      ...layout,
-      view,
-      nodes: Object.fromEntries(nodes.map((node) => [node.id, {
-        x: Math.round(node.position.x),
-        y: Math.round(node.position.y),
-      }])),
-    },
-  };
-}
-
-function toFlowNode(node: PlayableNode, layout: NodeEditorLayout): PlayableFlowNode {
-  return createFlowNode(node, layout.nodes[node.id] ?? { x: 80, y: 180 });
-}
-
-function createFlowNode(node: PlayableNode, position: { x: number; y: number }): PlayableFlowNode {
-  return {
-    id: node.id,
-    type: "playable",
-    position,
-    deletable: true,
-    data: { node, entry: false, issues: [], connected: {}, failed: false },
-  };
-}
-
-export function toFlowEdge(edge: PlayableEdge): Edge {
-  return {
-    id: edge.id,
-    source: edge.source.nodeId,
-    sourceHandle: edge.source.signal,
-    target: edge.targetNodeId,
-    data: { mode: edge.mode },
-    ...(edge.mode === "push" ? { label: "↩ Back", className: "playable-edge-push" } : {}),
-  };
-}
-
-export function toPlayableEdge(edge: Edge): PlayableEdge | undefined {
-  if (!edge.sourceHandle) return undefined;
-  return {
-    id: edge.id,
-    source: { nodeId: edge.source, signal: edge.sourceHandle },
-    targetNodeId: edge.target,
-    mode: edge.data?.mode === "push" ? "push" : "replace",
-  };
-}
-
-function nodeSourcePaths(id: string): NodeSource {
-  return {
-    html: `nodes/${id}/index.html`,
-    css: `nodes/${id}/style.css`,
-    javascript: `nodes/${id}/node.js`,
-  };
-}
-
-export function uniqueNodeId(base: string, taken: ReadonlySet<string>): string {
-  const slug = base.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "") || "node";
-  if (!taken.has(slug)) return slug;
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${slug}-${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
-
 async function readNodeSources(projectId: string, node: PlayableNode): Promise<Record<string, string>> {
   const paths = [node.source.html, node.source.css, node.source.javascript];
   const files = await Promise.all(paths.map((path) => getWorkspaceFile(projectId, path)));
   return Object.fromEntries(paths.map((path, index) => [path, files[index]?.content ?? ""]));
 }
 
-/** Compiler issues carry a file path; the owning Node is the one that wrote it. */
-export function nodeIdForIssuePath(path: string, nodes: readonly PlayableFlowNode[]): string | undefined {
-  return nodes.find((node) => path === node.data.node.source.html
-    || path === node.data.node.source.css
-    || path === node.data.node.source.javascript
-    || path.startsWith(`nodes/${node.id}/`))?.id;
-}
-
-function isTextEntry(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.isContentEditable || target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-
