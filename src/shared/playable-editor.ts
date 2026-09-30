@@ -4,7 +4,6 @@ import type {
   PlayableAssetDefinition,
   PlayableAssetType,
   JsonValue,
-  PlayableNavigationMode,
 } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
 
@@ -125,31 +124,6 @@ export function playableEdgeId(edges: readonly { id: string }[], nodeId: string,
   let id = base;
   for (let index = 2; taken.has(id); index += 1) id = `${base}-${index}`;
   return id;
-}
-
-/**
- * One Signal leads to one Node; `undefined` disconnects the Signal. `mode`
- * defaults to the Signal's current mode, else `replace`.
- */
-export function setPlayableSignalTarget(
-  graph: NodeGraph,
-  nodeId: string,
-  signalId: string,
-  targetNodeId: string | undefined,
-  mode?: PlayableNavigationMode,
-): NodeGraph {
-  const next = structuredClone(graph);
-  const current = next.edges.find((edge) => edge.source.nodeId === nodeId && edge.source.signal === signalId);
-  next.edges = next.edges.filter((edge) => edge !== current);
-  if (targetNodeId && next.nodes.some((node) => node.id === targetNodeId)) {
-    next.edges.push({
-      id: current?.id ?? playableEdgeId(next.edges, nodeId, signalId),
-      source: { nodeId, signal: signalId },
-      targetNodeId,
-      mode: mode ?? current?.mode ?? "replace",
-    });
-  }
-  return next;
 }
 
 export function playableAssetType(mediaType: string): PlayableAssetType | undefined {
