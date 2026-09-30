@@ -135,7 +135,7 @@ export async function capturePlayablePreview(
 ): Promise<PromptImage | undefined> {
   // The capture reads window pixels, so the tool bar and drawing layer over
   // the preview are hidden while it runs; the strokes are drawn on it instead.
-  const preview = frame.closest(".story-workbench-preview-frame");
+  const preview = frame.closest(".story-workbench-preview");
   preview?.classList.add("is-capturing");
   await nextPaint();
   const image = await captureElementImage(frame, ELEMENT_SCREENSHOT_WIDTH, (context, width, height) => {

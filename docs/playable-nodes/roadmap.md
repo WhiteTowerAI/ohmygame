@@ -63,7 +63,7 @@ desktop app with a Playable Nodes project.
 | Story issues banner                                                    | workspace                                                               | Adapt    | Validation issues and node markers                                       |
 | Playtest page, save and restore                                        | `playtest.tsx`, `story-progress.ts`                                     | Adapt    | Node Runtime, one save slot, debug drawer                                |
 | Open UI, Scene, Interaction, Choice, Ending workbenches and inspectors | `*Workbench`, `StoryInspector`, `ChoiceActionsEditor`, `ChoiceConditionRule` | Remove   | Presets plus conversation                                                |
-| Scene timeline and duration                                            | `SceneWorkbench`, `SceneTimerClock`                                     | Remove   | Scene Template with `playScene()`                                        |
+| Scene timeline and duration                                            | `SceneWorkbench`, `SceneTimerClock`                                     | Remove   | Blank Template with `playScene()`                                        |
 | Condition and Update State nodes                                       | `ConditionEditorPage`, `UpdateStateEditorPage`                          | Remove   | Node code reads State and emits Signals                                  |
 | Story Map and Settings system nodes                                    | `story-map.tsx`, `story-settings.tsx`                                   | Remove   | Ordinary nodes and shared components                                     |
 | Screen, scene, interaction surfaces                                    | `story-*-surface.tsx`, `public/*-surface.html`                          | Remove   | One sandbox surface                                                      |
@@ -111,7 +111,7 @@ Check: Asset Canvas projects generate, connect, and preview media as before.
    preview state, diagnostics snapshot with State access.
 8. `feat(runtime): add element picking and preview source locations`.
 9. `feat(playable): add project style and presets` — default Project Style
-   with `playScene()`, the seven Presets, and `playable_add_node` shared
+   with `playScene()`, the six Presets, and `playable_add_node` shared
    by editor and Agent.
 
 ### Phase 4: Editor on the new format (visible, behind a project format check)

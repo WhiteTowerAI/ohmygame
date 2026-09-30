@@ -7,11 +7,11 @@ import ending from "./assets/templates/ending.webp";
 import hotspot from "./assets/templates/hotspot.webp";
 import mainMenu from "./assets/templates/main-menu.webp";
 import qte from "./assets/templates/qte.webp";
-import scene from "./assets/templates/scene.webp";
 
 /**
- * Pictures of each Template with the default Project Style and example media.
- * The media is only in the picture; a new Scene starts from the plain source.
+ * Pictures of each Template as a new Scene looks: its starter source with the
+ * default Project Style and no background, titled with the Template's name.
+ * Recapture them from the canvas thumbnails when a Template's source changes.
  */
 const TEMPLATE_PICTURES: Record<string, string> = {
   blank,
@@ -20,7 +20,6 @@ const TEMPLATE_PICTURES: Record<string, string> = {
   hotspot,
   "main-menu": mainMenu,
   qte,
-  scene,
 };
 
 /** Add a Scene: a grid of Templates, each with a picture and one line. */

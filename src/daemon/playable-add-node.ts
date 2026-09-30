@@ -51,10 +51,11 @@ export async function addPlayableNode(
       `Invalid Node ID "${request.id}". Use letters, digits, dots, dashes, and underscores, starting with a letter or digit.`,
     );
   }
-  const title = (request.title ?? preset.label).trim().slice(0, MAX_TITLE_LENGTH);
+  const codebase = await readNodeCodebase(workspacePath);
+  // Nodes are named in order, not after their Preset: a Preset is only a starting point.
+  const title = (request.title ?? nextNodeTitle(codebase.graph.nodes)).trim().slice(0, MAX_TITLE_LENGTH);
   if (!title) throw new NodeCodebaseError("A Node title is required.");
 
-  const codebase = await readNodeCodebase(workspacePath);
   if (codebase.graph.nodes.some((node) => node.id === request.id)) {
     throw new NodeCodebaseError(`Node "${request.id}" already exists.`);
   }
@@ -63,7 +64,8 @@ export async function addPlayableNode(
     css: `nodes/${request.id}/style.css`,
     javascript: `nodes/${request.id}/node.js`,
   };
-  const starter = preset.source(title);
+  // Without a title the starter text keeps the Preset's own wording.
+  const starter = preset.source(request.title ? title : preset.label);
   const graph = {
     ...codebase.graph,
     nodes: [
@@ -101,6 +103,14 @@ export async function addPlayableNode(
     signals: preset.signals.map((signal) => signal.id),
     brief: preset.brief,
   };
+}
+
+/** The first free "Node N", counting from the Nodes already in the graph. */
+function nextNodeTitle(nodes: readonly { title: string }[]): string {
+  const taken = new Set(nodes.map((node) => node.title));
+  for (let number = nodes.length + 1; ; number += 1) {
+    if (!taken.has(`Node ${number}`)) return `Node ${number}`;
+  }
 }
 
 /** Places the Node on the next grid slot that no Node occupies. */

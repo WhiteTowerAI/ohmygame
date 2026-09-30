@@ -12,6 +12,7 @@ import {
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
 import type { NodeGraph, PlayableSignal } from "../shared/playable-nodes.js";
+import { blankSource } from "./playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
@@ -42,7 +43,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - A Node's background is one \`<div class="backdrop" data-media="backdrop" data-asset="ID" data-type="video|image">\` inside a \`.has-backdrop\` container. The author sets \`data-asset\` and \`data-type\` from the editor, so keep exactly one such element in the Node's HTML and never replace it; to change the background, change those two attributes. \`showBackdrop(context)\` from \`shared/style/components.js\` shows it: a video plays once with sound and stops on its last frame, an image stays still. It returns \`{ video, cleanup }\`.
-- \`playScene(context, { signal, skipLabel })\` from the same file shows the background, offers Skip or Continue, and emits the Signal when the video ends or the player moves on. Scene behaviour is Node content, so change it freely.
+- \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends or the player clicks. The Blank Template uses it; change or replace it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
@@ -276,7 +277,7 @@ function blankCodebase(
       entryNodeId: "start",
       initialState: {},
       assets: {},
-      nodes: [node("start", "Start", [])],
+      nodes: [node("start", "Node 1", [{ id: "next", label: "Next" }])],
       edges: [],
     },
     editorLayout: layout({ start: { x: 120, y: 180 } }),
@@ -375,9 +376,11 @@ function layout(
 function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };
   for (const item of graph.nodes) {
-    sources[item.source.html] = nodeHtml(item.id, item.title);
-    sources[item.source.css] = nodeCss(item.id);
-    sources[item.source.javascript] = nodeJavascript(item.id);
+    // A new project starts from the Blank Template; the sample has its own source.
+    const blank = item.id === "start" ? blankSource() : undefined;
+    sources[item.source.html] = blank?.html ?? nodeHtml(item.id, item.title);
+    sources[item.source.css] = blank?.css ?? nodeCss(item.id);
+    sources[item.source.javascript] = blank?.javascript ?? nodeJavascript(item.id);
   }
   if (graph.nodes.some((item) => item.id === "carriage")) {
     sources[HOME_BUTTON_CSS_FILE] = HOME_BUTTON_CSS;
@@ -397,7 +400,7 @@ function nodeHtml(id: string, title: string): string {
   if (id === "home") {
     return `<main><p class="eyebrow">Dawn</p><h1>${escapedTitle}</h1><p>You step onto a familiar platform.</p></main>\n`;
   }
-  return `<main><h1>${escapedTitle}</h1><p>Edit this Node's source to create the experience.</p></main>\n`;
+  return `<main><h1>${escapedTitle}</h1></main>\n`;
 }
 
 function escapeHtml(value: string): string {

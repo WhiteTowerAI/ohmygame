@@ -697,12 +697,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
 
-  function openFile(path: string): void {
-    setOpenedNodeId(undefined);
-    setFileRequest({ path, id: Date.now() });
-    setWorkspaceView("code");
-  }
-
   /**
    * Creates a Node through the same endpoint the Agent uses, so a Node added
    * here and a Node added in chat are identical, then reloads the written files.
@@ -1049,7 +1043,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         revision={workspaceRevision + codeRevision}
         onClose={() => setOpenedNodeId(undefined)}
         onOpenNode={openNode}
-        onOpenSource={() => openFile(openedNode.source.html)}
         onRename={(title) => renameNode(openedNode.id, title)}
         onSignalTarget={signalEdits.onSignalTarget}
         {...(onAskAgent ? { onAskAgent } : {})}
@@ -1087,8 +1080,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
   return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
-      <Clapperboard size={14} />
-      <span><b>Scene</b><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
+      <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
       <div className="playable-node-badges">
         {entry ? <span className="playable-node-badge is-entry" title="The player starts here"><Flag size={11} /><span>Start</span></span> : null}
       </div>

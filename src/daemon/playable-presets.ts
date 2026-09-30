@@ -10,7 +10,6 @@ import type { PlayableSignal } from "../shared/playable-nodes.js";
 export const PLAYABLE_PRESET_IDS = [
   "blank",
   "main-menu",
-  "scene",
   "choice",
   "qte",
   "hotspot",
@@ -45,15 +44,11 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "blank",
     label: "Blank",
-    summary: "Start from an empty screen",
+    summary: "A video or an image, then next",
     brief:
-      "An empty full-screen stage using the Project Style. Describe the screen you want and build it here; add Signals for each outcome the player can reach.",
-    signals: [],
-    source: (title) => ({
-      html: `<main class="stage">\n  <h1 class="title">${escapeHtml(title)}</h1>\n  <p class="body">Describe this screen in chat to build it.</p>\n</main>\n`,
-      css: STYLE_IMPORT,
-      javascript: "export function mount() {}\n",
-    }),
+      "A full-screen background that emits `next` when its video ends or the player clicks. The author sets the background from the editor. Build the screen over the background, and rename `next` or add Signals for each outcome the player can reach.",
+    signals: [signal("next", "Next")],
+    source: blankSource,
   },
   {
     id: "main-menu",
@@ -94,26 +89,6 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         '    start.removeEventListener("click", begin);',
         '    resume.removeEventListener("click", restore);',
         "  };",
-        "}",
-        "",
-      ].join("\n"),
-    }),
-  },
-  {
-    id: "scene",
-    label: "Scene",
-    summary: "A full-screen video or image",
-    brief:
-      "A full-screen background video or image that emits `next` when the video ends, is skipped, or the player continues past an image. The author sets the background from the editor. For a different ending behaviour, replace the playScene call with your own code.",
-    signals: [signal("next", "Next")],
-    source: () => ({
-      html: '<main class="scene has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n</main>\n',
-      css: STYLE_IMPORT,
-      javascript: [
-        'import { playScene } from "../../shared/style/components.js";',
-        "",
-        "export function mount(context) {",
-        '  return playScene(context, { signal: "next" });',
         "}",
         "",
       ].join("\n"),
@@ -290,7 +265,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     signals: [],
     source: (title) => ({
       html: [
-        '<main class="stage">',
+        '<main class="stage has-backdrop">',
+        '  <div class="backdrop" data-media="backdrop"></div>',
         '  <p class="eyebrow">Ending</p>',
         `  <h1 class="title">${escapeHtml(title)}</h1>`,
         '  <p class="body">Write the closing lines of this ending here.</p>',
@@ -302,17 +278,42 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
       ].join("\n"),
       css: STYLE_IMPORT,
       javascript: [
+        'import { showBackdrop } from "../../shared/style/components.js";',
+        "",
         "export function mount(context) {",
+        "  const backdrop = showBackdrop(context);",
         '  const again = context.root.querySelector("[data-restart]");',
         "  const restart = () => context.session.restart();",
         '  again.addEventListener("click", restart);',
-        '  return () => again.removeEventListener("click", restart);',
+        "  return () => {",
+        '    again.removeEventListener("click", restart);',
+        "    backdrop.cleanup();",
+        "  };",
         "}",
         "",
       ].join("\n"),
     }),
   },
 ];
+
+/**
+ * Blank: a background that emits `next` when its video ends or the player
+ * clicks. New projects start with it too.
+ */
+export function blankSource(): { html: string; css: string; javascript: string } {
+  return {
+    html: '<main class="scene has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n</main>\n',
+    css: STYLE_IMPORT,
+    javascript: [
+      'import { playScene } from "../../shared/style/components.js";',
+      "",
+      "export function mount(context) {",
+      '  return playScene(context, { signal: "next" });',
+      "}",
+      "",
+    ].join("\n"),
+  };
+}
 
 function escapeHtml(value: string): string {
   return value.replace(

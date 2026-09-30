@@ -312,7 +312,7 @@ export function createAgentTools(
         { description: "Preset to start from" },
       ),
       id: Type.String({ minLength: 1, maxLength: 60, description: "Node ID, used as the directory name under nodes/" }),
-      title: Type.Optional(Type.String({ minLength: 1, maxLength: 120, description: "Node title; defaults to the Preset label" })),
+      title: Type.Optional(Type.String({ minLength: 1, maxLength: 120, description: "Node title; defaults to the next Node N" })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();

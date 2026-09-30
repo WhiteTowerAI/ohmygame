@@ -120,8 +120,7 @@ anything.
 Opening a Scene shows its Workbench: a live preview that fills the page, with
 a tool bar, short messages, and popovers floating over it. Every Scene gets
 the same Workbench. There is no inspector: the Agent changes the Scene, the author
-points at, edits, or draws on the preview to say what to change, and
-**Open code** is the way to read it.
+points at, edits, or draws on the preview to say what to change.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -221,9 +220,8 @@ possible later improvement, not a v1 requirement.
 
 ### Code, when it is really needed
 
-The Workbench overflow menu contains **Open code**, which opens the Scene's
-files in the **Code** tab. The Code tab appears only with technical details
-shown; it is not part of the Workbench and it is never the default view.
+The Workbench has no code. The Scene's files are in the **Code** tab, which
+appears only with technical details shown and is never the default view.
 
 ## Project Style
 
@@ -336,14 +334,14 @@ short:
    one Library asset, and Scenes use only the project Asset ID. **Replace**
    re-points that ID at a better Library asset, which updates every Scene that
    uses it without changing code.
-2. **Upload from the Workbench.** The preview toolbar's **Upload** menu
-   asks where an image or a video goes. **As background** declares it on
-   the Scene and shows it as the Scene's background at once, with Undo in
-   the toast; clicking an empty Scene's box does the same. **Add to chat**
-   declares it and adds it to the chat as an attachment, next to any picked
-   elements; the author says where it goes and sends. As background is
-   unavailable when the Scene has no single background element, for
-   example after the Agent removed it.
+2. **Media from the Workbench.** The preview toolbar's **Media** menu first
+   asks where an image or a video goes, then opens the Library, with
+   **Upload** for a new file. **As background** declares it on the Scene and
+   shows it as the Scene's background at once, with Undo in the toast.
+   **Add to chat** declares it and adds it to the chat as an attachment,
+   next to any picked elements; the author says where it goes and sends.
+   As background is unavailable when the Scene has no single background
+   element, for example after the Agent removed it.
 3. **Where used.** Asset Canvas can show which Scenes use an asset. This can
    come after v1.
 
@@ -357,7 +355,7 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | Workspace header, chat placement, breadcrumb          | Keep                                                                  |
 | Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
 | `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
-| Library asset picker and upload                       | Upload stays, behind the preview toolbar's Upload menu                |
+| Library asset picker and upload                       | Keep, behind the preview toolbar's Media menu                         |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
 | Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
@@ -372,18 +370,17 @@ The detailed inventory and PR order belong in `roadmap.md`.
 
 ### Templates
 
-v1 ships seven Templates (Presets). Each contains starter source that
+v1 ships six Templates (Presets). Each contains starter source that
 already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
-**Add a Scene** is a static image made with the default Project Style and
-example media; the media is only in the picture, not in the new Scene.
+**Add a Scene** is a capture of the Scene it creates: the starter source
+with the default Project Style and no background.
 
 | Template         | Starter content                                                  | Starter Signals        |
 | ---------------- | ---------------------------------------------------------------- | ---------------------- |
-| Blank            | An empty full-screen stage                                       | none                   |
+| Blank            | The background; a click or the video's end continues             | `next`                 |
 | Main menu        | Title, subtitle, a list of entries, over the background          | `start`                |
-| Scene            | Full-screen video or image with Skip or Continue                 | `next`                 |
 | Choice           | A line and options that can read State                           | `option-a`, `option-b` |
 | QTE              | A key or button to press before a timer runs out                 | `success`, `fail`      |
 | Hotspot          | A picture with clickable spots, one Signal per spot              | `door`, `window`       |
@@ -391,7 +388,7 @@ example media; the media is only in the picture, not in the new Scene.
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI
-became Main menu, the Continue interaction folded into Scene, and Start,
+became Main menu, Scene and the Continue interaction folded into Blank, and Start,
 Condition, and Update State are not Templates because the Start badge, Scene
 code, and Exit conditions cover them. Other screens, such as an archive or a
 small game, start from Blank plus a description.
@@ -455,8 +452,8 @@ the Published Player.
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playScene()` component that shows the
-Scene's background, offers Skip or Continue, and emits a given Signal when the
-video ends or the player moves on. The Scene Template uses it. Authors who want something
+Scene's background and emits a given Signal when the video ends or the
+player clicks. Blank uses it, and a new project starts from Blank. Authors who want something
 else (a choice over the last frame, a loop until input) change the Scene like
 any other.
 
@@ -465,8 +462,8 @@ most common interactive-film case needs no code.
 
 Every Scene has one background: a `.backdrop` element
 (`data-media="backdrop"`) whose `data-asset` and `data-type` say what it
-shows. The Scene Template is only a background with Skip or Continue; Main
-menu, Choice, QTE, and Hotspot put their content over it. Setting the
+shows. Blank is only the background; the other Templates put their content
+over it. Setting the
 background from the editor writes those two attributes in the Scene's HTML,
 the same way text edits are written. `showBackdrop()` plays it the same way
 everywhere: a video plays once with sound and stops on its last frame, an

@@ -6159,6 +6159,7 @@ button {
   overflow: hidden;
 }
 .story-workbench-preview {
+  position: relative;
   display: grid;
   width: 100%;
   height: 100%;
@@ -6179,11 +6180,6 @@ button {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
-}
-.story-workbench-preview > header span {
-  color: var(--text-faint);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
 }
 .story-workbench-preview-frame {
   position: relative;
@@ -8869,6 +8865,7 @@ button {
 }
 
 .story-video-picker > header h2 {
+  flex: 1;
   margin: 0;
   font-size: 14px;
   font-weight: 500;
@@ -8892,6 +8889,18 @@ button {
 .story-video-picker > header button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+.story-video-picker > header button.story-video-picker-upload {
+  display: inline-flex;
+  width: auto;
+  gap: 6px;
+  margin-right: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
 }
 
 .story-video-picker > label {
@@ -15120,32 +15129,12 @@ button {
 .playable-workbench-stage-state.is-error {
   color: var(--danger);
 }
-.story-node-editor-header .playable-workbench-more {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.story-node-editor-header .playable-workbench-more:hover,
-.story-node-editor-header .playable-workbench-more[aria-expanded="true"] {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.playable-workbench-menu {
-  min-width: 180px;
-}
 /* Preview tools: Play, Select, Text, Draw, and Media, floating over the preview. */
 .playable-preview-toolbar {
   position: absolute;
   z-index: 4;
-  bottom: 12px;
+  /* 12px above the preview frame, which ends 16px above the section. */
+  bottom: 28px;
   left: 50%;
   display: grid;
   justify-items: center;
@@ -15296,7 +15285,8 @@ button {
 .playable-preview-toasts {
   position: absolute;
   z-index: 5;
-  top: 10px;
+  /* 10px below the 42px preview header. */
+  top: 52px;
   left: 50%;
   display: grid;
   justify-items: center;
@@ -15390,29 +15380,7 @@ button {
   width: 100%;
 }
 
-/* Over an empty Scene's dashed box, which sits in the sandboxed frame: a click opens upload. */
-.playable-scene-empty-target {
-  position: absolute;
-  z-index: 2;
-  top: 22%;
-  left: 18%;
-  width: 64%;
-  height: 56%;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-}
-.playable-scene-empty-target:hover {
-  background: rgb(255 255 255 / 4%);
-}
-.playable-scene-empty-target:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.story-workbench-preview-frame.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer, .playable-preview-toasts, .playable-preview-popover, .playable-scene-empty-target) {
+.story-workbench-preview.is-capturing :is(.playable-preview-toolbar, .playable-drawing-layer, .playable-preview-toasts, .playable-preview-popover) {
   visibility: hidden;
 }
 .playable-drawing-layer {
@@ -15592,12 +15560,6 @@ button {
 .interactive-drama-project-tools > button:disabled {
   cursor: default;
   opacity: 0.5;
-}
-.playable-workbench-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
 }
 .playable-workbench-sample {
   cursor: default;

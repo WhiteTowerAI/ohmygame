@@ -52,13 +52,16 @@ describe("Playable codebase", () => {
     expect(Object.keys(codebase.editorLayout.nodes)).toEqual(["start"]);
     expect(await readJson(workspace, "schemas/graph.schema.json")).toEqual(PLAYABLE_GRAPH_SCHEMA);
     expect(await readJson(workspace, "schemas/editor-layout.schema.json")).toEqual(EDITOR_LAYOUT_SCHEMA);
+    // The first Node is the Blank Template: a background that continues to `next`.
     expect(await readFile(path.join(workspace, "nodes/start/index.html"), "utf8"))
-      .toContain("<h1>A &lt; B &amp; C</h1>");
+      .toContain('<div class="backdrop" data-media="backdrop"></div>');
+    expect(codebase.graph.nodes[0]!.signals).toEqual([{ id: "next", label: "Next" }]);
     expect(await readFile(path.join(workspace, "AGENTS.md"), "utf8"))
       .toContain("Every Node follows the same protocol");
     expect(await readFile(path.join(workspace, "README.md"), "utf8"))
       .toContain("context.navigation.emit(signalId)");
-    await expect(buildPlayableProject(workspace, "publish")).resolves.toBeDefined();
+    // Its `next` Exit goes nowhere yet, which a draft allows.
+    await expect(buildPlayableProject(workspace, "draft")).resolves.toBeDefined();
   });
 
   it("expresses the sample through ordinary Nodes, State, Signals, edges, and a shared component", async () => {
@@ -260,7 +263,7 @@ describe("Playable codebase", () => {
 
     expect(await readFile(path.join(workspace, "nodes/archive/index.html"), "utf8")).toBe("<main>Archive</main>\n");
     await expect(readNodeCodebase(workspace)).resolves.toEqual(codebase);
-    await expect(buildPlayableProject(workspace, "publish")).resolves.toBeDefined();
+    await expect(buildPlayableProject(workspace, "draft")).resolves.toBeDefined();
   });
 
   it("rejects undeclared source updates without changing the codebase", async () => {
@@ -358,7 +361,7 @@ describe("Playable codebase", () => {
       sourceDeletions: ["nodes/start/index.html"],
     })).rejects.toThrow("still declared by a Node");
     expect(await readFile(path.join(workspace, "nodes/start/index.html"), "utf8"))
-      .toContain("Edit this Node's source");
+      .toContain('data-media="backdrop"');
   });
 });
 

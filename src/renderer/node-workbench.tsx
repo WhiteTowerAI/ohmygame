@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, ChevronRight, Film, Image as ImageIcon, Music2, PanelToggle, Search, X } from "./icons.js";
+import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, PanelToggle, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { uploadLibraryAsset } from "./api.js";
@@ -161,19 +161,23 @@ export function WorkbenchPreview({ label = "Live Preview", ariaLabel, viewport, 
   }, [viewport.height, viewport.width]);
 
   return <section className="story-workbench-preview" aria-label={ariaLabel}>
-    <header><strong>{label}</strong>{actions ? <div className="story-workbench-preview-actions">{actions}</div> : null}<span>{viewport.width} x {viewport.height}</span></header>
+    <header><strong>{label}</strong>{actions ? <div className="story-workbench-preview-actions">{actions}</div> : null}</header>
     <div ref={frame} className="story-workbench-preview-frame">
       <div className={`story-workbench-preview-stage${stageClassName ? ` ${stageClassName}` : ""}`} style={stageSize}>
         {children}
       </div>
-      {overlay}
     </div>
+    {/* Outside the frame, which clips the scaled stage, so shadows and popovers are not cut off. */}
+    {overlay}
   </section>;
 }
 
-export function LibraryAssetPicker({ title, assets, onClose, onSelect }: {
+export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];
+  /** Offers Upload next to the Library, for a new file instead. */
+  onUpload?: () => void;
+  uploading?: boolean;
   onClose: () => void;
   onSelect: (asset: LibraryAsset) => void;
 }) {
@@ -197,7 +201,11 @@ export function LibraryAssetPicker({ title, assets, onClose, onSelect }: {
   return createPortal(
     <div className="story-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="story-video-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
-        <header><h2 id="story-video-picker-title">{title}</h2><button type="button" aria-label="Close Library picker" onClick={onClose}><X size={16} /></button></header>
+        <header>
+          <h2 id="story-video-picker-title">{title}</h2>
+          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>Upload</span></button> : null}
+          <button type="button" aria-label="Close Library picker" onClick={onClose}><X size={16} /></button>
+        </header>
         <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}

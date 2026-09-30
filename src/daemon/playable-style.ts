@@ -144,7 +144,7 @@ export const PLAYABLE_PROJECT_STYLE_FILES: Record<string, string> = {
   object-fit: cover;
 }
 
-/* A Scene: only its background, with Skip or Continue. */
+/* A Scene: only its background. */
 .scene {
   display: grid;
   width: 100%;
@@ -152,24 +152,6 @@ export const PLAYABLE_PROJECT_STYLE_FILES: Record<string, string> = {
   place-items: center;
 }
 
-.scene .skip {
-  position: absolute;
-  right: var(--space-3);
-  bottom: var(--space-3);
-}
-
-.scene .scene-empty {
-  box-sizing: border-box;
-  display: grid;
-  width: 64%;
-  height: 56%;
-  margin: 0;
-  place-items: center;
-  border: 1px dashed var(--color-line);
-  border-radius: var(--radius);
-  color: var(--color-muted);
-  font-size: var(--text-body);
-}
 `,
   "shared/style/components.js": `/**
  * Shows the Node's background: the one \`.backdrop\` element, whose
@@ -213,33 +195,18 @@ export function showBackdrop(context) {
 }
 
 /**
- * A Scene: shows the background and emits a Signal when its video ends, or
- * when the player skips or continues. Without a background it shows a
- * placeholder the player can continue past. Scene transitions are Node
- * content, not a Runtime feature, so change or replace this function freely.
+ * Shows the background and emits a Signal when its video ends or the player
+ * clicks anywhere. This is Node content, not a Runtime feature, so change or
+ * replace it freely.
  *
  * @param {object} context the Node context passed to mount
  * @param {object} options
- * @param {string} options.signal the Signal to emit when the Scene finishes
- * @param {string} [options.skipLabel]
+ * @param {string} options.signal the Signal to emit when the player moves on
  * @returns {() => void} cleanup
  */
-export function playScene(context, { signal, skipLabel }) {
+export function playScene(context, { signal }) {
   const stage = context.root.querySelector('[data-media="backdrop"]')?.parentElement ?? context.root;
   const backdrop = showBackdrop(context);
-  const added = [];
-  if (!backdrop.shown) {
-    const empty = document.createElement("p");
-    empty.className = "scene-empty";
-    empty.textContent = "Add a video or an image";
-    added.push(empty);
-  }
-  const skip = document.createElement("button");
-  skip.type = "button";
-  skip.className = "action is-quiet skip";
-  skip.textContent = skipLabel ?? (backdrop.video ? "Skip" : "Continue");
-  added.push(skip);
-  stage.append(...added);
 
   let finished = false;
   const finish = () => {
@@ -248,13 +215,12 @@ export function playScene(context, { signal, skipLabel }) {
     void context.navigation.emit(signal);
   };
   backdrop.video?.addEventListener("ended", finish);
-  skip.addEventListener("click", finish);
+  stage.addEventListener("click", finish);
 
   return () => {
     backdrop.video?.removeEventListener("ended", finish);
-    skip.removeEventListener("click", finish);
+    stage.removeEventListener("click", finish);
     backdrop.cleanup();
-    for (const element of added) element.remove();
   };
 }
 `,

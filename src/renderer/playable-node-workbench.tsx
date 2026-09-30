@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
   ArrowRight,
   Brush,
   Check,
   Clipboard,
-  FileCode2,
   Image,
   InfoCircle,
   LoaderCircle,
   MessageSquarePlus,
-  MoreHorizontal,
   MousePointer2,
   Play,
   RotateCcw,
@@ -18,7 +15,6 @@ import {
   Trash2,
   Type,
   Undo2,
-  Upload,
   X,
   type IconComponent,
 } from "./icons.js";
@@ -40,8 +36,8 @@ import {
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
 import { getNodeRuntime } from "./api.js";
-import type { LibraryAsset } from "./library-assets.js";
-import { uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
+import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableMediaAttachment, type PlayableStroke } from "./playable-chat.js";
@@ -105,7 +101,7 @@ type PreviewIssue =
 /**
  * One Node's Workbench: a live preview that reports navigation instead of
  * leaving the Node, with tools to point at, edit, and draw on it. There is no
- * inspector; the AI changes the Node, and "Open code" is the way to read it.
+ * inspector and no code here; the AI changes the Node.
  * Everything else floats over the preview, so it keeps the whole height.
  */
 export function PlayableNodeWorkbench({
@@ -116,7 +112,6 @@ export function PlayableNodeWorkbench({
   revision,
   onClose,
   onOpenNode,
-  onOpenSource,
   onRename,
   onSignalTarget,
   onAskAgent,
@@ -137,7 +132,6 @@ export function PlayableNodeWorkbench({
   revision: number;
   onClose: () => void;
   onOpenNode: (nodeId: string) => void;
-  onOpenSource: () => void;
   onRename: (title: string) => void;
   /** Sends a request to the AI now; resolves false when it could not be sent. */
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
@@ -312,11 +306,11 @@ export function PlayableNodeWorkbench({
         onTool={setTool}
         onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
         onClearStrokes={() => setStrokes([])}
-        media={<UploadMenu
+        media={<MediaMenu
           disabled={!ready}
           uploading={chooser.uploading}
           canSetBackdrop={canSetBackdrop}
-          onUpload={chooser.upload}
+          onChoose={chooser.choose}
         />}
       >
         <PreviewIssues graph={graph} issues={previewIssues} onSignalTarget={onSignalTarget} onAskAgent={onAskAgent} />
@@ -346,23 +340,12 @@ export function PlayableNodeWorkbench({
       drawing={tool === "draw"}
       onStroke={(stroke) => setStrokes((current) => [...current, stroke])}
     /> : null}
-    {backdrop === "missing" && onSetBackdrop && ready && tool === "play" ? <button
-      type="button"
-      className="playable-scene-empty-target"
-      title="Add a video or an image"
-      aria-label="Upload a background for this Scene"
-      disabled={chooser.uploading}
-      onClick={() => chooser.upload("backdrop")}
-    /> : null}
     {chooser.elements}
   </WorkbenchPreview>;
 
   return <section ref={page} className="story-node-editor-page playable-workbench-page" aria-label={`${node.title} workbench`}>
     <header className="story-node-editor-header window-drag-handle">
       <WorkbenchBreadcrumb label={node.title} onClose={onClose} onRename={onRename} />
-      <div className="playable-workbench-header-actions">
-        <WorkbenchOverflowMenu onOpenSource={onOpenSource} />
-      </div>
     </header>
     <div className="story-node-workbench playable-node-workbench">
       <div className="story-node-workbench-stage">
@@ -372,60 +355,6 @@ export function PlayableNodeWorkbench({
   </section>;
 }
 
-export function WorkbenchOverflowMenu({ onOpenSource }: { onOpenSource: () => void }) {
-  const button = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; right: number }>();
-
-  useLayoutEffect(() => {
-    if (position) menu.current?.focus();
-  }, [position]);
-
-  useEffect(() => {
-    if (!position) return;
-    const close = () => setPosition(undefined);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as globalThis.Node;
-      if (!menu.current?.contains(target) && !button.current?.contains(target)) close();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", close);
-    };
-  }, [position]);
-
-  return <>
-    <button
-      ref={button}
-      className="playable-workbench-more"
-      type="button"
-      title="More"
-      aria-label="More actions"
-      aria-haspopup="menu"
-      aria-expanded={Boolean(position)}
-      onClick={() => {
-        if (position) return setPosition(undefined);
-        const bounds = button.current?.getBoundingClientRect();
-        if (bounds) setPosition({ top: bounds.bottom + 4, right: window.innerWidth - bounds.right });
-      }}
-    ><MoreHorizontal size={15} /></button>
-    {position ? createPortal(<div
-      ref={menu}
-      className="story-canvas-context-menu playable-workbench-menu"
-      role="menu"
-      aria-label="More actions"
-      tabIndex={-1}
-      style={{ top: position.top, right: position.right }}
-    >
-      <button type="button" role="menuitem" onClick={() => { setPosition(undefined); onOpenSource(); }}><FileCode2 size={15} /><span>Open code</span></button>
-    </div>, document.body) : null}
-  </>;
-}
 
 const TOOLS: { tool: PreviewTool; label: string; title: string; icon: IconComponent }[] = [
   { tool: "play", label: "Play", title: "Play the preview", icon: Play },
@@ -528,11 +457,15 @@ export function DrawingLayer({ viewport, strokes, drawing, onStroke }: {
   </svg>;
 }
 
-/** Where uploaded media goes: the Scene's background, or the chat. */
+/** Where chosen media goes: the Scene's background, or the chat. */
 type MediaTarget = "backdrop" | "chat";
 
-/** Uploads an image or a video. `elements` holds the file input, and must be rendered. */
+/**
+ * Chooses an image or a video from the Library, or uploads a new one.
+ * `elements` holds the picker and the file input, and must be rendered.
+ */
 function useMediaChooser(onAsset: (asset: PlayableAssetRequest, target: MediaTarget) => void, onError: (text: string) => void) {
+  const [library, setLibrary] = useState<LibraryAsset[]>();
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const target = useRef<MediaTarget>("chat");
@@ -543,42 +476,56 @@ function useMediaChooser(onAsset: (asset: PlayableAssetRequest, target: MediaTar
     onAsset({ name: asset.name, type, source: { kind: "library", assetId: asset.id } }, target.current);
   };
 
-  const elements = <input ref={fileInput} type="file" accept={ASSET_UPLOAD_ACCEPT} hidden onChange={(event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    void uploadLibraryFile(file).then(use, (cause) => onError(`Could not upload: ${errorMessage(cause)}`)).finally(() => setUploading(false));
-  }} />;
+  const elements = <>
+    <input ref={fileInput} type="file" accept={ASSET_UPLOAD_ACCEPT} hidden onChange={(event) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      setUploading(true);
+      void uploadLibraryFile(file).then((asset) => { setLibrary(undefined); use(asset); }, (cause) => onError(`Could not upload: ${errorMessage(cause)}`)).finally(() => setUploading(false));
+    }} />
+    {library ? <LibraryAssetPicker
+      title={target.current === "backdrop" ? "Choose a background" : "Add to chat"}
+      assets={library.filter((asset) => {
+        const type = playableAssetType(asset.mediaType);
+        return type === "image" || type === "video";
+      })}
+      uploading={uploading}
+      onUpload={() => fileInput.current?.click()}
+      onClose={() => setLibrary(undefined)}
+      onSelect={(asset) => { setLibrary(undefined); use(asset); }}
+    /> : null}
+  </>;
 
   return {
     uploading,
     elements,
-    upload: (to: MediaTarget) => {
+    /** Opens the picker for the given target, with Upload in it. */
+    choose: (to: MediaTarget) => {
       target.current = to;
-      fileInput.current?.click();
+      void loadLibraryAssets().then(setLibrary, (cause) => onError(`Could not open the Library: ${errorMessage(cause)}`));
     },
   };
 }
 
-/** The toolbar's Upload action: as the Scene's background, or into the chat. */
-function UploadMenu({ disabled, uploading, canSetBackdrop, onUpload }: {
+/** The toolbar's Media action: as the Scene's background, or into the chat. */
+function MediaMenu({ disabled, uploading, canSetBackdrop, onChoose }: {
   disabled: boolean;
   uploading: boolean;
   canSetBackdrop: boolean;
-  onUpload: (to: MediaTarget) => void;
+  onChoose: (to: MediaTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   useDismiss(open, [button, menu], () => setOpen(false));
-  const choose = (to: MediaTarget) => () => { setOpen(false); onUpload(to); };
+  const choose = (to: MediaTarget) => () => { setOpen(false); onChoose(to); };
 
   return <span className="playable-preview-media">
-    <button ref={button} type="button" title="Upload an image or a video" aria-haspopup="menu" aria-expanded={open} disabled={disabled || uploading} onClick={() => setOpen((current) => !current)}>
-      {uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>Upload</span>
+    <button ref={button} type="button" title="Add an image or a video" aria-haspopup="menu" aria-expanded={open} disabled={disabled || uploading} onClick={() => setOpen((current) => !current)}>
+      {uploading ? <LoaderCircle className="spin" size={14} /> : <Image size={14} />}<span>Media</span>
     </button>
-    {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label="Upload">
+    {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label="Media">
       <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? "Show it behind this Scene" : "This Scene has no background to set; add it to the chat instead"} onClick={choose("backdrop")}><Image size={13} /><span>As background</span></button>
       <button type="button" role="menuitem" onClick={choose("chat")}><MessageSquarePlus size={13} /><span>Add to chat</span></button>
     </div> : null}

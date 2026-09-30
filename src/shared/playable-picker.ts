@@ -11,7 +11,7 @@ export interface PlayablePickResult {
   tag: string;
   /** The element shows media: an image, a video, or a `data-media` slot for one. */
   media?: true;
-  /** The element's `data-media` value, such as `scene` for playScene() media. */
+  /** The element's `data-media` value, such as `backdrop` for the Scene's background. */
   mediaSlot?: string;
   text: string;
   /** Bounding box in the sandbox frame's CSS pixels. */

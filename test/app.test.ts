@@ -1778,7 +1778,7 @@ describe("Playable Nodes development flag", () => {
       title: "Nodes",
       viewport: { width: 720, height: 1280 },
       entryNodeId: "start",
-      nodes: [{ id: "start", signals: [] }],
+      nodes: [{ id: "start", signals: [{ id: "next", label: "Next" }] }],
       edges: [],
     });
     expect(await readdir(response.json().workspacePath)).not.toContain("story.json");
@@ -1839,7 +1839,7 @@ describe("Playable Nodes development flag", () => {
     const presets = await app.inject({ method: "GET", url: "/playable/presets" });
     expect(presets.statusCode).toBe(200);
     expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
-      "blank", "main-menu", "scene", "choice", "qte", "hotspot", "ending",
+      "blank", "main-menu", "choice", "qte", "hotspot", "ending",
     ]);
 
     const created = await app.inject({
@@ -1953,7 +1953,7 @@ describe("Playable Nodes development flag", () => {
     expect(valid.statusCode).toBe(200);
     expect(valid.json()).toMatchObject({ ok: true, issues: [] });
     expect(invalid.statusCode).toBe(200);
-    expect(invalid.json()).toMatchObject({ ok: false, issues: [expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })] });
+    expect(invalid.json()).toMatchObject({ ok: false, issues: expect.arrayContaining([expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })]) });
   });
 
   it("rolls back project creation without changing a conflicting external workspace", async () => {

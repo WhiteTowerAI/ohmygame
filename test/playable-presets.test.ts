@@ -11,6 +11,7 @@ import {
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
+import { playableBackdrop } from "../src/shared/playable-backdrop.js";
 
 async function createWorkspace(name: string): Promise<string> {
   const workspacePath = await mkdtemp(path.join(tmpdir(), `ohmygame-${name}-`));
@@ -31,6 +32,8 @@ describe("Playable Presets", () => {
       expect(preset.summary.length).toBeLessThan(60);
       expect(source.css).toContain('@import "../../shared/style/components.css";');
       expect(source.javascript).toContain("mount");
+      // Every Template has one background the editor can set.
+      expect(playableBackdrop(source.html)).toBe("missing");
       // Declared Signals are the ones the starter source emits, from either file.
       for (const signal of preset.signals) {
         expect(`${source.html}${source.javascript}`).toContain(signal.id);
@@ -46,7 +49,7 @@ describe("Playable Presets", () => {
   });
 
   it("escapes the title in starter HTML", () => {
-    expect(playablePreset("blank")!.source('<script>"x"').html).toContain(
+    expect(playablePreset("ending")!.source('<script>"x"').html).toContain(
       "&lt;script&gt;&quot;x&quot;",
     );
   });
@@ -99,41 +102,39 @@ async function mountScene(attributes: Record<string, string>) {
   };
   try {
     const cleanup = playScene(context, { signal: "next" }) as () => void;
-    return { scene, backdrop, emitted, cleanup, skip: scene.children.at(-1)! };
+    return { scene, backdrop, emitted, cleanup, click: () => scene.listeners.get("click")!() };
   } finally {
     globalThis.document = previous;
   }
 }
 
 describe("playScene", () => {
-  it("plays the background video and emits the Signal once when it ends or is skipped", async () => {
-    const { backdrop, emitted, skip, cleanup } = await mountScene({ "data-asset": "opening", "data-type": "video" });
+  it("plays the background video and emits the Signal once when it ends or the player clicks", async () => {
+    const { scene, backdrop, emitted, click, cleanup } = await mountScene({ "data-asset": "opening", "data-type": "video" });
     const video = backdrop.children[0]!;
     expect(video).toMatchObject({ tagName: "video", src: "blob:opening" });
     expect(video.loop).toBeUndefined();
-    expect(skip.textContent).toBe("Skip");
+    expect(scene.children).toEqual([backdrop]);
     video.listeners.get("ended")!();
-    skip.listeners.get("click")!();
+    click();
     expect(emitted).toEqual(["next"]);
     cleanup();
     expect(video.paused).toBe(true);
     expect(video.removed).toBe(true);
-    expect(skip.removed).toBe(true);
+    expect(scene.listeners.size).toBe(0);
   });
 
-  it("shows a background image the player continues past", async () => {
-    const { backdrop, emitted, skip } = await mountScene({ "data-asset": "still", "data-type": "image" });
+  it("shows a background image the player clicks past", async () => {
+    const { backdrop, emitted, click } = await mountScene({ "data-asset": "still", "data-type": "image" });
     expect(backdrop.children[0]).toMatchObject({ tagName: "img", src: "blob:still" });
-    expect(skip.textContent).toBe("Continue");
-    skip.listeners.get("click")!();
+    click();
     expect(emitted).toEqual(["next"]);
   });
 
-  it("asks for media when the background is empty", async () => {
-    const { scene, backdrop, skip } = await mountScene({});
+  it("shows nothing over an empty background", async () => {
+    const { scene, backdrop } = await mountScene({});
     expect(backdrop.children).toEqual([]);
-    expect(scene.children[1]).toMatchObject({ tagName: "p", className: "scene-empty", textContent: "Add a video or an image" });
-    expect(skip.textContent).toBe("Continue");
+    expect(scene.children).toEqual([backdrop]);
   });
 });
 
@@ -170,7 +171,7 @@ describe("addPlayableNode", () => {
     expect(validation.issues).toEqual([]);
   });
 
-  it("defaults the title to the Preset label and honours an explicit position", async () => {
+  it("names the Node in order and honours an explicit position", async () => {
     const workspacePath = await createWorkspace("add-node-defaults");
 
     const result = await addPlayableNode(workspacePath, {
@@ -179,7 +180,7 @@ describe("addPlayableNode", () => {
       position: { x: 900, y: 60 },
     });
 
-    expect(result).toMatchObject({ title: "Ending", signals: [] });
+    expect(result).toMatchObject({ title: "Node 2", signals: [] });
     const codebase = await readNodeCodebase(workspacePath);
     expect(codebase.editorLayout.nodes.home).toEqual({ x: 900, y: 60 });
   });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { playablePreset } from "../src/daemon/playable-presets.js";
+import { PLAYABLE_PRESETS } from "../src/daemon/playable-presets.js";
 import { playableBackdrop, setPlayableBackdrop } from "../src/shared/playable-backdrop.js";
 
 describe("setPlayableBackdrop", () => {
-  it("sets the background of every Template that has one", () => {
-    for (const id of ["scene", "main-menu", "choice", "qte", "hotspot"]) {
-      const { html } = playablePreset(id)!.source("Opening");
+  it("sets the background of every Template", () => {
+    for (const { id } of PLAYABLE_PRESETS) {
+      const { html } = PLAYABLE_PRESETS.find((preset) => preset.id === id)!.source("Opening");
       expect(playableBackdrop(html)).toBe("missing");
       const edited = setPlayableBackdrop(html, "opening", "video")!;
       expect(edited).toContain('<div class="backdrop" data-media="backdrop" data-asset="opening" data-type="video">');
@@ -23,7 +23,7 @@ describe("setPlayableBackdrop", () => {
   });
 
   it("leaves HTML without a single background alone", () => {
-    expect(playableBackdrop(playablePreset("blank")!.source("Blank").html)).toBeUndefined();
+    expect(playableBackdrop("<main><h1>Title</h1></main>")).toBeUndefined();
     expect(setPlayableBackdrop("<main></main>", "a", "image")).toBeUndefined();
     const two = '<div data-media="backdrop"></div><div data-media="backdrop"></div>';
     expect(setPlayableBackdrop(two, "a", "image")).toBeUndefined();
