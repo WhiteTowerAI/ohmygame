@@ -14847,6 +14847,25 @@ button {
   stroke-dasharray: 6 5;
 }
 
+/* When the Scene takes an Exit, in the Agent's words. Display only. */
+.playable-node-card .story-node-output-label {
+  flex-shrink: 0;
+  max-width: 60%;
+}
+.playable-node-output-when {
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+  color: rgb(255 255 255 / 50%);
+  font-size: 8px;
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-presentation-node-card .playable-node-output-when {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 90%);
+}
+
 /* A navigation Exit names its target just outside the card instead of drawing a line. */
 .playable-node-output-target {
   position: absolute;
@@ -15059,95 +15078,6 @@ button {
 .playable-workbench-menu {
   min-width: 180px;
 }
-.playable-workbench-state header button {
-  height: 20px;
-  padding: 0 7px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-  font-size: 9px;
-  cursor: pointer;
-}
-.playable-workbench-state header button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-}
-.playable-workbench-state header button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-.playable-workbench-state {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-}
-.playable-workbench-state header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-.playable-workbench-state header strong {
-  color: var(--text);
-  font-size: 10px;
-  font-weight: 600;
-}
-.playable-workbench-state header span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-state-rows {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px 12px;
-}
-.playable-workbench-state-row {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-}
-.playable-workbench-state-row > span {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-workbench-state-row.is-overridden > span {
-  color: var(--accent);
-}
-.playable-workbench-state-row :is(input, select) {
-  width: 100%;
-  min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  outline: 0;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-  font-size: 10px;
-}
-.playable-workbench-state-row :is(input, select):focus {
-  border-color: var(--border-strong);
-}
-.playable-workbench-state-row.is-invalid input {
-  border-color: var(--danger);
-}
 .playable-workbench-pick-actions {
   display: flex;
   min-width: 0;
@@ -15280,17 +15210,6 @@ button {
   background: var(--surface-raised);
   box-shadow: 0 10px 28px rgb(0 0 0 / 32%);
   pointer-events: auto;
-}
-.playable-preview-popover.is-start {
-  top: 8px;
-  left: 8px;
-  width: min(380px, calc(100% - 16px));
-  max-height: calc(100% - 72px);
-}
-.playable-preview-popover > .playable-workbench-state {
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 .playable-preview-popover.is-issues {
   right: 0;
@@ -15490,42 +15409,13 @@ button {
   background: var(--surface);
 }
 
-/* Playable project tools: State and Style panels, Destinations. */
+/* Playable project tools. */
 .playable-editor-workspace {
   position: relative;
 }
-.interactive-drama-project-tools > button.is-active,
-.playable-workbench-header-tool.is-active {
+.interactive-drama-project-tools > button.is-active {
   border-color: var(--border-strong);
   background: var(--surface-hover);
-  color: var(--text);
-}
-.interactive-drama-project-tools > button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-.playable-workbench-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-.playable-workbench-header-tool {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-.playable-workbench-header-tool:hover {
-  border-color: var(--border-strong);
   color: var(--text);
 }
 .playable-project-panel {
@@ -15596,154 +15486,64 @@ button {
   color: var(--text);
   font-weight: 600;
 }
-.playable-state-table {
+.playable-variables {
   display: grid;
-  gap: 4px;
-}
-.playable-state-table-head,
-.playable-state-table-row {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 24px;
-  align-items: center;
-  gap: 8px;
-}
-.playable-state-table.has-live .playable-state-table-head,
-.playable-state-table.has-live .playable-state-table-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.9fr) 24px;
-}
-.playable-state-table.has-type .playable-state-table-head,
-.playable-state-table.has-type .playable-state-table-row {
-  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.2fr) 24px;
-}
-.playable-state-table.has-type.has-live .playable-state-table-head,
-.playable-state-table.has-type.has-live .playable-state-table-row {
-  grid-template-columns: minmax(0, 1fr) 50px minmax(0, 1.1fr) minmax(0, 0.9fr) 24px;
-}
-.playable-state-table-head {
-  color: var(--text-faint);
-  font-size: 9px;
-  text-transform: uppercase;
-}
-.playable-state-table-row {
-  padding: 3px 4px;
-  border-radius: 5px;
-  transition: background 0.3s;
-}
-.playable-state-used {
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--surface-hover);
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 8px;
-}
-.playable-state-used.is-wrote {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
-}
-.playable-state-table-row.is-changed {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.playable-state-table-row > code,
-.playable-state-live {
-  overflow: hidden;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.playable-state-live {
-  color: var(--text-muted);
-}
-.playable-state-table-row.is-changed .playable-state-live {
-  color: var(--accent);
-}
-.playable-state-type {
-  color: var(--text-faint);
-  font-size: 9px;
-}
-.playable-state-null {
-  color: var(--text-faint);
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-.playable-state-initial .playable-workbench-state-row {
-  grid-template-columns: minmax(0, 1fr);
-}
-.playable-state-initial .playable-workbench-state-row > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.playable-state-table-row > button,
-.playable-state-new > button {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.playable-state-table-row > button:hover {
-  color: var(--danger);
-}
-.playable-state-new {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr) 24px;
-  align-items: center;
-  gap: 6px;
-}
-.playable-state-new > button {
-  border-color: var(--border);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-}
-.playable-state-new > button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-.playable-state-new > :is(input, select) {
-  min-width: 0;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  outline: 0;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-  font-size: 10px;
-}
-.playable-state-new > .story-media-error {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-.playable-state-changes ol {
-  display: grid;
-  gap: 3px;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.playable-state-changes li {
+.playable-variables > li {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--surface-hover);
 }
-.playable-state-changes li span {
+.playable-variables-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.playable-variables-head strong {
   overflow: hidden;
-  color: var(--text-muted);
+  color: var(--text);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.playable-variables-head span {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.playable-variables > li > p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.playable-variables > li > code {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playable-variables-empty {
+  margin: 0;
+  color: var(--text-faint);
+}
+.interactive-drama-project-tools > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.playable-workbench-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 .playable-workbench-sample {
   cursor: default;
@@ -16046,7 +15846,4 @@ button {
   border-color: transparent;
   background: var(--accent);
   color: #1b1408;
-}
-.playable-playtest-start .playable-workbench-state-rows {
-  grid-template-columns: minmax(0, 1fr);
 }

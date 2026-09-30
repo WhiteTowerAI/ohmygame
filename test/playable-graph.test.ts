@@ -49,6 +49,43 @@ describe("Node Graph contract", () => {
     );
   });
 
+  it("accepts Variable descriptions and Exit conditions for display", () => {
+    const graph = createNodeGraphFixture();
+    graph.initialState = { trust: 0 };
+    graph.variables = { trust: "How much the guard trusts the player" };
+    graph.nodes[0]!.signals[0]!.when = "if trust is 3 or more";
+
+    expect(validateNodeGraph(graph)).toEqual({ ok: true, issues: [] });
+  });
+
+  it("rejects descriptions of Variables with no starting value", () => {
+    const graph = createNodeGraphFixture();
+    graph.initialState = {};
+    graph.variables = { "a/b": "Missing" };
+
+    const result = validateNodeGraph(graph);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: "unknown-variable", path: "/variables/a~1b" }),
+    );
+  });
+
+  it("rejects non-string Variable descriptions and Exit conditions", () => {
+    const graph = createNodeGraphFixture() as unknown as {
+      variables: unknown;
+      nodes: { signals: { when?: unknown }[] }[];
+    };
+    graph.variables = { trust: 3 };
+    graph.nodes[0]!.signals[0]!.when = 1;
+
+    const result = validateNodeGraph(graph);
+
+    expect(result.issues.every((item) => item.code === "schema")).toBe(true);
+    expect(result.issues.some((item) => item.path.startsWith("/variables"))).toBe(true);
+    expect(result.issues.some((item) => item.path.endsWith("/when"))).toBe(true);
+  });
+
   it("reports duplicate IDs and invalid graph references", () => {
     const graph = createNodeGraphFixture();
     graph.nodes.push(structuredClone(graph.nodes[0]!));

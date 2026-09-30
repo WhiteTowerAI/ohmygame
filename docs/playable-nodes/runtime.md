@@ -96,6 +96,11 @@ A Signal may have `"role": "navigation"` when it is a way around the game,
 such as Home, rather than a step in the story. The editor names its target
 instead of drawing a line. The Runtime, routing, and compiler ignore it.
 
+A Signal may also have a `when`, one sentence saying when the node emits it,
+such as `"if trust is 3 or more"`, and the graph may have `variables`, a map
+from `initialState` keys to one-line descriptions. The Agent writes both and
+the editor displays them. They are never executed: the node's code decides.
+
 `viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
 looks the same in the Workbench preview, its thumbnail, a Playtest window of
@@ -366,6 +371,7 @@ actionable `message`. It checks that:
 - source and asset paths are relative and stay inside the workspace;
 - referenced files exist;
 - `initialState` is a JSON object;
+- every key in `variables` exists in `initialState`;
 - modes are only `replace` and `push`;
 - in `publish` mode, every declared Signal has an edge.
 
@@ -404,7 +410,7 @@ whole if any write fails.
 
 These fit the model but are not in v1:
 
-- conditions, priorities, and state effects on edges;
+- executable conditions, priorities, and state effects on edges;
 - overlays and suspended node instances;
 - multiple simultaneous node regions;
 - automatic media-ended or timer transitions in the Runtime;

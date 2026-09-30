@@ -36,6 +36,7 @@ const signals = {
       id: identifier,
       label: { type: "string", minLength: 1, maxLength: 120 },
       role: { enum: ["navigation"] },
+      when: { type: "string", minLength: 1, maxLength: 160 },
     },
   },
 } as const;
@@ -94,6 +95,11 @@ export const PLAYABLE_GRAPH_SCHEMA = {
       type: "object",
       maxProperties: 1_000,
       additionalProperties: { $ref: "#/$defs/jsonValue" },
+    },
+    variables: {
+      type: "object",
+      maxProperties: 1_000,
+      additionalProperties: { type: "string", minLength: 1, maxLength: 240 },
     },
     assets: {
       type: "object",

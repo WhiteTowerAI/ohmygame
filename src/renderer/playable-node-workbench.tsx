@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
-  Box,
   Brush,
   Check,
   Clipboard,
@@ -23,8 +22,6 @@ import {
   type IconComponent,
 } from "./icons.js";
 import {
-  type JsonObject,
-  type JsonValue,
   type NodeGraph,
   type PlayableAssetDefinition,
   type PlayableNavigationMode,
@@ -37,8 +34,6 @@ import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import type { PromptContext } from "../shared/contracts.js";
 import { playableElementContext, playableTextEditRequest } from "../shared/playable-chat-context.js";
 import {
-  formatPreviewStateInput,
-  parsePreviewStateInput,
   playableAssetType,
   playableRuntimeKey,
   type PlayableProjectValidationIssue,
@@ -72,10 +67,9 @@ export interface PlayableSignalEdits {
   onAskAgent?: (text: string) => void;
 }
 
-/** A Playtest that starts somewhere other than the saved game. */
+/** A Playtest that starts at a Scene instead of the saved game, with a new game's values. */
 export interface PlaytestStart {
   nodeId: string;
-  state: JsonObject;
 }
 
 export interface PreviewRuntime {
@@ -128,7 +122,6 @@ export function PlayableNodeWorkbench({
   onPlayFromHere,
   onSnapshot,
   onChatContextChange,
-  headerActions,
 }: {
   projectId: string;
   node: PlayableNode;
@@ -146,18 +139,14 @@ export function PlayableNodeWorkbench({
   onWriteText: (edit: PlayableTextEdit) => Promise<boolean>;
   /** Declares an asset on the Scene and resolves with its ID once saved. */
   onAddAsset: (asset: PlayableAssetRequest) => Promise<string>;
-  /** Opens a Playtest that starts at this Scene with the preview's values. */
+  /** Opens a Playtest that starts at this Scene. */
   onPlayFromHere?: (start: PlaytestStart) => void;
   /** Receives the preview's Runtime snapshots; undefined when a new session starts. */
   onSnapshot?: (snapshot: NodeRuntimeSnapshot | undefined) => void;
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
-  /** Project tools shown in the header, such as the Variables panel toggle. */
-  headerActions?: ReactNode;
 } & Pick<PlayableSignalEdits, "onSignalTarget" | "onAskAgent">) {
   const runtime = usePlayablePreviewRuntime(projectId, revision);
   const [session, setSession] = useState(0);
-  const [previewState, setPreviewState] = useState<JsonObject>({});
-  const [stateOpen, setStateOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
   const [diagnostics, setDiagnostics] = useState<{ message: string; at: string }[]>([]);
   const [tool, setTool] = useState<PreviewTool>("play");
@@ -166,17 +155,14 @@ export function PlayableNodeWorkbench({
   const [storage] = useState(createMemoryStorage);
   const { toasts, show: showToast, dismiss: dismissToast } = usePreviewToasts();
   const page = useRef<HTMLElement>(null);
-  const startButton = useRef<HTMLButtonElement>(null);
-  const startPanel = useRef<HTMLDivElement>(null);
   const seenReport = useRef("");
-  useDismiss(stateOpen, [startButton, startPanel], () => setStateOpen(false));
 
   // Any new session starts with no errors and no Exits taken.
   useEffect(() => {
     setSnapshot(undefined);
     setDiagnostics([]);
     onSnapshot?.(undefined);
-  }, [runtime.definition, node.id, session, previewState]);
+  }, [runtime.definition, node.id, session]);
 
   useEffect(() => {
     setTool("play");
@@ -268,12 +254,7 @@ export function PlayableNodeWorkbench({
     }
   }, [askAgent, onAddAsset, showToast]);
 
-  const preview: PlayablePreviewOptions = {
-    policy: "report",
-    startNodeId: node.id,
-    ...(Object.keys(previewState).length ? { previewState } : {}),
-  };
-  const overrides = Object.keys(previewState).length;
+  const preview: PlayablePreviewOptions = { policy: "report", startNodeId: node.id };
   const nodeIssues = issues.filter((issue) => issue.surfaceId === node.id
     || issue.path.startsWith(`nodes/${node.id}/`)
     || Object.values(node.source).includes(issue.path));
@@ -283,8 +264,7 @@ export function PlayableNodeWorkbench({
 
   const actions = <>
     <button type="button" className="playable-workbench-tool" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={13} /><span>Replay</span></button>
-    <button ref={startButton} type="button" className={`playable-workbench-tool${stateOpen || overrides ? " is-active" : ""}`} title="Choose the Variables this preview starts with" aria-expanded={stateOpen} aria-haspopup="dialog" onClick={() => setStateOpen((open) => !open)}><Box size={13} /><span>Start with…{overrides ? ` (${overrides})` : ""}</span></button>
-    {onPlayFromHere ? <button type="button" className="playable-workbench-tool" title="Playtest the game from this Scene" aria-label="Play from here" onClick={() => onPlayFromHere({ nodeId: node.id, state: previewState })}><Play size={12} fill="currentColor" /><span>Play from here</span></button> : null}
+    {onPlayFromHere ? <button type="button" className="playable-workbench-tool" title="Playtest the game from this Scene" aria-label="Play from here" onClick={() => onPlayFromHere({ nodeId: node.id })}><Play size={12} fill="currentColor" /><span>Play from here</span></button> : null}
   </>;
 
   const previewPane = <WorkbenchPreview
@@ -293,9 +273,6 @@ export function PlayableNodeWorkbench({
     stageClassName={`playable-workbench-stage is-tool-${tool}`}
     actions={actions}
     overlay={<>
-      {stateOpen ? <div ref={startPanel} className="playable-preview-popover is-start" role="dialog" aria-label="Start with">
-        <PreviewStateEditor initialState={graph.initialState} previewState={previewState} onChange={setPreviewState} />
-      </div> : null}
       <PreviewToolbar
         tool={tool}
         disabled={!ready}
@@ -345,7 +322,6 @@ export function PlayableNodeWorkbench({
     <header className="story-node-editor-header window-drag-handle">
       <WorkbenchBreadcrumb label={node.title} onClose={onClose} onRename={onRename} />
       <div className="playable-workbench-header-actions">
-        {headerActions}
         <WorkbenchOverflowMenu onOpenSource={onOpenSource} />
       </div>
     </header>
@@ -410,72 +386,6 @@ export function WorkbenchOverflowMenu({ onOpenSource }: { onOpenSource: () => vo
       <button type="button" role="menuitem" onClick={() => { setPosition(undefined); onOpenSource(); }}><FileCode2 size={15} /><span>Open code</span></button>
     </div>, document.body) : null}
   </>;
-}
-
-export function PreviewStateEditor({ initialState, previewState, onChange }: {
-  initialState: JsonObject;
-  previewState: JsonObject;
-  onChange: (state: JsonObject) => void;
-}) {
-  const keys = Object.keys(initialState);
-  return <div className="playable-workbench-state" aria-label="Start with">
-    <header>
-      <strong>Start with…</strong>
-      <span>Variables this run starts with, instead of their usual starting values.</span>
-      <button type="button" disabled={!Object.keys(previewState).length} onClick={() => onChange({})}>Clear</button>
-    </header>
-    {keys.length ? <div className="playable-workbench-state-rows">
-      {keys.map((key) => <PreviewStateRow
-        key={key}
-        name={key}
-        initial={initialState[key]!}
-        value={Object.hasOwn(previewState, key) ? previewState[key]! : initialState[key]!}
-        overridden={Object.hasOwn(previewState, key)}
-        onChange={(value) => {
-          const next = { ...previewState };
-          if (JSON.stringify(value) === JSON.stringify(initialState[key])) delete next[key];
-          else next[key] = value;
-          onChange(next);
-        }}
-      />)}
-    </div> : <p className="story-media-empty">The project has no Variables yet. Ask the AI to add one.</p>}
-  </div>;
-}
-
-export function PreviewStateRow({ name, initial, value, overridden, onChange }: {
-  name: string;
-  initial: JsonValue;
-  value: JsonValue;
-  overridden: boolean;
-  onChange: (value: JsonValue) => void;
-}) {
-  const [draft, setDraft] = useState(formatPreviewStateInput(value));
-  const [error, setError] = useState<string>();
-  useEffect(() => { setDraft(formatPreviewStateInput(value)); setError(undefined); }, [JSON.stringify(value)]);
-
-  const commit = (text: string) => {
-    const parsed = parsePreviewStateInput(text, initial);
-    if ("error" in parsed) return setError(parsed.error);
-    setError(undefined);
-    if (JSON.stringify(parsed.value) !== JSON.stringify(value)) onChange(parsed.value);
-  };
-
-  return <label className={`playable-workbench-state-row${overridden ? " is-overridden" : ""}${error ? " is-invalid" : ""}`}>
-    <span title={name}>{name}</span>
-    {typeof initial === "boolean" ? <select value={String(value)} onChange={(event) => commit(event.target.value)}>
-      <option value="false">false</option>
-      <option value="true">true</option>
-    </select> : <input
-      value={draft}
-      type={typeof initial === "number" ? "number" : "text"}
-      spellCheck={false}
-      title={error}
-      aria-invalid={Boolean(error)}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={(event) => commit(event.target.value)}
-      onKeyDown={(event) => { if (event.key === "Enter") commit(event.currentTarget.value); }}
-    />}
-  </label>;
 }
 
 const TOOLS: { tool: PreviewTool; label: string; title: string; icon: IconComponent }[] = [
@@ -704,21 +614,20 @@ function PreviewToasts({ toasts, onOpenNode, onDismiss }: {
   </div>;
 }
 
-/** What one navigation report says: the Exit taken and where it would go. */
+/**
+ * What one navigation report says. The author just used the Exit, so the
+ * message only names where the game would go.
+ */
 function reportToast(graph: NodeGraph, report: NodeRuntimeSnapshot["reports"][number]): Omit<PreviewToast, "id"> {
-  const titleOf = (nodeId: string) => playableNodeById(graph, nodeId)?.title ?? nodeId;
-  const target = report.targetNodeId ? { targetNodeId: report.targetNodeId } : {};
-  if (report.kind === "signal") {
-    const label = playableNodeById(graph, report.nodeId)?.signals.find((signal) => signal.id === report.signal)?.label || report.signal;
-    if (!report.targetNodeId) return { tone: "warning", text: `"${label}" doesn't go anywhere yet` };
-    return { tone: "info", text: `"${label}" → ${titleOf(report.targetNodeId)}${report.mode === "push" ? " · can go back" : ""}`, ...target };
+  if (!report.targetNodeId) {
+    return { tone: "warning", text: report.kind === "back" ? "Nowhere to go back to" : "Doesn't open anything yet" };
   }
-  if (report.kind === "back") {
-    return report.targetNodeId
-      ? { tone: "info", text: `Back → ${titleOf(report.targetNodeId)}`, ...target }
-      : { tone: "warning", text: "Back, but there is nowhere to go back to" };
-  }
-  return { tone: "info", text: `${report.kind === "restart" ? "Replay" : "Continue"} → ${titleOf(report.targetNodeId)}`, ...target };
+  const title = playableNodeById(graph, report.targetNodeId)?.title ?? report.targetNodeId;
+  const text = report.kind === "back" ? `Would go back to ${title}`
+    : report.kind === "restart" ? `Would restart at ${title}`
+      : report.kind === "continue" ? `Would continue at ${title}`
+        : `Would open ${title}`;
+  return { tone: "info", text, targetNodeId: report.targetNodeId };
 }
 
 /**

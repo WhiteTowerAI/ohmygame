@@ -30,6 +30,12 @@ export interface PlayableSignal {
    * canvas names its target instead of drawing a line. Routing ignores it.
    */
   role?: "navigation";
+  /**
+   * One sentence saying when the Scene emits this Signal, such as "if trust
+   * is 3 or more". The Agent writes it; the canvas shows it on the Exit row.
+   * Display only: the Scene's code decides, and routing ignores it.
+   */
+  when?: string;
 }
 
 export interface PlayableNode {
@@ -59,6 +65,11 @@ export interface NodeGraph {
   };
   entryNodeId: string;
   initialState: JsonObject;
+  /**
+   * One-line descriptions of `initialState` keys (Variables), written by the
+   * Agent and shown read-only in Project → Variables. Display only.
+   */
+  variables?: Record<string, string>;
   assets: Record<string, PlayableAssetDefinition>;
   nodes: PlayableNode[];
   edges: PlayableEdge[];

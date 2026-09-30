@@ -39,6 +39,8 @@ describing them to the Agent, not by choosing a node type or writing code.
 | Edge             | A connection from one node's Signal to another node                          |
 | Navigation Exit  | A Signal with `role: navigation`, such as Home; named on the canvas, no line |
 | Project State    | Serializable data shared across nodes and included in saves                  |
+| Variable         | One top-level Project State key, with an optional description in `variables` |
+| Exit condition   | A Signal's `when`: a one-line description of when it is taken; display only   |
 | Shared component | UI in `shared/components/` that several nodes import; its Signals are theirs |
 | Project Style    | Shared theme and components that keep every node visually consistent         |
 | Preset           | Starter content and instructions for a new node; no runtime meaning          |
@@ -54,8 +56,6 @@ editor's words.
 | Exit                     | A Signal and the edge that routes it           |
 | Exit with **Allow Back** | A `push` edge                                  |
 | Start                    | Entry Node (`entryNodeId`)                     |
-| Variables                | Project State                                  |
-| Start with…              | Preview state                                  |
 | Template                 | Preset                                         |
 | Replay                   | Restart                                        |
 | Select                   | Pick element                                   |

@@ -103,7 +103,7 @@ function NodePlaytestPage({ projectId, onStory }: { projectId: string; onStory: 
           saveKey={saveKey}
           {...(start ? {
             storage,
-            preview: { policy: "follow" as const, startNodeId: start.nodeId, ...(Object.keys(start.state).length ? { previewState: start.state } : {}) },
+            preview: { policy: "follow" as const, startNodeId: start.nodeId },
           } : {})}
           onSnapshot={onSnapshot}
           onDiagnostic={onDiagnostic}

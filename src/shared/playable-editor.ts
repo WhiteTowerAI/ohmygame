@@ -1,9 +1,9 @@
 import type { NodeGraphValidationIssue } from "./playable-graph-validation.js";
 import type {
-  JsonValue,
   NodeGraph,
   PlayableAssetDefinition,
   PlayableAssetType,
+  JsonValue,
   PlayableNavigationMode,
 } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
@@ -39,6 +39,17 @@ export interface PlayableAddedNode {
   files: string[];
   signals: string[];
   brief: string;
+}
+
+/** A Variable's value in author words: Yes/No, "empty", "3 items". */
+export function describePlayableValue(value: JsonValue): string {
+  if (value === null) return "nothing";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") return value === "" ? "empty" : `"${value}"`;
+  if (Array.isArray(value)) return value.length === 0 ? "empty" : value.length === 1 ? "1 item" : `${value.length} items`;
+  const size = Object.keys(value).length;
+  return size === 0 ? "empty" : size === 1 ? "1 field" : `${size} fields`;
 }
 
 export function renamePlayableSignal(
@@ -191,18 +202,6 @@ export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetI
   return next;
 }
 
-export type PlayableStateType = "text" | "number" | "boolean" | "list" | "object" | "null";
-
-/** The type the State panel shows for a key, inferred from its initial value. */
-export function playableStateType(value: JsonValue): PlayableStateType {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "list";
-  if (typeof value === "string") return "text";
-  if (typeof value === "number") return "number";
-  if (typeof value === "boolean") return "boolean";
-  return "object";
-}
-
 /**
  * Identifies what a preview session runs. Node titles, Signal labels, and the
  * graph title are editor text the Runtime never reads, so renaming them keeps
@@ -214,28 +213,6 @@ export function playableRuntimeKey(definition: NodePlayerDefinition): string {
     graph: { ...graph, nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signals.map((signal) => signal.id) })) },
     compiled: definition.compiled,
   });
-}
-
-/** Preview State inputs are typed by the key's initial value. */
-export function formatPreviewStateInput(value: JsonValue): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-export function parsePreviewStateInput(
-  text: string,
-  initial: JsonValue,
-): { value: JsonValue } | { error: string } {
-  if (typeof initial === "string") return { value: text };
-  if (typeof initial === "number") {
-    const value = Number(text);
-    return text.trim() && Number.isFinite(value) ? { value } : { error: "Enter a number." };
-  }
-  if (typeof initial === "boolean") return { value: text === "true" };
-  try {
-    return { value: JSON.parse(text) as JsonValue };
-  } catch {
-    return { error: "Enter valid JSON." };
-  }
 }
 
 /** Node ID to the thumbnail cached for it in `.ohmygame/thumbnails/`. */

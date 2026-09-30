@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   addPlayableNodeAsset,
   deletePlayableSignal,
-  parsePreviewStateInput,
+  describePlayableValue,
   playableAssetId,
   playableAssetType,
   playableRuntimeKey,
   playableThumbnailHash,
-  playableStateType,
   removePlayableNodeAsset,
   renamePlayableSignal,
   playableEdgeId,
@@ -140,15 +139,6 @@ describe("Playable editor graph changes", () => {
     expect(playableRuntimeKey({ ...definition, graph: retargeted })).not.toBe(playableRuntimeKey(definition));
   });
 
-  it("parses Preview State input by the key's initial type", () => {
-    expect(parsePreviewStateInput("Ada", "")).toEqual({ value: "Ada" });
-    expect(parsePreviewStateInput("3", 0)).toEqual({ value: 3 });
-    expect(parsePreviewStateInput("three", 0)).toEqual({ error: "Enter a number." });
-    expect(parsePreviewStateInput("true", false)).toEqual({ value: true });
-    expect(parsePreviewStateInput('["key"]', [])).toEqual({ value: ["key"] });
-    expect(parsePreviewStateInput("{", {})).toEqual({ error: "Enter valid JSON." });
-  });
-
   it("hashes what a Node thumbnail shows", () => {
     const graph = createNodeGraphFixture();
     const surface = (id: string) => ({ id, html: `<main>${id}</main>`, css: "main {}", javascript: "export function mount() {}", inputs: [] });
@@ -199,7 +189,20 @@ describe("Playable project editing", () => {
       .toMatchObject({ targetNodeId: "menu", mode: "replace" });
   });
 
-  it("infers the State type shown for a key", () => {
-    expect(["", 0, false, [], {}, null].map((value) => playableStateType(value))).toEqual(["text", "number", "boolean", "list", "object", "null"]);
+});
+
+describe("describePlayableValue", () => {
+  it("shows starting values in author words", () => {
+    expect(describePlayableValue(true)).toBe("Yes");
+    expect(describePlayableValue(false)).toBe("No");
+    expect(describePlayableValue(3)).toBe("3");
+    expect(describePlayableValue("")).toBe("empty");
+    expect(describePlayableValue("Ada")).toBe('"Ada"');
+    expect(describePlayableValue([])).toBe("empty");
+    expect(describePlayableValue(["key"])).toBe("1 item");
+    expect(describePlayableValue(["key", "map", "coin"])).toBe("3 items");
+    expect(describePlayableValue({})).toBe("empty");
+    expect(describePlayableValue({ name: "" })).toBe("1 field");
+    expect(describePlayableValue(null)).toBe("nothing");
   });
 });

@@ -4,8 +4,9 @@ This document describes what creating a Playable Nodes project feels like. The
 Runtime contract is described separately; this document is about the editor.
 
 It uses the editor's words: a node is a **Scene**, a Signal with its edge is
-an **Exit**, the Entry Node is the **Start**,
-Project State is **Variables**, and a Preset is a **Template**. The engine
+an **Exit**, the Entry Node is the **Start**, and a Preset is a
+**Template**, and Project State is the **Variables**
+([Variables](#variables)). The engine
 term follows in parentheses where it matters; code, schemas, and tools keep
 the engine terms ([vocabulary](README.md#vocabulary)).
 
@@ -43,16 +44,16 @@ The workspace keeps the current Interactive Drama layout:
 - The main area shows either the Flow canvas or the Workbench of one Scene,
   with a breadcrumb (`Canvas › Case archive`) to return, as the current
   editor does.
-- The **Project ▾** menu holds **Screen size**, **Variables**,
-  **Export**, and **Show technical details**. **Home** returns
+- The **Project ▾** menu holds **Screen size**, **Variables**, **Export**,
+  and **Show technical details**. **Home** returns
   to the project list. **Playtest** opens the real Runtime; the chat toggle
   and **Publish** follow it.
 
 ### Technical details
 
 The editor hides engine details by default. **Show technical details** in
-the Project ▾ menu reveals IDs, file paths, value types, the Playtest
-**History** (back stack), and the **Code** tab. The setting is shared by
+the Project ▾ menu reveals IDs, file paths, raw Variable values, the Playtest
+**History** (back stack) and **State**, and the **Code** tab. The setting is shared by
 every editor window.
 
 ## Flow canvas
@@ -65,7 +66,9 @@ Each Scene card shows:
 - a live thumbnail of the Scene, rendered by the Runtime, so the canvas looks
   like the game rather than like a diagram;
 - the Scene title;
-- one output port per Exit, labeled with the Exit name (Signal label);
+- one output port per Exit, labeled with the Exit name (Signal label) and,
+  when the Exit depends on progress, its condition in small text
+  ([Variables](#variables));
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
@@ -121,10 +124,10 @@ points at, edits, or draws on the preview to say what to change, and
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Scenes / [Title]            Replay · Start with… · Play from here │
+│ Scenes / [Title]                      Replay · Play from here │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│             ( "Enter club" → Club lobby  [Open] )            │
+│               ( Would open Club lobby  [Open] )              │
 │                                                              │
 │                        Live preview                          │
 │                  (real Runtime, real assets)                 │
@@ -141,17 +144,18 @@ The title is edited in place in the breadcrumb (Enter keeps it, Esc reverts).
 
 The preview runs the Scene in the real Node Runtime. It is interactive:
 clicking "进入俱乐部" in the preview takes the `enter-club` Exit. Instead of
-leaving the Scene, a short message over the preview names the Exit and the
-Scene it would open, with **Open** to go there; it fades after a few seconds.
-Back, Replay, and Continue show the same way.
+leaving the Scene, a short message over the preview says where it would go,
+such as "Would open Club lobby", with **Open** to go there; it fades after a
+few seconds. Back, Replay, and Continue show the same way.
 
 The header offers:
 
 - **Replay** to play the Scene again from the start;
-- **Start with…**, a popover to choose the Variables this preview starts
-  with (preview state), for example to see the archive after eight completed rounds;
-- **Play from here** to open Playtest at this Scene with the chosen
-  Variables.
+- **Play from here** to open Playtest at this Scene.
+
+Both start from a new game, so every Scene must look right without earlier
+progress. To see a Scene as it would be later in the game, play there in
+Playtest or ask the Agent to show it.
 
 ### Preview tools
 
@@ -177,15 +181,12 @@ always returns to **Play**.
 There is no comment tool: saying what to change in the chat, with picks or a
 drawing attached, does the same job.
 
-### Issues and Variables
+### Issues
 
 Nothing shows while the Scene is fine. When it has problems, an **N issues**
 badge appears beside the tool bar; it opens a list of the Scene's issues,
 errors from the preview, and Exits that go nowhere, each Exit with
 **Connect…** and **Ask AI to create it**.
-
-The **Variables** panel shows the preview's values now and recent changes,
-and marks the Variables the open Scene reads or changes.
 
 There are no type-specific forms. What used to be a Choice's options or a
 Scene's duration now lives in the Scene's own content and is changed by
@@ -252,24 +253,51 @@ its Workbench, and are connected like any other Exit, so **Home** can lead to
 the menu from one Scene and to the chapter list from another. A Scene that
 does not import the component does not show it. There is no layer over every
 Scene and nothing extra on the canvas; anything that must carry over between
-Scenes, such as a score, is a Variable.
+Scenes, such as a score, is remembered by the game.
 
 ## Variables
 
-**Variables** in the Project ▾ menu, and in every Workbench header, shows the
-project's shared data (Project State) as a table of names and starting
-values; value types appear with technical details. Starting values are
-editable, and Variables can be added or removed. Authors rarely add them by
-hand; the Agent adds one when a Scene needs it and explains it in chat.
+A Variable is something the game remembers from Scene to Scene and keeps in
+the save, such as a trust score or the items the player carries. Progress
+inside one Scene, such as which hotspots were clicked, stays in that Scene;
+content such as item definitions lives in shared code.
 
-While a Workbench preview runs, the panel adds the values **Now**,
-highlights Variables that changed recently, and lists the recent changes.
-Playtest shows the same changes in its debug drawer.
+The author asks for them in chat ("a trust of three or more leads to the
+good ending"), and the Agent adds each one with a starting value and a
+one-line description. **Project ▾ → Variables** lists them read-only:
+
+```text
+Variables                                         ×
+What the game remembers from Scene to Scene...
+  trust          How much the guard trusts you   Starts 0
+  inventory      What the player carries         Starts empty
+  boarded        Whether the player boarded      Starts No
+Ask the AI to add or change them.
+```
+
+Starting values read in author words (Yes/No, empty, "3 items"); technical
+details add the raw value. There is no form to add, delete, or edit them.
+
+A branch shows as Exits. A Scene that goes different ways declares one Exit
+per outcome, and the Agent writes when each is taken. The canvas shows it on
+the Exit row:
+
+```text
+Final talk
+  ├─ Trusted ending    if trust is 3 or more   → Good ending
+  └─ Not enough trust  if trust is below 3     → Bad ending
+```
+
+The condition is a description (Signal `when`), not a rule the editor runs:
+the Scene decides which Exit to take, and the Agent updates the words when it
+changes the logic. There are no Condition or Update State Scenes. Playtest
+shows what the game remembers with technical details, for when a branch goes
+the wrong way.
 
 ## Playtest
 
 Playtest runs the real Runtime from the saved game or the Start Scene, or
-from a chosen Scene with chosen Variables (**Play from here** in a
+from a chosen Scene with a new game (**Play from here** in a
 Workbench). A chosen start runs without saving, so the saved game is
 untouched. It keeps the current Playtest entry point and adds a compact
 debug drawer, which collapses to a pill showing the current Scene and the
@@ -279,9 +307,9 @@ error count:
   opens that Scene's Workbench;
 - **History** (back stack), with technical details;
 - Exits taken and where they led;
-- Variable changes;
+- **State** changes and values, with technical details;
 - Runtime and build errors;
-- **Play from a Scene…**, with a Scene and starting Variables.
+- **Play from a Scene…**.
 
 The same information is available to the Agent in serializable form, so it
 can verify a flow it just built.
@@ -326,10 +354,10 @@ an asset side panel on the Flow canvas can be reconsidered then.
 | `NodeWorkbenchLayout` (preview, inspector, resizing)  | Story editor only; Scenes use a preview-only Workbench with tools     |
 | Library asset picker and upload                       | Keep, to replace a picked image or video                              |
 | Playtest entry point                                  | Keep, driven by the Node Runtime, with the debug drawer               |
-| Variables dialog                                      | Becomes the Variables (Project State) panel                           |
+| Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |
 | Story issue banners                                   | Become Scene issue markers and validation messages                    |
 | Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and Scene content                    |
-| Condition and Update State nodes                      | Remove; Scenes read Variables and take distinct Exits                 |
+| Condition and Update State nodes                      | Remove; Scenes read State and take distinct Exits                     |
 | Story Map and Settings system nodes                   | Remove; ordinary Scenes and shared components                         |
 | Text, Image, Video, and 3D generation nodes           | Stay in Asset Canvas only                                             |
 

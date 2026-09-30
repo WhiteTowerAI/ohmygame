@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ChevronDown, ChevronRight, InfoCircle, Play, RotateCcw, X } from "./icons.js";
-import type { JsonObject, NodeGraph } from "../shared/playable-nodes.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
 import { formatStateValue, type PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
-import { PreviewStateEditor, type PlaytestStart } from "./playable-node-workbench.js";
+import type { PlaytestStart } from "./playable-node-workbench.js";
 import { useTechnicalDetails } from "./playable-details.js";
 
 export type { PlaytestStart };
@@ -36,9 +36,7 @@ export function takePlaytestStart(projectId: string): PlaytestStart | undefined 
   window.localStorage.removeItem(key);
   try {
     const start = JSON.parse(raw) as Partial<PlaytestStart>;
-    return typeof start.nodeId === "string" && start.state && typeof start.state === "object" && !Array.isArray(start.state)
-      ? { nodeId: start.nodeId, state: start.state }
-      : undefined;
+    return typeof start.nodeId === "string" ? { nodeId: start.nodeId } : undefined;
   } catch {
     return undefined;
   }
@@ -61,8 +59,8 @@ export function usePlaytestStartRequests(projectId: string, onStart: (start: Pla
 
 /**
  * The Playtest debug drawer: which Scene the player is in, the Exits they
- * took, what changed in the Variables, and what failed. It reads the same
- * record the Agent's game_use receives.
+ * took, and what failed. What the game remembers (State) shows only with
+ * technical details. It reads the same record the Agent's game_use receives.
  */
 export function PlaytestDebugDrawer({ graph, record, diagnostics, start, open, onOpenChange, onRestart, onStart, onOpenNode }: {
   graph: NodeGraph;
@@ -92,7 +90,7 @@ export function PlaytestDebugDrawer({ graph, record, diagnostics, start, open, o
     <header>
       <strong>Playtest</strong>
       <span className={record?.status === "failed" ? "is-error" : undefined}>{record ? STATUS_LABELS[record.status] : "Starting"}</span>
-      {start ? <span className="playable-playtest-custom" title="This run started from a chosen Scene and Variables; the saved game is untouched.">From {titleOf(start.nodeId)}</span> : null}
+      {start ? <span className="playable-playtest-custom" title="This run started from a chosen Scene with a new game; the saved game is untouched.">From {titleOf(start.nodeId)}</span> : null}
       <button type="button" title="Replay from the Start Scene with a new game" aria-label="Replay" onClick={onRestart}><RotateCcw size={12} /></button>
       <button type="button" title="Hide" aria-label="Hide Playtest details" onClick={() => onOpenChange(false)}><ChevronDown size={12} /></button>
     </header>
@@ -120,21 +118,21 @@ export function PlaytestDebugDrawer({ graph, record, diagnostics, start, open, o
       </ol> : <p className="playable-playtest-empty">No exits taken yet.</p>}
     </section>
 
-    <section aria-label="Variables">
-      <h3>Variables</h3>
+    {technical ? <section aria-label="State">
+      <h3>State</h3>
       {record?.stateChanges.length ? <ol className="playable-playtest-list">
         {record.stateChanges.slice(-RECENT_LIMIT).reverse().map((change, index) => <li key={`${change.at}:${change.key}:${index}`}>
           <code>{change.key}</code>
           <span>{formatStateValue(change.before)} → {formatStateValue(change.after)} <small>in {titleOf(change.nodeId)}</small></span>
         </li>)}
-      </ol> : <p className="playable-playtest-empty">No Variables changed yet.</p>}
+      </ol> : <p className="playable-playtest-empty">Nothing changed yet.</p>}
       <details>
-        <summary>All Variables now</summary>
+        <summary>All State now</summary>
         <dl className="playable-playtest-state">
           {Object.entries(record?.state ?? {}).map(([key, value]) => <div key={key}><dt>{key}</dt><dd title={formatStateValue(value)}>{formatStateValue(value)}</dd></div>)}
         </dl>
       </details>
-    </section>
+    </section> : null}
 
     {errorCount ? <section aria-label="Errors" role="alert">
       <h3>Errors</h3>
@@ -148,7 +146,7 @@ export function PlaytestDebugDrawer({ graph, record, diagnostics, start, open, o
       <button type="button" className="playable-playtest-section-toggle" aria-expanded={startOpen} onClick={() => setStartOpen((current) => !current)}>
         {startOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}<span>Play from a Scene…</span>
       </button>
-      {startOpen ? <StartFromForm key={start ? `${start.nodeId}:${JSON.stringify(start.state)}` : "saved"} graph={graph} start={start} onStart={onStart} /> : null}
+      {startOpen ? <StartFromForm key={start?.nodeId ?? "saved"} graph={graph} start={start} onStart={onStart} /> : null}
     </section>
   </aside>;
 }
@@ -159,7 +157,6 @@ function StartFromForm({ graph, start, onStart }: {
   onStart: (start: PlaytestStart | undefined) => void;
 }) {
   const [nodeId, setNodeId] = useState(start?.nodeId ?? graph.entryNodeId);
-  const [state, setState] = useState<JsonObject>(start?.state ?? {});
   return <div className="playable-playtest-start">
     <label>
       <span>Scene</span>
@@ -167,10 +164,9 @@ function StartFromForm({ graph, start, onStart }: {
         {graph.nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
       </select>
     </label>
-    <PreviewStateEditor initialState={graph.initialState} previewState={state} onChange={setState} />
     <p>This run doesn't save, so the saved game is untouched.</p>
     <div className="playable-playtest-start-actions">
-      <button type="button" className="is-primary" onClick={() => onStart({ nodeId, state })}><Play size={11} fill="currentColor" /><span>Play</span></button>
+      <button type="button" className="is-primary" onClick={() => onStart({ nodeId })}><Play size={11} fill="currentColor" /><span>Play</span></button>
       {start ? <button type="button" onClick={() => onStart(undefined)}><X size={11} /><span>Back to the saved game</span></button> : null}
     </div>
   </div>;

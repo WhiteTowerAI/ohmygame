@@ -31,7 +31,9 @@ Every project contains an `AGENTS.md` with the stable rules:
 - Emit only Signals declared by the node. Signals describe outcomes, never
   target nodes. Declare a new Signal in `graph.json` before emitting it.
 - Keep authoritative data in Project State. Add a top-level key to
-  `initialState` before using it.
+  `initialState` before using it, with a one-line description in
+  `variables`. A key is for what crosses nodes or belongs in the save;
+  progress inside one node stays in its code.
 - Use only assets declared by the node, through `context.assets.url(id)`.
 - Build every screen with the Project Style in `shared/style/`. Add a new
   shared component there when two nodes need the same piece of UI.
@@ -55,9 +57,10 @@ Every project contains an `AGENTS.md` with the stable rules:
 The author sees the editor's words, not the engine's. The Agent uses the
 editor's words when talking to the author and the engine terms in code: a
 node is a Scene, a Signal with its edge is an Exit, the Entry Node is the
-Start, State is Variables, a `push` edge is an Exit
+Start, a `push` edge is an Exit
 with **Allow Back**, and a Preset is a Template
-([vocabulary](README.md#vocabulary)).
+([vocabulary](README.md#vocabulary)). Project State keys are **Variables**,
+listed read-only in Project ▾ with their descriptions and starting values.
 
 ## Request context
 
@@ -91,11 +94,21 @@ the editor places new nodes.
 **Add an exit.** Declare the Signal on the node, emit it from the right
 interaction, and add an edge if the author named the target.
 
-**Branch on progress.** Read State in the node and emit different Signals.
-Do not add edge conditions.
+**Branch on progress.** Read State in the node and emit a different Signal
+for each outcome, and give each a `when`: one short sentence such as "if
+trust is 3 or more" or "needs the brass key". The canvas shows it on the
+Exit. It is a description, not a rule; the node's code decides. Do not add
+edge conditions. Every node must look right with the initial State, because
+the editor previews each node from a new game.
 
-**Remember something.** Add a key to `initialState`, then `set` or `patch` it
-where the event happens.
+**Remember something.** Add a key to `initialState` and describe it in
+`variables`, then `set` or `patch` it where the event happens. An inventory
+is one list Variable, item definitions in a `shared/` module, and a shared
+component that shows it.
+
+**Keep the words true.** Whenever the logic changes, update the `when` of
+the affected Signals and the Variable descriptions in the same change, and
+remove the description of a removed Variable.
 
 **Use media.** Reuse an existing project Asset ID when it fits. Otherwise
 find a Library asset, or generate one with `generate_image` or
@@ -164,7 +177,7 @@ perform the interaction, confirm the expected Signal and target in
 
 Turn review comes after the MVP ([roadmap](roadmap.md#after-the-mvp)). Until
 then the Agent makes the complete change in one turn and summarizes it at the
-end: nodes created or changed, Signals and edges added, State keys added,
+end: nodes created or changed, Signals and edges added, Variables added,
 assets generated or declared, and what was verified.
 
 ## Measuring success

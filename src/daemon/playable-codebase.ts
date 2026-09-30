@@ -34,6 +34,11 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Node JavaScript exports \`mount(context)\`. Render into \`context.root\` and optionally return a cleanup function.
 - Emit only Signals declared by the current Node: \`context.navigation.emit(signalId)\`. Signals describe outcomes; they do not name target Nodes.
 - Read and update authoritative project State through \`context.state\`. Do not keep navigation-critical state only in the DOM.
+- A top-level State key is a Variable: something that crosses Nodes or belongs in the save, such as \`trust\` or an \`inventory\` list. Progress inside one Node stays in that Node's code, and content such as item definitions goes in \`shared/\` modules.
+- When you add a Variable, give it a starting value in \`initialState\` and a one-line description in \`variables\`, such as \`"trust": "How much the guard trusts the player"\`. The user sees them read-only in Project → Variables.
+- To branch on progress, read State in the Node and emit a different Signal for each outcome. Give each such Signal a \`when\`: one short sentence saying when it is taken, such as \`"if trust is 3 or more"\` or \`"needs the brass key"\`. The canvas shows it on the Exit.
+- \`variables\` and \`when\` are display only; the Node's code decides. Update them in the same change whenever that logic changes, and remove a description when you remove its Variable.
+- Every Node must show something sensible with the initial State, because the editor previews each Node from a new game.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - \`shared/style/components.js\` exports \`playCinematic(context, { assetId, signal })\`, which plays a declared video, offers skip, and emits the Signal when it ends or is skipped. Cinematic behaviour is Node content, so change it freely.
@@ -46,14 +51,15 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
 ## Words the editor uses
 
-The user sees the editor, not this contract. Talk to them in its words:
+The user sees the editor, not this contract. Talk to them in its words: say "the \`trust\` Variable" and "the Exit is taken if trust is 3 or more", not keys, values, and code.
 
 | Editor | Contract |
 | --- | --- |
 | Scene | Node |
 | Exit | Signal and the edge that routes it |
 | Start | \`entryNodeId\` |
-| Variables | \`initialState\` and the live State |
+| Variables | \`initialState\` keys, described in \`variables\` |
+| Exit condition | Signal \`when\` |
 | Allow Back | edge \`mode: "push"\` |
 | Template | Preset |
 `;
@@ -287,6 +293,7 @@ function nightTrainCodebase(
       viewport,
       entryNodeId: "platform",
       initialState: { boarded: false },
+      variables: { boarded: "Whether the player has boarded the night train" },
       assets: {},
       nodes: [
         node("platform", "Platform", [

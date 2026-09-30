@@ -16,7 +16,8 @@ export interface NodeGraphValidationIssue {
     | "missing-file"
     | "file-list-required"
     | "unconnected-signal"
-    | "invalid-state";
+    | "invalid-state"
+    | "unknown-variable";
   path: string;
   message: string;
 }
@@ -81,6 +82,16 @@ export function validateNodeGraph(
       "/initialState",
       "initialState must be a JSON-serializable object.",
     );
+  }
+  for (const name of Object.keys(graph.variables ?? {})) {
+    if (!isJsonObject(graph.initialState) || !Object.hasOwn(graph.initialState, name)) {
+      issue(
+        issues,
+        "unknown-variable",
+        `/variables/${name.replaceAll("~", "~0").replaceAll("/", "~1")}`,
+        `Variable "${name}" is described but has no starting value in initialState.`,
+      );
+    }
   }
   if (!nodes.has(graph.entryNodeId)) {
     issue(

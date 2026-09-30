@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  Box,
   ChevronDown,
   Clapperboard,
   Clipboard,
@@ -13,6 +12,7 @@ import {
   InfoCircle,
   LoaderCircle,
   Maximize,
+  Box,
   Minus,
   Monitor,
   MousePointer2,
@@ -109,12 +109,10 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableSignalEdits, type PlaytestStart } from "./playable-node-workbench.js";
+import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { requestPlaytestStart } from "./playable-playtest-drawer.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
-import { PlayableStatePanel, type PlayableLiveState } from "./playable-project-panels.js";
 import type { PlayableChatState } from "./playable-chat.js";
-import { PlayableStateHistory } from "../shared/playable-debug.js";
-import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 const MIN_ZOOM = 0.25;
@@ -216,10 +214,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
-  const [projectPanel, setProjectPanel] = useState<"state">();
-  const [liveState, setLiveState] = useState<PlayableLiveState>();
-  const [stateAccess, setStateAccess] = useState<NodeRuntimeSnapshot["stateAccess"]>();
-  const stateHistory = useRef(new PlayableStateHistory());
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("pointer");
   const [alignmentGuides, setAlignmentGuides] = useState<CanvasAlignmentGuides>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
@@ -230,6 +224,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [thumbnails, setThumbnails] = useState<PlayableThumbnailManifest>();
   const [thumbnailRevision, setThumbnailRevision] = useState(0);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
+  const [variablesOpen, setVariablesOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
@@ -265,21 +260,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
 
-  /** Keeps the State panel's live values in step with the open Workbench preview. */
-  const onPreviewSnapshot = useCallback((snapshot: NodeRuntimeSnapshot | undefined) => {
-    if (!snapshot) {
-      stateHistory.current.reset();
-      setLiveState(undefined);
-      setStateAccess(undefined);
-      return;
-    }
-    stateHistory.current.record(snapshot);
-    setLiveState((current) => current?.state === snapshot.state && current.changes === stateHistory.current.changes
-      ? current
-      : { state: snapshot.state, changes: stateHistory.current.changes, source: "" });
-    setStateAccess(snapshot.stateAccess);
-  }, []);
-
   // A Playtest window asks the editor to open the Node it is showing.
   useEffect(() => window.ohMyGameDesktop?.onOpenPlayableNode?.((targetProjectId, nodeId) => {
     if (targetProjectId !== projectId) return;
@@ -291,10 +271,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     if (phase === "ready" && openedNodeId && !nodes.some((node) => node.id === openedNodeId)) setOpenedNodeId(undefined);
   }, [phase, nodes, openedNodeId]);
-
-  useEffect(() => {
-    if (!openedNode) setLiveState(undefined);
-  }, [Boolean(openedNode)]);
 
   useEffect(() => {
     if (openFileRequest) setFileRequest(openFileRequest);
@@ -687,7 +663,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   function openFile(path: string): void {
     setOpenedNodeId(undefined);
-    setProjectPanel(undefined);
     setFileRequest({ path, id: Date.now() });
     setWorkspaceView("code");
   }
@@ -868,9 +843,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       };
     });
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, thumbnails, builtDefinition]);
-  const workbenchTools = <>
-    <button type="button" className={`playable-workbench-header-tool${projectPanel === "state" ? " is-active" : ""}`} title="Variables" aria-pressed={projectPanel === "state"} onClick={() => setProjectPanel((current) => current === "state" ? undefined : "state")}><Box size={13} /><span>Variables</span></button>
-  </>;
   const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
@@ -892,12 +864,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           <PlayableProjectMenu
             disabled={phase !== "ready"}
             screenSize={storyViewportRatio(playerViewport)}
-            panel={projectPanel}
             exporting={building}
             canExport={!agentBusy && !publishing && !building}
             technical={technical}
+            variablesOpen={variablesOpen}
             onScreenSize={() => setCanvasSettingsOpen(true)}
-            onPanel={(panel) => setProjectPanel((current) => current === panel ? undefined : panel)}
+            onVariables={() => setVariablesOpen((open) => !open)}
             onExport={() => void exportGame()}
             onTechnicalChange={(on) => {
               setTechnicalDetails(on);
@@ -1053,19 +1025,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           return assetId;
         }}
         onPlayFromHere={(start) => void startPlaytest(start)}
-        onSnapshot={onPreviewSnapshot}
         onChatContextChange={onChatContextChange}
-        headerActions={workbenchTools}
       /> : null}
-      {projectPanel === "state" && graphMeta ? <PlayableStatePanel
+      {variablesOpen && graphMeta && workspaceView === "canvas" && !openedNodeId ? <PlayableVariablesPanel
         initialState={graphMeta.initialState}
-        live={liveState && openedNode ? {
-          ...liveState,
-          source: openedNode.title,
-          ...(stateAccess?.[openedNode.id] ? { access: stateAccess[openedNode.id] } : {}),
-        } : undefined}
-        onChange={(initialState) => setGraphMeta((current) => current ? { ...current, initialState } : current)}
-        onClose={() => setProjectPanel(undefined)}
+        descriptions={graphMeta.variables}
+        onClose={() => setVariablesOpen(false)}
       /> : null}
       {canvasSettingsOpen ? <StoryCanvasSettingsDialog
         viewport={playerViewport}
@@ -1151,9 +1116,10 @@ function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, 
 }
 
 /**
- * A Scene card's Exits, each with the port its connection leaves from. A
- * navigation Exit's line is not drawn; the row names its target instead, and
- * clicking the name selects the connection.
+ * A Scene card's Exits, each with the port its connection leaves from and,
+ * when the Agent wrote one, the condition it is taken on. A navigation Exit's
+ * line is not drawn; the row names its target instead, and clicking the name
+ * selects the connection.
  */
 function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: {
   signals: readonly PlayableSignal[];
@@ -1169,6 +1135,7 @@ function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: 
       <span className="story-node-output-label" title={route
         ? technical ? `${signal.label} (${signal.id})` : signal.label
         : `"${name}" doesn't go anywhere yet. Drag from here to a Scene.`}>{name}</span>
+      {signal.when ? <span className="playable-node-output-when" title={`Taken ${signal.when}`}>{signal.when}</span> : null}
       <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />
       {route && signal.role === "navigation" ? <button
         type="button"
@@ -1271,17 +1238,17 @@ function PlayableEdgeInspector({ edge, graph, onChangeMode, onChangeNavigation, 
 }
 
 /**
- * Project-wide things that are not on the canvas: screen size, Variables, Export, and whether engine details show.
+ * Project-wide things that are not on the canvas: screen size, the Variables, Export, and whether engine details show.
  */
-function PlayableProjectMenu({ disabled, screenSize, panel, exporting, canExport, technical, onScreenSize, onPanel, onExport, onTechnicalChange }: {
+function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, technical, variablesOpen, onScreenSize, onVariables, onExport, onTechnicalChange }: {
   disabled: boolean;
   screenSize: string;
-  panel?: "state";
+  variablesOpen: boolean;
+  onVariables: () => void;
   exporting: boolean;
   canExport: boolean;
   technical: boolean;
   onScreenSize: () => void;
-  onPanel: (panel: "state") => void;
   onExport: () => void;
   onTechnicalChange: (on: boolean) => void;
 }) {
@@ -1317,7 +1284,7 @@ function PlayableProjectMenu({ disabled, screenSize, panel, exporting, canExport
     <button
       ref={button}
       type="button"
-      className={panel || position ? "is-active" : undefined}
+      className={position || variablesOpen ? "is-active" : undefined}
       title="Project settings"
       aria-haspopup="menu"
       aria-expanded={Boolean(position)}
@@ -1337,7 +1304,7 @@ function PlayableProjectMenu({ disabled, screenSize, panel, exporting, canExport
       style={{ top: position.top, left: position.left }}
     >
       <button type="button" role="menuitem" onClick={() => run(onScreenSize)}><Monitor size={15} /><span>Screen size</span><small>{screenSize}</small></button>
-      <button type="button" role="menuitemcheckbox" aria-checked={panel === "state"} onClick={() => run(() => onPanel("state"))}><Box size={15} /><span>Variables</span></button>
+      <button type="button" role="menuitemcheckbox" aria-checked={variablesOpen} title="What the game remembers between Scenes" onClick={() => run(onVariables)}><Box size={15} /><span>Variables</span></button>
       <div className="playable-project-menu-separator" role="separator" />
       <button type="button" role="menuitem" disabled={!canExport} onClick={() => run(onExport)}>
         {exporting ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}<span>{exporting ? "Exporting" : "Export"}</span>

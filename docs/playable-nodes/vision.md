@@ -125,7 +125,7 @@ Freedom must not mean "write code".
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | A blank node is hard to start                          | Presets, Project Style, and describing the screen to the Agent                                             |
 | Small changes (one line of text) feel heavy            | Edit text in place in the preview; pick or draw on the preview and ask                                     |
-| Branching logic lives in node code, not in the graph   | Signals are visible ports; Playtest shows State, recent Signals, and why the player went where they did   |
+| Branching logic lives in node code, not in the graph   | Each outcome is its own Exit with a one-line condition; Variables are listed read-only in Project          |
 | Quality depends on the Agent                           | A small, stable Node contract, project rules for the Agent, validation, and Playtest feedback it can read |
 | Screens can drift apart visually                       | Project Style and shared components                                                                        |
 

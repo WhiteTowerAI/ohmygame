@@ -57,9 +57,9 @@ desktop app with a Playable Nodes project.
 | Output ports                                                           | `StoryNodeOutputs`                                                      | Adapt    | Ports are declared Signals                                               |
 | Breadcrumb from node editor to canvas                                  | `StoryEditorBreadcrumb`                                                 | Keep     | Unchanged                                                                |
 | Workbench layout with preview and resizable inspector                  | `NodeWorkbenchLayout`                                                   | Adapt    | Scenes use the preview with a tool bar; no inspector                     |
-| Live runtime preview inside the Workbench                              | `StoryRuntimeWorkbenchPreview`                                          | Adapt    | Node Runtime with `report` policy and preview state                      |
+| Live runtime preview inside the Workbench                              | `StoryRuntimeWorkbenchPreview`                                          | Adapt    | Node Runtime with `report` policy                                        |
 | Library asset picker and upload                                        | `StoryMediaSourcePicker`, `StoryAssetPicker`                            | Adapt    | Replaces a picked image or video; declares project Asset IDs             |
-| Variables dialog                                                       | `story-variables-dialog.tsx`                                            | Adapt    | Variables (Project State) panel                                          |
+| Variables dialog                                                       | `story-variables-dialog.tsx`                                            | Replace  | Read-only list in Project ▾; the Agent writes descriptions               |
 | Story issues banner                                                    | workspace                                                               | Adapt    | Validation issues and node markers                                       |
 | Playtest page, save and restore                                        | `playtest.tsx`, `story-progress.ts`                                     | Adapt    | Node Runtime, one save slot, debug drawer                                |
 | Open UI, Scene, Interaction, Choice, Ending workbenches and inspectors | `*Workbench`, `StoryInspector`, `ChoiceActionsEditor`, `ChoiceConditionRule` | Remove   | Presets plus conversation                                                |
@@ -142,13 +142,17 @@ path (a development flag) creates `graph.json` projects.
 
 Then, before the switch, a simplification pass
 (`feat(editor): simplify the editor with author-facing words`): the editor
-says Scene, Exit, Start, Variables, and Template, with a **Show technical
+says Scene, Exit, Start, and Template, with a **Show technical
 details** toggle for IDs, paths, types, History, and the Code tab, and
 **Play from here** in the Workbench; the read-only Style panel is removed,
 since restyling happens in conversation. The Shell is removed as well: there
 is one kind of surface, UI shown on many Scenes is a shared component in
 `shared/components/` whose Signals belong to each Scene that imports it, and
-anything that must carry over between Scenes lives in State.
+anything that must carry over between Scenes lives in State. The Variables
+panel becomes a read-only list of names, descriptions, and starting values,
+and **Start with…** is removed: every Scene previews from a new game, and a
+branch shows as one Exit per outcome with its condition (`when`) written by
+the Agent.
 
 Check for each: exercised in the desktop app. After step 16 and the
 simplification pass, build the
