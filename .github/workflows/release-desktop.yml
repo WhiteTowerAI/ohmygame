@@ -116,6 +116,9 @@ jobs:
       - windows
       - macos
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -182,6 +185,26 @@ jobs:
         run: |
           curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest.yml" >/dev/null
           curl --fail --silent --show-error "$DESKTOP_UPDATE_URL/latest-mac.yml" >/dev/null
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              release-assets/*.exe \
+              release-assets/*.dmg \
+              release-assets/*.zip \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              release-assets/*.exe \
+              release-assets/*.dmg \
+              release-assets/*.zip \
+              --verify-tag \
+              --title "OhMyGame $GITHUB_REF_NAME" \
+              --prerelease \
+              --generate-notes
+          fi
       - name: Delete intermediate GitHub artifacts
         if: ${{ success() }}
         env:

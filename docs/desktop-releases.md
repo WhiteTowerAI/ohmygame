@@ -53,6 +53,10 @@ Set `package.json` to the release version, commit it, and create a matching
 2. Builds Windows without code signing and signs/notarizes macOS.
 3. Uploads the packages and blockmaps to R2.
 4. Publishes the platform manifests and verifies them through the public URL.
+5. Creates a GitHub pre-release with the Windows installer and macOS DMG/ZIP.
+
+Re-running the release job updates the existing GitHub release assets. Do not
+re-push a published tag just to repair its GitHub Release page.
 
 Windows builds are unsigned, so Windows may show an unknown-publisher or
 SmartScreen warning during download and installation. The update manifest still
