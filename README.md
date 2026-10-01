@@ -28,8 +28,8 @@ model.
 
 <!-- TODO(links): community, X, and Discord URLs; keep only the ones that are live -->
 <p>
-  <a href="https://TODO">Join Discord</a> ·
-  <a href="https://x.com/TODO">X</a>
+  <a href="https://discord.gg/TkrgvGQ2Zc">Join Discord</a> ·
+  <a href="https://x.com/dihuang111">X</a>
 </p>
 
 </div>
@@ -83,14 +83,12 @@ an OhMyGame account.
 
 ### 🎬 Interactive stories: one screen at a time
 
-<!-- TODO(copy): settle the public name (Interactive Drama vs. Playable Nodes) -->
-
-We're building a way to make interactive films, visual novels, and story
-games. Each screen is a free web page with its own
+Create interactive films, visual novels, and story games. Each screen is a
+free web page with its own
 images, video, and code: a main menu, a case archive, a dialogue, a puzzle.
 You connect them on a graph, and the runtime handles state, saves, and
-navigation. The design is in [Playable Nodes](docs/playable-nodes/README.md);
-expect it to change.
+navigation. The architecture and authoring model are documented in
+[Playable Nodes](docs/playable-nodes/README.md).
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
 made with OhMyGame. Leave out until there is a real one. -->
@@ -153,7 +151,6 @@ game, or the renderer.
 
 <!-- TODO(roadmap): confirm the list and link each item to an issue -->
 
-- Interactive stories: finish Playable Nodes and make a complete story with it
 - First-run setup that walks you through connecting a model
 - Plain-language playtest reports you can read without looking at code
 - More platforms: Intel Macs and Linux
@@ -178,7 +175,7 @@ which providers are supported, where to get a key, rough cost of one game -->
 
 ### Run from source
 
-Requires Node.js 22.5+.
+Requires Node.js 22.19+.
 
 ```bash
 git clone https://github.com/WhiteTowerAI/ohmygame.git

@@ -9,13 +9,12 @@ feedback from making real games with it.
 - For a bug, search [existing issues](https://github.com/WhiteTowerAI/ohmygame/issues)
   first, then open one with the bug report template.
 - For a new feature or a large change, open an issue to discuss it before
-  writing code. Some areas, such as Playable Nodes, are being redesigned and
-  may change under you.
+  writing code so implementation and product direction stay aligned.
 - Issues labeled `good first issue` or `help wanted` are good places to start.
 
 ## Development setup
 
-Requires Node.js 22.5+.
+Requires Node.js 22.19+.
 
 ```bash
 npm install
