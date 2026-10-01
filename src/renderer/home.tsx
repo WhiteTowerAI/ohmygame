@@ -119,6 +119,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             projectTypes={GAME_PROJECT_TYPES}
             placeholder="Describe the game you want to create..."
             onProjectTypeChange={setProjectType}
+            onOpenProject={onOpen}
             onCreate={onCreate}
           />
           <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>

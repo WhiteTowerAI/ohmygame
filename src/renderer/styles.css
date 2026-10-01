@@ -2498,6 +2498,20 @@ button.home-nav-item-active:hover {
 .home-story-format-menu {
   width: 210px;
 }
+.home-workspace-trigger > span {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-workspace-menu {
+  width: 220px;
+}
+.home-workspace-menu button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .home-story-format-menu button {
   grid-template-columns: 26px minmax(0, 1fr) auto 14px;
 }
@@ -2514,6 +2528,17 @@ button.home-nav-item-active:hover {
   color: var(--danger);
   font-size: 11px;
   text-align: left;
+}
+
+.home-notice button {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
 }
 
 .home-discover {
