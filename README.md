@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="src/shared/assets/ohmygame-mark.svg">
-  <img src="src/shared/assets/ohmygame-mark-dark.svg" alt="OhMyGame" width="120">
+  <source media="(prefers-color-scheme: dark)" srcset="src/shared/assets/ohmygame-mark-v2.svg">
+  <img src="src/shared/assets/ohmygame-mark-dark-v2.svg" alt="OhMyGame" width="120">
 </picture>
 
 # OhMyGame

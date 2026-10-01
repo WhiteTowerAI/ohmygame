@@ -4,7 +4,7 @@ import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
-import brandMark from "../shared/assets/ohmygame-mark.svg";
+import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 interface AppSidebarProps {
   active: SidebarPage;

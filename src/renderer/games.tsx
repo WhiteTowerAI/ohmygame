@@ -6,7 +6,7 @@ import {
   takeGameMosaicSlots,
   type GameMosaicSlot,
 } from "../shared/game-mosaic.js";
-import brandMark from "../shared/assets/ohmygame-mark.svg";
+import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
