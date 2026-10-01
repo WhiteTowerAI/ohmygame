@@ -25,6 +25,7 @@ import {
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -2209,6 +2210,7 @@ async function createPiResourceLoader(
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
+    extensionFactories: [{ name: "openrouter-attribution", factory: openRouterAttributionExtension, hidden: true }],
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
     appendSystemPrompt: options.appendSystemPrompt
       ? [...options.appendSystemPrompt]
