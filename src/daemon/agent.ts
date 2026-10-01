@@ -2215,9 +2215,24 @@ async function createPiResourceLoader(
     appendSystemPrompt: options.appendSystemPrompt
       ? [...options.appendSystemPrompt]
       : [],
+    agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: projectContextFiles(agentsFiles, workspacePath, agentDir) }),
   });
   await resourceLoader.reload();
   return { resourceLoader, sessionSettings, pluginSkills };
+}
+
+/**
+ * Pi also loads AGENTS.md and CLAUDE.md from every ancestor of the workspace.
+ * Those describe whatever repository or folder happens to contain the game
+ * (in development, this repository), so only the workspace's own files and
+ * OhMyGame's agent directory count.
+ */
+export function projectContextFiles<File extends { path: string }>(files: readonly File[], workspacePath: string, agentDir: string): File[] {
+  const roots = [path.resolve(workspacePath), path.resolve(agentDir)];
+  return files.filter((file) => {
+    const resolved = path.resolve(file.path);
+    return roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  });
 }
 
 function skillCatalog(
