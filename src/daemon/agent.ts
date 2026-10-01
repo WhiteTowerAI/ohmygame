@@ -30,8 +30,8 @@ export interface CodingSession {
   readonly messages: readonly unknown[];
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch">;
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
-  followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
-  steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
+  followUp?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
+  steer?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   compact?(customInstructions?: string): Promise<unknown>;
   abortCompaction?(): void;
   getContextUsage?(): AgentContextUsage | undefined;
